@@ -1,21 +1,64 @@
 def not_implemented(mesg):
         raise Exception("ERROR: not implemented: " + mesg)
 def with_restarts(fn, **restarts):
+        not_implemented("with_restarts()")
         return fn()
+def with_retry_restart(fn, mesg = ""):
+        not_implemented("with_retry_restart()")
+        return fn()
+def eval_in_frame(expr, env):
+        not_implemented("eval_in_frame()")
+        return eval(expr)
 def compute_restarts(condition):
         not_implemented("compute_restarts()")
+        return []
 def invoke_restart(restart):
         not_implemented("invoke_restart()")
 def restart_description(restart):
         not_implemented("restart_description()")
+        return ""
 def with_calling_handlers(fn, error = lambda c: None):
+        "HANDLER-BIND"
+        not_implemented("with_calling_handlers()")
         return fn()
 def sys_calls():
         not_implemented("sys_calls()")
 def sys_frames():
         not_implemented("sys_frames()")
 def with_output_redirection(fn, file = None):
+        not_implemented("with_output_redirection()")
         return fn()
+def parse(expr):
+        not_implemented("parse()")
+        return None
+def ls(env = None):
+        not_implemented("ls()")
+        return []
+def env_get(name, env = None):
+        not_implemented("env_get()")
+        return None
+def apropos(string):
+        not_implemented("apropos()")
+        return []
+def substitute(expr):
+        not_implemented("substitute()")
+        return []
+#
+#
+#
+import time
+
+def clocking(fn):
+        start = time.time()
+        result = fn()
+        return (result, int((time.time() - start) * 1000))
+
+def with_output_to_string(f):
+        conn = io.StringIO()
+        f(conn)
+        ret = conn.getvalue()
+        close(conn)
+        return ret
 #
 #
 #
@@ -171,7 +214,6 @@ def callify(form):
 def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
         ok = False
         value = None
-        conn = io.StringIO()
         condition = None
         try:
                 def with_calling_handlers_body():
@@ -180,22 +222,24 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         def with_output_redirection_body():
                                 nonlocal value
                                 value = exec(call)
-                        with_output_redirection(with_output_redirection_body,
-                                                file = conn)
-                        string = "\n".join(map(str, conn.getvalue()))
+                        string = "\n".join(map(str,
+                                               with_output_to_string(lambda conn:
+                                                                             with_output_redirection(with_output_redirection_body,
+                                                                                                     file = conn))))
                         if len(string):
                                 send_to_emacs(slime_connection, [':write-string', string])
                                 send_to_emacs(slime_connection, [':write-string', "\n"])
-                        close(conn)
                         ok = True
                 def error_handler(c):
                         global condition
                         condition = c
-                        string = "\n".join(map(str, conn.getvalue()))
+                        string = "\n".join(map(str,
+                                               with_output_to_string(lambda conn:
+                                                                             with_output_redirection(with_output_redirection_body,
+                                                                                                     file = conn))))
                         if len(string):
                                 send_to_emacs(slime_connection, [':write-string', string])
                                 send_to_emacs(slime_connection, [':write-string', "\n"])
-                        close(conn)
                         new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, id)
                         def with_restarts_body():
                                 return sldb_loop(slime_connection, new_sldb_state, id)
@@ -425,63 +469,94 @@ def write_sexp_to_string(obj):
 #         sep="", collapse="\n")
 # }
 def prin1_to_string(val):
+        # FIXME
         return "\n".join(deparse)
 
-printToString <- function(val) {
-  paste(capture.output(print(val)), sep="", collapse="\n")
-}
+# printToString <- function(val) {
+#   paste(capture.output(print(val)), sep="", collapse="\n")
+# }
+def print_to_string(val):
+        # I insist, that this is a less stupid way.  Maybe I'm still wrong..
+        return with_output_to_string(lambda s: print(val, file = s))
 
-`swank:connection-info` <- function (slimeConnection, sldbState) {
-  list(quote(`:pid`), Sys.getpid(),
-       quote(`:package`), list(quote(`:name`), "R", quote(`:prompt`), "R> "),
-       quote(`:lisp-implementation`), list(quote(`:type`), "R",
-                                           quote(`:name`), "R",
-                                           quote(`:version`), paste(R.version$major, R.version$minor, sep=".")))
-}
+# `swank:connection-info` <- function (slimeConnection, sldbState) {
+#   list(quote(`:pid`), Sys.getpid(),
+#        quote(`:package`), list(quote(`:name`), "R", quote(`:prompt`), "R> "),
+#        quote(`:lisp-implementation`), list(quote(`:type`), "R",
+#                                            quote(`:name`), "R",
+#                                            quote(`:version`), paste(R.version$major, R.version$minor, sep=".")))
+# }
+def swank_connection_info(slime_connection, sldb_state):
+        return [":pid",                 sys.getpid(),
+                ":package",             [":name", "python",
+                                         ":prompt" "python>"],
+                ":lisp-implementation", [":type", "python",
+                                         ":name", "python",
+                                         ":version", "%d.%d.%d" % sys.version_info]]
 
-`swank:swank-require` <- function (slimeConnection, sldbState, contribs) {
-  for(contrib in contribs) {
-    filename <- sprintf("%s/%s.R", swankrPath, as.character(contrib))
-    if(file.exists(filename)) {
-      source(filename)
-    }
-  }
-  list()
-}
+# `swank:swank-require` <- function (slimeConnection, sldbState, contribs) {
+#   for(contrib in contribs) {
+#     filename <- sprintf("%s/%s.R", swankrPath, as.character(contrib))
+#     if(file.exists(filename)) {
+#       source(filename)
+#     }
+#   }
+#   list()
+# }
+def swank_swank_require(slime_connection, sldb_state, contribs):
+        for contrib in contribs:
+                filename = "%s/%s.py" % (partus_path, str(contrib))
+                if os.path.exists(filename):
+                        # FIXME: what to do?
+        return []
 
-`swank:create-repl` <- function(slimeConnection, sldbState, env, ...) {
-  list("R", "R")
-}
+# `swank:create-repl` <- function(slimeConnection, sldbState, env, ...) {
+#   list("R", "R")
+# }
+def swank_create_repl(slime_connection, sldb_state, env, *args):
+        return ["python", "python"]
 
-makeReplResult <- function(value) {
-  string <- printToString(value)
-  list(quote(`:write-string`), string,
-       quote(`:repl-result`))
-}
+# makeReplResult <- function(value) {
+#   string <- printToString(value)
+#   list(quote(`:write-string`), string,
+#        quote(`:repl-result`))
+# }
+def make_repl_result(value):
+        string = print_to_string(value)
+        return [":write-string", string, ":repl-result"]
 
-makeReplResultFunction <- makeReplResult
+# makeReplResultFunction <- makeReplResult
+make_repl_result_function = make_repl_result
 
-sendReplResult <- function(slimeConnection, value) {
-  result <- makeReplResultFunction(value)
-  sendToEmacs(slimeConnection, result)
-}
+# sendReplResult <- function(slimeConnection, value) {
+#   result <- makeReplResultFunction(value)
+#   sendToEmacs(slimeConnection, result)
+# }
+def send_repl_result(slime_connection, value):
+        result = make_repl_result_function(value)
+        return send_to_emacs(slime_connection, result)
 
-sendReplResultFunction <- sendReplResult
+# sendReplResultFunction <- sendReplResult
+send_repl_result_function = send_repl_result
 
-`swank:listener-eval` <- function(slimeConnection, sldbState, string) {
-  ## O how ugly
-  string <- gsub("#\\.\\(swank:lookup-presented-object-or-lose([^)]*)\\)", ".(`swank:lookup-presented-object-or-lose`(slimeConnection, sldbState,\\1))", string)
-  for(expr in parse(text=string)) {
-    expr <- expr
-    ## O maybe this is even uglier
-    lookedup <- do.call("bquote", list(expr))
-    tmp <- withVisible(eval(lookedup, envir = globalenv()))
-    if(tmp$visible) {
-      sendReplResultFunction(slimeConnection, tmp$value)
-    }
-  }
-  list()
-}
+# `swank:listener-eval` <- function(slimeConnection, sldbState, string) {
+#   ## O how ugly
+#   string <- gsub("#\\.\\(swank:lookup-presented-object-or-lose([^)]*)\\)", ".(`swank:lookup-presented-object-or-lose`(slimeConnection, sldbState,\\1))", string)
+#   for(expr in parse(text=string)) {
+#     expr <- expr
+#     ## O maybe this is even uglier
+#     lookedup <- do.call("bquote", list(expr))
+#     tmp <- withVisible(eval(lookedup, envir = globalenv()))
+#     if(tmp$visible) {
+#       sendReplResultFunction(slimeConnection, tmp$value)
+#     }
+#   }
+#   list}()
+def swank_listener_eval(slime_connection, sldb_state, string):
+        string = re.sub(r"#\.\(swank:lookup-presented-object-or-lose([^)]*)\)", r".(`swank:lookup-presented-object-or-lose`(slime_connection, sldb_state,\1))", string)
+        for expr in ...:
+                # FIXME: this is perplexing
+                pass
 
 # `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
 #   "No Arglist Information"
@@ -571,365 +646,444 @@ def swank_invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
         if sldb_state.level = level:
                 return invoke_restart(sldb_state.restarts[n+1])
 
-`swank:frame-source-location` <- function(slimeConnection, sldbState, n) {
-  call <- sldbState$calls[[n+1]]
-  srcref <- attr(call, "srcref")
-  srcfile <- attr(srcref, "srcfile")
-  if(is.null(srcfile)) {
-    list(quote(`:error`), "no srcfile")
-  } else {
-    filename <- get("filename", srcfile)
-    ## KLUDGE: what this means is "is the srcfile filename
-    ## absolute?"
-    if(substr(filename, 1, 1) == "/") {
-      file <- filename
-    } else {
-      file <- sprintf("%s/%s", srcfile$wd, filename)
-    }
-    list(quote(`:location`),
-         list(quote(`:file`), file),
-         list(quote(`:line`), srcref[[1]], srcref[[2]]-1),
-         FALSE)
-  }
-}
+# `swank:frame-source-location` <- function(slimeConnection, sldbState, n) {
+#   call <- sldbState$calls[[n+1]]
+#   srcref <- attr(call, "srcref")
+#   srcfile <- attr(srcref, "srcfile")
+#   if(is.null(srcfile)) {
+#     list(quote(`:error`), "no srcfile")
+#   } else {
+#     filename <- get("filename", srcfile)
+#     ## KLUDGE: what this means is "is the srcfile filename
+#     ## absolute?"
+#     if(substr(filename, 1, 1) == "/") {
+#       file <- filename
+#     } else {
+#       file <- sprintf("%s/%s", srcfile$wd, filename)
+#     }
+#     list(quote(`:location`),
+#          list(quote(`:file`), file),
+#          list(quote(`:line`), srcref[[1]], srcref[[2]]-1),
+#          FALSE)
+#   }
+# }
+def swank_frame_source_location(slime_connection, sldb_state, n):
+        call = sldb_state.calls[n + 1]
+        srcref = call.srcref
+        srcfile = call.srcfile
+        if not srcfile:
+                return [':error', "no srcfile"]
+        else:
+                filename = # FIXME: get() ?
+                if filename[0] == '/':
+                        file = filename
+                else:
+                        file = "%s/%s" % (srcfile.wd, filename)
+                return [':location', [':file', file], [':line', srcref[0], srcref[1] - 1], None]
 
-`swank:buffer-first-change` <- function(slimeConnection, sldbState, filename) {
-  FALSE
-}
+# `swank:buffer-first-change` <- function(slimeConnection, sldbState, filename) {
+#   FALSE
+# }
+def swank_buffer_first_change(slime_connection, sldb_state, filename):
+        return
 
-`swank:eval-string-in-frame` <- function(slimeConnection, sldbState, string, index) {
-  frame <- sldbState$frames[[1+index]]
-  withRetryRestart("retry SLIME interactive evaluation request",
-                   value <- eval(parse(text=string), envir=frame))
-  printToString(value)
-}
+# `swank:eval-string-in-frame` <- function(slimeConnection, sldbState, string, index) {
+#   frame <- sldbState$frames[[1+index]]
+#   withRetryRestart("retry SLIME interactive evaluation request",
+#                    value <- eval(parse(text=string), envir=frame))
+#   printToString(value)
+# }
+def swank_eval_string_in_frame(slime_connection, sldb_state, string, index):
+        frame = sldb_state.frames[index + 1]
+        value = None
+        def with_retry_restart_body():
+                nonlocal value
+                value = eval_in_frame(parse(string),
+                                      env = frame)
+        with_retry_restart(with_retry_restart_body,
+                           mesg = "retry SLIME interactive evaluation request")
+        return print_to_string_value
 
-`swank:frame-locals-and-catch-tags` <- function(slimeConnection, sldbState, index) {
-  frame <- sldbState$frames[[1+index]]
-  objs <- ls(envir=frame)
-  list(lapply(objs, function(name) { list(quote(`:name`), name,
-                                          quote(`:id`), 0,
-                                          quote(`:value`),
-                                          tryCatch({
-                                            printToString(eval(parse(text=name), envir=frame))
-                                          }, error=function(c) {
-                                            sprintf("error printing object")
-                                          }))}),
-       list())
-}
+# `swank:frame-locals-and-catch-tags` <- function(slimeConnection, sldbState, index) {
+#   frame <- sldbState$frames[[1+index]]
+#   objs <- ls(envir=frame)
+#   list(lapply(objs, function(name) { list(quote(`:name`), name,
+#                                           quote(`:id`), 0,
+#                                           quote(`:value`),
+#                                           tryCatch({
+#                                             printToString(eval(parse(text=name), envir=frame))
+#                                           }, error=function(c) {
+#                                             sprintf("error printing object")
+#                                           }))}),
+#        list())
+# }
+def swank_frame_locals_and_catch_tags(slime_connection, sldb_state, index):
+        frame = sldb_state.frames[index + 1]
+        objs = ls(env = frame)
+        return [map(lambda name: [':name', name,
+                                  ':id', 0,
+                                  ':value', compute_value()],
+                    objs),
+                []]
 
-`swank:simple-completions` <- function(slimeConnection, sldbState, prefix, package) {
-  literal2rx <- function(string) {
-    ## list of ERE metacharacters from ?regexp
-    gsub("([.\\|()[{^$*+?])", "\\\\\\1", string)
-  }
-  matches <- apropos(sprintf("^%s", literal2rx(prefix)), ignore.case=FALSE)
-  nmatches <- length(matches)
-  if(nmatches == 0) {
-    list(list(), "")
-  } else {
-    longest <- matches[order(nchar(matches))][1]
-    while(length(grep(sprintf("^%s", literal2rx(longest)), matches)) < nmatches) {
-      longest <- substr(longest, 1, nchar(longest)-1)
-    }
-    list(as.list(matches), longest)
-  }
-}
+# `swank:simple-completions` <- function(slimeConnection, sldbState, prefix, package) {
+#   literal2rx <- function(string) {
+#     ## list of ERE metacharacters from ?regexp
+#     gsub("([.\\|()[{^$*+?])", "\\\\\\1", string)
+#   }
+#   matches <- apropos(sprintf("^%s", literal2rx(prefix)), ignore.case=FALSE)
+#   nmatches <- length(matches)
+#   if(nmatches == 0) {
+#     list(list(), "")
+#   } else {
+#     longest <- matches[order(nchar(matches))][1]
+#     while(length(grep(sprintf("^%s", literal2rx(longest)), matches)) < nmatches) {
+#       longest <- substr(longest, 1, nchar(longest)-1)
+#     }
+#     list(as.list(matches), longest)
+#   }
+# }
+def swank_simple_completions(slime_connection, sldb_state, prefix, package):
+        def literal2rx(string):
+                return re.sub("([.\\|()[{^$*+?])", "\\\\\\1", string)
+        def grep(regex, strings):
+                expr = re.compile(regex)
+                return [ x for x in strings if re.search(expr, x) ]
+        matches = apropos("^%s" % literal2rx(prefix))
+        nmatches = len(matches)
+        if not matches:
+                return [[], ""]
+        else:
+                longest = sorted(matches, key = len)[0]
+                while len(grep("^%s" % literal2rx(longest), matches)) < nmatches:
+                        longest = longest[:-1]
+                return [matches, longest]
 
-`swank:compile-string-for-emacs` <- function(slimeConnection, sldbState, string, buffer, position, filename, policy) {
-  lineOffset <- charOffset <- colOffset <- NULL
-  for(pos in position) {
-    switch(as.character(pos[[1]]),
-           `:position` = {charOffset <- pos[[2]]},
-           `:line` = {lineOffset <- pos[[2]]; colOffset <- pos[[3]]},
-           warning("unknown content in pos", pos))
-  }
-  frob <- function(refs) {
-    lapply(refs,
-           function(x)
-           srcref(attr(x,"srcfile"),
-                  c(x[1]+lineOffset-1, ifelse(x[1]==1, x[2]+colOffset-1, x[2]),
-                    x[3]+lineOffset-1, ifelse(x[3]==1, x[4]+colOffset-1, x[4]),
-                    ifelse(x[1]==1, x[5]+colOffset-1, x[5]),
-                    ifelse(x[3]==1, x[6]+colOffset-1, x[6]))))
-  }
-  transformSrcrefs <- function(s) {
-    srcrefs <- attr(s, "srcref")
-    attribs <- attributes(s)
-    new <- 
-      switch(mode(s),
-             "call"=as.call(lapply(s, transformSrcrefs)),
-             "expression"=as.expression(lapply(s, transformSrcrefs)),
-             s)
-    attributes(new) <- attribs
-    if(!is.null(attr(s, "srcref"))) {
-      attr(new, "srcref") <- frob(srcrefs)
-    }
-    new
-  }
-  withRestarts({
-    times <- system.time({
-      exprs <- parse(text=string, srcfile=srcfile(filename))
-      eval(transformSrcrefs(exprs), envir = globalenv()) })},
-               abort="abort compilation")
-  list(quote(`:compilation-result`), list(), TRUE, times[3], FALSE, FALSE)
-}
+# `swank:compile-string-for-emacs` <- function(slimeConnection, sldbState, string, buffer, position, filename, policy) {
+#   lineOffset <- charOffset <- colOffset <- NULL
+#   for(pos in position) {
+#     switch(as.character(pos[[1]]),
+#            `:position` = {charOffset <- pos[[2]]},
+#            `:line` = {lineOffset <- pos[[2]]; colOffset <- pos[[3]]},
+#            warning("unknown content in pos", pos))
+#   }
+#   frob <- function(refs) {
+#     lapply(refs,
+#            function(x)
+#            srcref(attr(x,"srcfile"),
+#                   c(x[1]+lineOffset-1, ifelse(x[1]==1, x[2]+colOffset-1, x[2]),
+#                     x[3]+lineOffset-1, ifelse(x[3]==1, x[4]+colOffset-1, x[4]),
+#                     ifelse(x[1]==1, x[5]+colOffset-1, x[5]),
+#                     ifelse(x[3]==1, x[6]+colOffset-1, x[6]))))
+#   }
+#   transformSrcrefs <- function(s) {
+#     srcrefs <- attr(s, "srcref")
+#     attribs <- attributes(s)
+#     new <- 
+#       switch(mode(s),
+#              "call"=as.call(lapply(s, transformSrcrefs)),
+#              "expression"=as.expression(lapply(s, transformSrcrefs)),
+#              s)
+#     attributes(new) <- attribs
+#     if(!is.null(attr(s, "srcref"))) {
+#       attr(new, "srcref") <- frob(srcrefs)
+#     }
+#     new
+#   }
+#   withRestarts({
+#     times <- system.time({
+#       exprs <- parse(text=string, srcfile=srcfile(filename))
+#       eval(transformSrcrefs(exprs), envir = globalenv()) })},
+#                abort="abort compilation")
+#   list(quote(`:compilation-result`), list(), TRUE, times[3], FALSE, FALSE)
+# }
 
-withRetryRestart <- function(description, expr) {
-  call <- substitute(expr)
-  retry <- TRUE
-  while(retry) {
-    retry <- FALSE
-    withRestarts(eval.parent(call),
-                 retry=list(description=description,
-                   handler=function() retry <<- TRUE))
-  }
-}
+# withRetryRestart <- function(description, expr) {
+#   call <- substitute(expr)
+#   retry <- TRUE
+#   while(retry) {
+#     retry <- FALSE
+#     withRestarts(eval.parent(call),
+#                  retry=list(description=description,
+#                    handler=function() retry <<- TRUE))
+#   }
+# }
 
-`swank:interactive-eval` <-  function(slimeConnection, sldbState, string) {
-  withRetryRestart("retry SLIME interactive evaluation request",
-                   tmp <- withVisible(eval(parse(text=string), envir=globalenv())))
-  if(tmp$visible) {
-    prin1ToString(tmp$value)
-  } else {
-    "# invisible value"
-  }
-}
+# `swank:interactive-eval` <-  function(slimeConnection, sldbState, string) {
+#   withRetryRestart("retry SLIME interactive evaluation request",
+#                    tmp <- withVisible(eval(parse(text=string), envir=globalenv())))
+#   if(tmp$visible) {
+#     prin1ToString(tmp$value)
+#   } else {
+#     "# invisible value"
+#   }
+# }
 
-`swank:eval-and-grab-output` <- function(slimeConnection, sldbState, string) {
-  withRetryRestart("retry SLIME interactive evaluation request",
-                   { output <-
-                       capture.output(tmp <- withVisible(eval(parse(text=string),
-                                                              envir=globalenv()))) })
-  output <- paste(output, sep="", collapse="\n")
-  if(tmp$visible) {
-    list(output, prin1ToString(value))
-  } else {
-    list(output, "# invisible value")
-  }
-}
+# `swank:eval-and-grab-output` <- function(slimeConnection, sldbState, string) {
+#   withRetryRestart("retry SLIME interactive evaluation request",
+#                    { output <-
+#                        capture.output(tmp <- withVisible(eval(parse(text=string),
+#                                                               envir=globalenv()))) })
+#   output <- paste(output, sep="", collapse="\n")
+#   if(tmp$visible) {
+#     list(output, prin1ToString(value))
+#   } else {
+#     list(output, "# invisible value")
+#   }
+# }
 
-`swank:interactive-eval-region` <- function(slimeConnection, sldbState, string) {
-  withRetryRestart("retry SLIME interactive evaluation request",
-                   tmp <- withVisible(eval(parse(text=string), envir=globalenv())))
-  if(tmp$visible) {
-    prin1ToString(value)
-  } else {
-    "# invisible value"
-  }
-}
+# `swank:interactive-eval-region` <- function(slimeConnection, sldbState, string) {
+#   withRetryRestart("retry SLIME interactive evaluation request",
+#                    tmp <- withVisible(eval(parse(text=string), envir=globalenv())))
+#   if(tmp$visible) {
+#     prin1ToString(value)
+#   } else {
+#     "# invisible value"
+#   }
+# }
 
-`swank:find-definitions-for-emacs` <- function(slimeConnection, sldbState, string) {
-  if(exists(string, envir = globalenv())) {
-    thing <- get(string, envir = globalenv())
-    if(inherits(thing, "function")) {
-      body <- body(thing)
-      srcref <- attr(body, "srcref")
-      srcfile <- attr(body, "srcfile")
-      if(is.null(srcfile)) {
-        list()
-      } else {
-        filename <- get("filename", srcfile)
-        ## KLUDGE: what this means is "is the srcfile filename
-        ## absolute?"
-        if(substr(filename, 1, 1) == "/") {
-          file <- filename
-        } else {
-          file <- sprintf("%s/%s", srcfile$wd, filename)
-        }
-        list(list(sprintf("function %s", string),
-                  list(quote(`:location`),
-                       list(quote(`:file`), file),
-                       list(quote(`:line`), srcref[[2]][[1]], srcref[[2]][[2]]-1),
-                       list())))
-      }
-    } else {
-      list()
-    }
-  } else {
-    list()
-  }
-}
+# `swank:find-definitions-for-emacs` <- function(slimeConnection, sldbState, string) {
+#   if(exists(string, envir = globalenv())) {
+#     thing <- get(string, envir = globalenv())
+#     if(inherits(thing, "function")) {
+#       body <- body(thing)
+#       srcref <- attr(body, "srcref")
+#       srcfile <- attr(body, "srcfile")
+#       if(is.null(srcfile)) {
+#         list()
+#       } else {
+#         filename <- get("filename", srcfile)
+#         ## KLUDGE: what this means is "is the srcfile filename
+#         ## absolute?"
+#         if(substr(filename, 1, 1) == "/") {
+#           file <- filename
+#         } else {
+#           file <- sprintf("%s/%s", srcfile$wd, filename)
+#         }
+#         list(list(sprintf("function %s", string),
+#                   list(quote(`:location`),
+#                        list(quote(`:file`), file),
+#                        list(quote(`:line`), srcref[[2]][[1]], srcref[[2]][[2]]-1),
+#                        list())))
+#       }
+#     } else {
+#       list()
+#     }
+#   } else {
+#     list()
+#   }
+# }
 
-`swank:value-for-editing` <- function(slimeConnection, sldbState, string) {
-  paste(deparse(eval(parse(text=string), envir = globalenv()), control="all"),
-        collapse="\n", sep="")
-}
+# `swank:value-for-editing` <- function(slimeConnection, sldbState, string) {
+#   paste(deparse(eval(parse(text=string), envir = globalenv()), control="all"),
+#         collapse="\n", sep="")
+# }
 
-`swank:commit-edited-value` <- function(slimeConnection, sldbState, string, value) {
-  eval(parse(text=sprintf("%s <- %s", string, value)), envir = globalenv())
-  TRUE
-}
+# `swank:commit-edited-value` <- function(slimeConnection, sldbState, string, value) {
+#   eval(parse(text=sprintf("%s <- %s", string, value)), envir = globalenv())
+#   TRUE
+# }
 
-resetInspector <- function(slimeConnection) {
-  assign("istate", list(), envir=slimeConnection)
-  assign("inspectorHistory", NULL, envir=slimeConnection)
-}
+# resetInspector <- function(slimeConnection) {
+#   assign("istate", list(), envir=slimeConnection)
+#   assign("inspectorHistory", NULL, envir=slimeConnection)
+# }
 
-`swank:init-inspector` <- function(slimeConnection, sldbState, string) {
-  withRetryRestart("retry SLIME inspection request",
-                   { resetInspector(slimeConnection)
-                     value <- inspectObject(slimeConnection, eval(parse(text=string), envir=globalenv()))
-                   })
-  value
-}
+# `swank:init-inspector` <- function(slimeConnection, sldbState, string) {
+#   withRetryRestart("retry SLIME inspection request",
+#                    { resetInspector(slimeConnection)
+#                      value <- inspectObject(slimeConnection, eval(parse(text=string), envir=globalenv()))
+#                    })
+#   value
+# }
 
-inspectObject <- function(slimeConnection, object) {
-  previous <- slimeConnection$istate
-  slimeConnection$istate <- new.env()
-  slimeConnection$istate$object <- object
-  slimeConnection$istate$previous <- previous
-  slimeConnection$istate$content <- emacsInspect(object)
-  if(!(object %in% slimeConnection$inspectorHistory)) {
-    slimeConnection$inspectorHistory <- c(slimeConnection$inspectorHistory, object)
-  }
-  if(!is.null(slimeConnection$istate$previous)) {
-    slimeConnection$istate$previous$`next` <- slimeConnection$istate
-  }
-  istateToElisp(slimeConnection$istate)
-}
+# inspectObject <- function(slimeConnection, object) {
+#   previous <- slimeConnection$istate
+#   slimeConnection$istate <- new.env()
+#   slimeConnection$istate$object <- object
+#   slimeConnection$istate$previous <- previous
+#   slimeConnection$istate$content <- emacsInspect(object)
+#   if(!(object %in% slimeConnection$inspectorHistory)) {
+#     slimeConnection$inspectorHistory <- c(slimeConnection$inspectorHistory, object)
+#   }
+#   if(!is.null(slimeConnection$istate$previous)) {
+#     slimeConnection$istate$previous$`next` <- slimeConnection$istate
+#   }
+#   istateToElisp(slimeConnection$istate)
+# }
 
-valuePart <- function(istate, object, string) {
-  list(quote(`:value`),
-       if(is.null(string)) printToString(object) else string,
-       assignIndexInParts(object, istate))
-}
+# valuePart <- function(istate, object, string) {
+#   list(quote(`:value`),
+#        if(is.null(string)) printToString(object) else string,
+#        assignIndexInParts(object, istate))
+# }
 
-preparePart <- function(istate, part) {
-  if(is.character(part)) {
-    list(part)
-  } else {
-    switch(as.character(part[[1]]),
-           `:newline` = list("\n"),
-           `:value` = valuePart(istate, part[[2]], part[[3]]),
-           `:line` = list(printToString(part[[2]]), ": ",
-             valuePart(istate, part[[3]], NULL), "\n"))
-  }
-}
+# preparePart <- function(istate, part) {
+#   if(is.character(part)) {
+#     list(part)
+#   } else {
+#     switch(as.character(part[[1]]),
+#            `:newline` = list("\n"),
+#            `:value` = valuePart(istate, part[[2]], part[[3]]),
+#            `:line` = list(printToString(part[[2]]), ": ",
+#              valuePart(istate, part[[3]], NULL), "\n"))
+#   }
+# }
 
-prepareRange <- function(istate, start, end) {
-  range <- istate$content[start+1:min(end+1, length(istate$content))]
-  ps <- NULL
-  for(part in range) {
-    ps <- c(ps, preparePart(istate, part))
-  }
-  list(ps, if(length(ps)<end-start) { start+length(ps) } else { end+1000 },
-       start, end)
-}
+# prepareRange <- function(istate, start, end) {
+#   range <- istate$content[start+1:min(end+1, length(istate$content))]
+#   ps <- NULL
+#   for(part in range) {
+#     ps <- c(ps, preparePart(istate, part))
+#   }
+#   list(ps, if(length(ps)<end-start) { start+length(ps) } else { end+1000 },
+#        start, end)
+# }
 
-assignIndexInParts <- function(object, istate) {
-  ret <- 1+length(istate$parts)
-  istate$parts <- c(istate$parts, list(object))
-  ret
-}
+# assignIndexInParts <- function(object, istate) {
+#   ret <- 1+length(istate$parts)
+#   istate$parts <- c(istate$parts, list(object))
+#   ret
+# }
 
-istateToElisp <- function(istate) {
-  list(quote(`:title`), deparse(istate$object, control="all", nlines=1),
-       quote(`:id`), assignIndexInParts(istate$object, istate),
-       quote(`:content`), prepareRange(istate, 0, 500))
-}
+# istateToElisp <- function(istate) {
+#   list(quote(`:title`), deparse(istate$object, control="all", nlines=1),
+#        quote(`:id`), assignIndexInParts(istate$object, istate),
+#        quote(`:content`), prepareRange(istate, 0, 500))
+# }
 
-emacsInspect <- function(object) {
-  UseMethod("emacsInspect")
-}
+# emacsInspect <- function(object) {
+#   UseMethod("emacsInspect")
+# }
 
-emacsInspect.default <- function(thing) {
-  c(list(paste("a ", class(thing)[[1]], sep=""), list(quote(`:newline`))))
-}
+# emacsInspect.default <- function(thing) {
+#   c(list(paste("a ", class(thing)[[1]], sep=""), list(quote(`:newline`))))
+# }
 
-emacsInspect.list <- function(list) {
-  c(list("a list", list(quote(`:newline`))),
-    mapply(function(name, value) { list(list(quote(`:line`), name, value)) },
-           names(list), list))
-}
+# emacsInspect.list <- function(list) {
+#   c(list("a list", list(quote(`:newline`))),
+#     mapply(function(name, value) { list(list(quote(`:line`), name, value)) },
+#            names(list), list))
+# }
 
-emacsInspect.numeric <- function(numeric) {
-  c(list("a numeric", list(quote(`:newline`))),
-    mapply(function(name, value) { list(list(quote(`:line`), name, value)) },
-           (1:length(numeric)), numeric))
-}
+# emacsInspect.numeric <- function(numeric) {
+#   c(list("a numeric", list(quote(`:newline`))),
+#     mapply(function(name, value) { list(list(quote(`:line`), name, value)) },
+#            (1:length(numeric)), numeric))
+# }
 
-`swank:quit-inspector` <- function(slimeConnection, sldbState) {
-  resetInspector(slimeConnection)
-  FALSE
-}
+# `swank:quit-inspector` <- function(slimeConnection, sldbState) {
+#   resetInspector(slimeConnection)
+#   FALSE
+# }
+def swank_quit_inspector(slime_connection, sldb_state):
+        reset_inspector(slime_connection)
+        return False
 
-`swank:inspector-nth-part` <- function(slimeConnection, sldbState, index) {
-  slimeConnection$istate$parts[[index]]
-}
+# `swank:inspector-nth-part` <- function(slimeConnection, sldbState, index) {
+#   slimeConnection$istate$parts[[index]]
+# }
+def swank_inspector_nth_part(slime_connection, sldb_state, index):
 
-`swank:inspect-nth-part` <- function(slimeConnection, sldbState, index) {
-  object <- `swank:inspector-nth-part`(slimeConnection, sldbState, index)
-  inspectObject(slimeConnection, object)
-}
+# `swank:inspect-nth-part` <- function(slimeConnection, sldbState, index) {
+#   object <- `swank:inspector-nth-part`(slimeConnection, sldbState, index)
+#   inspectObject(slimeConnection, object)
+# }
+def swank_inspect_nth_part(slime_connection, sldb_state, index):
 
-`swank:inspector-pop` <- function(slimeConnection, sldbState) {
-  if(!is.null(slimeConnection$istate$previous)) {
-    slimeConnection$istate <- slimeConnection$istate$previous
-    istateToElisp(slimeConnection$istate)
-  } else {
-    FALSE
-  }
-}
+# `swank:inspector-pop` <- function(slimeConnection, sldbState) {
+#   if(!is.null(slimeConnection$istate$previous)) {
+#     slimeConnection$istate <- slimeConnection$istate$previous
+#     istateToElisp(slimeConnection$istate)
+#   } else {
+#     FALSE
+#   }
+# }
+def swank_inspector_pop(slime_connection, sldb_state):
 
-`swank:inspector-next` <- function(slimeConnection, sldbState) {
-  if(!is.null(slimeConnection$istate$`next`)) {
-    slimeConnection$istate <- slimeConnection$istate$`next`
-    istateToElisp(slimeConnection$istate)
-  } else {
-    FALSE
-  }
-}
+# `swank:inspector-next` <- function(slimeConnection, sldbState) {
+#   if(!is.null(slimeConnection$istate$`next`)) {
+#     slimeConnection$istate <- slimeConnection$istate$`next`
+#     istateToElisp(slimeConnection$istate)
+#   } else {
+#     FALSE
+#   }
+# }
+def swank_inspector_next(slime_connection, sldb_state):
 
-`swank:inspector-eval` <- function(slimeConnection, sldbState, string) {
-  expr <- parse(text=string)[[1]]
-  object <- slimeConnection$istate$object
-  if(inherits(object, "list")|inherits(object, "environment")) {
-    substituted <- substituteDirect(expr, object)
-    eval(substituted, envir=globalenv())
-  } else {
-    eval(expr, envir=globalenv())
-  }
-}
+# `swank:inspector-eval` <- function(slimeConnection, sldbState, string) {
+#   expr <- parse(text=string)[[1]]
+#   object <- slimeConnection$istate$object
+#   if(inherits(object, "list")|inherits(object, "environment")) {
+#     substituted <- substituteDirect(expr, object)
+#     eval(substituted, envir=globalenv())
+#   } else {
+#     eval(expr, envir=globalenv())
+#   }
+# }
+def swank_inspector_eval(slime_connection, sldb_state):
 
-`swank:inspect-current-condition` <- function(slimeConnection, sldbState) {
-  resetInspector(slimeConnection)
-  inspectObject(slimeConnection, sldbState$condition)
-}
+# `swank:inspect-current-condition` <- function(slimeConnection, sldbState) {
+#   resetInspector(slimeConnection)
+#   inspectObject(slimeConnection, sldbState$condition)
+# }
+def swank_inspect_current_condition(slime_connection, sldb_state):
 
-`swank:inspect-frame-var` <- function(slimeConnection, sldbState, frame, var) {
-  resetInspector(slimeConnection)
-  frame <- sldbState$frames[[1+frame]]
-  name <- ls(envir=frame)[[1+var]]
-  object <- get(name, envir=frame)
-  inspectObject(slimeConnection, object)
-}
+# `swank:inspect-frame-var` <- function(slimeConnection, sldbState, frame, var) {
+#   resetInspector(slimeConnection)
+#   frame <- sldbState$frames[[1+frame]]
+#   name <- ls(envir=frame)[[1+var]]
+#   object <- get(name, envir=frame)
+#   inspectObject(slimeConnection, object)
+# }
+def swank_inspect_frame_var(slime_connection, sldb_state, frame, var):
+        reset_inspector(slime_connection)
+        frame = sldb_state.frames[frame + 1]
+        name = ls(env = frame)[var + 1]
+        object = env_get(name, env = frame)
+        return inspect_object(slime_connection, object)
 
-`swank:default-directory` <- function(slimeConnection, sldbState) {
-  getwd()
-}
+# `swank:default-directory` <- function(slimeConnection, sldbState) {
+#   getwd()
+# }
+def swank_default_directory(slime_connection, sldb_state):
+        return os.getcwd()
 
-`swank:set-default-directory` <- function(slimeConnection, sldbState, directory) {
-  setwd(directory)
-  `swank:default-directory`(slimeConnection, sldbState)
-}
+# `swank:set-default-directory` <- function(slimeConnection, sldbState, directory) {
+#   setwd(directory)
+#   `swank:default-directory`(slimeConnection, sldbState)
+# }
+def swank_set_default_directory(slime_connection, sldb_state, directory):
+        os.chdir(directory)
+        return swank_default_directory(slime_connection, sldb_state)
 
-`swank:load-file` <- function(slimeConnection, sldbState, filename) {
-  source(filename, local=FALSE, keep.source=TRUE)
-  TRUE
-}
+# `swank:load-file` <- function(slimeConnection, sldbState, filename) {
+#   source(filename, local=FALSE, keep.source=TRUE)
+#   TRUE
+# }
+def swank_load_file(slime_connection, sldb_state, filename):
+        exec(filename.co)
+        return True
 
-`swank:compile-file-for-emacs` <- function(slimeConnection, sldbState, filename, loadp, ...) {
-  times <- system.time(parse(filename, srcfile=srcfile(filename)))
-  if(loadp) {
-    ## KLUDGE: inelegant, but works.  It might be more in the spirit
-    ## of things to keep the result of the parse above around to
-    ## evaluate.
-    `swank:load-file`(slimeConnection, sldbState, filename)
-  }
-  list(quote(`:compilation-result`), list(), TRUE, times[3], substitute(loadp), filename)
-}
+# `swank:compile-file-for-emacs` <- function(slimeConnection, sldbState, filename, loadp, ...) {
+#   times <- system.time(parse(filename, srcfile=srcfile(filename)))
+#   if(loadp) {
+#     ## KLUDGE: inelegant, but works.  It might be more in the spirit
+#     ## of things to keep the result of the parse above around to
+#     ## evaluate.
+#     `swank:load-file`(slimeConnection, sldbState, filename)
+#   }
+#   list(quote(`:compilation-result`), list(), TRUE, times[3], substitute(loadp), filename)
+# }
+def swank_compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, *args):
+        import ast
+        filename.co, time = clocking(lambda: compile(filename.name, filename.src))
+        if loadp:
+                swank_load_file(slime_connection, sldb_state, filename)
+        return [':compilation-result', [], True, time, substitute(loadp), filename]
 
-`swank:quit-lisp` <- function(slimeConnection, sldbState) {
-  quit()
-}
+# `swank:quit-lisp` <- function(slimeConnection, sldbState) {
+#   quit()
+# }
+def swank_quit_lisp(slime_connection, sldb_state):
+        exit()
