@@ -3,9 +3,6 @@ def not_implemented(mesg):
 def with_restarts(fn, **restarts):
         not_implemented("with_restarts()")
         return fn()
-def with_retry_restart(fn, mesg = ""):
-        not_implemented("with_retry_restart()")
-        return fn()
 def eval_in_frame(expr, env):
         not_implemented("eval_in_frame()")
         return eval(expr)
@@ -21,6 +18,9 @@ def with_calling_handlers(fn, error = lambda c: None):
         "HANDLER-BIND"
         not_implemented("with_calling_handlers()")
         return fn()
+def with_visible(fn):
+        not_implemented("with_visible()")
+        return fn()
 def sys_calls():
         not_implemented("sys_calls()")
 def sys_frames():
@@ -28,12 +28,17 @@ def sys_frames():
 def with_output_redirection(fn, file = None):
         not_implemented("with_output_redirection()")
         return fn()
-def parse(expr):
+def parse(str):
         not_implemented("parse()")
+        return None
+def deparse(expr):
+        not_implemented("deparse()")
         return None
 def ls(env = None):
         not_implemented("ls()")
         return []
+def new_env():
+        not_implemented("new_env()")
 def env_get(name, env = None):
         not_implemented("env_get()")
         return None
@@ -42,7 +47,7 @@ def apropos(string):
         return []
 def substitute(expr):
         not_implemented("substitute()")
-        return []
+        return expr
 #
 #
 #
@@ -59,6 +64,61 @@ def with_output_to_string(f):
         ret = conn.getvalue()
         close(conn)
         return ret
+
+def warning(str):
+        print(str)
+
+def case(val, *clauses):
+        for (cval, result) in clauses:
+                if val == cval or (cval is True):
+                        return result
+
+def typecase(val, *clauses):
+        for (ctype, result) in clauses:
+                if (ctype is True) or typep(val, ctype):
+                        return result
+
+def subtypep(sub, super):
+        return issubclass(sub, super)
+
+def typep(x, super):
+        return isinstance(x, super)
+
+def functionp(o):         return type(o) is type(functionp)
+def stringp(o):           return type(o) is str
+def integerp(o):          return type(o) is int
+def floatp(o):            return type(o) is float
+def listp(o):             return type(o) is list
+def nonep(o):             return o is None
+def minus1p(o):           return o is -1
+def bytesp(o):            return type(o) is bytes
+def dictp(o):             return type(o) is dict
+def frozensetp(o):        return type(o) is frozenset
+def setp(o):              return type(o) is set or frozensetp(o)
+def tuplep(o):            return type(o) is tuple
+def sequencep(x):         return getattr(type(x), '__len__', None) is not None
+
+def remove_if(f, xs):
+        if listp(xs):              return [ x for x in xs if not f(x) ]
+        elif typep(xs, set):       return set (x for x in xs if not f(x))
+        elif typep(xs, frozenset): return frozenset(x for x in xs if not f(x))
+        elif typep(xs, dict):
+                acc = dict()
+                for x in xs:
+                        if not f(x):
+                                acc[x] = xs[x]
+                return acc
+        else:                      return [ x for x in xs if not f(x) ]
+
+def null(x):          return not x
+def evenp(x):         return x % 2 == 0
+def zerop(x):         return x == 0
+def plusp(x):         return x > 0
+def minusp(x):        return x < 0
+
+## conditions
+def error(datum, *args):
+        raise Exception(datum % args) if stringp(datum) else datum(*args)
 #
 #
 #
@@ -173,7 +233,7 @@ def send_to_emacs(slime_connection, obj):
 #  }
 # }
 def callify(form):
-        if type(form) is list:
+        if listp(form):
                 print("CALLIFY %s" % form)
                 if form[0] == 'quote':
                         return form
@@ -343,6 +403,12 @@ def read_chunk(io, len):
 #       pos <<- pos + 1
 #     }
 #   }
+def read_sexp_from_string(string):
+        pos = 1
+        def read():
+                skip_whitespace()
+                char = string[pos]
+                pass
 #   readList <- function() {
 #     ret <- list()
 #     pos <<- pos + 1
@@ -446,7 +512,7 @@ def write_sexp_to_string(obj):
         string = ""
         def write_sexp_to_string_loop(obj):
                 nonlocal string
-                if type(obj) is list:
+                if listp(obj):
                         string += '('
                         max = len(obj)
                         if max:
@@ -455,9 +521,9 @@ def write_sexp_to_string(obj):
                                         if i += max - 1:
                                                 string += " "
                         string += ')'
-                elif type(obj) is str:
+                elif stringp(obj):
                         string += '"%s"' % re.sub(r'(["\\])', r'\\\\1', obj)
-                elif type(obj) in [int, float]:
+                elif integerp(obj) or floatp(obj):
                         string += str(obj)
                 else:
                         raise Exception("can't write object %s" % obj)
@@ -469,8 +535,7 @@ def write_sexp_to_string(obj):
 #         sep="", collapse="\n")
 # }
 def prin1_to_string(val):
-        # FIXME
-        return "\n".join(deparse)
+        return "\n".join(deparse(val)) # FIXME
 
 # printToString <- function(val) {
 #   paste(capture.output(print(val)), sep="", collapse="\n")
@@ -507,7 +572,7 @@ def swank_swank_require(slime_connection, sldb_state, contribs):
         for contrib in contribs:
                 filename = "%s/%s.py" % (partus_path, str(contrib))
                 if os.path.exists(filename):
-                        # FIXME: what to do?
+                        pass
         return []
 
 # `swank:create-repl` <- function(slimeConnection, sldbState, env, ...) {
@@ -555,7 +620,6 @@ send_repl_result_function = send_repl_result
 def swank_listener_eval(slime_connection, sldb_state, string):
         string = re.sub(r"#\.\(swank:lookup-presented-object-or-lose([^)]*)\)", r".(`swank:lookup-presented-object-or-lose`(slime_connection, sldb_state,\1))", string)
         for expr in ...:
-                # FIXME: this is perplexing
                 pass
 
 # `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
@@ -674,7 +738,7 @@ def swank_frame_source_location(slime_connection, sldb_state, n):
         if not srcfile:
                 return [':error', "no srcfile"]
         else:
-                filename = # FIXME: get() ?
+                filename = pass
                 if filename[0] == '/':
                         file = filename
                 else:
@@ -797,6 +861,33 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #                abort="abort compilation")
 #   list(quote(`:compilation-result`), list(), TRUE, times[3], FALSE, FALSE)
 # }
+def swank_compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
+        line_offset = char_offset = col_offset = None
+        for pos in position:
+                if pos[0] == ':position':
+                        char_offset = pos[1]
+                elif pos[0] == ':line':
+                        line_offset = pos[1]
+                        char_offset = pos[2]
+                else:
+                        warning("unknown content in pos %s" % pos)
+        def frob(refs):
+                not_implemented("frob")
+        def transform_srcrefs(s):
+                not_implemented("transform_srcrefs")
+        time = None
+        def with_restarts_body():
+                nonlocal time
+                exprs = None
+                def clocking_body():
+                        nonlocal exprs
+                        exprs = ast.parse(string)
+                        return eval(transform_srcrefs(exprs),
+                                    globals = ...)
+                val, time = clocking(clocking_body)
+                return val
+        with_restarts(with_restarts_body)
+        return [':compilation-result', [], True, time, False, False]
 
 # withRetryRestart <- function(description, expr) {
 #   call <- substitute(expr)
@@ -808,6 +899,17 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #                    handler=function() retry <<- TRUE))
 #   }
 # }
+def with_retry_restart(fn, mesg = "Retry"):
+        retry = True
+        while retry:
+                retry = False
+                def handler_body():
+                        nonlocal retry
+                        retry = True
+                with_restarts(fn,
+                              retry = { 'description': mesg,
+                                        'handler':     handler_body })
+                        
 
 # `swank:interactive-eval` <-  function(slimeConnection, sldbState, string) {
 #   withRetryRestart("retry SLIME interactive evaluation request",
@@ -818,6 +920,15 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #     "# invisible value"
 #   }
 # }
+def swank_interactive_eval(slime_connection, sldb_state, string):
+        tmp = None
+        def with_retry_restart_body():
+                nonlocal tmp
+                tmp = with_visible(lambda: eval(string)) # FIXME: envir
+                pass
+        with_retry_restart(with_retry_restart_body,
+                           mesg = "retry SLIME interactive evaluation request")
+        return prin1_to_string(value) if tmp.visible else "# invisible value"
 
 # `swank:eval-and-grab-output` <- function(slimeConnection, sldbState, string) {
 #   withRetryRestart("retry SLIME interactive evaluation request",
@@ -831,6 +942,18 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #     list(output, "# invisible value")
 #   }
 # }
+def swank_eval_and_grab_output(slime_connection, sldb_state, string):
+        output, tmp  = None, None
+        def with_retry_restart_body():
+                nonlocal output
+                def with_captured_output_body():
+                        nonlocal tmp
+                        tmp = with_visible(lambda: eval(string)) # FIXME: envir
+                        pass
+                output = with_captured_output(with_captured_output_body)
+        with_retry_restart(with_retry_restart_body,
+                           mesg = "retry SLIME interactive evaluation request")
+        return ["\n".join(output), prin1_to_string(value) if tmp.visible else "# invisible value"]
 
 # `swank:interactive-eval-region` <- function(slimeConnection, sldbState, string) {
 #   withRetryRestart("retry SLIME interactive evaluation request",
@@ -841,6 +964,8 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #     "# invisible value"
 #   }
 # }
+def swank_interactive_eval_region(slime_connection, sldb_state, string):
+        return swank_interactive_eval(slime_connection, sldb_state, string)
 
 # `swank:find-definitions-for-emacs` <- function(slimeConnection, sldbState, string) {
 #   if(exists(string, envir = globalenv())) {
@@ -873,21 +998,31 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #     list()
 #   }
 # }
+def swank_find_definitions_for_emacs(slime_connection, sldb_state, string):
+        pass
 
 # `swank:value-for-editing` <- function(slimeConnection, sldbState, string) {
 #   paste(deparse(eval(parse(text=string), envir = globalenv()), control="all"),
 #         collapse="\n", sep="")
 # }
+def swank_value_for_editing(slime_connection, sldb_state, string):
+        pass
 
 # `swank:commit-edited-value` <- function(slimeConnection, sldbState, string, value) {
 #   eval(parse(text=sprintf("%s <- %s", string, value)), envir = globalenv())
 #   TRUE
 # }
+def swank_commit_edited_value(slime_connection, sldb_state, string, value):
+        pass
 
 # resetInspector <- function(slimeConnection) {
 #   assign("istate", list(), envir=slimeConnection)
 #   assign("inspectorHistory", NULL, envir=slimeConnection)
 # }
+def reset_inspector(slime_connection):
+        global istate, inspector_history
+        istate = []
+        inspector_history = dict()
 
 # `swank:init-inspector` <- function(slimeConnection, sldbState, string) {
 #   withRetryRestart("retry SLIME inspection request",
@@ -896,6 +1031,17 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #                    })
 #   value
 # }
+def swank_init_inspector(slime_connection, sldb_state, string):
+        value = None
+        def with_retry_restart_body():
+                nonlocal value
+                reset_inspector(slime_connection)
+                value = inspect_object(slime_connection,
+                                       eval(string)) # FIXME envir
+                pass
+        with_retry_restart(with_retry_restart_body,
+                           mesg = "retry SLIME inspection request")
+        return value
 
 # inspectObject <- function(slimeConnection, object) {
 #   previous <- slimeConnection$istate
@@ -911,12 +1057,27 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #   }
 #   istateToElisp(slimeConnection$istate)
 # }
+def inspect_object(slime_connection, object):
+        previous = slime_connection.istate
+        slime_connection.istate = new_env() # FIXME
+        pass
+        slime_connection.istate.object = object
+        slime_connection.istate.previous = previous
+        slime_connection.istate.content = emacs_inspect(object)
+        slime_connection.inspector_history.add(object)
+        if slime_connection.istate.previous:
+                slime_connection.istate.previous.next = slime_connection.istate
+        return istate_to_elisp(slime_connection.istate)
 
 # valuePart <- function(istate, object, string) {
 #   list(quote(`:value`),
 #        if(is.null(string)) printToString(object) else string,
 #        assignIndexInParts(object, istate))
 # }
+def value_part(istate, object, string):
+        return [":value",
+                string or print_to_string(object),
+                assign_index_in_parts(object, istate)]
 
 # preparePart <- function(istate, part) {
 #   if(is.character(part)) {
@@ -929,6 +1090,17 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #              valuePart(istate, part[[3]], NULL), "\n"))
 #   }
 # }
+def prepare_part(istate, part):
+        if type(part) = str:
+                return [part]
+        elif part[0] == ":newline":
+                return ["\n"]
+        elif part[0] == ":value":
+                return value_part(istate, part[1], part[2])
+        elif part[0] == ":line":
+                return [print_to_string(part[1]), ": ",
+                        value_part(istate, part[2], NULL), "\n"]
+                
 
 # prepareRange <- function(istate, start, end) {
 #   range <- istate$content[start+1:min(end+1, length(istate$content))]
@@ -939,38 +1111,56 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #   list(ps, if(length(ps)<end-start) { start+length(ps) } else { end+1000 },
 #        start, end)
 # }
+def prepare_range(istate, start, end):
+        range = istate.content[start:min(end, len(istate.content) - 1)]
+        ps = None
+        for part in range:
+                ps += prepare_part(istate, part)
+        return [ps, (start + len(ps)) if len(ps) < end - start else (end + 1000),
+                start, end]
 
 # assignIndexInParts <- function(object, istate) {
 #   ret <- 1+length(istate$parts)
 #   istate$parts <- c(istate$parts, list(object))
 #   ret
 # }
+def assing_index_in_parts(object, istate):
+        ret = len(istate.parts) + 1
+        istate.parts.append(object)
+        return ret
 
 # istateToElisp <- function(istate) {
 #   list(quote(`:title`), deparse(istate$object, control="all", nlines=1),
 #        quote(`:id`), assignIndexInParts(istate$object, istate),
 #        quote(`:content`), prepareRange(istate, 0, 500))
 # }
+def istate_to_elisp(istate):
+        return [":title",   deparse(istate.object),
+                ":id",      assign_index_in_parts(istate.object, istate),
+                ":content", prepare_range(istate, 0, 500)]
 
-# emacsInspect <- function(object) {
-#   UseMethod("emacsInspect")
-# }
-
-# emacsInspect.default <- function(thing) {
-#   c(list(paste("a ", class(thing)[[1]], sep=""), list(quote(`:newline`))))
-# }
-
+def emacs_inspect(object):
 # emacsInspect.list <- function(list) {
 #   c(list("a list", list(quote(`:newline`))),
 #     mapply(function(name, value) { list(list(quote(`:line`), name, value)) },
 #            names(list), list))
 # }
-
+        if dictp(object):
+                return ["a dict", ":newline"] + [ [":line", name, object[name] ] for name in object ]
 # emacsInspect.numeric <- function(numeric) {
 #   c(list("a numeric", list(quote(`:newline`))),
 #     mapply(function(name, value) { list(list(quote(`:line`), name, value)) },
 #            (1:length(numeric)), numeric))
 # }
+        # elif integerp(object):
+        #         return ["a numeric", ":newline"] + 
+        else:
+# emacsInspect.default <- function(thing) {
+#   c(list(paste("a ", class(thing)[[1]], sep=""), list(quote(`:newline`))))
+# }
+                return ["a %s" % type(object).__name__, ":newline"]
+
+
 
 # `swank:quit-inspector` <- function(slimeConnection, sldbState) {
 #   resetInspector(slimeConnection)
@@ -984,12 +1174,15 @@ def swank_quit_inspector(slime_connection, sldb_state):
 #   slimeConnection$istate$parts[[index]]
 # }
 def swank_inspector_nth_part(slime_connection, sldb_state, index):
+        return slime_connection.istate.pargs[index]
 
 # `swank:inspect-nth-part` <- function(slimeConnection, sldbState, index) {
 #   object <- `swank:inspector-nth-part`(slimeConnection, sldbState, index)
 #   inspectObject(slimeConnection, object)
 # }
 def swank_inspect_nth_part(slime_connection, sldb_state, index):
+        object = swank_inspector_nth_parg(slime_connection, sldb_state, index)
+        return inspect_object(slime_connection, object)
 
 # `swank:inspector-pop` <- function(slimeConnection, sldbState) {
 #   if(!is.null(slimeConnection$istate$previous)) {
@@ -1000,6 +1193,11 @@ def swank_inspect_nth_part(slime_connection, sldb_state, index):
 #   }
 # }
 def swank_inspector_pop(slime_connection, sldb_state):
+        if slime_connection.istate.previous:
+                slime_connection.istate = slime_connection.istate.previous
+                return istate_to_elisp(slime_connection.istate)
+        else:
+                return False
 
 # `swank:inspector-next` <- function(slimeConnection, sldbState) {
 #   if(!is.null(slimeConnection$istate$`next`)) {
@@ -1010,6 +1208,11 @@ def swank_inspector_pop(slime_connection, sldb_state):
 #   }
 # }
 def swank_inspector_next(slime_connection, sldb_state):
+        if slime_connection.istate.next:
+                slime_connection.istate = slime_connection.istate.next
+                return istate_to_elisp(slime_connection.istate)
+        else:
+                return False
 
 # `swank:inspector-eval` <- function(slimeConnection, sldbState, string) {
 #   expr <- parse(text=string)[[1]]
@@ -1021,13 +1224,16 @@ def swank_inspector_next(slime_connection, sldb_state):
 #     eval(expr, envir=globalenv())
 #   }
 # }
-def swank_inspector_eval(slime_connection, sldb_state):
+def swank_inspector_eval(slime_connection, sldb_state, string):
+        pass
 
 # `swank:inspect-current-condition` <- function(slimeConnection, sldbState) {
 #   resetInspector(slimeConnection)
 #   inspectObject(slimeConnection, sldbState$condition)
 # }
 def swank_inspect_current_condition(slime_connection, sldb_state):
+        reset_inspector(slime_connection)
+        return inspect_object(slime_connection, sldb_state.condition)
 
 # `swank:inspect-frame-var` <- function(slimeConnection, sldbState, frame, var) {
 #   resetInspector(slimeConnection)
