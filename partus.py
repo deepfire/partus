@@ -48,6 +48,29 @@ def apropos(string):
 def substitute(expr):
         not_implemented("substitute()")
         return expr
+def load_file(filename):
+        not_implemented("load_file()")
+        return True
+#
+#
+#
+class symbol():
+        name = None
+        def __str__(self):  return self.name
+        def __repr__(self): return self.name
+        def __init__(self, name):
+                self.name = name.upper()
+def symbolp(x): return type(x) is symbol
+syms = dict()
+def intern(x):
+        X = x.upper()
+        if X in syms:
+                return syms[X]
+        else:
+                syms[X] = symbol(X)
+                return syms[X]
+t   = intern("t")
+nil = intern("nil")
 #
 #
 #
@@ -169,7 +192,7 @@ def serve(sock, file):
 #                          swankTopLevel=function(c) NULL),
 #                 abort="return to SLIME's toplevel")
 #  }
-}
+# }
 class servile():
         def __init__(self, **keys):
                 self.__dict__.update(keys)
@@ -381,6 +404,9 @@ def read_chunk(io, len):
 
 # readSexpFromString <- function(string) {
 #   pos <- 1
+def read_sexp_from_string(string):
+        pos = 1
+        obj = None
 #   read <- function() {
 #     skipWhitespace()
 #     char <- substr(string, pos, pos)
@@ -398,17 +424,29 @@ def read_chunk(io, len):
 #              obj
 #            })
 #   }
+        def read():
+                nonlocal obj
+                skip_whitespace()
+                char = string[pos]
+                if   char == "(":  return read_list()
+                elif char == "\"": return read_string()
+                elif char == "'":  return read_quote()
+                else:
+                        if pos > len(string):
+                                error("EOF during read")
+                        obj = read_number_or_symbol()
+                        if obj == ".":
+                                error("Consing dot not implemented")
+                        return obj
 #   skipWhitespace <- function() {
 #     while(substr(string, pos, pos) %in% c(" ", "\t", "\n")) {
 #       pos <<- pos + 1
 #     }
 #   }
-def read_sexp_from_string(string):
-        pos = 1
-        def read():
-                skip_whitespace()
-                char = string[pos]
-                pass
+        def skip_whitespace():
+                nonlocal pos
+                while string[pos] in frozenset(" ", "\t", "\n"):
+                        pos += 1
 #   readList <- function() {
 #     ret <- list()
 #     pos <<- pos + 1
@@ -428,6 +466,22 @@ def read_sexp_from_string(string):
 #     }
 #     ret
 #   }
+        def read_list():
+                nonlocal pos
+                ret = []
+                pos += 1
+                while True:
+                        skip_whitespace()
+                        char = string[pos]
+                        if char == ")":
+                                pos += 1
+                                break
+                        else:
+                                obj = read()
+                                if not listp(obj) and obj[0] == ".":
+                                        error("Consing dot not implemented")
+                                ret += [obj]
+                return ret
 #   readString <- function() {
 #     ret <- ""
 #     addChar <- function(c) { ret <<- paste(ret, c, sep="") }
@@ -446,6 +500,28 @@ def read_sexp_from_string(string):
 #     }
 #     ret
 #   }
+        def read_string():
+                nonlocal pos
+                ret = ""
+                def add_char(c):
+                        nonlocal ret
+                        ret += c
+                while True:
+                        pos += 1
+                        char = string[pos]
+                        if char == "\"":
+                                pos += 1
+                                break
+                        elif char == "\\":
+                                pos += 1
+                                char2 = string[pos]
+                                if   char2 == "\"": add_char(char2)
+                                elif char2 == "\\": add_char(char2)
+                                else:
+                                        error("Unrecognized escape character")
+                        else:
+                                add_char(char)
+                return ret
 #   readNumberOrSymbol <- function() {
 #     token <- readToken()
 #     if(nchar(token)==0) {
@@ -465,6 +541,22 @@ def read_sexp_from_string(string):
 #       }
 #     }
 #   }
+        def read_number_or_symbol():
+                token = read_token()
+                if not token:
+                        error("End of file reading token")
+                elif re.match("^[0-9]+$", token):
+                        return int(token)
+                elif re.match("^[0-9]+\\.[0-9]+$", token):
+                        return float(token)
+                else:
+                        name = intern(token)
+                        if name is t:
+                                return True
+                        elif name is nil:
+                                return False
+                        else:
+                                return name
 #   readToken <- function() {
 #     token <- ""
 #     while(TRUE) {
@@ -480,6 +572,20 @@ def read_sexp_from_string(string):
 #     }
 #     token
 #   }
+        def read_token():
+                nonlocal pos
+                token = ""
+                while True:
+                        char = string[pos]
+                        if char == "":
+                                break
+                        elif char in set([" ", "\t", "\n", "(", ")", "\"", "'"]):
+                                break
+                        else:
+                                token += char
+                                pos += 1
+                return token
+        read()
 #   read()
 # }
 
@@ -518,7 +624,7 @@ def write_sexp_to_string(obj):
                         if max:
                                 for i in range(0, max):
                                         string += write_sexp_to_string(obj[i])
-                                        if i += max - 1:
+                                        if i != (max - 1):
                                                 string += " "
                         string += ')'
                 elif stringp(obj):
@@ -572,7 +678,7 @@ def swank_swank_require(slime_connection, sldb_state, contribs):
         for contrib in contribs:
                 filename = "%s/%s.py" % (partus_path, str(contrib))
                 if os.path.exists(filename):
-                        pass
+                        load_file(filename)
         return []
 
 # `swank:create-repl` <- function(slimeConnection, sldbState, env, ...) {
@@ -658,18 +764,18 @@ def swank_throw_to_toplevel(slime_connection, sldb_state):
 #                     }
 #                   })
 # }
-def swank_backtrace(slime_connection, sldb_state, from = 0, to = None):
+def swank_backtrace(slime_connection, sldb_state, from_ = 0, to = None):
         calls = sldb_state.calls
         if not to:
                 to = len(calls)
-        from += 1
-        frame_number = from - 1
+        from_ += 1
+        frame_number = from_ - 1
         def frame_iter(x):
                 nonlocal frame_number
                 ret = [frame_number, str(x)]
                 frame_number += 1
                 return ret
-        calls = map(frame_iter, calls[from:to])
+        calls = map(frame_iter, calls[from_:to])
         return calls
 
 # computeRestartsForEmacs <- function (sldbState) {
@@ -695,10 +801,10 @@ def compute_restarts_for_emacs(sldb_state):
 #        `swank:backtrace`(slimeConnection, sldbState, from, to),
 #        list(sldbState$id))
 # }
-def swank_debugger_info_for_emacs(slime_connection, sldb_state, from = 0, to = None):
+def swank_debugger_info_for_emacs(slime_connection, sldb_state, from_ = 0, to = None):
         return [[str(sldb_state.condition), " [%s]" % sldb_state.condition.__type__.__name__, False],
                 compute_restarts_for_emacs(sldb_state),
-                swank_backtrace(slime_connection, sldb_state, from, to),
+                swank_backtrace(slime_connection, sldb_state, from_, to),
                 [sldb_state.id]]
 
 # `swank:invoke-nth-restart-for-emacs` <- function(slimeConnection, sldbState, level, n) {
@@ -707,7 +813,7 @@ def swank_debugger_info_for_emacs(slime_connection, sldb_state, from = 0, to = N
 #   }
 # }
 def swank_invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
-        if sldb_state.level = level:
+        if sldb_state.level == level:
                 return invoke_restart(sldb_state.restarts[n+1])
 
 # `swank:frame-source-location` <- function(slimeConnection, sldbState, n) {
@@ -738,11 +844,8 @@ def swank_frame_source_location(slime_connection, sldb_state, n):
         if not srcfile:
                 return [':error', "no srcfile"]
         else:
-                filename = pass
-                if filename[0] == '/':
-                        file = filename
-                else:
-                        file = "%s/%s" % (srcfile.wd, filename)
+                filename = srcfile.name
+                file = filename if filename[0] == '/' else ("%s/%s" % (srcfile.wd, filename))
                 return [':location', [':file', file], [':line', srcref[0], srcref[1] - 1], None]
 
 # `swank:buffer-first-change` <- function(slimeConnection, sldbState, filename) {
@@ -1060,7 +1163,6 @@ def swank_init_inspector(slime_connection, sldb_state, string):
 def inspect_object(slime_connection, object):
         previous = slime_connection.istate
         slime_connection.istate = new_env() # FIXME
-        pass
         slime_connection.istate.object = object
         slime_connection.istate.previous = previous
         slime_connection.istate.content = emacs_inspect(object)
@@ -1091,7 +1193,7 @@ def value_part(istate, object, string):
 #   }
 # }
 def prepare_part(istate, part):
-        if type(part) = str:
+        if type(part) == str:
                 return [part]
         elif part[0] == ":newline":
                 return ["\n"]
