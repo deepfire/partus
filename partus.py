@@ -1,7 +1,7 @@
 def not_implemented(mesg):
         raise Exception("ERROR: not implemented: " + mesg)
 def with_restarts(fn, **restarts):
-        not_implemented("with_restarts()")
+        # not_implemented("with_restarts()")
         return fn()
 def eval_in_frame(expr, env):
         not_implemented("eval_in_frame()")
@@ -88,6 +88,19 @@ def with_output_to_string(f):
         close(conn)
         return ret
 
+def printf(format_control, *format_args):
+        print(format_control % format_args)
+
+def fprintf(stream, format_control, *format_args):
+        print(format_control % format_args, file = stream, end = '')
+
+import traceback
+def print_backtrace():
+        exc_type, exc_value, _ = sys.exc_info()
+        printf("%s: %s", str(exc_type), str(exc_value))
+        for line in traceback.format_exc().splitlines():
+                printf("%s", line)
+
 def warning(str):
         print(str)
 
@@ -145,7 +158,7 @@ def error(datum, *args):
 #
 #
 #
-import os, sys, socket, select
+import os, sys, socket, select, re
 
 partus_path = os.getcwd()                                           # swankrPath <- getwd() 
 
@@ -174,14 +187,19 @@ def accept_connections(port, port_file):
                 with open(port_file, "rw") as f:
                         print(port, file = f)
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(('', port))
-        f = s.makefile(mode = "rw")
-        serve(s, f)
+        s.listen(0)
+        printf("waiting for clients..")
+        c, a = s.accept()
+        printf("serving connection from %s", a)
+        serve(c, c.makefile(mode = "rw"))
 
 # serve <- function(io) {
 #  mainLoop(io)
 # }
 def serve(sock, file):
+        printf("serve: sock = %s, file = %s", sock, file)
         main_loop(sock, file)
 
 # mainLoop <- function(io) {
@@ -201,13 +219,14 @@ class SlimeConnection(servile): pass
 
 def main_loop(sock, file):
         global slime_connection
-        slime_connection = SlimeConnection(sock = sock, file = file, io = file)
+        slime_connection = SlimeConnection(sock = sock, file = file, io = sock)
         while True:
                 def with_restarts_body():
                         try:
-                                dispatch(slime_connection, read_packet(file))
+                                dispatch(slime_connection, read_packet(sock, file))
                         except Exception as x: # FIXME
-                                not_implemented("caught " + str(x))
+                                # print_backtrace()
+                                not_implemented("Unhandled exception at main loop.")
                                 swank_top_level = lambda c: None
                 with_restarts(with_restarts_body,
                               abort = "return to SLIME's toplevel")
@@ -371,7 +390,7 @@ def sldb_loop(slime_connection, sldb_state, id):
                 send_to_emacs(slime_connection, [':debug', id, sldb_state.level] + swank_debugger_info_for_emacs(slime_connection, sldb_state))
                 send_to_emacs(slime_connection, [':debug-activate', id, sldb_state.level, False])
                 while True:
-                        dispatch(slime_connection, read_packet(io), sldb_state)
+                        dispatch(slime_connection, read_packet(slime_connection.sock, slime_connection.file), sldb_state)
         finally:
                 send_to_emacs(slime_connection, [':debug-return', id, sldb_state.level, False])
 
@@ -382,11 +401,13 @@ def sldb_loop(slime_connection, sldb_state, id):
 #   payload <- readChunk(io, len)
 #   readSexpFromString(payload)
 # }
-def read_packet(io):
-        socket.select(rlist = [io.fileno()])
-        header = read_chunk(io, 6)
+def read_packet(sock, file):
+        select.select([sock.fileno()], [], [])
+        header = read_chunk(file, 6)
+        printf("got header <<-%s->>", header)
         len = int(header, 16)
-        payload = read_chunk(io, len)
+        payload = read_chunk(file, len)
+        printf("got payload <<-%s->>", payload)
         return read_sexp_from_string(payload)
                 
 # readChunk <- function(io, len) {
@@ -396,17 +417,16 @@ def read_packet(io):
 #   }
 #   buffer
 # }
-def read_chunk(io, len):
-        buffer = io.read(len)
-        if len(buffer) != len:
+def read_chunk(file, len_):
+        buffer = file.read(len_)
+        if len(buffer) != len_:
                 raise Exception("short read in read_chunk")
-        return
+        return buffer
 
 # readSexpFromString <- function(string) {
 #   pos <- 1
 def read_sexp_from_string(string):
-        pos = 1
-        obj = None
+        pos = 0
 #   read <- function() {
 #     skipWhitespace()
 #     char <- substr(string, pos, pos)
@@ -425,19 +445,20 @@ def read_sexp_from_string(string):
 #            })
 #   }
         def read():
-                nonlocal obj
                 skip_whitespace()
                 char = string[pos]
-                if   char == "(":  return read_list()
-                elif char == "\"": return read_string()
-                elif char == "'":  return read_quote()
+                # printf("read(#\\%s :: '%s')", char, string[pos + 1:])
+                if   char == "(":  obj = read_list()
+                elif char == "\"": obj = read_string()
+                elif char == "'":  obj = read_quote()
                 else:
                         if pos > len(string):
                                 error("EOF during read")
                         obj = read_number_or_symbol()
                         if obj == ".":
                                 error("Consing dot not implemented")
-                        return obj
+                # printf("read(): returning %s", obj)
+                return obj
 #   skipWhitespace <- function() {
 #     while(substr(string, pos, pos) %in% c(" ", "\t", "\n")) {
 #       pos <<- pos + 1
@@ -445,7 +466,7 @@ def read_sexp_from_string(string):
 #   }
         def skip_whitespace():
                 nonlocal pos
-                while string[pos] in frozenset(" ", "\t", "\n"):
+                while string[pos] in frozenset([" ", "\t", "\n"]):
                         pos += 1
 #   readList <- function() {
 #     ret <- list()
@@ -478,9 +499,10 @@ def read_sexp_from_string(string):
                                 break
                         else:
                                 obj = read()
-                                if not listp(obj) and obj[0] == ".":
+                                if not listp(obj) and obj == intern("."):
                                         error("Consing dot not implemented")
                                 ret += [obj]
+                # printf("read_list(): returning %s", ret)
                 return ret
 #   readString <- function() {
 #     ret <- ""
@@ -521,6 +543,7 @@ def read_sexp_from_string(string):
                                         error("Unrecognized escape character")
                         else:
                                 add_char(char)
+                # printf("read_string(): returning %s", ret)
                 return ret
 #   readNumberOrSymbol <- function() {
 #     token <- readToken()
@@ -546,17 +569,19 @@ def read_sexp_from_string(string):
                 if not token:
                         error("End of file reading token")
                 elif re.match("^[0-9]+$", token):
-                        return int(token)
+                        ret = int(token)
                 elif re.match("^[0-9]+\\.[0-9]+$", token):
-                        return float(token)
+                        ret = float(token)
                 else:
                         name = intern(token)
                         if name is t:
-                                return True
+                                ret = True
                         elif name is nil:
-                                return False
+                                ret = False
                         else:
-                                return name
+                                ret = name
+                # printf("read_number_or_symbol(): returning %s", ret)
+                return ret
 #   readToken <- function() {
 #     token <- ""
 #     while(TRUE) {
@@ -584,8 +609,11 @@ def read_sexp_from_string(string):
                         else:
                                 token += char
                                 pos += 1
+                # printf("read_token(): returning %s", token)
                 return token
-        read()
+        ret = read()
+        printf("got remote SEXP: %s", ret)
+        return ret
 #   read()
 # }
 
