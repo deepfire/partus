@@ -16,7 +16,7 @@ def restart_description(restart):
         return ""
 def with_calling_handlers(fn, error = lambda c: None):
         "HANDLER-BIND"
-        not_implemented("with_calling_handlers()")
+        # not_implemented("with_calling_handlers()")
         return fn()
 def with_visible(fn):
         not_implemented("with_visible()")
@@ -25,9 +25,15 @@ def sys_calls():
         not_implemented("sys_calls()")
 def sys_frames():
         not_implemented("sys_frames()")
+import sys
 def with_output_redirection(fn, file = None):
-        not_implemented("with_output_redirection()")
-        return fn()
+        old_stdout = sys.stdout
+        try:
+                sys.stdout = file
+                ret = fn()
+        finally:
+                sys.stdout = old_stdout
+        return ret
 def parse(str):
         not_implemented("parse()")
         return None
@@ -54,13 +60,412 @@ def load_file(filename):
 #
 #
 #
+## conses
+def cons(x, y):       return (x, y)
+def consp(o):         return type(o) is tuple and len(o) is 2
+def atom(o):          return type(o) is not tuple
+def car(x):           return x[0]
+def cdr(x):           return x[1]
+def cadr(x):          return x[1][0]
+
+## functions
+def identity(x):
+        return x
+
+def complement(f):
+        return lambda x: not f(x)
+
+def constantly (x):
+        return lambda *args: x
+
+def prog1(val, body):
+        body()
+        return val
+
+def every(fn, xs):
+        for x in xs:
+                if not fn(x): return False
+        return True
+
+def some(fn, xs):
+        for x in xs:
+                if fn(x): return True
+        return False
+
+def none(fn, xs):
+        for x in xs:
+                if fn(x): return False
+        return True
+
+## types
+def subtypep(sub, super):
+        return issubclass(sub, super)
+
+def typep(x, super):
+        return isinstance(x, super)
+
+def the(type, x):
+        assert(typep(x, type))
+        return x
+
+def functionp(o):         return type(o) is type(functionp)
+def integerp(o):          return type(o) is int
+def listp(o):             return type(o) is list
+def sequencep(x):         return getattr(type(x), '__len__', None) is not None
+
+def coerce(x, type):
+        if type(x) is type:
+                return x
+        elif type is list:
+                return list(x)
+        elif type is set:
+                return set(x)
+        elif type is dict:
+                return dict.fromkeys(x)
+
+## sequences
+def first(xs):    return xs[0]   # don't confuse with car/cdr
+def rest(xs):     return xs[1:]  # !!!
+
+def subseq(xs, start, end = None):
+        return xs[start:end] if end else  xs[start:]
+
+def make_list(size, initial_element = None):
+        # horribly inefficient, but that's what we have..
+        return mapcar(constantly(initial_element), range(size))
+
+def append(x, y): return x + y
+
+def mapcar(f, xs):
+        return [ f(x) for x in xs ]
+
+def mapcan(f, xs):
+        return reduce(append, [ f(x) for x in xs ]) if xs else []
+
+def mapc(f, xs):
+        for x in xs:
+                f(x)
+        return xs
+
+def remove_if(f, xs):
+        if listp(xs):              return [ x for x in xs if not f(x) ]
+        elif typep(xs, set):       return set (x for x in xs if not f(x))
+        elif typep(xs, frozenset): return frozenset(x for x in xs if not f(x))
+        elif typep(xs, dict):
+                acc = dict()
+                for x in xs:
+                        if not f(x):
+                                acc[x] = xs[x]
+                return acc
+        else:                      return [ x for x in xs if not f(x) ]
+
+def remove_if_not(f, xs):
+        if listp(xs):              return [ x for x in xs if f(x) ]
+        elif typep(xs, set):       return set(x for x in xs if f(x))
+        elif typep(xs, frozenset): return frozenset(x for x in xs if f(x))
+        elif typep(xs, dict):
+                acc = dict()
+                for x in xs:
+                        if f(x):
+                                acc[x] = xs[x]
+                return acc
+        else:                      return [ x for x in xs if f(x) ]
+
+def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
+        end = end or len(xs)
+        if start or end:
+                seq = zip(xs, range(len(xs)))
+                if from_end:
+                        seq = reversed(list(seq))
+                for (x, i) in seq:
+                        if (start <= i < end) and p(key(x)):
+                                return x
+        else:
+                if from_end:
+                        xs = reversed(xs)
+                for x in xs:
+                        if p(key(x)):
+                                return x
+
+def find(elt, xs, **keys):
+        return find_if(lambda x: x == elt, xs, **keys)
+
+def position_if(p, xs, key = identity, start = 0, end = None, from_end = None):
+        end = end or len(xs)
+        if start or end:
+                seq = zip(xs, range(len(xs)))
+                if from_end:
+                        seq = reversed(list(seq))
+                for (x, i) in seq:
+                        if (start <= i < end) and p(key(x)):
+                                return i
+        else:
+                i, increment, seq = ((end - 1, -1, reversed(xs))
+                                     if from_end else
+                                     (      0,  1, xs))
+                for x in seq:
+                        if p(key(x)):
+                                return i
+                        i += increment
+
+def position(elt, xs, **keys):
+        return position_if(lambda x: x == elt, xs, **keys)
+
+def count(elt, xs, key = identity, start = 0):
+        c = 0
+        for (x, i) in zip(xs, range(len(xs))):
+                if (i >= start) and key(x) == elt:
+                        c += 1
+        return c
+
+def count_if(p, xs, key = identity, start = 0):
+        c = 0
+        for (x, i) in zip(xs, range(len(xs))):
+                if (i >= start) and p(key(x)):
+                        c += 1
+        return c
+
+sort = sorted
+#
+#
+#
+import time, io
+
+def clocking(fn):
+        start = time.time()
+        result = fn()
+        return (result, int((time.time() - start) * 1000))
+
+def with_output_to_string(f):
+        conn = io.StringIO()
+        f(conn)
+        ret = conn.getvalue()
+        conn.close()
+        return ret
+
+def printf(format_control, *format_args):
+        print(format_control % format_args)
+
+def fprintf(stream, format_control, *format_args):
+        print(format_control % format_args, file = stream, end = '')
+
+def astp(x):              return typep(x, ast.AST)
+#
+#
+#
+import ast
+
+# predicates
+def ast_string_p(x):            return typep(x, ast.Str)
+def ast_num_p(x):               return typep(x, ast.Num)
+def ast_name_p(x):              return typep(x, ast.Name)
+def ast_string_equalp(x, s):    return ast_string_p(x) and x.s == s
+def ast_assign_p(x, to):        return typep(x, ast.Assign) and to in x.targets
+def ast_module_p(x):            return typep(x, ast.Module)
+def ast_def_p(x):               return typep(x, ast.FunctionDef)
+def ast_import_p(x):            return typep(x, ast.Import)
+def ast_import_from_p(x):       return typep(x, ast.ImportFrom)
+def ast_import_maybe_from_p(x): return ast_import_p(x) or ast_import_from_p(x)
+def ast_expr_p(x):              return typep(x, ast.Expr)
+def ast_call_p(x):              return typep(x, ast.Call)
+def ast_attribute_p(x):         return typep(x, ast.Attribute)
+def ast_keyword_p(x):           return typep(x, ast.keyword)
+
+# top-levels
+def ast_module(body):
+        assert(listp(body) and all(mapcar(astp, body)))
+        return ast.Module(body = body, lineno = 0)
+
+def ast_def(name, *body):
+        filtered_body = remove_if(null, body)
+        assert(stringp(name) and all(mapcar(astp, filtered_body)))
+        return ast.FunctionDef(name = name, decorator_list = [],
+                               args = ast.arguments(args = [], defaults = [], kwonlyargs = [], kw_defaults = [],
+                                                    vararg = None, varargannotation = None, kwarg = None, kwargannotation = None),
+                               body = filtered_body, returns = None)
+
+# expressions
+def ast_bytes(bs):
+        if not bytesp(bs):
+                mesg("ast_bytes(), not an immutable byte vector: %s", str(bs))
+        assert(bytesp(bs))
+        return ast.Bytes(s = bs)
+
+def ast_string(s):
+        if not stringp(s):
+                mesg("ast_string(), not a string: %s", str(s))
+        assert(stringp(s))
+        return ast.Str(s = s)
+
+def ast_num(n):
+        assert(integerp(n))
+        return ast.Num(n = n)
+
+def ast_rw(writep):
+        return ast.Store() if writep else ast.Load()
+
+def ast_name(name, writep = False):
+        assert(stringp(name))
+        return ast.Name(id = name, ctx = ast_rw(writep))
+
+def ast_alias(name):
+        assert(stringp(name))
+        return ast.alias(name = name, asname = None)
+
+def ast_list(xs):
+        assert(listp(xs) and all(mapcar(astp, xs)))
+        return ast.List(elts = xs, ctx = ast.Load())
+
+def ast_tuple(xs, writep = False):
+        assert(listp(xs) and all(mapcar(astp, xs)))
+        return ast.Tuple(elts = xs, ctx = ast_rw(writep))
+
+def ast_dict(keys, values):
+        return ast.Dict(keys = keys, values = values)
+
+def ast_attribute(x, name, writep = False):
+        return ast.Attribute(attr = name, value = x, ctx = ast_rw(writep))
+
+def ast_index(of, index, writep = False):
+        return ast.Subscript(value = of,
+                             slice = ast.Index(value = index),
+                             ctx = ast.Store() if writep else ast.Load())
+
+def ast_maybe_normalise_string(x):
+        return ast_string(x) if stringp(x) else x
+
+def ast_funcall(name, *args):
+        if not (all(mapcar(lambda x: stringp(x) or astp(x) or x is None, args))):
+                err("In call to %s: improper arglist %s", name, str(args))
+        return ast.Call(func = ast_name(name) if stringp(name) else name,
+                        args = mapcar(ast_maybe_normalise_string, args),
+                        keywords = [], starargs = None, kwargs = None)
+
+def ast_func_name(x):
+        if typep(x, ast.Name):
+                return x.id
+        elif typep(x, ast.Subscript):
+                return ast_func_name(x.value) + "[" + ast_func_name(x.slice.value) + "]"
+        elif typep(x, ast.Attribute):
+                return ast_func_name(x.value) + "." + x.attr
+        else:
+                return "<unhandled>"
+
+# statements
+def astlist_prog(*body):
+        "WARNING: not an actual node, returns a list!"
+        return remove_if(null, body) or [ ast.Pass() ]
+
+def ast_return(node):
+        assert(astp(node))
+        return ast.Return(value = node)
+
+def ast_expr(node):
+        assert(astp(node))
+        return ast.Expr(value = node)
+
+def ast_expression(node):
+        assert(astp(node))
+        return ast.Expression(body = node)
+
+def ast_import(*names):
+        assert(all(mapcar(stringp, names)))
+        return ast.Import(names = mapcar(ast_alias, names))
+
+def ast_import_all_from(name):
+        assert(stringp(name))
+        return ast.ImportFrom(module = name, names = [ ast.alias(name = '*', asname = None) ], level = 0)
+
+def ast_import_from(module_name, names):
+        assert(stringp(module_name))
+        assert(listp(names) and all(mapcar(stringp, names)))
+        return ast.ImportFrom(module = module_name, names = mapcar(ast_alias, names), level = 0)
+
+def ast_assign(to, value):
+        assert(listp(to) and all(mapcar(astp, to)) and astp(value))
+        return ast.Assign(value = value, targets = to)
+
+def ast_assign_var(name, value):
+        assert(stringp(name) and (integerp(value) or stringp(value) or astp(value)))
+        return ast.Assign(value = value, targets = [ ast_name(name, True) ])
+
+def ast_append_var(name, value):
+        assert(stringp(name) and (stringp(value) or astp(value)))
+        return ast.AugAssign(value = value, target = ast_name(name, True), op = ast.Add())
+
+def ast_when(test, *body):
+        return ast.If(test = test, body = remove_if(null, body), orelse = [])
+
+def ast_unless(test, *body):
+        return ast.If(test = test, body = [], orelse = remove_if(null, body))
+
+def ast_try_except(body, except_handlers, *else_body):
+        return ast.TryExcept(body = remove_if(null, body),
+                             handlers = [ ast.ExceptHandler(name = xname,
+                                                            type = ast_name(xtype),
+                                                            body = remove_if(null, xhandler_body))
+                                          for (xtype, xname, xhandler_body) in except_handlers ],
+                             orelse = remove_if(null, else_body))
+
+def ast_print(*strings):
+        return ast_expr(ast_funcall('print', *strings))
+
+def pp_ast(o):
+        "Pretty-print AST O."
+        def do_pp_ast_rec(x, name, pspec):
+                lstr = [""]
+                def lmesg(msg):
+                        lstr[0] += msg
+                        if msg[-1] == "\n"[0]:
+                                print(lstr[0][:-1])
+                                lstr[0] = ""
+                def pp_prefix(spec):
+                        for i in spec:
+                                lmesg(" |  " if i else "    ")
+                pp_prefix(pspec)
+                if name:
+                        lmesg("<" + name + ">: ")
+                if x is None:
+                        lmesg("<None>\n")
+                elif stringp(x):
+                        lmesg("'" + x + "'\n")
+                elif bytesp(x) or integerp(x):
+                        lmesg(str(x) + "\n")
+                elif sequencep(x) and emptyp(x):
+                        lmesg("[]\n")
+                else:
+                        child_slot_names = type(x)._fields
+                        child_slots = [ (k, getattr(x, k)) for k in child_slot_names ]
+                        lmesg(type(x).__name__ + "  ")
+                        for (k, v) in child_slots:
+                                if stringp(v):
+                                        lmesg("<" + k + ">: '" + v + "', ")
+                        lmesg("\n")
+                        child_list_slots = list(reversed(sort([ (k, v) for (k, v) in child_slots if listp(v) ], key = car)))
+                        child_list_slots_nr = len(child_list_slots)
+                        for (k, v) in child_slots:
+                                if not listp(v) and not stringp(v):
+                                        do_pp_ast_rec(v, k, pspec + ([True] if child_list_slots_nr > 0 else [False]))
+                        for ((k, v), i) in zip(child_list_slots, range(0, child_list_slots_nr)):
+                                pp_prefix(pspec)
+                                lmesg(" ^[" + k + "]\n")
+                                subprefix = pspec + ([True] if i < (child_list_slots_nr - 1) else [False])
+                                for sub in v:
+                                        do_pp_ast_rec(sub, '', subprefix)
+        do_pp_ast_rec(o, '', [])
+        return o
+
+#
+#
+#
 class symbol():
         name = None
         def __str__(self):  return self.name
         def __repr__(self): return self.name
         def __init__(self, name):
                 self.name = name.upper()
-def symbolp(x): return type(x) is symbol
+def symbolp(x):     return type(x) is symbol
+def symbol_name(x): return x.name
 syms = dict()
 def intern(x):
         X = x.upper()
@@ -74,26 +479,6 @@ nil = intern("nil")
 #
 #
 #
-import time
-
-def clocking(fn):
-        start = time.time()
-        result = fn()
-        return (result, int((time.time() - start) * 1000))
-
-def with_output_to_string(f):
-        conn = io.StringIO()
-        f(conn)
-        ret = conn.getvalue()
-        close(conn)
-        return ret
-
-def printf(format_control, *format_args):
-        print(format_control % format_args)
-
-def fprintf(stream, format_control, *format_args):
-        print(format_control % format_args, file = stream, end = '')
-
 import traceback
 def print_backtrace():
         exc_type, exc_value, _ = sys.exc_info()
@@ -101,8 +486,8 @@ def print_backtrace():
         for line in traceback.format_exc().splitlines():
                 printf("%s", line)
 
-def warning(str):
-        print(str)
+def warning(str, *args):
+        printf(str, *args)
 
 def case(val, *clauses):
         for (cval, result) in clauses:
@@ -133,25 +518,6 @@ def frozensetp(o):        return type(o) is frozenset
 def setp(o):              return type(o) is set or frozensetp(o)
 def tuplep(o):            return type(o) is tuple
 def sequencep(x):         return getattr(type(x), '__len__', None) is not None
-
-def remove_if(f, xs):
-        if listp(xs):              return [ x for x in xs if not f(x) ]
-        elif typep(xs, set):       return set (x for x in xs if not f(x))
-        elif typep(xs, frozenset): return frozenset(x for x in xs if not f(x))
-        elif typep(xs, dict):
-                acc = dict()
-                for x in xs:
-                        if not f(x):
-                                acc[x] = xs[x]
-                return acc
-        else:                      return [ x for x in xs if not f(x) ]
-
-def null(x):          return not x
-def evenp(x):         return x % 2 == 0
-def zerop(x):         return x == 0
-def plusp(x):         return x > 0
-def minusp(x):        return x < 0
-
 ## conditions
 def error(datum, *args):
         raise Exception(datum % args) if stringp(datum) else datum(*args)
@@ -239,8 +605,8 @@ def main_loop(sock, file):
 # }
 def dispatch(slime_connection, event, sldb_state = None):
         kind = event[0]
-        if kind == ':emacs-rex':
-                emacsRex(*([slime_connection, sldb_state] + event[:1]))
+        if kind is intern(':emacs-rex'):
+                emacs_rex(*([slime_connection, sldb_state] + event[1:]))
 
 # sendToEmacs <- function(slimeConnection, obj) {
 #  io <- slimeConnection$io
@@ -254,6 +620,7 @@ def send_to_emacs(slime_connection, obj):
         payload = write_sexp_to_string(obj)
         print("%06x" % len(payload), file = file, end = '')
         print(payload,               file = file, end = '')
+        printf("-> %06x %s", len(payload), payload)
         file.flush()
 
 # callify <- function(form) {
@@ -274,15 +641,24 @@ def send_to_emacs(slime_connection, obj):
 #    form
 #  }
 # }
+def pythonise_lisp_name(x):
+        ret = re.sub("[:\\-]", "_", x).lower()
+        printf("pythonising Lisp name: %s -> %s", x, ret)
+        return ret
+
 def callify(form):
+        printf("CALLIFY %s", form)
         if listp(form):
-                print("CALLIFY %s" % form)
-                if form[0] == 'quote':
-                        return form
+                if form[0] is intern('quote'):
+                        return form[1]
                 else:
-                        return [form[0], slime_connection, sldb_state] + map(callify, form[1:])
+                        return ast_funcall(pythonise_lisp_name(symbol_name(form[0])),
+                                           ast_name("slime_connection"), ast_name("sldb_state"),
+                                           *map(callify, form[1:]))
+        elif symbolp(form):
+                return ast_name(symbol_name(form))
         else:
-                return form
+                error("Unable to convert form %s", form)
 
 # emacsRex <- function(slimeConnection, sldbState, form, pkg, thread, id, level=0) {
 #  ok <- FALSE
@@ -313,24 +689,29 @@ def callify(form):
 #    finally=sendToEmacs(slimeConnection, list(quote(`:return`), if(ok) list(quote(`:ok`), value) else list(quote(`:abort`), as.character(condition)), id)))
 # }
 
+sldb_state = None
+
 def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
         ok = False
-        value = None
-        condition = None
+        value = intern('nil')
+        condition = intern('nil')
         try:
                 def with_calling_handlers_body():
-                        call = callify(form)
-                        print("executing %s", call)
+                        call = ast.fix_missing_locations(ast_expression(callify(form)))
+                        printf("compiling %s", call)
+                        pp_ast(call)
+                        code = compile(call, '', 'eval')
+                        printf("executing..")
                         def with_output_redirection_body():
                                 nonlocal value
-                                value = exec(call)
+                                value = exec(code)
                         string = "\n".join(map(str,
-                                               with_output_to_string(lambda conn:
+                                               with_output_to_string(lambda f:
                                                                              with_output_redirection(with_output_redirection_body,
-                                                                                                     file = conn))))
+                                                                                                     file = f))))
                         if len(string):
-                                send_to_emacs(slime_connection, [':write-string', string])
-                                send_to_emacs(slime_connection, [':write-string', "\n"])
+                                send_to_emacs(slime_connection, [intern(':write-string'), string])
+                                send_to_emacs(slime_connection, [intern(':write-string'), "\n"])
                         ok = True
                 def error_handler(c):
                         global condition
@@ -340,8 +721,8 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                                                                              with_output_redirection(with_output_redirection_body,
                                                                                                      file = conn))))
                         if len(string):
-                                send_to_emacs(slime_connection, [':write-string', string])
-                                send_to_emacs(slime_connection, [':write-string', "\n"])
+                                send_to_emacs(slime_connection, [intern(':write-string'), string])
+                                send_to_emacs(slime_connection, [intern(':write-string'), "\n"])
                         new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, id)
                         def with_restarts_body():
                                 return sldb_loop(slime_connection, new_sldb_state, id)
@@ -350,10 +731,10 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                 with_calling_handlers(with_calling_handlers_body,
                                       error = error_handler)
         finally:
-                send_to_emacs(slime_connection, [':return',
-                                                 ([':ok', value]
+                send_to_emacs(slime_connection, [intern(':return'),
+                                                 ([intern(':ok'), value]
                                                   if ok else
-                                                  [':abort', str(condition)]),
+                                                  [intern(':abort'), condition]),
                                                  id])
 
 # makeSldbState <- function(condition, level, id) {
@@ -387,12 +768,12 @@ def make_sldb_state(condition, level, id):
 def sldb_loop(slime_connection, sldb_state, id):
         try:
                 io = slime_connection.io
-                send_to_emacs(slime_connection, [':debug', id, sldb_state.level] + swank_debugger_info_for_emacs(slime_connection, sldb_state))
-                send_to_emacs(slime_connection, [':debug-activate', id, sldb_state.level, False])
+                send_to_emacs(slime_connection, [intern(':debug'), id, sldb_state.level] + swank_debugger_info_for_emacs(slime_connection, sldb_state))
+                send_to_emacs(slime_connection, [intern(':debug-activate'), id, sldb_state.level, False])
                 while True:
                         dispatch(slime_connection, read_packet(slime_connection.sock, slime_connection.file), sldb_state)
         finally:
-                send_to_emacs(slime_connection, [':debug-return', id, sldb_state.level, False])
+                send_to_emacs(slime_connection, [intern(':debug-return'), id, sldb_state.level, False])
 
 # readPacket <- function(io) {
 #   socketSelect(list(io))
@@ -404,10 +785,9 @@ def sldb_loop(slime_connection, sldb_state, id):
 def read_packet(sock, file):
         select.select([sock.fileno()], [], [])
         header = read_chunk(file, 6)
-        printf("got header <<-%s->>", header)
         len = int(header, 16)
         payload = read_chunk(file, len)
-        printf("got payload <<-%s->>", payload)
+        printf("<- %s %s", header, payload)
         return read_sexp_from_string(payload)
                 
 # readChunk <- function(io, len) {
@@ -499,7 +879,7 @@ def read_sexp_from_string(string):
                                 break
                         else:
                                 obj = read()
-                                if not listp(obj) and obj == intern("."):
+                                if not listp(obj) and obj is intern("."):
                                         error("Consing dot not implemented")
                                 ret += [obj]
                 # printf("read_list(): returning %s", ret)
@@ -655,6 +1035,8 @@ def write_sexp_to_string(obj):
                                         if i != (max - 1):
                                                 string += " "
                         string += ')'
+                elif symbolp(obj):
+                        string += symbol_name(obj)
                 elif stringp(obj):
                         string += '"%s"' % re.sub(r'(["\\])', r'\\\\1', obj)
                 elif integerp(obj) or floatp(obj):
@@ -686,12 +1068,12 @@ def print_to_string(val):
 #                                            quote(`:version`), paste(R.version$major, R.version$minor, sep=".")))
 # }
 def swank_connection_info(slime_connection, sldb_state):
-        return [":pid",                 sys.getpid(),
+        return [":pid",                 os.getpid(),
                 ":package",             [":name", "python",
                                          ":prompt" "python>"],
                 ":lisp-implementation", [":type", "python",
                                          ":name", "python",
-                                         ":version", "%d.%d.%d" % sys.version_info]]
+                                         ":version", "%d.%d.%d" % sys.version_info[:3]]]
 
 # `swank:swank-require` <- function (slimeConnection, sldbState, contribs) {
 #   for(contrib in contribs) {
@@ -870,11 +1252,11 @@ def swank_frame_source_location(slime_connection, sldb_state, n):
         srcref = call.srcref
         srcfile = call.srcfile
         if not srcfile:
-                return [':error', "no srcfile"]
+                return [intern(':error'), "no srcfile"]
         else:
                 filename = srcfile.name
                 file = filename if filename[0] == '/' else ("%s/%s" % (srcfile.wd, filename))
-                return [':location', [':file', file], [':line', srcref[0], srcref[1] - 1], None]
+                return [intern(':location'), [intern(':file'), file], [intern(':line'), srcref[0], srcref[1] - 1], intern('nil')]
 
 # `swank:buffer-first-change` <- function(slimeConnection, sldbState, filename) {
 #   FALSE
@@ -915,9 +1297,9 @@ def swank_eval_string_in_frame(slime_connection, sldb_state, string, index):
 def swank_frame_locals_and_catch_tags(slime_connection, sldb_state, index):
         frame = sldb_state.frames[index + 1]
         objs = ls(env = frame)
-        return [map(lambda name: [':name', name,
-                                  ':id', 0,
-                                  ':value', compute_value()],
+        return [map(lambda name: [intern(':name'), name,
+                                  intern(':id'), 0,
+                                  intern(':value'), compute_value()],
                     objs),
                 []]
 
@@ -995,9 +1377,9 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 def swank_compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
         line_offset = char_offset = col_offset = None
         for pos in position:
-                if pos[0] == ':position':
+                if pos[0] is intern(':position'):
                         char_offset = pos[1]
-                elif pos[0] == ':line':
+                elif pos[0] is intern(':line'):
                         line_offset = pos[1]
                         char_offset = pos[2]
                 else:
@@ -1018,7 +1400,7 @@ def swank_compile_string_for_emacs(slime_connection, sldb_state, string, buffer,
                 val, time = clocking(clocking_body)
                 return val
         with_restarts(with_restarts_body)
-        return [':compilation-result', [], True, time, False, False]
+        return [intern(':compilation-result'), [], True, time, False, False]
 
 # withRetryRestart <- function(description, expr) {
 #   call <- substitute(expr)
@@ -1416,7 +1798,7 @@ def swank_compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, 
         filename.co, time = clocking(lambda: compile(filename.name, filename.src))
         if loadp:
                 swank_load_file(slime_connection, sldb_state, filename)
-        return [':compilation-result', [], True, time, substitute(loadp), filename]
+        return [intern(':compilation-result'), [], True, time, substitute(loadp), filename]
 
 # `swank:quit-lisp` <- function(slimeConnection, sldbState) {
 #   quit()
