@@ -236,11 +236,20 @@ def clocking(fn):
         result = fn()
         return (result, int((time.time() - start) * 1000))
 
+def make_string_output_stream():
+        return io.StringIO()
+
+def get_output_stream_string(x):
+        return x.getvalue()
+
+def close(x):
+        x.close()
+
 def with_output_to_string(f):
-        conn = io.StringIO()
-        f(conn)
-        ret = conn.getvalue()
-        conn.close()
+        x = make_string_output_stream()
+        f(x)
+        ret = output_stream_string(x)
+        close(x)
         return ret
 
 def printf(format_control, *format_args):
@@ -336,7 +345,7 @@ def ast_maybe_normalise_string(x):
 
 def ast_funcall(name, *args):
         if not (all(mapcar(lambda x: stringp(x) or astp(x) or x is None, args))):
-                err("In call to %s: improper arglist %s", name, str(args))
+                error("In call to %s: improper arglist %s", name, str(args))
         return ast.Call(func = ast_name(name) if stringp(name) else name,
                         args = mapcar(ast_maybe_normalise_string, args),
                         keywords = [], starargs = None, kwargs = None)
@@ -646,17 +655,34 @@ def pythonise_lisp_name(x):
         printf("pythonising Lisp name: %s -> %s", x, ret)
         return ret
 
-def callify(form):
+def constantp(x):
+        return type(x) in set([str, int, float])
+constant_xform = {
+        False : ast_name("False"),
+        None  : ast_name("None"),
+        True  : ast_name("True"),
+        str   : ast_string,
+        int   : ast_num,
+        }
+def callify(form, quoted = False):
         printf("CALLIFY %s", form)
         if listp(form):
-                if form[0] is intern('quote'):
-                        return form[1]
+                if quoted or (form[0] is intern('quote')):
+                        return (ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
+                                if listp(form[1]) else
+                                callify(form[1], quoted = True))
                 else:
                         return ast_funcall(pythonise_lisp_name(symbol_name(form[0])),
                                            ast_name("slime_connection"), ast_name("sldb_state"),
                                            *map(callify, form[1:]))
         elif symbolp(form):
-                return ast_name(symbol_name(form))
+                return (ast_funcall("intern", symbol_name(form))
+                        if quoted else
+                        ast_name(symbol_name(form)))
+        elif constantp(form):
+                return constant_xform[type(form)](form)
+        elif form in constant_xform:
+                return constant_xform[form]
         else:
                 error("Unable to convert form %s", form)
 
@@ -690,39 +716,56 @@ def callify(form):
 # }
 
 sldb_state = None
+___expr___ = None
+def swank_set_value(value):
+        global ___expr___
+        ___expr___ = value
 
 def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
         ok = False
         value = intern('nil')
         condition = intern('nil')
+        output = make_string_output_stream()
         try:
-                def with_calling_handlers_body():
-                        call = ast.fix_missing_locations(ast_expression(callify(form)))
-                        printf("compiling %s", call)
-                        pp_ast(call)
-                        code = compile(call, '', 'eval')
-                        printf("executing..")
-                        def with_output_redirection_body():
-                                nonlocal value
-                                value = exec(code)
-                        string = "\n".join(map(str,
-                                               with_output_to_string(lambda f:
-                                                                             with_output_redirection(with_output_redirection_body,
-                                                                                                     file = f))))
+                def writeurn_output():
+                        string = get_output_stream_string(output)
+                        close(output)
                         if len(string):
                                 send_to_emacs(slime_connection, [intern(':write-string'), string])
                                 send_to_emacs(slime_connection, [intern(':write-string'), "\n"])
+                        return string
+                def give_up(cond, mesg, *args):
+                        nonlocal condition
+                        writeurn_output()
+                        condition = cond
+                        fprintf(sys.stderr, "ERROR: " + mesg, *args)
+                        raise cond
+                def with_calling_handlers_body():
+                        nonlocal ok, value
+                        try:
+                                call = ast.fix_missing_locations(ast_module(
+                                                [# ast_import_from("partus", ["*"]),
+                                                 ast_assign_var("foo", ast_funcall("swank_set_value", callify(form))),
+                                                 ]))
+                        except Exception as cond:
+                                give_up(cond, "failed to callify: %s", cond)
+                        printf("compiling %s", call)
+                        pp_ast(call)
+                        try:
+                                code = compile(call, '', 'exec')
+                        except Exception as cond:
+                                give_up(cond, "failed to compile: %s", cond)
+                        printf("executing..")
+                        with_output_redirection(lambda: exec(code), file = output)
+                        value = ___expr___
+                        string = writeurn_output()
+                        printf("return value: %s", ___expr___)
+                        printf("output:\n%s\n===== EOF =====\n", string)
                         ok = True
                 def error_handler(c):
                         global condition
                         condition = c
-                        string = "\n".join(map(str,
-                                               with_output_to_string(lambda conn:
-                                                                             with_output_redirection(with_output_redirection_body,
-                                                                                                     file = conn))))
-                        if len(string):
-                                send_to_emacs(slime_connection, [intern(':write-string'), string])
-                                send_to_emacs(slime_connection, [intern(':write-string'), "\n"])
+                        string = writeurn_output()
                         new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, id)
                         def with_restarts_body():
                                 return sldb_loop(slime_connection, new_sldb_state, id)
@@ -1023,6 +1066,7 @@ def read_sexp_from_string(string):
 #   writeSexpToStringLoop(obj)
 # }
 def write_sexp_to_string(obj):
+        printf("write_sexp_to_string: %s", obj)
         string = ""
         def write_sexp_to_string_loop(obj):
                 nonlocal string
@@ -1041,6 +1085,8 @@ def write_sexp_to_string(obj):
                         string += '"%s"' % re.sub(r'(["\\])', r'\\\\1', obj)
                 elif integerp(obj) or floatp(obj):
                         string += str(obj)
+                elif nonep(obj):
+                        string += "nil"
                 else:
                         raise Exception("can't write object %s" % obj)
                 return string   
@@ -1068,12 +1114,12 @@ def print_to_string(val):
 #                                            quote(`:version`), paste(R.version$major, R.version$minor, sep=".")))
 # }
 def swank_connection_info(slime_connection, sldb_state):
-        return [":pid",                 os.getpid(),
-                ":package",             [":name", "python",
-                                         ":prompt" "python>"],
-                ":lisp-implementation", [":type", "python",
-                                         ":name", "python",
-                                         ":version", "%d.%d.%d" % sys.version_info[:3]]]
+        return [intern(":pid"),                 os.getpid(),
+                intern(":package"),             [intern(":name"), "python",
+                                                 intern(":prompt"), "python>"],
+                intern(":lisp-implementation"), [intern(":type"), "python",
+                                                 intern(":name"), "python",
+                                                 intern(":version"), "%d.%d.%d" % sys.version_info[:3]]]
 
 # `swank:swank-require` <- function (slimeConnection, sldbState, contribs) {
 #   for(contrib in contribs) {
