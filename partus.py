@@ -25,15 +25,6 @@ def sys_calls():
         not_implemented("sys_calls()")
 def sys_frames():
         not_implemented("sys_frames()")
-import sys
-def with_output_redirection(fn, file = None):
-        old_stdout = sys.stdout
-        try:
-                sys.stdout = file
-                ret = fn()
-        finally:
-                sys.stdout = old_stdout
-        return ret
 def parse(str):
         not_implemented("parse()")
         return None
@@ -485,6 +476,16 @@ def intern(x):
                 return syms[X]
 t   = intern("t")
 nil = intern("nil")
+
+import sys
+def with_output_redirection(fn, file = None):
+        old_stdout = sys.stdout
+        try:
+                sys.stdout = file
+                ret = fn()
+        finally:
+                sys.stdout = old_stdout
+        return ret
 #
 #
 #
@@ -527,15 +528,40 @@ def frozensetp(o):        return type(o) is frozenset
 def setp(o):              return type(o) is set or frozensetp(o)
 def tuplep(o):            return type(o) is tuple
 def sequencep(x):         return getattr(type(x), '__len__', None) is not None
+def astp(x):              return typep(x, ast.AST)
+def code_object_p(x):     return type(x) is type(code_object_p.__code__)
 ## conditions
 def error(datum, *args):
         raise Exception(datum % args) if stringp(datum) else datum(*args)
 #
 #
 #
+import imp
+def load_code_object_as_module(name, x, parent_package = None, built_ins = None, packagep = None, filename = 'garbage'):
+        if not code_object_p(x):
+                error('In %s: while loading module "%s", argument is a "%s", not a code object.', 'load_code_object_as_module', name, type(x).__name__)
+        mod = imp.new_module(name)
+        mod.__filename__ = filename
+        if packagep:
+                mod.__path__ = (parent_package.__path__ if parent_package else []) + [ names.parse_namestring(name)[-1] ]
+        sys.modules[name] = mod
+        if built_ins:
+                mod.__dict__['__builtins__'] = built_ins
+        exec(x, mod.__dict__, mod.__dict__)
+        if parent_package:
+                dotpos = name.rindex('.')
+                assert (dotpos)
+                postdot_name = name[dotpos + 1:]
+                setattr(parent_package, postdot_name, mod)
+                parent_package.__children__.add(mod)
+                mod.__parent__ = parent_package
+        if packagep:
+                mod.__children__ = set([])
+        return mod
+#
+#
+#
 import os, sys, socket, select, re
-
-partus_path = os.getcwd()                                           # swankrPath <- getwd() 
 
 # swank <- function(port=4005) {
 #  acceptConnections(port, FALSE)
@@ -745,7 +771,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         try:
                                 call = ast.fix_missing_locations(ast_module(
                                                 [# ast_import_from("partus", ["*"]),
-                                                 ast_assign_var("foo", ast_funcall("swank_set_value", callify(form))),
+                                                 ast_assign_var("", ast_funcall("swank_set_value", callify(form))),
                                                  ]))
                         except Exception as cond:
                                 give_up(cond, "failed to callify: %s", cond)
@@ -756,7 +782,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         except Exception as cond:
                                 give_up(cond, "failed to compile: %s", cond)
                         printf("executing..")
-                        with_output_redirection(lambda: exec(code), file = output)
+                        with_output_redirection(lambda: exec(code, python_user.__dict__), file = output)
                         value = ___expr___
                         string = writeurn_output()
                         printf("return value: %s", ___expr___)
@@ -1182,10 +1208,12 @@ send_repl_result_function = send_repl_result
 def swank_listener_eval(slime_connection, sldb_state, string):
         string = re.sub(r"#\.\(swank:lookup-presented-object-or-lose([^)]*)\)", r"swank_lookup_presented_object_or_lose(slime_connection, sldb_state,\\1))", string)
         ast_ = ast.parse(string)
-        if typep(ast_.body[0], ast.Expr):
-                ast_.body[0] = ast_assign_var("foo", ast_funcall("swank_set_value", ast_.body[0].value))
-        exec(compile(ast.fix_missing_locations(ast_), "", 'exec'))
-        return [intern(":values"), str(___expr___)]
+        if ast_.body:
+                exprp = typep(ast_.body[0], ast.Expr)
+                if exprp:
+                        ast_.body[0] = ast_assign_var("", ast_funcall("swank_set_value", ast_.body[0].value))
+                exec(compile(ast.fix_missing_locations(ast_), "", 'exec'), python_user.__dict__)
+        return [intern(":values")] + [str(___expr___)] if (ast_.body and exprp) else []
 
 # `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
 #   "No Arglist Information"
@@ -1854,3 +1882,12 @@ def swank_compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, 
 # }
 def swank_quit_lisp(slime_connection, sldb_state):
         exit()
+
+###
+###
+###
+slime_connection = None
+sldb_state = None
+python_user = load_code_object_as_module("python_user",
+                                         compile("from partus import *", "PY-USER", "exec"))
+partus_path = os.getcwd() # swankrPath <- getwd()
