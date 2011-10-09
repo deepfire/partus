@@ -677,7 +677,7 @@ def callify(form, quoted = False):
                                            *map(callify, form[1:]))
         elif symbolp(form):
                 return (ast_funcall("intern", symbol_name(form))
-                        if quoted else
+                        if quoted or (symbol_name(form)[0] == ":") else
                         ast_name(symbol_name(form)))
         elif constantp(form):
                 return constant_xform[type(form)](form)
