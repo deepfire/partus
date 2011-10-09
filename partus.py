@@ -732,7 +732,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         close(output)
                         if len(string):
                                 send_to_emacs(slime_connection, [intern(':write-string'), string])
-                                send_to_emacs(slime_connection, [intern(':write-string'), "\n"])
+                                # send_to_emacs(slime_connection, [intern(':write-string'), "\n"])
                         return string
                 def give_up(cond, mesg, *args):
                         nonlocal condition
@@ -1150,7 +1150,7 @@ def swank_create_repl(slime_connection, sldb_state, env, *args):
 # }
 def make_repl_result(value):
         string = print_to_string(value)
-        return [":write-string", string, ":repl-result"]
+        return [intern(":write-string"), string, intern(":repl-result")]
 
 # makeReplResultFunction <- makeReplResult
 make_repl_result_function = make_repl_result
@@ -1180,9 +1180,12 @@ send_repl_result_function = send_repl_result
 #   }
 #   list}()
 def swank_listener_eval(slime_connection, sldb_state, string):
-        string = re.sub(r"#\.\(swank:lookup-presented-object-or-lose([^)]*)\)", r".(`swank:lookup-presented-object-or-lose`(slime_connection, sldb_state,\1))", string)
-        for expr in ...:
-                pass
+        string = re.sub(r"#\.\(swank:lookup-presented-object-or-lose([^)]*)\)", r"swank_lookup_presented_object_or_lose(slime_connection, sldb_state,\\1))", string)
+        ast_ = ast.parse(string)
+        if typep(ast_.body[0], ast.Expr):
+                ast_.body[0] = ast_assign_var("foo", ast_funcall("swank_set_value", ast_.body[0].value))
+        exec(compile(ast.fix_missing_locations(ast_), "", 'exec'))
+        return [intern(":values"), str(___expr___)]
 
 # `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
 #   "No Arglist Information"
@@ -1633,7 +1636,7 @@ def inspect_object(slime_connection, object):
 #        assignIndexInParts(object, istate))
 # }
 def value_part(istate, object, string):
-        return [":value",
+        return [intern(":value"),
                 string or print_to_string(object),
                 assign_index_in_parts(object, istate)]
 
@@ -1651,13 +1654,13 @@ def value_part(istate, object, string):
 def prepare_part(istate, part):
         if type(part) == str:
                 return [part]
-        elif part[0] == ":newline":
+        elif part[0] is intern(":newline"):
                 return ["\n"]
-        elif part[0] == ":value":
+        elif part[0] is intern(":value"):
                 return value_part(istate, part[1], part[2])
-        elif part[0] == ":line":
-                return [print_to_string(part[1]), ": ",
-                        value_part(istate, part[2], NULL), "\n"]
+        elif part[0] is intern(":line"):
+                return [ print_to_string(part[1]), ": ",
+                         value_part(istate, part[2], NULL), "\n"]
                 
 
 # prepareRange <- function(istate, start, end) {
@@ -1693,9 +1696,9 @@ def assing_index_in_parts(object, istate):
 #        quote(`:content`), prepareRange(istate, 0, 500))
 # }
 def istate_to_elisp(istate):
-        return [":title",   deparse(istate.object),
-                ":id",      assign_index_in_parts(istate.object, istate),
-                ":content", prepare_range(istate, 0, 500)]
+        return [intern(":title"),   deparse(istate.object),
+                intern(":id"),      assign_index_in_parts(istate.object, istate),
+                intern(":content"), prepare_range(istate, 0, 500)]
 
 def emacs_inspect(object):
 # emacsInspect.list <- function(list) {
@@ -1704,7 +1707,7 @@ def emacs_inspect(object):
 #            names(list), list))
 # }
         if dictp(object):
-                return ["a dict", ":newline"] + [ [":line", name, object[name] ] for name in object ]
+                return ["a dict", intern(":newline")] + [ [intern(":line"), name, object[name] ] for name in object ]
 # emacsInspect.numeric <- function(numeric) {
 #   c(list("a numeric", list(quote(`:newline`))),
 #     mapply(function(name, value) { list(list(quote(`:line`), name, value)) },
@@ -1716,7 +1719,7 @@ def emacs_inspect(object):
 # emacsInspect.default <- function(thing) {
 #   c(list(paste("a ", class(thing)[[1]], sep=""), list(quote(`:newline`))))
 # }
-                return ["a %s" % type(object).__name__, ":newline"]
+                return ["a %s" % type(object).__name__, intern(":newline")]
 
 
 
