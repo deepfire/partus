@@ -747,22 +747,34 @@ def swank_set_value(value):
         global ___expr___
         ___expr___ = value
 
+def writeurn_output(output):
+        string = get_output_stream_string(output)
+        close(output)
+        if len(string):
+                send_to_emacs(slime_connection, [intern(':write-string'), string])
+                # send_to_emacs(slime_connection, [intern(':write-string'), "\n"])
+        return string
+
+def error_handler(c, output = None):
+        global condition
+        condition = c
+        if output:
+                writeurn_output(output)
+        new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, id)
+        def with_restarts_body():
+                return sldb_loop(slime_connection, new_sldb_state, id)
+        with_restarts(with_restarts_body,
+                      abort = "return to sldb level %s" % str(new_sldb_state.level))
+
 def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
         ok = False
         value = intern('nil')
         condition = intern('nil')
         output = make_string_output_stream()
         try:
-                def writeurn_output():
-                        string = get_output_stream_string(output)
-                        close(output)
-                        if len(string):
-                                send_to_emacs(slime_connection, [intern(':write-string'), string])
-                                # send_to_emacs(slime_connection, [intern(':write-string'), "\n"])
-                        return string
                 def give_up(cond, mesg, *args):
                         nonlocal condition
-                        writeurn_output()
+                        writeurn_output(output)
                         condition = cond
                         fprintf(sys.stderr, "ERROR: " + mesg, *args)
                         raise cond
@@ -784,21 +796,12 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         printf("executing..")
                         with_output_redirection(lambda: exec(code, python_user.__dict__), file = output)
                         value = ___expr___
-                        string = writeurn_output()
+                        string = writeurn_output(output)
                         printf("return value: %s", ___expr___)
                         printf("output:\n%s\n===== EOF =====\n", string)
                         ok = True
-                def error_handler(c):
-                        global condition
-                        condition = c
-                        string = writeurn_output()
-                        new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, id)
-                        def with_restarts_body():
-                                return sldb_loop(slime_connection, new_sldb_state, id)
-                        with_restarts(with_restarts_body,
-                                      abort = "return to sldb level %s" % str(new_sldb_state.level))
                 with_calling_handlers(with_calling_handlers_body,
-                                      error = error_handler)
+                                      error = lambda cond: error_handler(cond, output = output))
         finally:
                 send_to_emacs(slime_connection, [intern(':return'),
                                                  ([intern(':ok'), value]
@@ -1212,7 +1215,10 @@ def swank_listener_eval(slime_connection, sldb_state, string):
                 exprp = typep(ast_.body[0], ast.Expr)
                 if exprp:
                         ast_.body[0] = ast_assign_var("", ast_funcall("swank_set_value", ast_.body[0].value))
-                exec(compile(ast.fix_missing_locations(ast_), "", 'exec'), python_user.__dict__)
+                try:
+                        exec(compile(ast.fix_missing_locations(ast_), "", 'exec'), python_user.__dict__)
+                except Exception as cond:
+                        error_handler(cond)
         return [intern(":values")] + [str(___expr___)] if (ast_.body and exprp) else []
 
 # `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
