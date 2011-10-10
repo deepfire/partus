@@ -21,10 +21,6 @@ def with_calling_handlers(fn, error = lambda c: None):
 def with_visible(fn):
         not_implemented("with_visible()")
         return fn()
-def sys_calls():
-        not_implemented("sys_calls()")
-def sys_frames():
-        not_implemented("sys_frames()")
 def parse(str):
         not_implemented("parse()")
         return None
@@ -417,7 +413,7 @@ def pp_ast(o):
                 def lmesg(msg):
                         lstr[0] += msg
                         if msg[-1] == "\n"[0]:
-                                print(lstr[0][:-1])
+                                fprintf(sys.stderr, "%s\n", lstr[0][:-1])
                                 lstr[0] = ""
                 def pp_prefix(spec):
                         for i in spec:
@@ -492,12 +488,12 @@ def with_output_redirection(fn, file = None):
 import traceback
 def print_backtrace():
         exc_type, exc_value, _ = sys.exc_info()
-        printf("%s: %s", str(exc_type), str(exc_value))
+        fprintf(sys.stderr, "%s: %s\n", str(exc_type), str(exc_value))
         for line in traceback.format_exc().splitlines():
-                printf("%s", line)
+                fprintf(sys.stderr, "%s\n", line)
 
 def warning(str, *args):
-        printf(str, *args)
+        fprintf(sys.stderr, str + "\n", *args)
 
 def case(val, *clauses):
         for (cval, result) in clauses:
@@ -655,7 +651,7 @@ def send_to_emacs(slime_connection, obj):
         payload = write_sexp_to_string(obj)
         print("%06x" % len(payload), file = file, end = '')
         print(payload,               file = file, end = '')
-        printf("-> %06x %s", len(payload), payload)
+        fprintf(sys.stderr, "-> %06x %s\n", len(payload), payload)
         file.flush()
 
 # callify <- function(form) {
@@ -678,20 +674,25 @@ def send_to_emacs(slime_connection, obj):
 # }
 def pythonise_lisp_name(x):
         ret = re.sub("[:\\-]", "_", x).lower()
-        printf("pythonising Lisp name: %s -> %s", x, ret)
+        fprintf(sys.stderr, "pythonising Lisp name: %s -> %s\n", x, ret)
         return ret
 
 def constantp(x):
-        return type(x) in set([str, int, float])
-constant_xform = {
+        return type(x) in set([str, int])
+obj2ast_xform = {
         False : ast_name("False"),
         None  : ast_name("None"),
         True  : ast_name("True"),
         str   : ast_string,
         int   : ast_num,
         }
+obj2lisp_xform = {
+        False : "nil",
+        None  : "nil",
+        True  : "t",
+        }
 def callify(form, quoted = False):
-        printf("CALLIFY %s", form)
+        fprintf(sys.stderr, "CALLIFY %s\n", form)
         if listp(form):
                 if quoted or (form[0] is intern('quote')):
                         return (ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
@@ -706,9 +707,9 @@ def callify(form, quoted = False):
                         if quoted or (symbol_name(form)[0] == ":") else
                         ast_name(symbol_name(form)))
         elif constantp(form):
-                return constant_xform[type(form)](form)
-        elif form in constant_xform:
-                return constant_xform[form]
+                return obj2ast_xform[type(form)](form)
+        elif form in obj2ast_xform:
+                return obj2ast_xform[form]
         else:
                 error("Unable to convert form %s", form)
 
@@ -820,9 +821,13 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
 class SldbState(servile): pass
 
 def make_sldb_state(condition, level, id):
-        return SldbState(calls = reversed(sys_calls()[1:]),
-                         frames = reversed(sys_frames()[1:]),
-                         restarts = reversed(compute_restarts(condition)[1:]),
+        def unwind_frames(f):
+                return [f] + (unwind_frames(f.f_back) if f.f_back else [])
+        top_frame = sys.exc_info()[2].tb_frame
+        frames = unwind_frames(top_frame)
+        fprintf(sys.stderr, "frames: %s\n", frames)
+        return SldbState(frames = frames,
+                         restarts = [],
                          condition = condition,
                          level = level,
                          id = id)
@@ -837,15 +842,18 @@ def make_sldb_state(condition, level, id):
 #     }
 #   }, finally=sendToEmacs(slimeConnection, c(list(quote(`:debug-return`), id, sldbState$level, FALSE))))
 # }
-def sldb_loop(slime_connection, sldb_state, id):
+def sldb_loop(slime_connection, sldb_state, id_):
         try:
                 io = slime_connection.io
-                send_to_emacs(slime_connection, [intern(':debug'), id, sldb_state.level] + swank_debugger_info_for_emacs(slime_connection, sldb_state))
-                send_to_emacs(slime_connection, [intern(':debug-activate'), id, sldb_state.level, False])
+                send_to_emacs(slime_connection, [intern(':debug'), id_, sldb_state.level] + swank_debugger_info_for_emacs(slime_connection, sldb_state))
+                send_to_emacs(slime_connection, [intern(':debug-activate'), id_, sldb_state.level, False])
                 while True:
                         dispatch(slime_connection, read_packet(slime_connection.sock, slime_connection.file), sldb_state)
+        except Exception as cond:
+                print_backtrace()
+                fprintf(sys.stderr, "got X %s\n", cond)
         finally:
-                send_to_emacs(slime_connection, [intern(':debug-return'), id, sldb_state.level, False])
+                send_to_emacs(slime_connection, [intern(':debug-return'), id_, sldb_state.level, False])
 
 # readPacket <- function(io) {
 #   socketSelect(list(io))
@@ -1064,7 +1072,7 @@ def read_sexp_from_string(string):
                 # printf("read_token(): returning %s", token)
                 return token
         ret = read()
-        printf("got remote SEXP: %s", ret)
+        fprintf(sys.stderr, "got remote SEXP: %s\n", ret)
         return ret
 #   read()
 # }
@@ -1095,31 +1103,35 @@ def read_sexp_from_string(string):
 #   writeSexpToStringLoop(obj)
 # }
 def write_sexp_to_string(obj):
-        printf("write_sexp_to_string: %s", obj)
-        string = ""
-        def write_sexp_to_string_loop(obj):
-                nonlocal string
-                if listp(obj):
-                        string += '('
-                        max = len(obj)
-                        if max:
-                                for i in range(0, max):
-                                        string += write_sexp_to_string(obj[i])
-                                        if i != (max - 1):
-                                                string += " "
-                        string += ')'
-                elif symbolp(obj):
-                        string += symbol_name(obj)
-                elif stringp(obj):
-                        string += '"%s"' % re.sub(r'(["\\])', r'\\\\1', obj)
-                elif integerp(obj) or floatp(obj):
-                        string += str(obj)
-                elif nonep(obj):
-                        string += "nil"
-                else:
-                        raise Exception("can't write object %s" % obj)
-                return string   
-        return write_sexp_to_string_loop(obj)
+        fprintf(sys.stderr, "write_sexp_to_string: %s\n", obj)
+        def do_write_sexp_to_string(obj):
+                string = ""
+                def write_sexp_to_string_loop(obj):
+                        nonlocal string
+                        if listp(obj) or tuplep(obj):
+                                string += '('
+                                max = len(obj)
+                                if max:
+                                        for i in range(0, max):
+                                                string += do_write_sexp_to_string(obj[i])
+                                                if i != (max - 1):
+                                                        string += " "
+                                string += ')'
+                        elif symbolp(obj):
+                                string += symbol_name(obj)
+                        elif stringp(obj):
+                                string += '"%s"' % re.sub(r'(["\\])', r'\\\\1', obj)
+                        elif integerp(obj) or floatp(obj):
+                                string += str(obj)
+                        elif obj in obj2lisp_xform:
+                                string += obj2lisp_xform[obj]
+                        elif type(obj).__name__ == 'builtin_function_or_method':
+                                string += '"#<builtin %s 0x%x>"' % (obj.__name__, id(obj))
+                        else:
+                                raise Exception("can't write object %s" % obj)
+                        return string
+                return write_sexp_to_string_loop(obj)
+        return do_write_sexp_to_string(obj)
 
 # prin1ToString <- function(val) {
 #   paste(deparse(val, backtick=TRUE, control=c("delayPromises", "keepNA")),
@@ -1258,18 +1270,10 @@ def swank_throw_to_toplevel(slime_connection, sldb_state):
 #                   })
 # }
 def swank_backtrace(slime_connection, sldb_state, from_ = 0, to = None):
-        calls = sldb_state.calls
-        if not to:
-                to = len(calls)
-        from_ += 1
-        frame_number = from_ - 1
-        def frame_iter(x):
-                nonlocal frame_number
-                ret = [frame_number, str(x)]
-                frame_number += 1
-                return ret
-        calls = map(frame_iter, calls[from_:to])
-        return calls
+        frames = sldb_state.frames
+        if nonep(to):
+                to = len(frames)
+        return list(enumerate(map(str, frames[from_ + 1:to]), from_))
 
 # computeRestartsForEmacs <- function (sldbState) {
 #   lapply(sldbState$restarts,
@@ -1285,8 +1289,8 @@ def compute_restarts_for_emacs(sldb_state):
                 restart_name = x[0][0]
                 description = restart_description(x)
                 return [restart_name, restart_name if not restart_name else description]
-        return map(restart_for_emacs,
-                   sldb_state.restarts)
+        return list(map(restart_for_emacs,
+                        sldb_state.restarts))
 
 # `swank:debugger-info-for-emacs` <- function(slimeConnection, sldbState, from=0, to=NULL) {
 #   list(list(as.character(sldbState$condition), sprintf("  [%s]", class(sldbState$condition)[[1]]), FALSE),
@@ -1295,7 +1299,7 @@ def compute_restarts_for_emacs(sldb_state):
 #        list(sldbState$id))
 # }
 def swank_debugger_info_for_emacs(slime_connection, sldb_state, from_ = 0, to = None):
-        return [[str(sldb_state.condition), " [%s]" % sldb_state.condition.__type__.__name__, False],
+        return [[str(sldb_state.condition), " [%s]" % type(sldb_state.condition).__name__, False],
                 compute_restarts_for_emacs(sldb_state),
                 swank_backtrace(slime_connection, sldb_state, from_, to),
                 [sldb_state.id]]
@@ -1331,15 +1335,18 @@ def swank_invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
 #   }
 # }
 def swank_frame_source_location(slime_connection, sldb_state, n):
-        call = sldb_state.calls[n + 1]
-        srcref = call.srcref
-        srcfile = call.srcfile
+        frame = sldb_state.frames[n + 1]
+        co = frame.f_code
+        def co_nlines(co):
+                return 1 + max(co.co_lnotab)
+        srcfile, line, nlines, column, name = co.co_filename, co.co_firstlineno, co_nlines(co), 0, co.name
         if not srcfile:
                 return [intern(':error'), "no srcfile"]
         else:
-                filename = srcfile.name
-                file = filename if filename[0] == '/' else ("%s/%s" % (srcfile.wd, filename))
-                return [intern(':location'), [intern(':file'), file], [intern(':line'), srcref[0], srcref[1] - 1], intern('nil')]
+                return [intern(':location'),
+                        [intern(':file'), srcfile],
+                        [intern(':line'), line, srcref[1] - 1],
+                        intern('nil')]
 
 # `swank:buffer-first-change` <- function(slimeConnection, sldbState, filename) {
 #   FALSE
