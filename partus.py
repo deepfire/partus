@@ -14,9 +14,8 @@ def invoke_restart(restart):
 def restart_description(restart):
         not_implemented("restart_description()")
         return ""
-def with_calling_handlers(fn, error = lambda c: None):
-        "HANDLER-BIND"
-        # not_implemented("with_calling_handlers()")
+def handler_bind(fn, error = lambda c: None):
+        # not_implemented("handler_bind()")
         try:
                 return fn()
         except Exception as cond:
@@ -238,7 +237,7 @@ def close(x):
 def with_output_to_string(f):
         x = make_string_output_stream()
         f(x)
-        ret = output_stream_string(x)
+        ret = get_output_stream_string(x)
         close(x)
         return ret
 
@@ -532,6 +531,9 @@ def tuplep(o):            return type(o) is tuple
 def sequencep(x):         return getattr(type(x), '__len__', None) is not None
 def astp(x):              return typep(x, ast.AST)
 def code_object_p(x):     return type(x) is type(code_object_p.__code__)
+
+def map_hash_table(f, xs):
+        return [ f(k, v) for (k, v) in xs.items() ]
 ##
 _stack = []
 
@@ -652,7 +654,8 @@ def main_loop(sock, file):
         while True:
                 def with_restarts_body():
                         try:
-                                dispatch(slime_connection, read_packet(sock, file))
+                                with env.let(sldb_state = None):
+                                        dispatch(slime_connection, read_packet(sock, file), sldb_state = env.sldb_state)
                         except Exception as x: # FIXME
                                 # print_backtrace()
                                 not_implemented("Unhandled exception at main loop.")
@@ -666,8 +669,9 @@ def main_loop(sock, file):
 #    do.call("emacsRex", c(list(slimeConnection), list(sldbState), event[-1]))
 #  }
 # }
-def dispatch(slime_connection, event, sldb_state = None):
+def dispatch(slime_connection, event, sldb_state):
         kind = event[0]
+        debug_printf("===( DISPATCH, sldb_state: %s", sldb_state)
         if kind is intern(':emacs-rex'):
                 emacs_rex(*([slime_connection, sldb_state] + event[1:]))
 
@@ -732,7 +736,7 @@ def callify(form, quoted = False):
                                 callify(form[1], quoted = True))
                 else:
                         return ast_funcall(pythonise_lisp_name(symbol_name(form[0])),
-                                           ast_name("slime_connection"), ast_name("sldb_state"),
+                                           ast_name("slime_connection"), ast_attribute(ast_name("env"), "sldb_state"),
                                            *map(callify, form[1:]))
         elif symbolp(form):
                 return (ast_funcall("intern", symbol_name(form))
@@ -774,7 +778,6 @@ def callify(form, quoted = False):
 #    finally=sendToEmacs(slimeConnection, list(quote(`:return`), if(ok) list(quote(`:ok`), value) else list(quote(`:abort`), as.character(condition)), id)))
 # }
 
-sldb_state = None
 ___expr___ = None
 def swank_set_value(value):
         global ___expr___
@@ -834,11 +837,11 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         value = ___expr___
                         string = writeurn_output(output)
                         debug_printf("return value: %s", ___expr___)
-                        debug_printf("output:\n%s\n===== EOF =====\n", string)
+                        # debug_printf("output:\n%s\n===== EOF =====\n", string)
                         ok = True
                 with env.let(id = id):
-                        with_calling_handlers(with_calling_handlers_body,
-                                              error = lambda cond: error_handler(cond, sldb_state, output = output))
+                        handler_bind(with_calling_handlers_body,
+                                     error = lambda cond: error_handler(cond, sldb_state, output = output))
         finally:
                 send_to_emacs(slime_connection, [intern(':return'),
                                                  ([intern(':ok'), value]
@@ -861,7 +864,7 @@ def make_sldb_state(condition, level, id):
                 return [f] + (unwind_frames(f.f_back) if f.f_back else [])
         top_frame = sys.exc_info()[2].tb_frame
         frames = unwind_frames(top_frame)
-        debug_printf("frames: %s", frames)
+        # debug_printf("frames: %s", frames)
         return SldbState(frames = frames,
                          restarts = [],
                          condition = condition,
@@ -1181,7 +1184,7 @@ def prin1_to_string(val):
 # }
 def print_to_string(val):
         # I insist, that this is a less stupid way.  Maybe I'm still wrong..
-        return with_output_to_string(lambda s: print(val, file = s))
+        return with_output_to_string(lambda s: print(val, file = s, end = ''))
 
 # `swank:connection-info` <- function (slimeConnection, sldbState) {
 #   list(quote(`:pid`), Sys.getpid(),
@@ -1427,13 +1430,25 @@ def swank_eval_string_in_frame(slime_connection, sldb_state, string, index):
 #                                           }))}),
 #        list())
 # }
+def make_frame():
+        def x(a):
+                b = 1
+                try:
+                        raise Exception("a: %s, b: %s", a, b)
+                except Exception as cond:
+                        return sys.exc_info()[2]
+        def y(c):
+                d = c + 1
+                return x(d)
+        return y(0)
+
 def swank_frame_locals_and_catch_tags(slime_connection, sldb_state, index):
         frame = sldb_state.frames[index + 1]
-        objs = ls(env = frame)
-        return [map(lambda name: [intern(':name'), name,
-                                  intern(':id'), 0,
-                                  intern(':value'), compute_value()],
-                    objs),
+        return [map_hash_table(lambda name, value: [intern(':name'), name,
+                                                    intern(':id'), 0,
+                                                    intern(':value'), handler_bind(lambda: print_to_string(value),
+                                                                                   error = lambda c: "Error printing object: %s." % c)],
+                               frame.f_locals),
                 []]
 
 # `swank:simple-completions` <- function(slimeConnection, sldbState, prefix, package) {
