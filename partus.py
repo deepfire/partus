@@ -10,8 +10,16 @@ from pergamum import *
 from more_ast import *
 
 import swank
-from swank import env, intern, symbolp, symbol_name
-from swank import t, nil
+from swank import env
+
+###
+### Potemkin shit.
+###
+def not_implemented(mesg):
+        raise Exception("ERROR: not implemented: " + mesg)
+def with_restarts(fn, **restarts):
+        # not_implemented("with_restarts()")
+        return fn()
 
 ###
 ### Load-code-object-as-module, the.
@@ -97,7 +105,7 @@ class SlimeConnection(servile): pass
 def main_loop(sock, file):
         with env.let(slime_connection = SlimeConnection(sock = sock, file = file, io = sock),
                      python_user      = load_code_object_as_module("python_user",
-                                                                   compile("from swank import *; from partus import env",
+                                                                   compile("import swank; from swank import env; import cl;",
                                                                            "PY-USER", "exec")),
                      partus_path      = os.getcwd()):
                 while True:

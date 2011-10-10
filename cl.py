@@ -109,8 +109,10 @@ def aref(xs, *indices):
         for i in indices:
                 r = r[i]
         return r
-def first(xs):    return xs[0]   # don't confuse with car/cdr
-def rest(xs):     return xs[1:]  # !!!
+def first(xs):        return xs[0]   # don't confuse with car/cdr
+def rest(xs):         return xs[1:]  # !!!
+
+def nth_value(n, xs): return xs[n]
 
 def subseq(xs, start, end = None):
         return xs[start:end] if end else  xs[start:]

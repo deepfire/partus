@@ -61,7 +61,7 @@ nil = intern("nil")
 ### Evaluation result.
 ###
 ___expr___ = None
-def swank_set_value(value):
+def set_value(value):
         global ___expr___
         ___expr___ = value
 def get_value():
@@ -155,19 +155,21 @@ def write_sexp_to_string(obj):
                                 string += ')'
                         elif symbolp(obj):
                                 string += symbol_name(obj)
-                        elif stringp(obj):
-                                string += '"%s"' % re.sub(r'(["\\])', r'\\\\1', obj)
                         elif integerp(obj) or floatp(obj):
                                 string += str(obj)
                         elif obj in obj2lisp_xform:
                                 string += obj2lisp_xform[obj]
                         elif type(obj).__name__ == 'builtin_function_or_method':
                                 string += '"#<builtin %s 0x%x>"' % (obj.__name__, id(obj))
+                        elif stringp(obj):
+                                string += r'"%s"' % re.sub(r'(["\\])', r'\\\\1', obj)
                         else:
                                 raise Exception("can't write object %s" % obj)
                         return string
                 return write_sexp_to_string_loop(obj)
-        return do_write_sexp_to_string(obj)
+        ret = do_write_sexp_to_string(obj)
+        debug_printf("===> %s", ret)
+        return ret
 
 # sendToEmacs <- function(slimeConnection, obj) {
 #  io <- slimeConnection$io
@@ -191,7 +193,7 @@ def send_to_emacs(slime_connection, obj):
 #                                            quote(`:name`), "R",
 #                                            quote(`:version`), paste(R.version$major, R.version$minor, sep=".")))
 # }
-def swank_connection_info(slime_connection, sldb_state):
+def connection_info(slime_connection, sldb_state):
         return [intern(":pid"),                 os.getpid(),
                 intern(":package"),             [intern(":name"), "python",
                                                  intern(":prompt"), "python>"],
@@ -208,7 +210,7 @@ def swank_connection_info(slime_connection, sldb_state):
 #   }
 #   list()
 # }
-def swank_swank_require(slime_connection, sldb_state, contribs):
+def swank_require(slime_connection, sldb_state, contribs):
         for contrib in contribs:
                 filename = "%s/%s.py" % (env.partus_path, str(contrib))
                 if os.path.exists(filename):
@@ -218,7 +220,7 @@ def swank_swank_require(slime_connection, sldb_state, contribs):
 # `swank:create-repl` <- function(slimeConnection, sldbState, env, ...) {
 #   list("R", "R")
 # }
-def swank_create_repl(slime_connection, sldb_state, env, *args):
+def create_repl(slime_connection, sldb_state, env, *args):
         return ["python", "python"]
 
 # `swank:listener-eval` <- function(slimeConnection, sldbState, string) {
@@ -256,8 +258,8 @@ def error_handler(c, sldb_state, output = None):
                 with_restarts(with_restarts_body,
                               abort = "return to sldb level %s" % str(new_sldb_state.level))
 
-def swank_listener_eval(slime_connection, sldb_state, string):
-        string = re.sub(r"#\.\(swank:lookup-presented-object-or-lose([^)]*)\)", r"swank_lookup_presented_object_or_lose(slime_connection, sldb_state,\\1))", string)
+def listener_eval(slime_connection, sldb_state, string):
+        string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"lookup_presented_object(slime_connection, sldb_state,\\1))", string)
         def eval_stage(name, fn):
                 try:
                         return fn()
@@ -269,7 +271,7 @@ def swank_listener_eval(slime_connection, sldb_state, string):
         if ast_ and ast_.body:
                 exprp = typep(ast_.body[0], ast.Expr)
                 if exprp:
-                        ast_.body[0] = ast_assign_var("", ast_funcall("swank_set_value", ast_.body[0].value))
+                        ast_.body[0] = ast_assign_var("", ast_funcall(ast_attribute(ast_name("swank"), "set_value"), ast_.body[0].value))
                 co = eval_stage("COMPILE", lambda: compile(ast.fix_missing_locations(ast_), "", 'exec'))
                 eval_stage("EXEC", lambda: exec(co, env.python_user.__dict__))
                 return [intern(":values")] + [str(___expr___)] if (ast_.body and exprp) else []
@@ -279,13 +281,13 @@ def swank_listener_eval(slime_connection, sldb_state, string):
 # `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
 #   "No Arglist Information"
 # }
-def swank_autodoc(slime_connection, sldb_state, raw_form, *args):
+def autodoc(slime_connection, sldb_state, raw_form, *args):
         return "No Arglist Information"
 
 # `swank:operator-arglist` <- function(slimeConnection, sldbState, op, package) {
 #   list()
 # }
-def swank_operator_arglist(slime_connection, sldb_state, op, package):
+def operator_arglist(slime_connection, sldb_state, op, package):
         return []
 
 # `swank:throw-to-toplevel` <- function(slimeConnection, sldbState) {
@@ -295,7 +297,7 @@ def swank_operator_arglist(slime_connection, sldb_state, op, package):
 # }
 class SwankTopLevel(Exception):
         pass
-def swank_throw_to_toplevel(slime_connection, sldb_state):
+def throw_to_toplevel(slime_connection, sldb_state):
         condition = SwankTopLevel("Throw to toplevel")
         raise condition
 
@@ -312,11 +314,17 @@ def swank_throw_to_toplevel(slime_connection, sldb_state):
 #                     }
 #                   })
 # }
-def swank_backtrace(slime_connection, sldb_state, from_ = 0, to = None):
+def backtrace(slime_connection, sldb_state, from_ = 0, to = None):
         frames = sldb_state.frames
         if nonep(to):
                 to = len(frames)
-        return list(enumerate(map(str, frames[from_ + 1:to]), from_))
+        longest = max(map(lambda f: len(f.f_code.co_filename), frames))
+        def pp_frame(f):
+                co = f.f_code
+                filename = co.co_filename or "<unknown-file>"
+                padding = " " * (longest - len(filename))
+                return "%s: %s(%s)" % (padding + filename, co.co_name, ", ".join(co.co_cellvars))
+        return list(enumerate(map(pp_frame, frames[from_ + 1:to]), from_))
 
 # computeRestartsForEmacs <- function (sldbState) {
 #   lapply(sldbState$restarts,
@@ -341,10 +349,10 @@ def compute_restarts_for_emacs(sldb_state):
 #        `swank:backtrace`(slimeConnection, sldbState, from, to),
 #        list(sldbState$id))
 # }
-def swank_debugger_info_for_emacs(slime_connection, sldb_state, from_ = 0, to = None):
+def debugger_info_for_emacs(slime_connection, sldb_state, from_ = 0, to = None):
         return [[str(sldb_state.condition), " [%s]" % type(sldb_state.condition).__name__, False],
                 compute_restarts_for_emacs(sldb_state),
-                swank_backtrace(slime_connection, sldb_state, from_, to),
+                backtrace(slime_connection, sldb_state, from_, to),
                 [sldb_state.id]]
 
 # `swank:invoke-nth-restart-for-emacs` <- function(slimeConnection, sldbState, level, n) {
@@ -352,7 +360,7 @@ def swank_debugger_info_for_emacs(slime_connection, sldb_state, from_ = 0, to = 
 #     invokeRestart(sldbState$restarts[[n+1]])
 #   }
 # }
-def swank_invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
+def invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
         if sldb_state.level == level:
                 return invoke_restart(sldb_state.restarts[n+1])
 
@@ -377,7 +385,7 @@ def swank_invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
 #          FALSE)
 #   }
 # }
-def swank_frame_source_location(slime_connection, sldb_state, n):
+def frame_source_location(slime_connection, sldb_state, n):
         frame = sldb_state.frames[n + 1]
         co = frame.f_code
         def co_nlines(co):
@@ -394,7 +402,7 @@ def swank_frame_source_location(slime_connection, sldb_state, n):
 # `swank:buffer-first-change` <- function(slimeConnection, sldbState, filename) {
 #   FALSE
 # }
-def swank_buffer_first_change(slime_connection, sldb_state, filename):
+def buffer_first_change(slime_connection, sldb_state, filename):
         return
 
 # `swank:eval-string-in-frame` <- function(slimeConnection, sldbState, string, index) {
@@ -403,7 +411,7 @@ def swank_buffer_first_change(slime_connection, sldb_state, filename):
 #                    value <- eval(parse(text=string), envir=frame))
 #   printToString(value)
 # }
-def swank_eval_string_in_frame(slime_connection, sldb_state, string, index):
+def eval_string_in_frame(slime_connection, sldb_state, string, index):
         frame = sldb_state.frames[index + 1]
         value = None
         def with_retry_restart_body():
@@ -439,7 +447,7 @@ def make_frame():
                 return x(d)
         return y(0)
 
-def swank_frame_locals_and_catch_tags(slime_connection, sldb_state, index):
+def frame_locals_and_catch_tags(slime_connection, sldb_state, index):
         frame = sldb_state.frames[index + 1]
         return [map_hash_table(lambda name, value: [intern(':name'), name,
                                                     intern(':id'), 0,
@@ -465,7 +473,7 @@ def swank_frame_locals_and_catch_tags(slime_connection, sldb_state, index):
 #     list(as.list(matches), longest)
 #   }
 # }
-def swank_simple_completions(slime_connection, sldb_state, prefix, package):
+def simple_completions(slime_connection, sldb_state, prefix, package):
         def literal2rx(string):
                 return re.sub("([.\\|()[{^$*+?])", "\\\\\\1", string)
         def grep(regex, strings):
@@ -519,7 +527,7 @@ def swank_simple_completions(slime_connection, sldb_state, prefix, package):
 #                abort="abort compilation")
 #   list(quote(`:compilation-result`), list(), TRUE, times[3], FALSE, FALSE)
 # }
-def swank_compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
+def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
         line_offset = char_offset = col_offset = None
         for pos in position:
                 if pos[0] is intern(':position'):
@@ -577,7 +585,7 @@ def with_retry_restart(fn, mesg = "Retry"):
 #     "# invisible value"
 #   }
 # }
-def swank_interactive_eval(slime_connection, sldb_state, string):
+def interactive_eval(slime_connection, sldb_state, string):
         tmp = None
         def with_retry_restart_body():
                 nonlocal tmp
@@ -599,7 +607,7 @@ def swank_interactive_eval(slime_connection, sldb_state, string):
 #     list(output, "# invisible value")
 #   }
 # }
-def swank_eval_and_grab_output(slime_connection, sldb_state, string):
+def eval_and_grab_output(slime_connection, sldb_state, string):
         output, tmp  = None, None
         def with_retry_restart_body():
                 nonlocal output
@@ -621,8 +629,8 @@ def swank_eval_and_grab_output(slime_connection, sldb_state, string):
 #     "# invisible value"
 #   }
 # }
-def swank_interactive_eval_region(slime_connection, sldb_state, string):
-        return swank_interactive_eval(slime_connection, sldb_state, string)
+def interactive_eval_region(slime_connection, sldb_state, string):
+        return interactive_eval(slime_connection, sldb_state, string)
 
 # `swank:find-definitions-for-emacs` <- function(slimeConnection, sldbState, string) {
 #   if(exists(string, envir = globalenv())) {
@@ -655,21 +663,21 @@ def swank_interactive_eval_region(slime_connection, sldb_state, string):
 #     list()
 #   }
 # }
-def swank_find_definitions_for_emacs(slime_connection, sldb_state, string):
+def find_definitions_for_emacs(slime_connection, sldb_state, string):
         pass
 
 # `swank:value-for-editing` <- function(slimeConnection, sldbState, string) {
 #   paste(deparse(eval(parse(text=string), envir = globalenv()), control="all"),
 #         collapse="\n", sep="")
 # }
-def swank_value_for_editing(slime_connection, sldb_state, string):
+def value_for_editing(slime_connection, sldb_state, string):
         pass
 
 # `swank:commit-edited-value` <- function(slimeConnection, sldbState, string, value) {
 #   eval(parse(text=sprintf("%s <- %s", string, value)), envir = globalenv())
 #   TRUE
 # }
-def swank_commit_edited_value(slime_connection, sldb_state, string, value):
+def commit_edited_value(slime_connection, sldb_state, string, value):
         pass
 
 # resetInspector <- function(slimeConnection) {
@@ -688,7 +696,7 @@ def reset_inspector(slime_connection):
 #                    })
 #   value
 # }
-def swank_init_inspector(slime_connection, sldb_state, string):
+def init_inspector(slime_connection, sldb_state, string):
         value = None
         def with_retry_restart_body():
                 nonlocal value
@@ -704,22 +712,22 @@ def swank_init_inspector(slime_connection, sldb_state, string):
 #   resetInspector(slimeConnection)
 #   FALSE
 # }
-def swank_quit_inspector(slime_connection, sldb_state):
+def quit_inspector(slime_connection, sldb_state):
         reset_inspector(slime_connection)
         return False
 
 # `swank:inspector-nth-part` <- function(slimeConnection, sldbState, index) {
 #   slimeConnection$istate$parts[[index]]
 # }
-def swank_inspector_nth_part(slime_connection, sldb_state, index):
+def inspector_nth_part(slime_connection, sldb_state, index):
         return slime_connection.istate.pargs[index]
 
 # `swank:inspect-nth-part` <- function(slimeConnection, sldbState, index) {
 #   object <- `swank:inspector-nth-part`(slimeConnection, sldbState, index)
 #   inspectObject(slimeConnection, object)
 # }
-def swank_inspect_nth_part(slime_connection, sldb_state, index):
-        object = swank_inspector_nth_parg(slime_connection, sldb_state, index)
+def inspect_nth_part(slime_connection, sldb_state, index):
+        object = inspector_nth_parg(slime_connection, sldb_state, index)
         return inspect_object(slime_connection, object)
 
 # `swank:inspector-pop` <- function(slimeConnection, sldbState) {
@@ -730,7 +738,7 @@ def swank_inspect_nth_part(slime_connection, sldb_state, index):
 #     FALSE
 #   }
 # }
-def swank_inspector_pop(slime_connection, sldb_state):
+def inspector_pop(slime_connection, sldb_state):
         if slime_connection.istate.previous:
                 slime_connection.istate = slime_connection.istate.previous
                 return istate_to_elisp(slime_connection.istate)
@@ -745,7 +753,7 @@ def swank_inspector_pop(slime_connection, sldb_state):
 #     FALSE
 #   }
 # }
-def swank_inspector_next(slime_connection, sldb_state):
+def inspector_next(slime_connection, sldb_state):
         if slime_connection.istate.next:
                 slime_connection.istate = slime_connection.istate.next
                 return istate_to_elisp(slime_connection.istate)
@@ -762,14 +770,14 @@ def swank_inspector_next(slime_connection, sldb_state):
 #     eval(expr, envir=globalenv())
 #   }
 # }
-def swank_inspector_eval(slime_connection, sldb_state, string):
+def inspector_eval(slime_connection, sldb_state, string):
         pass
 
 # `swank:inspect-current-condition` <- function(slimeConnection, sldbState) {
 #   resetInspector(slimeConnection)
 #   inspectObject(slimeConnection, sldbState$condition)
 # }
-def swank_inspect_current_condition(slime_connection, sldb_state):
+def inspect_current_condition(slime_connection, sldb_state):
         reset_inspector(slime_connection)
         return inspect_object(slime_connection, sldb_state.condition)
 
@@ -780,7 +788,7 @@ def swank_inspect_current_condition(slime_connection, sldb_state):
 #   object <- get(name, envir=frame)
 #   inspectObject(slimeConnection, object)
 # }
-def swank_inspect_frame_var(slime_connection, sldb_state, frame, var):
+def inspect_frame_var(slime_connection, sldb_state, frame, var):
         reset_inspector(slime_connection)
         frame = sldb_state.frames[frame + 1]
         name = ls(env = frame)[var + 1]
@@ -790,22 +798,22 @@ def swank_inspect_frame_var(slime_connection, sldb_state, frame, var):
 # `swank:default-directory` <- function(slimeConnection, sldbState) {
 #   getwd()
 # }
-def swank_default_directory(slime_connection, sldb_state):
+def default_directory(slime_connection, sldb_state):
         return os.getcwd()
 
 # `swank:set-default-directory` <- function(slimeConnection, sldbState, directory) {
 #   setwd(directory)
 #   `swank:default-directory`(slimeConnection, sldbState)
 # }
-def swank_set_default_directory(slime_connection, sldb_state, directory):
+def set_default_directory(slime_connection, sldb_state, directory):
         os.chdir(directory)
-        return swank_default_directory(slime_connection, sldb_state)
+        return default_directory(slime_connection, sldb_state)
 
 # `swank:load-file` <- function(slimeConnection, sldbState, filename) {
 #   source(filename, local=FALSE, keep.source=TRUE)
 #   TRUE
 # }
-def swank_load_file(slime_connection, sldb_state, filename):
+def load_file(slime_connection, sldb_state, filename):
         exec(filename.co)
         return True
 
@@ -819,17 +827,17 @@ def swank_load_file(slime_connection, sldb_state, filename):
 #   }
 #   list(quote(`:compilation-result`), list(), TRUE, times[3], substitute(loadp), filename)
 # }
-def swank_compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, *args):
+def compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, *args):
         import ast
         filename.co, time = clocking(lambda: compile(filename.name, filename.src))
         if loadp:
-                swank_load_file(slime_connection, sldb_state, filename)
+                load_file(slime_connection, sldb_state, filename)
         return [intern(':compilation-result'), [], True, time, substitute(loadp), filename]
 
 # `swank:quit-lisp` <- function(slimeConnection, sldbState) {
 #   quit()
 # }
-def swank_quit_lisp(slime_connection, sldb_state):
+def quit_lisp(slime_connection, sldb_state):
         exit()
 
 ###
@@ -854,9 +862,16 @@ def swank_quit_lisp(slime_connection, sldb_state):
 #  }
 # }
 def pythonise_lisp_name(x):
-        ret = re.sub("[:\\-]", "_", x).lower()
-        debug_printf("pythonising Lisp name: %s -> %s", x, ret)
+        ret = re.sub("[\\-]", "_", x).lower().split(":")
+        debug_printf("==> Python(Lisp %s) == %s", x, ret)
         return ret
+
+def lisp_name_ast(x):
+        def rec(x):
+                return (ast_name(x[0])
+                        if len(x) == 1 else
+                        ast_attribute(rec(x[:-1]), x[-1]))
+        return rec(pythonise_lisp_name(x))
 
 def constantp(x):
         return type(x) in set([str, int])
@@ -876,12 +891,12 @@ def callify(form, quoted = False):
                                 if listp(form[1]) else
                                 callify(form[1], quoted = True))
                 else:
-                        return ast_funcall(pythonise_lisp_name(symbol_name(form[0])),
+                        return ast_funcall(lisp_name_ast(symbol_name(form[0])),
                                            ast_attribute(ast_name("env"), "slime_connection"),
                                            ast_attribute(ast_name("env"), "sldb_state"),
                                            *map(callify, form[1:]))
         elif symbolp(form):
-                return (ast_funcall("intern", symbol_name(form))
+                return (ast_funcall(ast_attribute(ast_name("swank"), "intern"), symbol_name(form))
                         if quoted or (symbol_name(form)[0] == ":") else
                         ast_name(symbol_name(form)))
         elif constantp(form):
@@ -936,7 +951,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         try:
                                 call = ast.fix_missing_locations(ast_module(
                                                 [# ast_import_from("partus", ["*"]),
-                                                 ast_assign_var("", ast_funcall("swank_set_value", callify(form))),
+                                                 ast_assign_var("", ast_funcall(ast_attribute(ast_name("swank"), "set_value"), callify(form))),
                                                  ]))
                         except Exception as cond:
                                 send_abort(cond, "failed to callify: %s", cond)
@@ -1213,13 +1228,13 @@ def read_packet(sock, file):
 def sldb_loop(slime_connection, sldb_state, id_):
         try:
                 io = slime_connection.io
-                send_to_emacs(slime_connection, [intern(':debug'), id_, sldb_state.level] + swank_debugger_info_for_emacs(slime_connection, sldb_state))
+                send_to_emacs(slime_connection, [intern(':debug'), id_, sldb_state.level] + debugger_info_for_emacs(slime_connection, sldb_state))
                 send_to_emacs(slime_connection, [intern(':debug-activate'), id_, sldb_state.level, False])
                 while True:
                         dispatch(slime_connection, read_packet(slime_connection.sock, slime_connection.file), sldb_state)
         except Exception as cond:
                 print_backtrace()
-                debug_printf("got X %s", cond)
+                debug_printf("===( SLDB got X: %s", cond)
         finally:
                 send_to_emacs(slime_connection, [intern(':debug-return'), id_, sldb_state.level, False])
 
