@@ -245,6 +245,9 @@ def printf(format_control, *format_args):
 def fprintf(stream, format_control, *format_args):
         print(format_control % format_args, file = stream, end = '')
 
+def debug_printf(format_control, *format_args):
+        fprintf(sys.stderr, format_control + "\n", *format_args)
+
 def astp(x):              return typep(x, ast.AST)
 #
 #
@@ -413,7 +416,7 @@ def pp_ast(o):
                 def lmesg(msg):
                         lstr[0] += msg
                         if msg[-1] == "\n"[0]:
-                                fprintf(sys.stderr, "%s\n", lstr[0][:-1])
+                                debug_printf("%s", lstr[0][:-1])
                                 lstr[0] = ""
                 def pp_prefix(spec):
                         for i in spec:
@@ -488,12 +491,12 @@ def with_output_redirection(fn, file = None):
 import traceback
 def print_backtrace():
         exc_type, exc_value, _ = sys.exc_info()
-        fprintf(sys.stderr, "%s: %s\n", str(exc_type), str(exc_value))
+        debug_printf("%s: %s", str(exc_type), str(exc_value))
         for line in traceback.format_exc().splitlines():
-                fprintf(sys.stderr, "%s\n", line)
+                debug_printf("%s", line)
 
 def warning(str, *args):
-        fprintf(sys.stderr, str + "\n", *args)
+        debug_printf(str + "\n", *args)
 
 def case(val, *clauses):
         for (cval, result) in clauses:
@@ -587,16 +590,16 @@ def accept_connections(port, port_file):
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(('', port))
         s.listen(0)
-        printf("waiting for clients..")
+        debug_printf("waiting for clients..")
         c, a = s.accept()
-        printf("serving connection from %s", a)
+        debug_printf("serving connection from %s", a)
         serve(c, c.makefile(mode = "rw"))
 
 # serve <- function(io) {
 #  mainLoop(io)
 # }
 def serve(sock, file):
-        printf("serve: sock = %s, file = %s", sock, file)
+        debug_printf("serve: sock = %s, file = %s", sock, file)
         main_loop(sock, file)
 
 # mainLoop <- function(io) {
@@ -651,7 +654,7 @@ def send_to_emacs(slime_connection, obj):
         payload = write_sexp_to_string(obj)
         print("%06x" % len(payload), file = file, end = '')
         print(payload,               file = file, end = '')
-        fprintf(sys.stderr, "-> %06x %s\n", len(payload), payload)
+        debug_printf("-> %06x %s", len(payload), payload)
         file.flush()
 
 # callify <- function(form) {
@@ -674,7 +677,7 @@ def send_to_emacs(slime_connection, obj):
 # }
 def pythonise_lisp_name(x):
         ret = re.sub("[:\\-]", "_", x).lower()
-        fprintf(sys.stderr, "pythonising Lisp name: %s -> %s\n", x, ret)
+        debug_printf("pythonising Lisp name: %s -> %s", x, ret)
         return ret
 
 def constantp(x):
@@ -692,7 +695,7 @@ obj2lisp_xform = {
         True  : "t",
         }
 def callify(form, quoted = False):
-        fprintf(sys.stderr, "CALLIFY %s\n", form)
+        debug_printf("CALLIFY %s", form)
         if listp(form):
                 if quoted or (form[0] is intern('quote')):
                         return (ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
@@ -777,7 +780,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         nonlocal condition
                         writeurn_output(output)
                         condition = cond
-                        fprintf(sys.stderr, "ERROR: " + mesg, *args)
+                        debug_printf("ERROR:" + mesg, *args)
                         raise cond
                 def with_calling_handlers_body():
                         nonlocal ok, value
@@ -788,18 +791,18 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                                                  ]))
                         except Exception as cond:
                                 give_up(cond, "failed to callify: %s", cond)
-                        printf("compiling %s", call)
+                        debug_printf("compiling %s", call)
                         pp_ast(call)
                         try:
                                 code = compile(call, '', 'exec')
                         except Exception as cond:
                                 give_up(cond, "failed to compile: %s", cond)
-                        printf("executing..")
+                        debug_printf("executing..")
                         with_output_redirection(lambda: exec(code, python_user.__dict__), file = output)
                         value = ___expr___
                         string = writeurn_output(output)
-                        printf("return value: %s", ___expr___)
-                        printf("output:\n%s\n===== EOF =====\n", string)
+                        debug_printf("return value: %s", ___expr___)
+                        debug_printf("output:\n%s\n===== EOF =====\n", string)
                         ok = True
                 with_calling_handlers(with_calling_handlers_body,
                                       error = lambda cond: error_handler(cond, output = output))
@@ -825,7 +828,7 @@ def make_sldb_state(condition, level, id):
                 return [f] + (unwind_frames(f.f_back) if f.f_back else [])
         top_frame = sys.exc_info()[2].tb_frame
         frames = unwind_frames(top_frame)
-        fprintf(sys.stderr, "frames: %s\n", frames)
+        debug_printf("frames: %s", frames)
         return SldbState(frames = frames,
                          restarts = [],
                          condition = condition,
@@ -851,7 +854,7 @@ def sldb_loop(slime_connection, sldb_state, id_):
                         dispatch(slime_connection, read_packet(slime_connection.sock, slime_connection.file), sldb_state)
         except Exception as cond:
                 print_backtrace()
-                fprintf(sys.stderr, "got X %s\n", cond)
+                debug_printf("got X %s", cond)
         finally:
                 send_to_emacs(slime_connection, [intern(':debug-return'), id_, sldb_state.level, False])
 
@@ -867,7 +870,7 @@ def read_packet(sock, file):
         header = read_chunk(file, 6)
         len = int(header, 16)
         payload = read_chunk(file, len)
-        printf("<- %s %s", header, payload)
+        debug_printf("<- %s %s", header, payload)
         return read_sexp_from_string(payload)
                 
 # readChunk <- function(io, len) {
@@ -907,7 +910,7 @@ def read_sexp_from_string(string):
         def read():
                 skip_whitespace()
                 char = string[pos]
-                # printf("read(#\\%s :: '%s')", char, string[pos + 1:])
+                # debug_printf("read(#\\%s :: '%s')", char, string[pos + 1:])
                 if   char == "(":  obj = read_list()
                 elif char == "\"": obj = read_string()
                 elif char == "'":  obj = read_quote()
@@ -917,7 +920,7 @@ def read_sexp_from_string(string):
                         obj = read_number_or_symbol()
                         if obj == ".":
                                 error("Consing dot not implemented")
-                # printf("read(): returning %s", obj)
+                # debug_printf("read(): returning %s", obj)
                 return obj
 #   skipWhitespace <- function() {
 #     while(substr(string, pos, pos) %in% c(" ", "\t", "\n")) {
@@ -962,7 +965,7 @@ def read_sexp_from_string(string):
                                 if not listp(obj) and obj is intern("."):
                                         error("Consing dot not implemented")
                                 ret += [obj]
-                # printf("read_list(): returning %s", ret)
+                # debug_printf("read_list(): returning %s", ret)
                 return ret
 #   readString <- function() {
 #     ret <- ""
@@ -1003,7 +1006,7 @@ def read_sexp_from_string(string):
                                         error("Unrecognized escape character")
                         else:
                                 add_char(char)
-                # printf("read_string(): returning %s", ret)
+                # debug_printf("read_string(): returning %s", ret)
                 return ret
 #   readNumberOrSymbol <- function() {
 #     token <- readToken()
@@ -1040,7 +1043,7 @@ def read_sexp_from_string(string):
                                 ret = False
                         else:
                                 ret = name
-                # printf("read_number_or_symbol(): returning %s", ret)
+                # debug_printf("read_number_or_symbol(): returning %s", ret)
                 return ret
 #   readToken <- function() {
 #     token <- ""
@@ -1069,10 +1072,10 @@ def read_sexp_from_string(string):
                         else:
                                 token += char
                                 pos += 1
-                # printf("read_token(): returning %s", token)
+                # debug_printf("read_token(): returning %s", token)
                 return token
         ret = read()
-        fprintf(sys.stderr, "got remote SEXP: %s\n", ret)
+        debug_printf("got remote SEXP: %s", ret)
         return ret
 #   read()
 # }
@@ -1103,7 +1106,7 @@ def read_sexp_from_string(string):
 #   writeSexpToStringLoop(obj)
 # }
 def write_sexp_to_string(obj):
-        fprintf(sys.stderr, "write_sexp_to_string: %s\n", obj)
+        debug_printf("write_sexp_to_string: %s", obj)
         def do_write_sexp_to_string(obj):
                 string = ""
                 def write_sexp_to_string_loop(obj):
