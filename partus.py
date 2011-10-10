@@ -14,52 +14,6 @@ from swank import env, intern, symbolp, symbol_name
 from swank import t, nil
 
 ###
-### Not implemented.
-###
-def not_implemented(mesg):
-        raise Exception("ERROR: not implemented: " + mesg)
-def with_restarts(fn, **restarts):
-        # not_implemented("with_restarts()")
-        return fn()
-def eval_in_frame(expr, env):
-        not_implemented("eval_in_frame()")
-        return eval(expr)
-def compute_restarts(condition):
-        not_implemented("compute_restarts()")
-        return []
-def invoke_restart(restart):
-        not_implemented("invoke_restart()")
-def restart_description(restart):
-        not_implemented("restart_description()")
-        return ""
-def with_visible(fn):
-        not_implemented("with_visible()")
-        return fn()
-def parse(str):
-        not_implemented("parse()")
-        return None
-def deparse(expr):
-        not_implemented("deparse()")
-        return None
-def ls(env = None):
-        not_implemented("ls()")
-        return []
-def new_env():
-        not_implemented("new_env()")
-def env_get(name, env = None):
-        not_implemented("env_get()")
-        return None
-def apropos(string):
-        not_implemented("apropos()")
-        return []
-def substitute(expr):
-        not_implemented("substitute()")
-        return expr
-def load_file(filename):
-        not_implemented("load_file()")
-        return True
-
-###
 ### Load-code-object-as-module, the.
 ###
 import imp
