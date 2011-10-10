@@ -17,7 +17,10 @@ def restart_description(restart):
 def with_calling_handlers(fn, error = lambda c: None):
         "HANDLER-BIND"
         # not_implemented("with_calling_handlers()")
-        return fn()
+        try:
+                return fn()
+        except Exception as cond:
+                return error(cond)
 def with_visible(fn):
         not_implemented("with_visible()")
         return fn()
@@ -529,6 +532,32 @@ def tuplep(o):            return type(o) is tuple
 def sequencep(x):         return getattr(type(x), '__len__', None) is not None
 def astp(x):              return typep(x, ast.AST)
 def code_object_p(x):     return type(x) is type(code_object_p.__code__)
+##
+_stack = []
+
+class _env_block(object):
+    def __init__(self, kwargs):
+        self.kwargs = kwargs
+    def __enter__(self):
+        _stack.append(self.kwargs)
+    def __exit__(self, t, v, tb):
+        _stack.pop()
+
+class _dynamic_scope(object):
+    "Courtesy of Jason Orendorff."
+    def __getattr__(self, name):
+        for scope in reversed(_stack):
+            if name in scope:
+                return scope[name]
+        raise AttributeError("Special %s not bound." % name)
+    def let(self, **kwargs):
+        return _env_block(kwargs)
+    def __setattr__(self, name, value):
+        raise AttributeError("Env variables can only be set using `with env.let()`.")
+
+env = _dynamic_scope()
+
+
 ## conditions
 def error(datum, *args):
         raise Exception(datum % args) if stringp(datum) else datum(*args)
@@ -759,16 +788,19 @@ def writeurn_output(output):
                 # send_to_emacs(slime_connection, [intern(':write-string'), "\n"])
         return string
 
-def error_handler(c, output = None):
+def error_handler(c, sldb_state, output = None):
         global condition
         condition = c
+        debug_printf("===( e-ha %s, sldb_state: %s", c, sldb_state)
         if output:
                 writeurn_output(output)
-        new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, id)
-        def with_restarts_body():
-                return sldb_loop(slime_connection, new_sldb_state, id)
-        with_restarts(with_restarts_body,
-                      abort = "return to sldb level %s" % str(new_sldb_state.level))
+        new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, env.id)
+        with env.let(sldb_state = new_sldb_state):
+                debug_printf("===( e-ha %s, new_sldb_state: %s", c, new_sldb_state)
+                def with_restarts_body():
+                        return sldb_loop(slime_connection, new_sldb_state, env.id)
+                with_restarts(with_restarts_body,
+                              abort = "return to sldb level %s" % str(new_sldb_state.level))
 
 def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
         ok = False
@@ -776,7 +808,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
         condition = intern('nil')
         output = make_string_output_stream()
         try:
-                def give_up(cond, mesg, *args):
+                def send_abort(cond, mesg, *args):
                         nonlocal condition
                         writeurn_output(output)
                         condition = cond
@@ -790,13 +822,13 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                                                  ast_assign_var("", ast_funcall("swank_set_value", callify(form))),
                                                  ]))
                         except Exception as cond:
-                                give_up(cond, "failed to callify: %s", cond)
+                                send_abort(cond, "failed to callify: %s", cond)
                         debug_printf("compiling %s", call)
                         pp_ast(call)
                         try:
                                 code = compile(call, '', 'exec')
                         except Exception as cond:
-                                give_up(cond, "failed to compile: %s", cond)
+                                send_abort(cond, "failed to compile: %s", cond)
                         debug_printf("executing..")
                         with_output_redirection(lambda: exec(code, python_user.__dict__), file = output)
                         value = ___expr___
@@ -804,8 +836,9 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         debug_printf("return value: %s", ___expr___)
                         debug_printf("output:\n%s\n===== EOF =====\n", string)
                         ok = True
-                with_calling_handlers(with_calling_handlers_body,
-                                      error = lambda cond: error_handler(cond, output = output))
+                with env.let(id = id):
+                        with_calling_handlers(with_calling_handlers_body,
+                                              error = lambda cond: error_handler(cond, sldb_state, output = output))
         finally:
                 send_to_emacs(slime_connection, [intern(':return'),
                                                  ([intern(':ok'), value]
@@ -1225,16 +1258,23 @@ send_repl_result_function = send_repl_result
 #   list}()
 def swank_listener_eval(slime_connection, sldb_state, string):
         string = re.sub(r"#\.\(swank:lookup-presented-object-or-lose([^)]*)\)", r"swank_lookup_presented_object_or_lose(slime_connection, sldb_state,\\1))", string)
-        ast_ = ast.parse(string)
-        if ast_.body:
+        def eval_stage(name, fn):
+                try:
+                        return fn()
+                except Exception as cond:
+                        debug_printf("===( LISTENER %s: %s, sldb state: %s", name, cond, sldb_state)
+                        error_handler(cond, sldb_state)
+                        return None
+        ast_ = eval_stage("PARSE", lambda: ast.parse(string))
+        if ast_ and ast_.body:
                 exprp = typep(ast_.body[0], ast.Expr)
                 if exprp:
                         ast_.body[0] = ast_assign_var("", ast_funcall("swank_set_value", ast_.body[0].value))
-                try:
-                        exec(compile(ast.fix_missing_locations(ast_), "", 'exec'), python_user.__dict__)
-                except Exception as cond:
-                        error_handler(cond)
-        return [intern(":values")] + [str(___expr___)] if (ast_.body and exprp) else []
+                co = eval_stage("COMPILE", lambda: compile(ast.fix_missing_locations(ast_), "", 'exec'))
+                eval_stage("EXEC", lambda: exec(co, python_user.__dict__))
+                return [intern(":values")] + [str(___expr___)] if (ast_.body and exprp) else []
+        else:
+                return [intern(":values")]
 
 # `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
 #   "No Arglist Information"
