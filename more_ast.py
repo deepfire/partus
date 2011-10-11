@@ -12,14 +12,13 @@ import sys
 from functools import reduce
 
 from cl         import typep, null, listp, integerp, floatp, boolp, sequencep, stringp, mapcar, mapc,\
-                       remove_if, sort, car, identity, every
+                       remove_if, sort, car, identity, every, find, with_output_to_string
 from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, tuplep
 from neutrality import py3p, fprintf
 
 
 def extract_ast(source, filename='<virtualitty>'):
     return compile(source, filename, 'exec', flags=ast.PyCF_ONLY_AST)
-
 
 def extract_symtable(source, filename):
     return symtable.symtable(source, filename, 'exec')
@@ -41,6 +40,9 @@ def module_ast_function_p(x):
 
 # predicates
 def ast_string_p(x):            return typep(x, ast.Str)
+def ast_dict_p(x):              return typep(x, ast.Dict)
+def ast_list_p(x):              return typep(x, ast.List)
+def ast_tuple_p(x):             return typep(x, ast.Tuple)
 def ast_num_p(x):               return typep(x, ast.Num)
 def ast_name_p(x):              return typep(x, ast.Name)
 def ast_string_equalp(x, s):    return ast_string_p(x) and x.s == s
@@ -51,15 +53,19 @@ def ast_import_p(x):            return typep(x, ast.Import)
 def ast_import_from_p(x):       return typep(x, ast.ImportFrom)
 def ast_import_maybe_from_p(x): return ast_import_p(x) or ast_import_from_p(x)
 def ast_expr_p(x):              return typep(x, ast.Expr)
+def ast_expression_p(x):        return typep(x, ast.Expression)
 def ast_call_p(x):              return typep(x, ast.Call)
+def ast_subscript_p(x):         return typep(x, ast.Subscript)
 def ast_attribute_p(x):         return typep(x, ast.Attribute)
 def ast_keyword_p(x):           return typep(x, ast.keyword)
+def ast_slice_p(x):             return typep(x, ast.Slice)
+def ast_extslice_p(x):          return typep(x, ast.ExtSlice)
+def ast_index_p(x):             return typep(x, ast.Index)
 
 # top-levels
 def ast_module(body):
     assert listp(body) and all(mapcar(astp, body))
     return ast.Module(body=body, lineno=0)
-
 
 def ast_def(name, args, *body):
     filtered_body = remove_if(null, body)
@@ -77,13 +83,12 @@ def ast_def(name, args, *body):
     return ast.FunctionDef(name=name, decorator_list=[], args=ast_args, body=filtered_body, returns=None)
 
 
-# expressions
+## expressions
 def ast_bytes(bs):
     if not bytesp(bs):
         mesg('ast_bytes(), not an immutable byte vector: %s', str(bs))
     assert bytesp(bs)
     return ast.Bytes(s=bs)
-
 
 def ast_string(s):
     if not stringp(s):
@@ -91,56 +96,44 @@ def ast_string(s):
     assert stringp(s)
     return ast.Str(s=s)
 
-
 def ast_num(n):
     assert integerp(n)
     return ast.Num(n=n)
 
-
 def ast_rw(writep):
     return (ast.Store() if writep else ast.Load())
-
 
 def ast_name(name, writep=False):
     assert stringp(name)
     return ast.Name(id=name, ctx=ast_rw(writep))
 
-
 def ast_arg(name):
     assert stringp(name)
     return ast.Name(arg=name, ctx=ast.Param())
-
 
 def ast_alias(name):
     assert stringp(name)
     return ast.alias(name=name, asname=None)
 
-
 def ast_list(xs):
     assert listp(xs) and all(mapcar(astp, xs))
     return ast.List(elts=xs, ctx=ast.Load())
-
 
 def ast_tuple(xs, writep=False):
     assert listp(xs) and all(mapcar(astp, xs))
     return ast.Tuple(elts=xs, ctx=ast_rw(writep))
 
-
 def ast_dict(keys, values):
     return ast.Dict(keys=keys, values=values)
-
 
 def ast_attribute(x, name, writep=False):
     return ast.Attribute(attr=name, value=x, ctx=ast_rw(writep))
 
-
 def ast_index(of, index, writep=False):
     return ast.Subscript(value=of, slice=ast.Index(value=index), ctx=(ast.Store() if writep else ast.Load()))
 
-
 def ast_maybe_normalise_string(x):
     return (ast_string(x) if stringp(x) else x)
-
 
 def ast_funcall(name, *args):
     if not all(mapcar(lambda x: stringp(x) or astp(x) or x is None, args)):
@@ -151,11 +144,10 @@ def ast_funcall(name, *args):
                     starargs=None,
                     kwargs=None)
 
-
 def ast_func_name(x):
     if typep(x, ast.Name):
         return x.id
-    elif typep(x, ast.Subscript):
+    elif ast_subscript_p(x):
         return ast_func_name(x.value) + '[' + ast_func_name(x.slice.value) + ']'
     elif typep(x, ast.Attribute):
         return ast_func_name(x.value) + '.' + x.attr
@@ -163,60 +155,53 @@ def ast_func_name(x):
         return '<unhandled>'
 
 
-# statements
+## statements
 def astlist_prog(*body):
     """WARNING: not an actual node, returns a list!"""
     return remove_if(null, body) or [ast.Pass()]
-
 
 def ast_return(node):
     assert astp(node)
     return ast.Return(value=node)
 
-
 def ast_expr(node):
     assert astp(node)
     return ast.Expr(value=node)
 
+def ast_expression(node):
+    assert astp(node)
+    return ast.Expression(body=node)
 
 def ast_import(*names):
     assert all(mapcar(stringp, names))
     return ast.Import(names=mapcar(ast_alias, names))
 
-
 def ast_import_all_from(name):
     assert stringp(name)
     return ast.ImportFrom(module=name, names=[ast.alias(name='*', asname=None)], level=0)
-
 
 def ast_import_from(module_name, names):
     assert stringp(module_name)
     assert listp(names) and all(mapcar(stringp, names))
     return ast.ImportFrom(module=module_name, names=mapcar(ast_alias, names), level=0)
 
-
 def ast_assign(to, value):
     assert listp(to) and all(mapcar(astp, to)) and astp(value)
     return ast.Assign(value=value, targets=to)
-
 
 def ast_assign_var(name, value):
     assert stringp(name) and (integerp(value) or stringp(value) or astp(value))
     return ast.Assign(value=value, targets=[ast_name(name, True)])
 
-
 def ast_append_var(name, value):
     assert stringp(name) and (stringp(value) or astp(value))
     return ast.AugAssign(value=value, target=ast_name(name, True), op=ast.Add())
 
-
 def ast_when(test, *body):
     return ast.If(test=test, body=remove_if(null, body), orelse=[])
 
-
 def ast_unless(test, *body):
     return ast.If(test=test, body=[], orelse=remove_if(null, body))
-
 
 def ast_try_except(body, except_handlers, *else_body):
     return ast.TryExcept(body=remove_if(null, body),
@@ -225,12 +210,11 @@ def ast_try_except(body, except_handlers, *else_body):
                                                      body=remove_if(null, xhandler_body)) for (xtype, xname, xhandler_body) in except_handlers],
                          orelse=remove_if(null, else_body))
 
-
 def ast_print(*strings):
     return ast_expr(ast_funcall('print', *strings))
 
 
-# validation
+## validation
 def ast_invalid_p(x, checks):
     """Perform a series of AST CHECKS on X.  If all is well, return None, otherwise, return an explanation."""
 
@@ -238,7 +222,6 @@ def ast_invalid_p(x, checks):
         result = check[0](x)
         if not result:
             return check[1] % check[2:]
-
 
 def ast_fqn_p(x):
     if typep(x, ast.Name):
@@ -248,7 +231,6 @@ def ast_fqn_p(x):
         return (rec + (x.attr, ) if rec else False)
     else:
         return False
-
 
 def pp_ast(o, stream = sys.stdout):
     """Pretty-print AST O."""
@@ -304,7 +286,71 @@ def pp_ast(o, stream = sys.stdout):
     do_pp_ast_rec(o, '', [])
     return o
 
+def pp_ast_as_code(x):
+        def iterate(xs):
+                return mapcar(pp_ast_as_code, xs)
+        def pp_call(x):
+                return "%s(%s%s%s%s)" % (pp_ast_as_code(x.func),
+                                         ", ".join(iterate(x.args)),
+                                         ", ".join(iterate(x.keywords)),
+                                         (", *%s" % pp_ast_as_code(x.starargs)) if x.starargs else "",
+                                         (", **%s" % pp_ast_as_code(x.kwargs)) if x.kwargs else "")
+        def pp_attribute(x):
+                return "%s.%s" % (pp_ast_as_code(x.value), x.attr)
+        def pp_name(x):
+                return x.id
+        def pp_assign(x):
+                return "%s = %s" % (", ".join(iterate(x.targets)),
+                                    pp_ast_as_code(x.value))
+        def pp_keyword(x):
+                return "%s = %s" % (x.arg, pp_ast_as_code(x.value))
+        def pp_subscript(x):
+                return "%s[%s]" % (pp_ast_as_code(x.expr),
+                                   pp_ast_as_code(x.slice))
+        def pp_index(x):
+                return "%s" % pp_ast_as_code(x.expr)
+        def pp_slice(x):
+                l, u, s = x.lower or "", x.upper or "", x.step
+                if x.step:
+                        return "%s:%s:%s" % tuple(iterate((l, u, s)))
+                else:
+                        return "%s:%s" % tuple(iterate((l, u)))
+        def pp_iterable(x):
+                l, r = { ast.List: ("[", "]"), ast.Tuple: ("(", ")"), ast.Set: ("{", "}"), ast.Dict: ("{", "}"), } [type(x)]
+                return "%s %s%s %s" % (l,
+                                     ", ".join(iterate(x.elts)
+                                               if not ast_dict_p(x) else
+                                               mapcar(lambda k, v: "%s: %s" % (k, v),
+                                                      x.keys,
+                                                      x.values)),
+                                     "," if (ast_tuple_p(x) and len(x.elts) == 1) else "",
+                                     r)
+        def pp_string(x):
+                q = "'''" if find("\n", x.s) else "'"
+                val = with_output_to_string(lambda s: print(x.s, file = s, end = ""))
+                return q + val + q
+        def pp_module(x):
+                return "\n".join(iterate(x.body))
+        map = { ast.Module:    pp_module,
+                ast.Call:      pp_call,
+                ast.Attribute: pp_attribute,
+                ast.Name:      pp_name,
+                ast.Assign:    pp_assign,
+                ast.keyword:   pp_keyword,
+                ast.Subscript: pp_subscript,
+                ast.Index:     pp_index,
+                ast.Slice:     pp_slice,
+                ast.List:      pp_iterable,
+                ast.Tuple:     pp_iterable,
+                ast.Set:       pp_iterable,
+                ast.Dict:      pp_iterable,
+                ast.Str:       pp_string,
+                }
+        def fail(x): raise Exception("Cannot pretty-print AST node %s." % x)
+        return map.get(type(x), fail)(x)
 
+
+## symbols
 symbol_attributes = [
     'referenced',
     'assigned',
@@ -317,10 +363,8 @@ symbol_attributes = [
     'namespace',
     ]
 
-
 def pp_symbol(o):
     mesg("   symbol '" + o.get_name() + "': %s", reduce(lambda x, y: x + ((' ' + y if getattr(o, 'is_' + y)() else '')), symbol_attributes, ''))
-
 
 def pp_symtable(o):
     symtab_attributes = [
@@ -341,14 +385,12 @@ def pp_symtable(o):
          + str(getattr(o, y)()), attributes, ''))
     mapc(pp_symbol, o.get_symbols())
 
-
 def totalise_symtable(symtab):
     return ascend_tree(lambda x, *xs: reduce(multiset_appendf, xs, multiset(x.get_symbols(), symtable.Symbol.get_name)),
                        symtab,
                        key=identity,
                        children=lambda x: x.get_children() or [],
                        leafp=lambda l: not l.has_children())
-
 
 def sym_bound_p(s):
     return s.is_parameter or s.is_assigned

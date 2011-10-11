@@ -957,14 +957,14 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                 def with_calling_handlers_body():
                         nonlocal ok, value
                         try:
+                                expr = callify(form)
                                 call = ast.fix_missing_locations(ast_module(
                                                 [# ast_import_from("partus", ["*"]),
-                                                 ast_assign_var("", ast_funcall(ast_attribute(ast_name("swank"), "set_value"), callify(form))),
+                                                 ast_assign_var("", ast_funcall(ast_attribute(ast_name("swank"), "set_value"), expr)),
                                                  ]))
                         except Exception as cond:
                                 send_abort(cond, "failed to callify: %s", cond)
-                        debug_printf("compiling %s", call)
-                        pp_ast(call, stream = sys.stderr)
+                        debug_printf("==========( COMPILE-AST\n%s\n", pp_ast_as_code(expr))
                         try:
                                 code = compile(call, '', 'exec')
                         except Exception as cond:
@@ -1203,7 +1203,7 @@ def read_sexp_from_string(string):
                 # debug_printf("read_token(): returning %s", token)
                 return token
         ret = read()
-        debug_printf("got remote SEXP: %s", ret)
+        debug_printf("==============( REMOTE SEXP:\n%s\n", ret)
         return ret
 #   read()
 # }
