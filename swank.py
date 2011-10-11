@@ -54,8 +54,14 @@ def intern(x):
         else:
                 syms[X] = symbol(X)
                 return syms[X]
+
+###
+### Globals.
+###
 t   = intern("t")
 nil = intern("nil")
+
+partus_version = "2011-09-28"
 
 ###
 ### Evaluation result.
@@ -195,8 +201,10 @@ def send_to_emacs(slime_connection, obj):
 # }
 def connection_info(slime_connection, sldb_state):
         return [intern(":pid"),                 os.getpid(),
+                ### TODO: current package
                 intern(":package"),             [intern(":name"), "python",
                                                  intern(":prompt"), "python>"],
+                intern(":version"),             partus_version,
                 intern(":lisp-implementation"), [intern(":type"), "python",
                                                  intern(":name"), "python",
                                                  intern(":version"), "%d.%d.%d" % sys.version_info[:3]]]
