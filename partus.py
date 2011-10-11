@@ -105,7 +105,7 @@ class SlimeConnection(servile): pass
 def main_loop(sock, file):
         with env.let(slime_connection = SlimeConnection(sock = sock, file = file, io = sock),
                      python_user      = load_code_object_as_module("python_user",
-                                                                   compile("import swank; from swank import env; import cl;",
+                                                                   compile("import swank; import cl;" + ("from swank import *" if swank.debug else ""),
                                                                            "PY-USER", "exec")),
                      partus_path      = os.getcwd()):
                 while True:

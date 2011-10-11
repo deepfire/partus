@@ -63,6 +63,8 @@ nil = intern("nil")
 
 partus_version = "2011-09-28"
 
+debug = True
+
 ###
 ### Evaluation result.
 ###
@@ -266,6 +268,9 @@ def error_handler(c, sldb_state, output = None):
                 with_restarts(with_restarts_body,
                               abort = "return to sldb level %s" % str(new_sldb_state.level))
 
+def swank_ast_name(x):
+        return ast_name(x) if debug else ast_attribute(ast_name("swank"), x)
+
 def listener_eval(slime_connection, sldb_state, string):
         string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"lookup_presented_object(slime_connection, sldb_state,\\1))", string)
         def eval_stage(name, fn):
@@ -279,7 +284,7 @@ def listener_eval(slime_connection, sldb_state, string):
         if ast_ and ast_.body:
                 exprp = typep(ast_.body[0], ast.Expr)
                 if exprp:
-                        ast_.body[0] = ast_assign_var("", ast_funcall(ast_attribute(ast_name("swank"), "set_value"), ast_.body[0].value))
+                        ast_.body[0] = ast_assign_var("", ast_funcall(swank_ast_name("set_value"), ast_.body[0].value))
                 co = eval_stage("COMPILE", lambda: compile(ast.fix_missing_locations(ast_), "", 'exec'))
                 eval_stage("EXEC", lambda: exec(co, env.python_user.__dict__))
                 return [intern(":values")] + [str(___expr___)] if (ast_.body and exprp) else []
@@ -900,11 +905,11 @@ def callify(form, quoted = False):
                                 callify(form[1], quoted = True))
                 else:
                         return ast_funcall(lisp_name_ast(symbol_name(form[0])),
-                                           ast_attribute(ast_name("env"), "slime_connection"),
-                                           ast_attribute(ast_name("env"), "sldb_state"),
+                                           ast_attribute(swank_ast_name("env"), "slime_connection"),
+                                           ast_attribute(swank_ast_name("env"), "sldb_state"),
                                            *map(callify, form[1:]))
         elif symbolp(form):
-                return (ast_funcall(ast_attribute(ast_name("swank"), "intern"), symbol_name(form))
+                return (ast_funcall(swank_ast_name("intern"), symbol_name(form))
                         if quoted or (symbol_name(form)[0] == ":") else
                         ast_name(symbol_name(form)))
         elif constantp(form):
@@ -960,7 +965,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                                 expr = callify(form)
                                 call = ast.fix_missing_locations(ast_module(
                                                 [# ast_import_from("partus", ["*"]),
-                                                 ast_assign_var("", ast_funcall(ast_attribute(ast_name("swank"), "set_value"), expr)),
+                                                 ast_assign_var("", ast_funcall(swank_ast_name("set_value"), expr)),
                                                  ]))
                         except Exception as cond:
                                 send_abort(cond, "failed to callify: %s", cond)
