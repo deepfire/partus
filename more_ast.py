@@ -52,8 +52,6 @@ def ast_def_p(x):               return typep(x, ast.FunctionDef)
 def ast_import_p(x):            return typep(x, ast.Import)
 def ast_import_from_p(x):       return typep(x, ast.ImportFrom)
 def ast_import_maybe_from_p(x): return ast_import_p(x) or ast_import_from_p(x)
-def ast_expr_p(x):              return typep(x, ast.Expr)
-def ast_expression_p(x):        return typep(x, ast.Expression)
 def ast_call_p(x):              return typep(x, ast.Call)
 def ast_subscript_p(x):         return typep(x, ast.Subscript)
 def ast_attribute_p(x):         return typep(x, ast.Attribute)
@@ -62,10 +60,20 @@ def ast_slice_p(x):             return typep(x, ast.Slice)
 def ast_extslice_p(x):          return typep(x, ast.ExtSlice)
 def ast_index_p(x):             return typep(x, ast.Index)
 
+def ast_mod_p(x):               return typep(x, ast.mod)
+def ast_stmt_p(x):              return typep(x, ast.stmt)
+def ast_expr_p(x):              return typep(x, ast.expr)
+
+def ast_Expr_p(x):              return typep(x, ast.Expr)
+
 # top-levels
 def ast_module(body):
     assert listp(body) and all(mapcar(astp, body))
-    return ast.Module(body=body, lineno=0)
+    return ast.Module(body = body, lineno = 0)
+
+def ast_expression(expr):
+    assert astp(expr)
+    return ast.Expression(body = expr, lineno = 0)
 
 def ast_def(name, args, *body):
     filtered_body = remove_if(null, body)
@@ -164,9 +172,9 @@ def ast_return(node):
     assert astp(node)
     return ast.Return(value=node)
 
-def ast_expr(node):
-    assert astp(node)
-    return ast.Expr(value=node)
+def ast_Expr(node):
+    assert ast_expr_p(node)
+    return ast.Expr(value = node)
 
 def ast_expression(node):
     assert astp(node)
@@ -329,6 +337,7 @@ def pp_ast_as_code(x):
                 q = "'''" if find("\n", x.s) else "'"
                 val = with_output_to_string(lambda s: print(x.s, file = s, end = ""))
                 return q + val + q
+        def pp_num(x):     return str(x.n)
         def pp_module(x):
                 return "\n".join(iterate(x.body))
         map = { ast.Module:    pp_module,
@@ -345,6 +354,7 @@ def pp_ast_as_code(x):
                 ast.Set:       pp_iterable,
                 ast.Dict:      pp_iterable,
                 ast.Str:       pp_string,
+                ast.Num:       pp_num,
                 }
         def fail(x): raise Exception("Cannot pretty-print AST node %s." % x)
         return map.get(type(x), fail)(x)
