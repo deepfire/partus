@@ -870,7 +870,7 @@ def quit_lisp(slime_connection, sldb_state):
 #  }
 # }
 def pythonise_lisp_name(x):
-        ret = re.sub("[\\-]", "_", x).lower().split(":")
+        ret = remove_if_not(identity, re.sub("[\\-]", "_", x).lower().split(":"))
         debug_printf("==> Python(Lisp %s) == %s", x, ret)
         return ret
 
