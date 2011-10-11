@@ -291,6 +291,10 @@ def union(x, y):
 def intersection(x, y):
         return x & y
 
+## dicts
+def gethash(key, dict):
+        return dict.get(key), key in dict
+
 ## predicates
 def null(x):          return not x
 def evenp(x):         return x % 2 == 0
@@ -302,9 +306,12 @@ def minusp(x):        return x < 0
 def error(datum, *args):
         raise Exception(datum % args) if stringp(datum) else datum(*args)
 
-def handler_bind(fn, error = lambda c: None):
+def handler_bind(fn, error = lambda c: None, no_error = identity):
         "Doesn't work as an actual CL:HANDLER-BIND."
+        value = None
         try:
-                return fn()
+                value = fn()
         except Exception as cond:
                 return error(cond)
+        finally:
+                return no_error(value)
