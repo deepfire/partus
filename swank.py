@@ -3,6 +3,7 @@ import sys
 import re
 import ast
 import select
+import collections
 
 from cl import *
 from pergamum import *
@@ -38,29 +39,145 @@ env = _dynamic_scope()
 ###
 ### Symbols.
 ###
-class symbol():
-        name = None
-        def __str__(self):  return self.name
-        def __repr__(self): return self.name
-        def __init__(self, name):
-                self.name = name.upper()
-def symbolp(x):     return type(x) is symbol
-def keywordp(x):    return symbolp(x) and x.name[0] == ":"
-def symbol_name(x): return x.name.lower()
-syms = dict()
-def intern(x):
-        X = x.upper()
-        if X in syms:
-                return syms[X]
-        else:
-                syms[X] = symbol(X)
-                return syms[X]
+__packages__        = dict()
+__keyword_package__ = None
 
+__current_package__ = None
+
+class package(collections.UserDict):
+        def __str__ (self):
+                return "#<PACKAGE %s>" % self.name
+        def __init__(self, name):
+                self.name = name
+                self.module = sys.modules.get(name.lower()) ### XXX: deal away with this mangling
+
+                self.imported_packages  = set()
+                self.importing_packages = set()
+
+                moddict = self.module and dict(self.module.__dict__)
+                self.own         = moddict or dict()
+                self.imported    = set()
+              # self.present     = own + imported
+                self.inherited   = dict()                               ### mapsetn(slotting("external"), imported_packages) -> source_package
+                self.accessible  = dict(moddict) if moddict else dict() ### accessible = present + inherited
+                self.external    = set()                                ### subset of accessible
+              # self.internal    = accessible - external
+                ####
+                self.data        = self.accessible
+                __packages__[name] = self
+def packagep(x):     return typep(x, package)
+def package_name(x): return x.name
+
+def find_package(x):
+        return __packages__.get(x)
+def _package_():
+        return __current_package__
+def coerce_to_package(x):
+        return (_package_()     if not x else
+                find_package(x) if stringp(x) else
+                x)
+
+class symbol():
+        def __str__(self):  return "%s%s%s" % (self.package.name if self.package else
+                                               "#",
+                                               ":" if not self.package or (self in self.package.external) else
+                                               "::",
+                                               self.name)
+        def __init__(self, name):
+                self.name, self.package, self.value, self.function = name, None, None, None
+def symbolp(x):                      return typep(x, symbol)
+def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
+def symbol_name(x):                  return x.name.lower()
+def symbol_package(x):               return x.package
+def coerce_to_symbol(s_or_n, package = None):
+        return intern(s_or_n, coerce_to_package(package))
+
+def print_symbol(x, package = None): return letf(coerce_to_package(package),
+                                                 lambda p: (x.name if x.package and p.accessible[x.name] is x else
+                                                            str(x)))
+
+def keyword(s):
+        return intern(s.upper(), __keyword_package__)
+
+def symbol_relation(x, p):
+        "NOTE: here we trust that X belongs to P, when it's a symbol."
+        s = p.get(x) if stringp(x) else x
+        if s:
+                return (keyword("inherited") if s.name in p.inherited else
+                        keyword("external")  if s in p.external else
+                        keyword("internal"))
+
+def find_symbol(x, package = None):
+        p = coerce_to_package(package)
+        s = p.get(x)
+        if s:
+                return s, symbol_relation(s, p)
+        else:
+                return None, None
+def find_symbol0(x, package = None): return find_symbol(x, package)[0]
+
+def intern(x, package = None):
+        p = coerce_to_package(package)
+        s = p.get(x) if stringp(x) else x
+        if s:
+                return s, symbol_relation(s, p)
+        else:
+                s = symbol(x)
+                p.own[x], p.accessible[x], s.package = s, s, p
+                if p is __keyword_package__:
+                        p.external.add(s)
+                return s, None
+def intern0(x, package = None): return intern(x, package)[0]
+
+def import_from(symbols, package = None):
+        p = coerce_to_package(package)
+        symbols = ensure_list(symbols)
+        for s in symbols:
+                ps = p.get(s.name)
+                if ps: # conflict
+                        error("IMPORT %s causes name-conflicts in %s between the following symbols: %s, %s." %
+                              (s, p, s, ps))
+                else:
+                        p.imported.add(s)
+                        p.accessible[s.name] = s
+        return True
+
+def read_symbol(x, package = None):
+        name, p = ((x[1:], __keyword_package__)
+                   if x[0] is ":" else
+                   letf(index(":", x),
+                        lambda index:
+                                (if_let(find_package(x[0:index]),
+                                        lambda p:
+                                                (x[index + 1:], p),
+                                        lambda:
+                                                error("Package \"%s\" doesn't exist, while reading symbol \"%s\".", x[0:index], x))
+                                 if index != -1 else
+                                 (x, coerce_to_package(package)))))
+        return intern(name, p)
+
+def pythonise_lisp_name(x):
+        ret = remove_if_not(identity, re.sub(r"[\-\*]", "_", x).lower().split(":"))
+        debug_printf("==> Python(Lisp %s) == %s", x, ret)
+        return ret
+
+def init_package_system():
+        global __lisp_package__
+        __packages__ = dict()
+        __current_package__ = package("SWANK")
+        package("CL")
+        package("PERGAMUM")
+        package("KEYWORD")
+        package("SWANK-IO-PACKAGE")
+
+init_package_system()
 ###
 ### Globals.
 ###
-t   = intern("t")
-nil = intern("nil")
+t   = intern0("t", "CL")
+nil = intern0("nil", "CL")
+
+nil.__bool__ = lambda _: False
 
 partus_version = "2011-09-28"
 
@@ -203,14 +320,14 @@ def send_to_emacs(slime_connection, obj):
 #                                            quote(`:version`), paste(R.version$major, R.version$minor, sep=".")))
 # }
 def connection_info(slime_connection, sldb_state):
-        return [intern(":pid"),                 os.getpid(),
+        return [keyword("pid"),                 os.getpid(),
                 ### TODO: current package
-                intern(":package"),             [intern(":name"), "python",
-                                                 intern(":prompt"), "python>"],
-                intern(":version"),             partus_version,
-                intern(":lisp-implementation"), [intern(":type"), "python",
-                                                 intern(":name"), "python",
-                                                 intern(":version"), "%d.%d.%d" % sys.version_info[:3]]]
+                keyword("package"),             [keyword("name"), "python",
+                                                 keyword("prompt"), "python>"],
+                keyword(":version"),             partus_version,
+                keyword(":lisp-implementation"), [keyword("type"), "python",
+                                                  keyword("name"), "python",
+                                                  keyword("version"), "%d.%d.%d" % sys.version_info[:3]]]
 
 # `swank:swank-require` <- function (slimeConnection, sldbState, contribs) {
 #   for(contrib in contribs) {
@@ -288,9 +405,9 @@ def listener_eval(slime_connection, sldb_state, string):
                         ast_.body[0] = ast_assign_var("", ast_funcall(swank_ast_name("set_value"), ast_.body[0].value))
                 co = eval_stage("COMPILE", lambda: compile(ast.fix_missing_locations(ast_), "", 'exec'))
                 eval_stage("EXEC", lambda: exec(co, env.python_user.__dict__))
-                return [intern(":values")] + [str(___expr___)] if (ast_.body and exprp) else []
+                return [keyword("values")] + [str(___expr___)] if (ast_.body and exprp) else []
         else:
-                return [intern(":values")]
+                return [keyword("values")]
 
 # `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
 #   "No Arglist Information"
@@ -875,11 +992,6 @@ def quit_lisp(slime_connection, sldb_state):
 #    form
 #  }
 # }
-def pythonise_lisp_name(x):
-        ret = remove_if_not(identity, re.sub("[\\-]", "_", x).lower().split(":"))
-        debug_printf("==> Python(Lisp %s) == %s", x, ret)
-        return ret
-
 def lisp_name_ast(x):
         def rec(x):
                 return (ast_name(x[0])
@@ -1277,7 +1389,7 @@ def print_to_string(val):
 # }
 def make_repl_result(value):
         string = print_to_string(value)
-        return [intern(":write-string"), string, intern(":repl-result")]
+        return [keyword("write-string"), string, keyword("repl-result")]
 
 # makeReplResultFunction <- makeReplResult
 make_repl_result_function = make_repl_result
@@ -1324,7 +1436,7 @@ def inspect_object(slime_connection, object):
 #        assignIndexInParts(object, istate))
 # }
 def value_part(istate, object, string):
-        return [intern(":value"),
+        return [keyword("value"),
                 string or print_to_string(object),
                 assign_index_in_parts(object, istate)]
 
@@ -1342,11 +1454,11 @@ def value_part(istate, object, string):
 def prepare_part(istate, part):
         if type(part) == str:
                 return [part]
-        elif part[0] is intern(":newline"):
+        elif part[0] is keyword("newline"):
                 return ["\n"]
-        elif part[0] is intern(":value"):
+        elif part[0] is keyword("value"):
                 return value_part(istate, part[1], part[2])
-        elif part[0] is intern(":line"):
+        elif part[0] is keyword("line"):
                 return [ print_to_string(part[1]), ": ",
                          value_part(istate, part[2], NULL), "\n"]
                 
@@ -1384,9 +1496,9 @@ def assign_index_in_parts(object, istate):
 #        quote(`:content`), prepareRange(istate, 0, 500))
 # }
 def istate_to_elisp(istate):
-        return [intern(":title"),   deparse(istate.object),
-                intern(":id"),      assign_index_in_parts(istate.object, istate),
-                intern(":content"), prepare_range(istate, 0, 500)]
+        return [keyword("title"),   deparse(istate.object),
+                keyword("id"),      assign_index_in_parts(istate.object, istate),
+                keyword("content"), prepare_range(istate, 0, 500)]
 
 def emacs_inspect(object):
 # emacsInspect.list <- function(list) {
@@ -1395,7 +1507,7 @@ def emacs_inspect(object):
 #            names(list), list))
 # }
         if dictp(object):
-                return ["a dict", intern(":newline")] + [ [intern(":line"), name, object[name] ] for name in object ]
+                return ["a dict", keyword("newline")] + [ [keyword("line"), name, object[name] ] for name in object ]
 # emacsInspect.numeric <- function(numeric) {
 #   c(list("a numeric", list(quote(`:newline`))),
 #     mapply(function(name, value) { list(list(quote(`:line`), name, value)) },
@@ -1407,7 +1519,7 @@ def emacs_inspect(object):
 # emacsInspect.default <- function(thing) {
 #   c(list(paste("a ", class(thing)[[1]], sep=""), list(quote(`:newline`))))
 # }
-                return ["a %s" % type(object).__name__, intern(":newline")]
+                return ["a %s" % type(object).__name__, keyword("newline")]
 
 ###
 ### Presentations
@@ -1442,12 +1554,12 @@ def lookup_presented_object(id):
                 else:
                         return object, foundp
         elif listp(id):
-                if id[0] == intern(":frame-var"):
+                if id[0] == keyword("frame-var"):
                         thread_id, frame, index = id[1:]
                         handler_case(lambda: frame_var_value(frame, index),
-                                     error = lambda: None, None,
-                                     no_error = lambda value: value, True)
-                elif id[0] == intern(":inspected-part"):
+                                     error = lambda: (None, None),
+                                     no_error = lambda value: (value, True))
+                elif id[0] == keyword("inspected-part"):
                         part_index, inspectee_parts = id[1], env.inspectee_parts
                         if part_index < len(inspectee_parts):
                                 return None, None
@@ -1466,13 +1578,13 @@ def clear_repl_results():
 def present_repl_results(values):
         def send(value):
                 id = record_repl_results and save_presented_object(value)
-                send_to_emacs([intern(":presentation-start"), id,                     intern(":repl-result")])
-                send_to_emacs([intern(":write-string"),       prin1_to_string(value), intern(":repl-result")])
-                send_to_emacs([intern(":presentation-end"),   id,                     intern(":repl-result")])
-                send_to_emacs([intern(":write-string"),       "\n",                   intern(":repl-result")])
+                send_to_emacs([keyword("presentation-start"), id,                     keyword("repl-result")])
+                send_to_emacs([keyword("write-string"),       prin1_to_string(value), keyword("repl-result")])
+                send_to_emacs([keyword("presentation-end"),   id,                     keyword("repl-result")])
+                send_to_emacs([keyword("write-string"),       "\n",                   keyword("repl-result")])
         printf("\n")
         if not values:
-                send_to_emacs([intern(":write-string"),       "; No value.",          intern(":repl-result")])
+                send_to_emacs([keyword("write-string"),       "; No value.",          keyword("repl-result")])
         else:
                 mapc(send, values)
 
@@ -1517,91 +1629,99 @@ def swank_ioify(thing):
         if keywordp(thing):
                 return thing
         elif symbolp(thing) and not find(":", symbol_name(thing)):
-                return intern()
+                return intern(symbol_name(thing), "SWANK-IO-PACKAGE")
+        elif listp(thing):
+                return [swank_ioify(first(thing))] + swank_ioify(rest(thing))
+        else:
+                return thing
 
-(defun execute-menu-choice-for-presentation-id (id count item)
-  (let ((ob (lookup-presented-object id)))
-    (assert (equal id (car *presentation-active-menu*)) () 
-	    "Bug: Execute menu call for id ~a  but menu has id ~a"
-	    id (car *presentation-active-menu*))
-    (let ((action (second (nth (1- count) (cdr *presentation-active-menu*)))))
-      (swank-ioify (funcall action item ob id)))))
+# (defun execute-menu-choice-for-presentation-id (id count item)
+#   (let ((ob (lookup-presented-object id)))
+#     (assert (equal id (car *presentation-active-menu*)) () 
+# 	    "Bug: Execute menu call for id ~a  but menu has id ~a"
+# 	    id (car *presentation-active-menu*))
+#     (let ((action (second (nth (1- count) (cdr *presentation-active-menu*)))))
+#       (swank-ioify (funcall action item ob id)))))
+def execute_menu_choice_for_presentation_id(id, count, item):
+        ob, _ = lookup_presented_object(id)
+        if id != first(presentation_active_menu):
+                error("Bug: Execute menu call for id ~a  but menu has id ~a",
+                      id, first(presentation_active_menu))
+        action = rest(presentation_active_menu)[count - 1][1]
+        return swank_ioify(action(item, ob, id))
 
+def pathnamep(x):
+        "A flaming heuristic.."
+        return stringp(x) and x.index(".") != -1 and x.index(os.sep) != -1
+def menu_choices_for_presentation(ob):
+        if pathnamep(ob):
+                file_exists, lisp_type = os.access(ob, os.R_OK)
+                coerced_source_file = ob.split(".")[-1] + ["py"]
+                source_file = (ob.split(os.sep)[-1] != "py" and
+                               letf(".".join(coerced_source_file),
+                                    lambda source:
+                                            os.access(source, os.R_OK) and source))
+                fasl_file = (file_exists and
+                             namestring(truename(ob)) == namestring(truename(compile_file_pathname(coerced_source_file))))
+                remove(None,
+                       [file_exists and not fasl_file and
+                        ["Edit this file",
+                         lambda choice, object, id:
+                                 ed_in_emacs(namestring(truename(object))) and None]],
+	     # (and file-exists
+	     #      (list "Dired containing directory"
+	     #    	(lambda (choice object id)
+	     #    	  (declare (ignore choice id))
+	     #    	  (ed-in-emacs (namestring 
+	     #    			(truename
+	     #    			 (merge-pathnames
+	     #    			  (make-pathname :name "" :type "") object))))
+	     #    	  nil)))
+                       [file_exists and
+                        ["Dired containing directory",
+                         lambda choice, object, id:
+                                 error("Not implemented: Dired containing directory")]]
+	     # (and fasl-file
+	     #      (list "Load this fasl file"
+	     #    	(lambda (choice object id)
+	     #    	  (declare (ignore choice id object)) 
+	     #    	  (load ob)
+	     #    	  nil)))
+                       [fasl_file and
+                        ["Load this fasl file",
+                         lambda choice, object, id:
+                                 error("Not implemented: Load this fasl file")]]
+	     # (and fasl-file
+	     #      (list "Delete this fasl file"
+	     #    	(lambda (choice object id)
+	     #    	  (declare (ignore choice id object)) 
+	     #    	  (let ((nt (namestring (truename ob))))
+	     #    	    (when (y-or-n-p-in-emacs "Delete ~a? " nt)
+	     #    	      (delete-file nt)))
+	     #    	  nil)))
+                       [fasl_file and
+                        ["Delete this fasl file",
+                         lambda choice, object, id:
+                                 error("Not implemented: Delete this fasl file")]]
+                       [source_file and
+                        ["Edit source file",
+                         lambda choice, object, id:
+                                 ed_in_emacs(namestring(truename(source_file))) and None]]
+                       [source_file and
+                        ["Load source file",
+                         lambda choice, object, id:
+                                 load(source_file) and None]])
+        if functionp(ob):
+                return [["Disassemble",
+                         lambda _, object, __:
+                                 disassemble(object)]]
+        else:
+                return None
 
-(defgeneric menu-choices-for-presentation (object)
-  (:method (ob) (declare (ignore ob)) nil)) ; default method
+def inspect_presentation(id, reset_p):
+        what = lookup_presented_object_or_lose(id)
+        if reset_p:
+                reset_inspector()
+        return inspect_object(what)
 
-;; Pathname
-(defmethod menu-choices-for-presentation ((ob pathname))
-  (let* ((file-exists (ignore-errors (probe-file ob)))
-	 (lisp-type (make-pathname :type "lisp"))
-	 (source-file (and (not (member (pathname-type ob) '("lisp" "cl") :test 'equal))
-			   (let ((source (merge-pathnames lisp-type ob)))
-			     (and (ignore-errors (probe-file source))
-				  source))))
-	 (fasl-file (and file-exists 
-			 (equal (ignore-errors
-				  (namestring
-				   (truename
-				    (compile-file-pathname
-				     (merge-pathnames lisp-type ob)))))
-				(namestring (truename ob))))))
-    (remove nil 
-	    (list*
-	     (and (and file-exists (not fasl-file))
-		  (list "Edit this file" 
-			(lambda(choice object id) 
-			  (declare (ignore choice id))
-			  (ed-in-emacs (namestring (truename object)))
-			  nil)))
-	     (and file-exists
-		  (list "Dired containing directory"
-			(lambda (choice object id)
-			  (declare (ignore choice id))
-			  (ed-in-emacs (namestring 
-					(truename
-					 (merge-pathnames
-					  (make-pathname :name "" :type "") object))))
-			  nil)))
-	     (and fasl-file
-		  (list "Load this fasl file"
-			(lambda (choice object id)
-			  (declare (ignore choice id object)) 
-			  (load ob)
-			  nil)))
-	     (and fasl-file
-		  (list "Delete this fasl file"
-			(lambda (choice object id)
-			  (declare (ignore choice id object)) 
-			  (let ((nt (namestring (truename ob))))
-			    (when (y-or-n-p-in-emacs "Delete ~a? " nt)
-			      (delete-file nt)))
-			  nil)))
-	     (and source-file 
-		  (list "Edit lisp source file" 
-			(lambda (choice object id) 
-			  (declare (ignore choice id object)) 
-			  (ed-in-emacs (namestring (truename source-file)))
-			  nil)))
-	     (and source-file 
-		  (list "Load lisp source file" 
-			(lambda(choice object id) 
-			  (declare (ignore choice id object)) 
-			  (load source-file)
-			  nil)))
-	     (and (next-method-p) (call-next-method))))))
-
-(defmethod menu-choices-for-presentation ((ob function))
-  (list (list "Disassemble"
-              (lambda (choice object id) 
-                (declare (ignore choice id)) 
-                (disassemble object)))))
-
-(defslimefun inspect-presentation (id reset-p)
-  (let ((what (lookup-presented-object-or-lose id)))
-    (when reset-p
-      (reset-inspector))
-    (inspect-object what)))
-
-
-(setq *send-repl-results-function* 'present-repl-results)
+send_repl_results_function = present_repl_results
