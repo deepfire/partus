@@ -45,6 +45,7 @@ class symbol():
         def __init__(self, name):
                 self.name = name.upper()
 def symbolp(x):     return type(x) is symbol
+def keywordp(x):    return symbolp(x) and x.name[0] == ":"
 def symbol_name(x): return x.name.lower()
 syms = dict()
 def intern(x):
