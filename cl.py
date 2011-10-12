@@ -307,7 +307,17 @@ def error(datum, *args):
         raise Exception(datum % args) if stringp(datum) else datum(*args)
 
 def handler_bind(fn, error = lambda c: None, no_error = identity):
-        "Doesn't work as an actual CL:HANDLER-BIND."
+        "Unwinds stack, unlike actual CL:HANDLER-BIND.  Also, see HANDLER-CASE docstring below."
+        value = None
+        try:
+                value = fn()
+        except Exception as cond:
+                return error(cond)
+        finally:
+                return no_error(value)
+
+def handler_case(fn, error = lambda c: None, no_error = identity):
+        "Unable to handle things in an ad-hoc manner, unlike actual CL:HANDLER-BIND."
         value = None
         try:
                 value = fn()
