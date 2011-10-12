@@ -112,12 +112,23 @@ def coerce_to_package(x, if_null = 'current'):
                 _package_()     if not x and if_null == 'current' else
                 error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
 
+def print_symbol(s):
+        return "%s%s%s" % (s.package.name if s.package else
+                           "#",
+                           ":" if not s.package or (s in s.package.external) else
+                           "::",
+                           s.name)
+def print_symbol2(x, package = None): return letf(coerce_to_package(package),
+                                                  lambda p: (x.name if x.package and p.accessible[x.name] is x else
+                                                             str(x)))
+def print_keyword(s):
+        return ":%s" % s.name
+
 class symbol():
-        def __str__(self):  return "%s%s%s" % (self.package.name if self.package else
-                                               "#",
-                                               ":" if not self.package or (self in self.package.external) else
-                                               "::",
-                                               self.name)
+        def __str__(self):
+                return (print_keyword if self.package is __keyword_package__ else print_symbol)(self)
+        def __repr__(self):
+                return str(self)
         def __init__(self, name):
                 self.name, self.package, self.value, self.function = name, None, None, None
 def symbolp(x):                      return typep(x, symbol)
@@ -127,12 +138,8 @@ def symbol_package(x):               return x.package
 def coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, coerce_to_package(package))
 
-def print_symbol(x, package = None): return letf(coerce_to_package(package),
-                                                 lambda p: (x.name if x.package and p.accessible[x.name] is x else
-                                                            str(x)))
-
 def keyword(s):
-        return intern(s.upper(), __keyword_package__)
+        return _intern(s, __keyword_package__)[0]
 
 def symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
@@ -151,21 +158,26 @@ def find_symbol(x, package = None):
                 return None, None
 def find_symbol0(x, package = None): return find_symbol(x, package)[0]
 
-def intern(x, package = None):
+def _intern(x, package = None):
         p = coerce_to_package(package)
         s = p.accessible.get(x) if stringp(x) else x
         if not (s or stringp(x)):
                 error("Attempted to intern object >%s< of type %s into %s.", x, type(x), p)
         if s:
-                return s, symbol_relation(s, p)
+                return s, p
         else:
                 s = symbol(x)
                 p.own.add(s)
                 p.accessible[x], s.package = s, p
                 debug_printf("Interned >%s< into %s.", s, p)
                 if p is __keyword_package__:
+                        # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
                         p.external.add(s)
+                        s.value = s
                 return s, None
+def intern(x, package = None):
+        s, found_in_package = _intern(x, package)
+        return s, symbol_relation(s, found_in_package) if found_in_package else None
 def intern0(x, package = None): return intern(x, package)[0]
 
 def import_from(symbols, package = None):
@@ -181,18 +193,19 @@ def import_from(symbols, package = None):
         return True
 
 def read_symbol(x, package = None):
+        debug_printf("read_symbol >%s<, x[0]: >%s<", x, x[0])
         name, p = ((x[1:], __keyword_package__)
-                   if x[0] is ":" else
-                   letf(index(":", x),
+                   if x[0] == ":" else
+                   letf(x.find(":"), 
                         lambda index:
-                                (if_let(find_package(x[0:index]),
+                                (if_let(find_package(x[0:index].upper()),
                                         lambda p:
                                                 (x[index + 1:], p),
                                         lambda:
                                                 error("Package \"%s\" doesn't exist, while reading symbol \"%s\".", x[0:index], x))
                                  if index != -1 else
                                  (x, coerce_to_package(package)))))
-        return intern(name, p)
+        return intern0(name, p)
 
 def pythonise_lisp_name(x):
         ret = remove_if_not(identity, re.sub(r"[\-\*]", "_", x).lower().split(":"))
@@ -200,26 +213,29 @@ def pythonise_lisp_name(x):
         return ret
 
 def init_package_system():
-        global __lisp_package__
+        global __packages__
+        global __keyword_package__
+        global __swank_package__
         global __current_package__
+        global t, nil
         __packages__ = dict()
-        package("KEYWORD",                     ignore_python = True)
+        __keyword_package__ = package("KEYWORD", ignore_python = True)
         package("CL")
+        t   = intern0("t", "CL")
+        nil = intern0("nil", "CL")
+        nil.__bool__ = lambda _: False
+        intern("quote", "CL")
+        intern(".", "CL")
         package("PERGAMUM",                    use = ["CL"])
-        debug_printf("neutrality's __all__ are: %s", sys.modules['neutrality'].__dict__['__all__'])
         package("MORE_AST",                    use = ["CL", "PERGAMUM"])
-        __current_package__ = package("SWANK", use = ["CL", "PERGAMUM", "MORE_AST"])
+        __swank_package__ =   package("SWANK", use = ["CL", "PERGAMUM", "MORE_AST"])
         package("SWANK-IO-PACKAGE",            use = ["CL", "SWANK"])
+        __current_package__ = __swank_package__
 
 init_package_system()
 ###
 ### Globals.
 ###
-t   = intern0("t", "CL")
-nil = intern0("nil", "CL")
-
-nil.__bool__ = lambda _: False
-
 partus_version = "2011-09-28"
 
 debug = True
@@ -320,9 +336,7 @@ def write_sexp_to_string(obj):
                                                 if i != (max - 1):
                                                         string += " "
                                 string += ')'
-                        elif symbolp(obj):
-                                string += symbol_name(obj)
-                        elif integerp(obj) or floatp(obj):
+                        elif symbolp(obj) or integerp(obj) or floatp(obj):
                                 string += str(obj)
                         elif obj in obj2lisp_xform:
                                 string += obj2lisp_xform[obj]
@@ -365,10 +379,10 @@ def connection_info(slime_connection, sldb_state):
                 ### TODO: current package
                 keyword("package"),             [keyword("name"), "python",
                                                  keyword("prompt"), "python>"],
-                keyword(":version"),             partus_version,
-                keyword(":lisp-implementation"), [keyword("type"), "python",
-                                                  keyword("name"), "python",
-                                                  keyword("version"), "%d.%d.%d" % sys.version_info[:3]]]
+                keyword("version"),             partus_version,
+                keyword("lisp-implementation"), [keyword("type"), "python",
+                                                 keyword("name"), "python",
+                                                 keyword("version"), "%d.%d.%d" % sys.version_info[:3]]]
 
 # `swank:swank-require` <- function (slimeConnection, sldbState, contribs) {
 #   for(contrib in contribs) {
@@ -409,8 +423,8 @@ def writeurn_output(output):
         string = get_output_stream_string(output)
         close(output)
         if len(string):
-                send_to_emacs(env.slime_connection, [intern(':write-string'), string])
-                # send_to_emacs(env.slime_connection, [intern(':write-string'), "\n"])
+                send_to_emacs(env.slime_connection, [keyword('write-string'), string])
+                # send_to_emacs(env.slime_connection, [keyword('write-string'), "\n"])
         return string
 
 def error_handler(c, sldb_state, output = None):
@@ -431,7 +445,7 @@ def swank_ast_name(x):
         return ast_name(x) if debug else ast_attribute(ast_name("swank"), x)
 
 def listener_eval(slime_connection, sldb_state, string):
-        string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"lookup_presented_object(slime_connection, sldb_state,\\1))", string)
+        # string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"lookup_presented_object(slime_connection, sldb_state,\\1))", string)
         def eval_stage(name, fn):
                 try:
                         return fn()
@@ -564,12 +578,12 @@ def frame_source_location(slime_connection, sldb_state, n):
                 return 1 + max(co.co_lnotab)
         srcfile, line, nlines, column, name = co.co_filename, co.co_firstlineno, co_nlines(co), 0, co.name
         if not srcfile:
-                return [intern(':error'), "no srcfile"]
+                return [keyword('error'), "no srcfile"]
         else:
-                return [intern(':location'),
-                        [intern(':file'), srcfile],
-                        [intern(':line'), line, srcref[1] - 1],
-                        intern('nil')]
+                return [keyword('location'),
+                        [keyword('file'), srcfile],
+                        [keyword('line'), line, srcref[1] - 1],
+                        find_symbol0('nil')]
 
 # `swank:buffer-first-change` <- function(slimeConnection, sldbState, filename) {
 #   FALSE
@@ -621,9 +635,9 @@ def make_frame():
 
 def frame_locals_and_catch_tags(slime_connection, sldb_state, index):
         frame = sldb_state.frames[index + 1]
-        return [map_hash_table(lambda name, value: [intern(':name'), name,
-                                                    intern(':id'), 0,
-                                                    intern(':value'), handler_bind(lambda: print_to_string(value),
+        return [map_hash_table(lambda name, value: [keyword('name'), name,
+                                                    keyword('id'), 0,
+                                                    keyword('value'), handler_bind(lambda: print_to_string(value),
                                                                                    error = lambda c: "Error printing object: %s." % c)],
                                frame.f_locals),
                 []]
@@ -702,9 +716,9 @@ def simple_completions(slime_connection, sldb_state, prefix, package):
 def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
         line_offset = char_offset = col_offset = None
         for pos in position:
-                if pos[0] is intern(':position'):
+                if pos[0] is keyword('position'):
                         char_offset = pos[1]
-                elif pos[0] is intern(':line'):
+                elif pos[0] is keyword('line'):
                         line_offset = pos[1]
                         char_offset = pos[2]
                 else:
@@ -725,7 +739,7 @@ def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, posit
                 val, time = clocking(clocking_body)
                 return val
         with_restarts(with_restarts_body)
-        return [intern(':compilation-result'), [], True, time, False, False]
+        return [keyword('compilation-result'), [], True, time, False, False]
 
 # withRetryRestart <- function(description, expr) {
 #   call <- substitute(expr)
@@ -1004,7 +1018,7 @@ def compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, *args)
         filename.co, time = clocking(lambda: compile(filename.name, filename.src))
         if loadp:
                 load_file(slime_connection, sldb_state, filename)
-        return [intern(':compilation-result'), [], True, time, substitute(loadp), filename]
+        return [keyword('compilation-result'), [], True, time, substitute(loadp), filename]
 
 # `swank:quit-lisp` <- function(slimeConnection, sldbState) {
 #   quit()
@@ -1053,18 +1067,19 @@ obj2ast_xform = {
 def callify(form, quoted = False):
         debug_printf("CALLIFY %s", form)
         if listp(form):
-                if quoted or (form[0] is intern('quote')):
+                if quoted or (form[0] is find_symbol0('quote')):
                         return (ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
                                 if listp(form[1]) else
                                 callify(form[1], quoted = True))
                 else:
                         return ast_funcall(lisp_name_ast(symbol_name(form[0])),
-                                           ast_attribute(swank_ast_name("env"), "slime_connection"),
-                                           ast_attribute(swank_ast_name("env"), "sldb_state"),
-                                           *map(callify, form[1:]))
+                                           *(([ast_attribute(swank_ast_name("env"), "slime_connection"),
+                                               ast_attribute(swank_ast_name("env"), "sldb_state")]
+                                              if symbol_package(form[0]) is __swank_package__ else []
+                                              ) +
+                                             list(map(callify, form[1:]))))
         elif symbolp(form):
-                return (ast_funcall(swank_ast_name("intern"), symbol_name(form))
-                        if quoted or (symbol_name(form)[0] == ":") else
+                return (ast_funcall(swank_ast_name("read_symbol"), str(form)) if quoted or keywordp(form) else
                         ast_name(symbol_name(form)))
         elif constantp(form):
                 return obj2ast_xform[type(form)](form)
@@ -1103,8 +1118,8 @@ def callify(form, quoted = False):
 # }
 def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
         ok = False
-        value = intern('nil')
-        condition = intern('nil')
+        value = nil
+        condition = nil
         output = make_string_output_stream()
         try:
                 def send_abort(cond, mesg, *args):
@@ -1139,10 +1154,10 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         handler_bind(with_calling_handlers_body,
                                      error = lambda cond: error_handler(cond, sldb_state, output = output))
         finally:
-                send_to_emacs(slime_connection, [intern(':return'),
-                                                 ([intern(':ok'), value]
+                send_to_emacs(slime_connection, [keyword('return'),
+                                                 ([keyword('ok'), value]
                                                   if ok else
-                                                  [intern(':abort'), condition]),
+                                                  [keyword('abort'), condition]),
                                                  id])
 
 # dispatch <- function(slimeConnection, event, sldbState=NULL) {
@@ -1154,7 +1169,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
 def dispatch(slime_connection, event, sldb_state):
         kind = event[0]
         debug_printf("===( DISPATCH, sldb_state: %s", sldb_state)
-        if kind is intern(':emacs-rex'):
+        if kind is keyword('emacs-rex'):
                 emacs_rex(*([slime_connection, sldb_state] + event[1:]))
 
 ###
@@ -1205,7 +1220,7 @@ def read_sexp_from_string(string):
                         if pos > len(string):
                                 error("EOF during read")
                         obj = read_number_or_symbol()
-                        if obj == ".":
+                        if obj == find_symbol0("."):
                                 error("Consing dot not implemented")
                 # debug_printf("read(): returning %s", obj)
                 return obj
@@ -1249,7 +1264,7 @@ def read_sexp_from_string(string):
                                 break
                         else:
                                 obj = read()
-                                if not listp(obj) and obj is intern("."):
+                                if not listp(obj) and obj is find_symbol0("."):
                                         error("Consing dot not implemented")
                                 ret += [obj]
                 # debug_printf("read_list(): returning %s", ret)
@@ -1323,7 +1338,8 @@ def read_sexp_from_string(string):
                 elif re.match("^[0-9]+\\.[0-9]+$", token):
                         ret = float(token)
                 else:
-                        name = intern(token)
+                        name = read_symbol(token)
+                        debug_printf("-- interned %s", name)
                         if name is t:
                                 ret = True
                         elif name is nil:
@@ -1395,15 +1411,15 @@ def read_packet(sock, file):
 def sldb_loop(slime_connection, sldb_state, id_):
         try:
                 io = slime_connection.io
-                send_to_emacs(slime_connection, [intern(':debug'), id_, sldb_state.level] + debugger_info_for_emacs(slime_connection, sldb_state))
-                send_to_emacs(slime_connection, [intern(':debug-activate'), id_, sldb_state.level, False])
+                send_to_emacs(slime_connection, [keyword('debug'), id_, sldb_state.level] + debugger_info_for_emacs(slime_connection, sldb_state))
+                send_to_emacs(slime_connection, [keyword('debug-activate'), id_, sldb_state.level, False])
                 while True:
                         dispatch(slime_connection, read_packet(slime_connection.sock, slime_connection.file), sldb_state)
         except Exception as cond:
                 print_backtrace()
                 debug_printf("===( SLDB got X: %s", cond)
         finally:
-                send_to_emacs(slime_connection, [intern(':debug-return'), id_, sldb_state.level, False])
+                send_to_emacs(slime_connection, [keyword('debug-return'), id_, sldb_state.level, False])
 
 ###
 ### Inspection.
@@ -1575,7 +1591,7 @@ def clear_presentation_tables():
 
 presentation_counter = 0
 
-nil_surrogate = intern("nil_surrogate")
+nil_surrogate = intern0("nil_surrogate")
 
 def save_presented_object(object):
         object = (nil_surrogate if nonep(object) else object,)
@@ -1587,8 +1603,9 @@ def save_presented_object(object):
         return (object_to_presentation_id.get(object) or
                 store())
 
-def lookup_presented_object(id):
+def lookup_presented_object(_, __, id):
         if integerp(id):
+                debug_printf("l_p_o: %s, integerp", id)
                 (object,), foundp = gethash(id, presentation_id_to_object)
                 if object is nil_surrogate:
                         return False, True
@@ -1596,11 +1613,13 @@ def lookup_presented_object(id):
                         return object, foundp
         elif listp(id):
                 if id[0] == keyword("frame-var"):
+                        debug_printf("l_p_o: %s, [:frame-var]", id)
                         thread_id, frame, index = id[1:]
-                        handler_case(lambda: frame_var_value(frame, index),
-                                     error = lambda: (None, None),
-                                     no_error = lambda value: (value, True))
+                        return handler_case(lambda: frame_var_value(frame, index),
+                                            error = lambda: (None, None),
+                                            no_error = lambda value: (value, True))
                 elif id[0] == keyword("inspected-part"):
+                        debug_printf("l_p_o: %s, [:inspected-part]", id)
                         part_index, inspectee_parts = id[1], env.inspectee_parts
                         if part_index < len(inspectee_parts):
                                 return None, None
@@ -1610,7 +1629,7 @@ def lookup_presented_object(id):
                         error("Bad presented object ID: %s", id)
 
 def lookup_presented_object_or_lose(id):
-        object, foundp = lookup_presented_object_or_lose(id)
+        object, foundp = lookup_presented_object_or_lose(None, None, id)
         return object if foundp else error("Attempt to access unrecorded object (id %s).", id)
 
 def clear_repl_results():
@@ -1652,9 +1671,9 @@ presentation_active_menu = None
 
 def menu_choices_for_presentation_id(id):
         global presentation_active_menu
-        ob, presentp = lookup_presented_object(id)
+        ob, presentp = lookup_presented_object(None, None, id)
         if not presentp:
-                return intern("not-present")
+                return intern0("not-present")
         else:
                 menu_and_actions = menu_choices_for_presentation(ob)
                 presentation_active_menu = [id] + menu_and_actions
@@ -1670,7 +1689,7 @@ def swank_ioify(thing):
         if keywordp(thing):
                 return thing
         elif symbolp(thing) and not find(":", symbol_name(thing)):
-                return intern(symbol_name(thing), "SWANK-IO-PACKAGE")
+                return intern0(symbol_name(thing), "SWANK-IO-PACKAGE")
         elif listp(thing):
                 return [swank_ioify(first(thing))] + swank_ioify(rest(thing))
         else:
@@ -1684,7 +1703,7 @@ def swank_ioify(thing):
 #     (let ((action (second (nth (1- count) (cdr *presentation-active-menu*)))))
 #       (swank-ioify (funcall action item ob id)))))
 def execute_menu_choice_for_presentation_id(id, count, item):
-        ob, _ = lookup_presented_object(id)
+        ob, _ = lookup_presented_object(None, None, id)
         if id != first(presentation_active_menu):
                 error("Bug: Execute menu call for id ~a  but menu has id ~a",
                       id, first(presentation_active_menu))
@@ -1693,7 +1712,7 @@ def execute_menu_choice_for_presentation_id(id, count, item):
 
 def pathnamep(x):
         "A flaming heuristic.."
-        return stringp(x) and x.index(".") != -1 and x.index(os.sep) != -1
+        return stringp(x) and x.find(".") != -1 and x.find(os.sep) != -1
 def menu_choices_for_presentation(ob):
         if pathnamep(ob):
                 file_exists, lisp_type = os.access(ob, os.R_OK)
