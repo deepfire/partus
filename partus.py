@@ -75,6 +75,7 @@ def accept_connections(port, port_file):
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(('', port))
         s.listen(0)
+        swank.init_package_system()
         debug_printf("waiting for clients..")
         c, a = s.accept()
         debug_printf("serving connection from %s", a)
@@ -85,7 +86,6 @@ def accept_connections(port, port_file):
 # }
 def serve(sock, file):
         debug_printf("serve: sock = %s, file = %s", sock, file)
-        swank.runtime_init_package_system()
         main_loop(sock, file)
 
 # mainLoop <- function(io) {

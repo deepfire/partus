@@ -51,6 +51,7 @@ def symbol_conflict_error(op, obj, pkg, x, y):
 
 def use_package(dest, src):
         "Warning: we're doing a circular package use."
+        dest, src = coerce_to_package(dest), coerce_to_package(src)
         conflict_set = mapset(slotting('name'), src.external) & set(dest.accessible.keys())
         for name in conflict_set:
                 if src.accessible[name] is not dest.accessible[name]:
@@ -58,8 +59,12 @@ def use_package(dest, src):
         ## no conflicts anymore? go on..
         for s in src.external:
                 dest.inherited[s].add(src)
-                if s.name not in dest.accessible: # Addition of this conditional changes nothing, but clarifies a lot.
+                if s.name not in dest.accessible: # Addition of this conditional is important for package use loops.
                         dest.accessible[s.name] = s
+                        if dest.name == "SWANK" and src.name == "INSPECTOR":
+                                debug_printf("merging %s into %s: test: %s", s, dest, read_symbol(print_symbol(s)))
+                if dest.module and s.name not in dest.module.__dict__:
+                        dest.module.__dict__[s.name] = s.value
         src.packages_using.add(dest)
         dest.used_packages.add(src)
 
@@ -169,6 +174,7 @@ def _intern(x, package = None):
         if not (s or stringp(x)):
                 error("Attempted to intern object >%s< of type %s into %s.", x, type(x), p)
         if s:
+                # debug_printf("Found >%s< in %s.", s, p)
                 return s, p
         else:
                 s = symbol(x)
@@ -213,11 +219,12 @@ def read_symbol(x, package = None):
         return intern0(name, p)
 
 def pythonise_lisp_name(x):
-        ret = remove_if_not(identity, re.sub(r"[\-\*]", "_", x).lower().split(":"))
+        ret = re.sub(r"[\-\*]", "_", x).lower()
         debug_printf("==> Python(Lisp %s) == %s", x, ret)
         return ret
 
-def loadtime_init_package_system():
+def init_package_system():
+        debug_printf("   --  -- [ package system init..")
         global __packages__
         global __keyword_package__
         global __swank_package__
@@ -237,22 +244,15 @@ def loadtime_init_package_system():
         package("SWANK-IO-PACKAGE",            use = ["CL", "SWANK"])
         __current_package__ = __swank_package__
 
-def runtime_init_package_system():
+        import inspector
         package("INSPECTOR",                   use = ["CL", "PERGAMUM", "SWANK"])
-        use_package(find_package("SWANK"), find_package("INSPECTOR"))
+        inspector.nil_surrogate = intern0("nil_surrogate", "INSPECTOR")
+        use_package(__swank_package__, "INSPECTOR")
         # inspector_syms = [
         #         "inspect_object", "lookup_presented_object"
         #         ]
         # import_to(mapcar(lambda s: find_symbol(s, "INSPECTOR"), inspector_syms),
         #           "SWANK")
-
-loadtime_init_package_system()
-###
-### Globals.
-###
-partus_version = "2011-09-28"
-
-debug = True
 
 ###
 ### Evaluation result.
@@ -459,7 +459,7 @@ def swank_ast_name(x):
         return ast_name(x) if debug else ast_attribute(ast_name("swank"), x)
 
 def listener_eval(slime_connection, sldb_state, string):
-        # string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"lookup_presented_object(slime_connection, sldb_state,\\1))", string)
+        # string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"(lookup-presented-object \\1))", string)
         def eval_stage(name, fn):
                 try:
                         return fn()
@@ -1081,7 +1081,7 @@ def lisp_name_ast(x):
                 return (ast_name(x[0])
                         if len(x) == 1 else
                         ast_attribute(rec(x[:-1]), x[-1]))
-        return rec(pythonise_lisp_name(x))
+        return rec(remove_if_not(identity, pythonise_lisp_name(x).split(":")))
 
 def constantp(x):
         return type(x) in set([str, int])
@@ -1198,7 +1198,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
 def dispatch(slime_connection, event, sldb_state):
         kind = event[0]
         debug_printf("===( DISPATCH, sldb_state: %s", sldb_state)
-        if kind is keyword('emacs-rex'):
+        if kind is keyword('emacs_rex'):
                 emacs_rex(*([slime_connection, sldb_state] + event[1:]))
 
 ###
@@ -1220,6 +1220,7 @@ def read_chunk(file, len_):
 # readSexpFromString <- function(string) {
 #   pos <- 1
 def read_sexp_from_string(string):
+        # string = re.sub(r"swank\:lookup-presented-object ", r"lookup_presented_object ", string)
         pos = 0
 #   read <- function() {
 #     skipWhitespace()
@@ -1367,8 +1368,8 @@ def read_sexp_from_string(string):
                 elif re.match("^[0-9]+\\.[0-9]+$", token):
                         ret = float(token)
                 else:
-                        name = read_symbol(token)
-                        debug_printf("-- interned %s", name)
+                        name = read_symbol(pythonise_lisp_name(token))
+                        debug_printf("-- interned %s as %s", token, name)
                         if name is t:
                                 ret = True
                         elif name is nil:
@@ -1450,3 +1451,9 @@ def sldb_loop(slime_connection, sldb_state, id_):
         finally:
                 send_to_emacs(slime_connection, [keyword('debug-return'), id_, sldb_state.level, False])
 
+###
+### Globals.
+###
+partus_version = "2011-09-28"
+
+debug = True

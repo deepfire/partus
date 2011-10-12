@@ -10,9 +10,9 @@ from swank import *
 #   list(quote(`:write-string`), string,
 #        quote(`:repl-result`))
 # }
-###def make_repl_result(value):
-###        string = print_to_string(value)
-###        return [keyword("write-string"), string, keyword("repl-result")]
+def make_repl_result(value):
+       string = print_to_string(value)
+       return [keyword("write-string"), string, keyword("repl-result")]
 
 # makeReplResultFunction <- makeReplResult
 make_repl_result_function = make_repl_result
@@ -157,8 +157,6 @@ def clear_presentation_tables():
 
 presentation_counter = 0
 
-nil_surrogate = intern0("nil_surrogate")
-
 def save_presented_object(object):
         object = (nil_surrogate if nonep(object) else object,)
         def store():
@@ -178,13 +176,13 @@ def lookup_presented_object(id):
                 else:
                         return object, foundp
         elif listp(id):
-                if id[0] == keyword("frame-var"):
+                if id[0] == keyword("frame_var"):
                         debug_printf("l_p_o: %s, [:frame-var]", id)
                         thread_id, frame, index = id[1:]
                         return handler_case(lambda: frame_var_value(frame, index),
                                             error = lambda: (None, None),
                                             no_error = lambda value: (value, True))
-                elif id[0] == keyword("inspected-part"):
+                elif id[0] == keyword("inspected_part"):
                         debug_printf("l_p_o: %s, [:inspected-part]", id)
                         part_index, inspectee_parts = id[1], env.inspectee_parts
                         if part_index < len(inspectee_parts):
