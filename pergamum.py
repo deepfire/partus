@@ -42,6 +42,10 @@ def when_let(condition, consequent):
 def letf(value, body):
         return body(value)
 
+def lret(value, body):
+        body(value)
+        return value
+
 def fwhen(test, clause):
         if test() if functionp(test) else test:
                 return clause() if functionp(clause) else clause
@@ -91,6 +95,10 @@ def xform_if(test, f, x):
 def arg1(*args): return args[0]
 def arg2(*args): return args[1]
 def arg3(*args): return args[2]
+
+def orf(x, y):  return x | y
+def andf(x, y): return x & y
+def xorf(x, y): return x ^ y
 
 ## conses
 def single(x):        return (x,)
