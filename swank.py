@@ -44,26 +44,60 @@ __keyword_package__ = None
 
 __current_package__ = None
 
+def symbol_conflict_error(op, obj, pkg, x, y):
+        error("%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
+              (op, obj, pkg, x, y))
+
 class package(collections.UserDict):
         def __str__ (self):
                 return "#<PACKAGE %s>" % self.name
-        def __init__(self, name):
+        def __bool__(self):
+                return True
+        def __hash__(self):
+                return hash(id(self))
+        def __init__(self, name, ignore_python = False, use = []):
                 self.name = name
-                self.module = sys.modules.get(name.lower()) ### XXX: deal away with this mangling
 
-                self.imported_packages  = set()
-                self.importing_packages = set()
-
-                moddict = self.module and dict(self.module.__dict__)
-                self.own         = moddict or dict()
-                self.imported    = set()
+                self.own         = set()   # sym
+                self.imported    = set()   # sym
               # self.present     = own + imported
-                self.inherited   = dict()                               ### mapsetn(slotting("external"), imported_packages) -> source_package
-                self.accessible  = dict(moddict) if moddict else dict() ### accessible = present + inherited
-                self.external    = set()                                ### subset of accessible
+                self.inherited   = dict()  # sym -> pkg  ### mapsetn(slotting("external"), used_packages) -> source_package
+                self.accessible  = dict()  # str -> sym  ### accessible = present + inherited
+                self.external    = set()   # sym         ### subset of accessible
               # self.internal    = accessible - external
-                ####
-                self.data        = self.accessible
+
+                self.module = sys.modules.get(name.lower()) ### XXX: deal away with this mangling
+                self.used_packages  = set(mapcar(lambda x: coerce_to_package(x, if_null = 'error'), use))
+                self.packages_using = set()
+                def use_package(p):
+                        conflict_set = mapset(slotting('name'), p.external) & set(self.accessible.keys())
+                        for name in conflict_set:
+                                if p.accessible[name] is not self.accessible[name]:
+                                        symbol_conflict_error("USE-PACKAGE", p, self, p.accessible[name], self.accessible[name])
+                        ## no conflicts anymore? go on..
+                        for s in p.external:
+                                self.accessible[s.name], self.inherited[s] = s, p
+                        p.packages_using.add(self)
+                        self.used_packages.add(p)
+                mapc(use_package, self.used_packages)
+
+                #### Import the corresponding python dictionary.  Intern depends on
+                if not ignore_python:
+                        moddict = self.module and dict(self.module.__dict__)
+                        if moddict:
+                                explicit_exports = set(moddict.get("__all__", []))
+                                for (key, value) in moddict.items():
+                                        ### intern the python symbol, when it is known not to be inherited
+                                        if key not in self.accessible:
+                                                s = intern0(key, self)
+                                                s.value = value
+                                                if functionp(value):
+                                                        s.function = value
+                                        ### export symbol, according to the python model
+                                        if not explicit_exports or key in explicit_exports:
+                                                self.external.add(self.accessible[key])
+                #### Hit the street.
+                self.data          = self.accessible
                 __packages__[name] = self
 def packagep(x):     return typep(x, package)
 def package_name(x): return x.name
@@ -72,10 +106,11 @@ def find_package(x):
         return __packages__.get(x)
 def _package_():
         return __current_package__
-def coerce_to_package(x):
-        return (_package_()     if not x else
+def coerce_to_package(x, if_null = 'current'):
+        return (x               if packagep(x) else
                 find_package(x) if stringp(x) else
-                x)
+                _package_()     if not x and if_null == 'current' else
+                error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
 
 class symbol():
         def __str__(self):  return "%s%s%s" % (self.package.name if self.package else
@@ -101,7 +136,7 @@ def keyword(s):
 
 def symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
-        s = p.get(x) if stringp(x) else x
+        s = p.accessible.get(x) if stringp(x) else x
         if s:
                 return (keyword("inherited") if s.name in p.inherited else
                         keyword("external")  if s in p.external else
@@ -118,12 +153,16 @@ def find_symbol0(x, package = None): return find_symbol(x, package)[0]
 
 def intern(x, package = None):
         p = coerce_to_package(package)
-        s = p.get(x) if stringp(x) else x
+        s = p.accessible.get(x) if stringp(x) else x
+        if not (s or stringp(x)):
+                error("Attempted to intern object >%s< of type %s into %s.", x, type(x), p)
         if s:
                 return s, symbol_relation(s, p)
         else:
                 s = symbol(x)
-                p.own[x], p.accessible[x], s.package = s, s, p
+                p.own.add(s)
+                p.accessible[x], s.package = s, p
+                debug_printf("Interned >%s< into %s.", s, p)
                 if p is __keyword_package__:
                         p.external.add(s)
                 return s, None
@@ -135,8 +174,7 @@ def import_from(symbols, package = None):
         for s in symbols:
                 ps = p.get(s.name)
                 if ps: # conflict
-                        error("IMPORT %s causes name-conflicts in %s between the following symbols: %s, %s." %
-                              (s, p, s, ps))
+                        symbol_conflict_error("IMPORT", s, p, s, ps)
                 else:
                         p.imported.add(s)
                         p.accessible[s.name] = s
@@ -163,12 +201,15 @@ def pythonise_lisp_name(x):
 
 def init_package_system():
         global __lisp_package__
+        global __current_package__
         __packages__ = dict()
-        __current_package__ = package("SWANK")
+        package("KEYWORD",                     ignore_python = True)
         package("CL")
-        package("PERGAMUM")
-        package("KEYWORD")
-        package("SWANK-IO-PACKAGE")
+        package("PERGAMUM",                    use = ["CL"])
+        debug_printf("neutrality's __all__ are: %s", sys.modules['neutrality'].__dict__['__all__'])
+        package("MORE_AST",                    use = ["CL", "PERGAMUM"])
+        __current_package__ = package("SWANK", use = ["CL", "PERGAMUM", "MORE_AST"])
+        package("SWANK-IO-PACKAGE",            use = ["CL", "SWANK"])
 
 init_package_system()
 ###
