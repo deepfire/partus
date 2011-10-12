@@ -85,6 +85,7 @@ def accept_connections(port, port_file):
 # }
 def serve(sock, file):
         debug_printf("serve: sock = %s, file = %s", sock, file)
+        swank.runtime_init_package_system()
         main_loop(sock, file)
 
 # mainLoop <- function(io) {
