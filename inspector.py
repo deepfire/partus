@@ -1,3 +1,5 @@
+import dis
+
 from cl import *
 from pergamum import *
 from swank import *
@@ -44,11 +46,11 @@ make_repl_result_function = make_repl_result
 # }
 def inspect_object(slime_connection, object):
         previous = slime_connection.istate
-        slime_connection.istate = new_env() # FIXME
+        # slime_connection.istate = new_env() # FIXME
         slime_connection.istate.object = object
         slime_connection.istate.previous = previous
         slime_connection.istate.content = emacs_inspect(object)
-        slime_connection.inspector_history.add(object)
+        slime_connection.inspector_history.append(object)
         if slime_connection.istate.previous:
                 slime_connection.istate.previous.next = slime_connection.istate
         return istate_to_elisp(slime_connection.istate)
@@ -97,7 +99,7 @@ def prepare_part(istate, part):
 # }
 def prepare_range(istate, start, end):
         range = istate.content[start:min(end, len(istate.content) - 1)]
-        ps = None
+        ps = []
         for part in range:
                 ps += prepare_part(istate, part)
         return [ps, (start + len(ps)) if len(ps) < end - start else (end + 1000),
@@ -119,7 +121,8 @@ def assign_index_in_parts(object, istate):
 #        quote(`:content`), prepareRange(istate, 0, 500))
 # }
 def istate_to_elisp(istate):
-        return [keyword("title"),   deparse(istate.object),
+        return [# keyword("title"),   deparse(istate.object), # XXX: depare -> str
+                keyword("title"),   str(istate.object),
                 keyword("id"),      assign_index_in_parts(istate.object, istate),
                 keyword("content"), prepare_range(istate, 0, 500)]
 
@@ -185,7 +188,7 @@ def lookup_presented_object(id):
                 elif id[0] == keyword("inspected_part"):
                         debug_printf("l_p_o: %s, [:inspected-part]", id)
                         part_index, inspectee_parts = id[1], env.inspectee_parts
-                        if part_index < len(inspectee_parts):
+                        if part_index < len(env.inspectee_parts):
                                 return None, None
                         else:
                                 return inspector_nth_part(part_index), True
@@ -193,7 +196,7 @@ def lookup_presented_object(id):
                         error("Bad presented object ID: %s", id)
 
 def lookup_presented_object_or_lose(id):
-        object, foundp = lookup_presented_object_or_lose(id)
+        object, foundp = lookup_presented_object(id)
         return object if foundp else error("Attempt to access unrecorded object (id %s).", id)
 
 def clear_repl_results():
@@ -338,14 +341,18 @@ def menu_choices_for_presentation(ob):
         if functionp(ob):
                 return [["Disassemble",
                          lambda _, object, __:
-                                 disassemble(object)]]
+                                 dis.dis(object)]]
         else:
                 return None
 
 def inspect_presentation(id, reset_p):
+        debug_printf("i_pre 0")
         what = lookup_presented_object_or_lose(id)
+        debug_printf("i_pre looked up")
         if reset_p:
-                reset_inspector()
-        return inspect_object(what)
+                debug_printf("i_pre reset")
+                reset_inspector(env.slime_connection)
+        debug_printf("i_pre inspecting")
+        return inspect_object(env.slime_connection, what)
 
 send_repl_results_function = present_repl_results

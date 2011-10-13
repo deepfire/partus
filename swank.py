@@ -265,6 +265,157 @@ def get_value():
         return ___expr___
 
 ###
+### Pythonese framing.
+###
+# >>> dir(f)
+# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
+# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
+# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
+# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
+# '__subclasshook__', 'f_back', 'f_builtins', 'f_code', 'f_globals',
+# 'f_lasti', 'f_lineno', 'f_locals', 'f_trace']
+# >>> dir(f.f_code)
+# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
+# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
+# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
+# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
+# '__subclasshook__', 'co_argcount', 'co_cellvars', 'co_code',
+# 'co_consts', 'co_filename', 'co_firstlineno', 'co_flags',
+# 'co_freevars', 'co_kwonlyargcount', 'co_lnotab', 'co_name',
+# 'co_names', 'co_nlocals', 'co_stacksize', 'co_varnames']
+def example_frame():
+        "cellvars: closed over non-globals;  varnames: bound"
+        def xceptor(xceptor_arg):
+                "names: globals;  varnames: args + otherbind;  locals: len(varnames)"
+                try:
+                        error("This is xceptor talking: %s.", xceptor_arg)
+                except Exception as cond:
+                        return this_frame()
+        def midder(midder_arg):
+                "freevars: non-global-free;  varnames: args + otherbind;  locals: ..."
+                midder_stack_var = 0
+                return xceptor(midder_arg + midder_stack_var)
+        def outer():
+                "freevars: non-global-free;  varnames: args + otherbind"
+                outer_stack_var = 3
+                return midder(outer_stack_var)
+        return outer()
+
+def all_threads_frames():
+        return sys._current_frames()
+
+def this_frame():
+        return sys._getframe(1)
+
+def exception_frame():
+        return sys.exc_info()[2].tb_frame
+
+def frames_upward_from(f):
+        return [f] + (frames_upward_from(f.f_back) if f.f_back else [])
+
+def frame_info(f):
+        "Return frame (function, lineno, locals, globals, builtins)."
+        return (f.f_code,
+                f.f_lineno,
+                f.f_locals,
+                f.f_globals,
+                f.f_builtins,
+                )
+
+def frame_fun(f):    return f.f_code
+def frame_lineno(f): return f.f_lineno
+def frame_locals(f): return f.f_locals
+
+def fun_info(f):
+        "Return function (name, params, filename, lineno, nlines)."
+        return (f.co_name or "<unknown-name>",
+                f.co_varnames[:f.co_argcount], # parameters
+                f.co_filename or "<unknown-file>",
+                f.co_firstlineno,
+                1 + max(f.co_lnotab or [0]),        # lines
+                f.co_varnames[f.co_argcount:], # non-parameter bound locals
+                f.co_freevars,
+                )
+def fun_name(f):       return f.co_name
+def fun_filename(f):   return f.co_filename
+def fun_bytecode(f):   return f.co_code
+def fun_constants(f):  return f.co_consts
+
+def pp_frame(f, align = None):
+        fun = frame_fun(f)
+        fun_name, fun_params, filename = fun_info(fun)[:3]
+        padding = " " * ((align or len(filename)) - len(filename))
+        return "%s: %s(%s)" % (padding + filename, fun_name, ", ".join(fun_params))
+
+def print_frame(f):
+        print(pp_frame(f))
+
+def print_frames(fs):
+        mapc(lambda i, f: print("%2d: %s" % (i, pp_frame(f))), *zip(*enumerate(fs)))
+
+### Study done by the means of:
+# print("\n".join(map(lambda f:
+#                             "== def %s\n%s\n" %
+#                     (fun_name(f),
+#                      "\n  ".join(map(lambda s: s + ": " + str(getattr(f, s)),
+#                                      ['co_argcount',
+#                                       'co_cellvars',
+#                                       'co_names',
+#                                       'co_varnames',
+#                                       'co_freevars',
+#                                       'co_nlocals']))),
+#                     ffuns)))
+
+# == def xceptor
+# co_argcount: 1
+#   co_cellvars: ()
+#   co_names: ('error', 'Exception', 'this_frame')
+#   co_varnames: ('xceptor_arg', 'cond')
+#   co_freevars: ()
+#   co_nlocals: 2
+
+# == def midder
+# co_argcount: 1
+#   co_cellvars: ()
+#   co_names: ()
+#   co_varnames: ('midder_arg', 'midder_stack_var')
+#   co_freevars: ('xceptor',)
+#   co_nlocals: 2
+
+# == def outer
+# co_argcount: 0
+#   co_cellvars: ()
+#   co_names: ()
+#   co_varnames: ('outer_stack_var',)
+#   co_freevars: ('midder',)
+#   co_nlocals: 1
+
+# == def example_frame
+# co_argcount: 0
+#   co_cellvars: ('xceptor', 'midder')
+#   co_names: ()
+#   co_varnames: ('outer',)
+#   co_freevars: ()
+#   co_nlocals: 1
+
+# == def <module>
+# co_argcount: 0
+#   co_cellvars: ()
+#   co_names: ('example_frame', 'f')
+#   co_varnames: ()
+#   co_freevars: ()
+#   co_nlocals: 0
+### More info:
+## sys.call_tracing()
+# p = Pdb(self.completekey, self.stdin, self.stdout)
+# p.prompt = "(%s) " % self.prompt.strip()
+# print >>self.stdout, "ENTERING RECURSIVE DEBUGGER"
+# sys.call_tracing(p.run, (arg, globals, locals))
+# print >>self.stdout, "LEAVING RECURSIVE DEBUGGER"
+# sys.settrace(self.trace_dispatch)
+# self.lastcmd = p.lastcmd
+
+###
 ### SLDB state.
 ###
 # makeSldbState <- function(condition, level, id) {
@@ -282,10 +433,7 @@ class servile():
 class SldbState(servile): pass
 
 def make_sldb_state(condition, level, id):
-        def unwind_frames(f):
-                return [f] + (unwind_frames(f.f_back) if f.f_back else [])
-        top_frame = sys.exc_info()[2].tb_frame
-        frames = unwind_frames(top_frame)
+        frames = frames_upward_from(this_frame())
         # debug_printf("frames: %s", frames)
         return SldbState(frames = frames,
                          restarts = [],
@@ -516,15 +664,10 @@ def throw_to_toplevel(slime_connection, sldb_state):
 # }
 def backtrace(slime_connection, sldb_state, from_ = 0, to = None):
         frames = sldb_state.frames
-        if nonep(to):
-                to = len(frames)
-        longest = max(map(lambda f: len(f.f_code.co_filename), frames))
-        def pp_frame(f):
-                co = f.f_code
-                filename = co.co_filename or "<unknown-file>"
-                padding = " " * (longest - len(filename))
-                return "%s: %s(%s)" % (padding + filename, co.co_name, ", ".join(co.co_cellvars))
-        return list(enumerate(map(pp_frame, frames[from_ + 1:to]), from_))
+        longest = max(mapcar(lambda f: len(fun_filename(frame_fun(f))), frames))
+        return list(enumerate(map(pp_frame,
+                                  frames[from_ + 1:to or len(frames)]),
+                              from_))
 
 # computeRestartsForEmacs <- function (sldbState) {
 #   lapply(sldbState$restarts,
@@ -586,17 +729,14 @@ def invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
 #   }
 # }
 def frame_source_location(slime_connection, sldb_state, n):
-        frame = sldb_state.frames[n + 1]
-        co = frame.f_code
-        def co_nlines(co):
-                return 1 + max(co.co_lnotab)
-        srcfile, line, nlines, column, name = co.co_filename, co.co_firstlineno, co_nlines(co), 0, co.name
+        fun = frame_fun(sldb_state.frames[n + 1])
+        name, _, srcfile, line, nlines = fun_info(fun)[:5]
         if not srcfile:
                 return [keyword('error'), "no srcfile"]
         else:
                 return [keyword('location'),
                         [keyword('file'), srcfile],
-                        [keyword('line'), line, srcref[1] - 1],
+                        [keyword('line'), line, line + nlines],
                         find_symbol0('nil')]
 
 # `swank:buffer-first-change` <- function(slimeConnection, sldbState, filename) {
@@ -668,7 +808,7 @@ def frame_locals_and_catch_tags(slime_connection, sldb_state, index):
                                                     keyword('id'), 0,
                                                     keyword('value'), handler_bind(lambda: print_to_string(value),
                                                                                    error = lambda c: "Error printing object: %s." % c)],
-                               frame.f_locals),
+                               frame_locals(frame)),
                 []]
 
 # `swank:simple-completions` <- function(slimeConnection, sldbState, prefix, package) {
@@ -899,10 +1039,11 @@ def commit_edited_value(slime_connection, sldb_state, string, value):
 #   assign("istate", list(), envir=slimeConnection)
 #   assign("inspectorHistory", NULL, envir=slimeConnection)
 # }
+class InspectorState(servile):
+        pass
 def reset_inspector(slime_connection):
-        global istate, inspector_history
-        istate = []
-        inspector_history = dict()
+        slime_connection.istate = InspectorState(parts = [])
+        slime_connection.inspector_history = list()
 
 # `swank:init-inspector` <- function(slimeConnection, sldbState, string) {
 #   withRetryRestart("retry SLIME inspection request",
@@ -935,7 +1076,7 @@ def quit_inspector(slime_connection, sldb_state):
 #   slimeConnection$istate$parts[[index]]
 # }
 def inspector_nth_part(slime_connection, sldb_state, index):
-        return slime_connection.istate.pargs[index]
+        return slime_connection.istate.parts[index]
 
 # `swank:inspect-nth-part` <- function(slimeConnection, sldbState, index) {
 #   object <- `swank:inspector-nth-part`(slimeConnection, sldbState, index)
@@ -986,6 +1127,7 @@ def inspector_next(slime_connection, sldb_state):
 #   }
 # }
 def inspector_eval(slime_connection, sldb_state, string):
+        error("Not implemented: inspector_eval().")
         pass
 
 # `swank:inspect-current-condition` <- function(slimeConnection, sldbState) {
