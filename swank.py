@@ -322,9 +322,19 @@ def frame_info(f):
                 f.f_builtins,
                 )
 
-def frame_fun(f):    return f.f_code
-def frame_lineno(f): return f.f_lineno
-def frame_locals(f): return f.f_locals
+def frame_fun(f):               return f.f_code
+def frame_lineno(f):            return f.f_lineno
+def frame_locals(f):            return f.f_locals
+def frame_globals(f):           return f.f_globals
+def frame_local_value(f, name): return f.f_locals[name]
+
+### XXX: this is the price of Pythonic pain
+__ordered_frame_locals__ = dict()
+def ordered_frame_locals(f):
+        global __ordered_frame_locals__
+        if f not in __ordered_frame_locals__:
+                __ordered_frame_locals__[f] = list(f.f_locals.keys())
+        return __ordered_frame_locals__[f]
 
 def fun_info(f):
         "Return function (name, params, filename, lineno, nlines)."
@@ -666,7 +676,7 @@ def backtrace(slime_connection, sldb_state, from_ = 0, to = None):
         frames = sldb_state.frames
         longest = max(mapcar(lambda f: len(fun_filename(frame_fun(f))), frames))
         return list(enumerate(map(pp_frame,
-                                  frames[from_ + 1:to or len(frames)]),
+                                  frames[from_:to or len(frames)]), # XXX: was [from_ + 1:to or len(frames)]
                               from_))
 
 # computeRestartsForEmacs <- function (sldbState) {
@@ -729,7 +739,7 @@ def invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
 #   }
 # }
 def frame_source_location(slime_connection, sldb_state, n):
-        fun = frame_fun(sldb_state.frames[n + 1])
+        fun = frame_fun(sldb_state.frames[n]) # XXX: was [n + 1]
         name, _, srcfile, line, nlines = fun_info(fun)[:5]
         if not srcfile:
                 return [keyword('error'), "no srcfile"]
@@ -767,7 +777,7 @@ def print_to_string(val):
 #   printToString(value)
 # }
 def eval_string_in_frame(slime_connection, sldb_state, string, index):
-        frame = sldb_state.frames[index + 1]
+        frame = sldb_state.frames[index] # XXX: was [index + 1]
         value = None
         def with_retry_restart_body():
                 nonlocal value
@@ -790,25 +800,13 @@ def eval_string_in_frame(slime_connection, sldb_state, string, index):
 #                                           }))}),
 #        list())
 # }
-def make_frame():
-        def x(a):
-                b = 1
-                try:
-                        raise Exception("a: %s, b: %s", a, b)
-                except Exception as cond:
-                        return sys.exc_info()[2]
-        def y(c):
-                d = c + 1
-                return x(d)
-        return y(0)
-
 def frame_locals_and_catch_tags(slime_connection, sldb_state, index):
-        frame = sldb_state.frames[index + 1]
-        return [map_hash_table(lambda name, value: [keyword('name'), name,
-                                                    keyword('id'), 0,
-                                                    keyword('value'), handler_bind(lambda: print_to_string(value),
-                                                                                   error = lambda c: "Error printing object: %s." % c)],
-                               frame_locals(frame)),
+        frame = sldb_state.frames[index] # XXX: was [index + 1]
+        return [mapcar(lambda local_name: [keyword('name'), local_name,
+                                           keyword('id'), 0,
+                                           keyword('value'), handler_bind(lambda: print_to_string(frame_local_value(frame, local_name)),
+                                                                          error = lambda c: "Error printing object: %s." % c)],
+                       ordered_frame_locals(frame)),
                 []]
 
 # `swank:simple-completions` <- function(slimeConnection, sldbState, prefix, package) {
@@ -1147,10 +1145,9 @@ def inspect_current_condition(slime_connection, sldb_state):
 # }
 def inspect_frame_var(slime_connection, sldb_state, frame, var):
         reset_inspector(slime_connection)
-        frame = sldb_state.frames[frame + 1]
-        name = ls(env = frame)[var + 1]
-        object = env_get(name, env = frame)
-        return inspect_object(slime_connection, object)
+        frame = sldb_state.frames[index] # XXX: was [index + 1]
+        varname = ordered_frame_locals(frame)[var]
+        return inspect_object(slime_connection, frame_local_value(frame, varname))
 
 # `swank:default-directory` <- function(slimeConnection, sldbState) {
 #   getwd()
