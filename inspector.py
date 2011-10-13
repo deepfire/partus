@@ -174,14 +174,14 @@ presentation_counter = 0
 def save_presented_object(object):
         """Save OBJECT and return the assigned id.
 If OBJECT was saved previously return the old id."""
-        debug_printf(">>               - s_p_o(%s), type %s", object, type(object[0]))
+        # debug_printf(">>               - s_p_o(%s), type %s", object, type(object[0]))
         object = (nil_surrogate if nonep(object) else object),
         def store(object):
                 global presentation_counter
                 presentation_counter += 1
                 object_to_presentation_id[object] = presentation_counter
                 presentation_id_to_object[presentation_counter] = object
-                debug_printf("==               - s_p_o(%s), id %d, type %s", object, presentation_counter, type(object[0]))
+                # debug_printf("==               - s_p_o(%s), id %d, type %s", object, presentation_counter, type(object[0]))
                 return presentation_counter
         o, hasp = gethash(object, object_to_presentation_id)
         return o if hasp else store(object)
@@ -189,7 +189,7 @@ If OBJECT was saved previously return the old id."""
 def lookup_presented_object(id):
         if integerp(id):
                 (object,), foundp = gethash(id, presentation_id_to_object)
-                debug_printf("--               - l_p_o: %s  -%s-> %s", id, foundp, object)
+                # debug_printf("--               - l_p_o: %s  -%s-> %s", id, foundp, object)
                 if object is nil_surrogate:
                         return False, True
                 else:
@@ -199,11 +199,12 @@ def lookup_presented_object(id):
                         thread_id, frame_id, index = id[1:]
                         frame = env.sldb_state.frames[frame_id]
                         try:
-                                debug_printf(">>               - o_f_l(%s, %s)", frame, index)
+                                # debug_printf(">>               - o_f_l(%s, %s)", frame, index)
                                 v = ordered_frame_locals(frame)[index]
-                                debug_printf("<<               - o_f_l(%s, %s) -> %s", frame, index, v)
+                                # debug_printf("<<               - o_f_l(%s, %s) -> %s", frame, index, v)
                         except Exception as cond:
-                                debug_printf("EE               - o_f_l(%s, %s) -> %s", frame, index, cond)
+                                pass
+                                # debug_printf("EE               - o_f_l(%s, %s) -> %s", frame, index, cond)
                         return handler_case(lambda: ordered_frame_locals(frame)[index],
                                             error = lambda c: error(c),
                                             # error = lambda _: (None, None),
@@ -225,7 +226,7 @@ def clear_repl_results():
         clear_presentation_tables()
 
 def present_repl_results(values):
-        debug_printf(">>               - p_r_r(%s)", values)
+        # debug_printf(">>               - p_r_r(%s)", values)
         def send(value):
                 id = record_repl_results and save_presented_object(value)
                 send_to_emacs([keyword("presentation-start"), id,                     keyword("repl-result")])
@@ -370,7 +371,7 @@ def menu_choices_for_presentation(ob):
 
 def inspect_presentation(id, reset_p):
         what = lookup_presented_object_or_lose(id)
-        debug_printf("<<               - l_p_o_o_l(%s) -> %s, a %s", id, what, type(what))
+        # debug_printf("<<               - l_p_o_o_l(%s) -> %s, a %s", id, what, type(what))
         if reset_p:
                 reset_inspector(env.slime_connection)
         return inspect_object(env.slime_connection, what)

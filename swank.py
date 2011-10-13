@@ -61,8 +61,8 @@ def use_package(dest, src):
                 dest.inherited[s].add(src)
                 if s.name not in dest.accessible: # Addition of this conditional is important for package use loops.
                         dest.accessible[s.name] = s
-                        if dest.name == "SWANK" and src.name == "INSPECTOR":
-                                debug_printf("merging %s into %s: test: %s", s, dest, read_symbol(print_symbol(s)))
+                        # if dest.name == "SWANK" and src.name == "INSPECTOR":
+                        #         debug_printf("merging %s into %s: test: %s", s, dest, read_symbol(print_symbol(s)))
                 if dest.module and s.name not in dest.module.__dict__:
                         dest.module.__dict__[s.name] = s.value
         src.packages_using.add(dest)
@@ -180,7 +180,7 @@ def _intern(x, package = None):
                 s = symbol(x)
                 p.own.add(s)
                 p.accessible[x], s.package = s, p
-                debug_printf("Interned >%s< into %s.", s, p)
+                # debug_printf("Interned >%s< into %s.", s, p)
                 if p is __keyword_package__:
                         # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
                         p.external.add(s)
@@ -204,7 +204,7 @@ def import_to(symbols, package = None):
         return True
 
 def read_symbol(x, package = None):
-        debug_printf("read_symbol >%s<, x[0]: >%s<", x, x[0])
+        # debug_printf("read_symbol >%s<, x[0]: >%s<", x, x[0])
         name, p = ((x[1:], __keyword_package__)
                    if x[0] == ":" else
                    letf(x.find(":"), 
@@ -220,11 +220,11 @@ def read_symbol(x, package = None):
 
 def pythonise_lisp_name(x):
         ret = re.sub(r"[\-\*]", "_", x).lower()
-        debug_printf("==> Python(Lisp %s) == %s", x, ret)
+        # debug_printf("==> Python(Lisp %s) == %s", x, ret)
         return ret
 
 def init_package_system():
-        debug_printf("   --  -- [ package system init..")
+        # debug_printf("   --  -- [ package system init..")
         global __packages__
         global __keyword_package__
         global __swank_package__
@@ -494,7 +494,7 @@ obj2lisp_xform = {
         True  : "t",
         }
 def write_sexp_to_string(obj):
-        debug_printf("write_sexp_to_string: %s", obj)
+        # debug_printf("write_sexp_to_string: %s", obj)
         def do_write_sexp_to_string(obj):
                 string = ""
                 def write_sexp_to_string_loop(obj):
@@ -521,7 +521,7 @@ def write_sexp_to_string(obj):
                         return string
                 return write_sexp_to_string_loop(obj)
         ret = do_write_sexp_to_string(obj)
-        debug_printf("===> %s", ret)
+        # debug_printf("===> %s", ret)
         return ret
 
 # sendToEmacs <- function(slimeConnection, obj) {
@@ -602,12 +602,12 @@ def writeurn_output(output):
 def error_handler(c, sldb_state, output = None):
         global condition
         condition = c
-        debug_printf("===( e-ha %s, sldb_state: %s", c, sldb_state)
+        # debug_printf("===( e-ha %s, sldb_state: %s", c, sldb_state)
         if output:
                 writeurn_output(output)
         new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, env.id)
         with env.let(sldb_state = new_sldb_state):
-                debug_printf("===( e-ha %s, new_sldb_state: %s", c, new_sldb_state)
+                # debug_printf("===( e-ha %s, new_sldb_state: %s", c, new_sldb_state)
                 def with_restarts_body():
                         return sldb_loop(env.slime_connection, new_sldb_state, env.id)
                 with_restarts(with_restarts_body,
@@ -622,7 +622,7 @@ def listener_eval(slime_connection, sldb_state, string):
                 try:
                         return fn()
                 except Exception as cond:
-                        debug_printf("===( LISTENER %s: %s, sldb state: %s", name, cond, sldb_state)
+                        # debug_printf("===( LISTENER %s: %s, sldb state: %s", name, cond, sldb_state)
                         error_handler(cond, sldb_state)
                         return None
         ast_ = eval_stage("PARSE", lambda: ast.parse(string))
@@ -1233,7 +1233,7 @@ obj2ast_xform = {
         }
 
 def callify(form, quoted = False):
-        debug_printf("CALLIFY %s", form)
+        # debug_printf("CALLIFY %s", form)
         if listp(form):
                 if quoted or (form[0] is find_symbol0('quote')):
                         return (ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
@@ -1294,7 +1294,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                         nonlocal condition
                         writeurn_output(output)
                         condition = cond
-                        debug_printf("ERROR:" + mesg, *args)
+                        # debug_printf("ERROR:" + mesg, *args)
                         raise cond
                 def with_calling_handlers_body():
                         nonlocal ok, value
@@ -1306,16 +1306,16 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
                                                  ]))
                         except Exception as cond:
                                 send_abort(cond, "failed to callify: %s", cond)
-                        debug_printf("==========( COMPILE-AST\n%s\n", pp_ast_as_code(expr))
+                        # debug_printf("==========( COMPILE-AST\n%s\n", pp_ast_as_code(expr))
                         try:
                                 code = compile(call, '', 'exec')
                         except Exception as cond:
                                 send_abort(cond, "failed to compile: %s", cond)
-                        debug_printf("executing..")
+                        # debug_printf("executing..")
                         with_output_redirection(lambda: exec(code, env.python_user.__dict__), file = output)
                         value = get_value()
                         string = writeurn_output(output)
-                        debug_printf("return value: %s", value)
+                        # debug_printf("return value: %s", value)
                         # debug_printf("output:\n%s\n===== EOF =====\n", string)
                         ok = True
                 with env.let(id = id):
@@ -1336,7 +1336,7 @@ def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
 # }
 def dispatch(slime_connection, event, sldb_state):
         kind = event[0]
-        debug_printf("===( DISPATCH, sldb_state: %s", sldb_state)
+        # debug_printf("===( DISPATCH, sldb_state: %s", sldb_state)
         if kind is keyword('emacs_rex'):
                 emacs_rex(*([slime_connection, sldb_state] + event[1:]))
 
@@ -1508,7 +1508,7 @@ def read_sexp_from_string(string):
                         ret = float(token)
                 else:
                         name = read_symbol(pythonise_lisp_name(token))
-                        debug_printf("-- interned %s as %s", token, name)
+                        # debug_printf("-- interned %s as %s", token, name)
                         if name is t:
                                 ret = True
                         elif name is nil:
@@ -1547,7 +1547,7 @@ def read_sexp_from_string(string):
                 # debug_printf("read_token(): returning %s", token)
                 return token
         ret = read()
-        debug_printf("==============( REMOTE SEXP:\n%s\n", ret)
+        # debug_printf("==============( REMOTE SEXP:\n%s\n", ret)
         return ret
 #   read()
 # }
@@ -1586,7 +1586,7 @@ def sldb_loop(slime_connection, sldb_state, id_):
                         dispatch(slime_connection, read_packet(slime_connection.sock, slime_connection.file), sldb_state)
         except Exception as cond:
                 print_backtrace()
-                debug_printf("===( SLDB got X: %s", cond)
+                # debug_printf("===( SLDB got X: %s", cond)
         finally:
                 send_to_emacs(slime_connection, [keyword('debug-return'), id_, sldb_state.level, False])
 
