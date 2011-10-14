@@ -14,6 +14,12 @@ nil = None
 
 most_positive_fixnum = 67108864
 
+## symbols
+__gensym_counter__ = 0
+def gensym(x = "G"):
+        "Not a real GENSYM, as it returns merely a string."
+        return sys.intern(x + str(__gensym_counter__))
+
 ## basic
 __iff__ = { True:  lambda x, _: x,
             False: lambda _, y: y }
@@ -335,28 +341,51 @@ def intersection(x, y):
 def gethash(key, dict):
         return dict.get(key), key in dict
 
-## catch/throw
-# WARNING: non-specific try-except clauses break this!
-class catcher_throw(BaseException):
-        def __init__(self, name, value):
-                self.name, self.value = name, value
+## non-local control transfers
+def unwind_protect(form, fn):
+        "For the times, when statements won't do."
+        try:
+                return form()
+        finally:
+                fn()
 
-def return_from(name, value):
-        raise catcher_throw(name, value)
+# WARNING: non-specific try/except clauses and BaseException handlers break this!
+class __catcher_throw__(BaseException):
+        def __init__(self, ball, value):
+                self.ball, self.value = ball, value
 
-def block(fn):
-        # source = builtins.intern(inspect.getsource(fn))  # for a more adequate nonce generation..
-        name = sys.intern(fn.__name__)
-        def unlambda(*args, **kwargs):
-                try:
-                        ret = fn(*args, **kwargs)
-                        return ret
-                except catcher_throw as ct:
-                        if ct.name is name:
-                                return ct.value
-                        else:
-                                raise
-        return unlambda
+def catch(ball, body):
+        "This seeks the stack like mad, like the real one."
+        name = sys.intern(ball)
+        try:
+                return body()
+        except __catcher_throw__ as ct:
+                if ct.ball is ball:
+                        return ct.value
+                else:
+                        raise
+
+def throw(ball, value):
+        "Stack this seeks, like mad, like the real one."
+        raise __catcher_throw__(ball = ball, value = value)
+
+def make_ball(name, nonce):
+        return nonce + name + nonce # Shall we do something smarter?
+
+def block(nonce, body):
+        """A lexically-bound counterpart to CATCH/THROW.
+Note, how, in this form, it is almost a synonym to CATCH/THROW -- the lexical aspect
+of nonce-ing is to be handled manually."""
+        return catch(nonce, body)
+
+def return_from(nonce, value):
+        raise throw(nonce, value)
+
+def __block__(nonce):
+        "NOTE: this conflates CATCH/THROW with BLOCK/RETURN-FROM."
+        return lambda fn: (lambda *args, **kwargs:
+                                   catch(nonce,
+                                         lambda: fn(*args, **kwargs)))
 
 ## dynamic scope (XXX: NOT PER-THREAD YET!!!)
 __dynamic_binding_clusters__ = []
@@ -375,7 +404,7 @@ class dynamic_scope(object):
                 for scope in reversed(__dynamic_binding_clusters__):
                         if name in scope:
                                 return scope[name]
-                raise AttributeError("Special %s not bound." % name)
+                raise AttributeError("Unbound variable: %s." % name)
         def let(self, **keys):
                 return env_block(keys)
         def boundp(self, name):
@@ -383,7 +412,7 @@ class dynamic_scope(object):
                         if name in scope:
                                 return True
         def __setattr__(self, name, value):
-                raise AttributeError("Env variables can only be set using `with env.let()`.")
+                raise AttributeError("Use SETQ to set special globals.")
 
 def setq(name, value):
         __dynamic_binding_clusters__[-1][name] = value
@@ -435,17 +464,22 @@ def activate_condition_handler(fn):
 ## conditions
 setq("__handler_clusters__", [])
 
-def __cl_condition_handler__(cond, frame):
+def signal(condition):
         name = type_of(cond).__name__
         for cluster in reversed(env.__handler_clusters__):
-                if functionp(cluster):
-                        cluster()
-                elif dictp(cluster) and name in cluster:
+                if name in cluster:
                         cluster[name](cond)
 
-def unwind_protect(form, fn):
-        with env.let(__handler_clusters__ = __handler_clusters__ + [fn]):
-                return form()
+def __cl_condition_handler__(cond, frame):
+        with env.let(_signalling_frame_ = frame): # This binding is the deviation from the CL standard.
+                signal(cond)
+        # At this point, the Python condition handler kicks in,
+        # and the stack gets unwound for the first time.
+        #
+        # ..too bad, we've already called all HANDLER-BIND-bound
+        # condition handlers.
+        # If we've hit any HANDLER-CASE-bound handlers, then we won't
+        # even reach this point, as the stack is already unwound.
 
 activate_condition_handler(__cl_condition_handler__)
 
@@ -453,18 +487,8 @@ def error(datum, *args):
         "With all said and done, this ought to jump straight above, into __CL_CONDITION_HANDLER__."
         raise Exception(datum % args) if stringp(datum) else datum(*args)
 
-def handler_case(fn, error = lambda c: None, no_error = identity):
-        "Unable to handle things in an ad-hoc manner, unlike actual CL:HANDLER-CASE."
-        value = None
-        try:
-                value = fn()
-        except Exception as cond:
-                return error(cond)
-        finally:
-                return no_error(value)
-
 def handler_bind(fn, no_error = identity, **handlers):
-        "Unwinds stack, unlike actual CL:HANDLER-BIND.  Also, see HANDLER-CASE docstring above."
+        "Works like real HANDLER-BIND, when the conditions are right.  Ha."
         value = None
 
         # this is:
@@ -485,6 +509,18 @@ def handler_bind(fn, no_error = identity, **handlers):
                         return error(cond)
                 finally:
                         return no_error(value)
+
+def handler_case(body, no_error = identity, **handlers):
+        "Works like real HANDLER-CASE, when the conditions are right.  Ha."
+        wrapped_handlers = dict()
+        for cond_name, handler in handlers.items():
+                # The below won't quite work: will trip over any intervening __HANDLER_CASE__'s.
+                wrapped_handlers[cond_name] = lambda cond: return_from("__handler_case__", handler(cond))
+        @block
+        def __handler_case__():
+                return handler_bind(body, *wrapped_handlers)
+        return __handler_case__()
+
 # (handler-case form
 #  (type1 (var1) . body1)
 #  (type2 (var2) . body2) ...)

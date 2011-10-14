@@ -1,21 +1,39 @@
+import sys
+import cl
 from cl import *
 
-@block
-def outer_m(yoo):
-	@block
-	def midder():
-		(lambda: return_from("midder", "lambda way!"))()
-		return "Middah!"
-	return midder()
+outer = gensym("outer")
+@cl.__block__(outer)
+def outer(yoo):
+        midder = gensym("midder")
+        @cl.__block__(midder)
+        def midder():
+                (lambda: return_from(midder, "lambda way!"))()
+                return "Middah!"
+        return midder()
+assert(outer("Yeehaw!") == "lambda way!")
 
-@block
-def outer_l(yoo):
-	@block
-	def midder():
-		(lambda: return_from("outer_l", "lambda way!"))()
-		return "Middah!"
-	return midder()
+outer = gensym("outer")
+@cl.__block__(outer)
+def outer(yoo):
+        midder = gensym("midder")
+        @cl.__block__(midder)
+        def midder():
+                (lambda: return_from(outer, "lambda way!"))()
+                return "Middah!"
+        return midder()
+assert(outer("Yeehaw!") == "lambda way!")
 
-assert(outer_m("Yeehaw!") == "lambda way!")
-assert(outer_l("Yeehaw!") == "lambda way!")
+class X(Exception): pass
+class X1(X):        pass
 
+def e(mesg, expr): fprint(sys.stderr, "-%s\n" % mesg); return expr
+
+def f():
+        def raiser():
+                raise X1(e("raising", "Ugh."))
+        return e("handled", handler_case(e("calling raiser", identity),
+                                          X = lambda: e("handling", "Woot!")))
+
+enable_pytracer()
+assert(f() == "Woot!")
