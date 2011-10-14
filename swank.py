@@ -11,34 +11,7 @@ from pergamum import *
 from more_ast import *
 
 ###
-### Dynamic scope.
-###
-_stack = []
-
-class _env_block(object):
-    def __init__(self, kwargs):
-        self.kwargs = kwargs
-    def __enter__(self):
-        _stack.append(self.kwargs)
-    def __exit__(self, t, v, tb):
-        _stack.pop()
-
-class _dynamic_scope(object):
-    "Courtesy of Jason Orendorff."
-    def __getattr__(self, name):
-        for scope in reversed(_stack):
-            if name in scope:
-                return scope[name]
-        raise AttributeError("Special %s not bound." % name)
-    def let(self, **kwargs):
-        return _env_block(kwargs)
-    def __setattr__(self, name, value):
-        raise AttributeError("Env variables can only be set using `with env.let()`.")
-
-env = _dynamic_scope()
-
-###
-### Symbols.
+### Package system.
 ###
 __packages__        = dict()
 __keyword_package__ = None
@@ -207,7 +180,7 @@ def read_symbol(x, package = None):
         # debug_printf("read_symbol >%s<, x[0]: >%s<", x, x[0])
         name, p = ((x[1:], __keyword_package__)
                    if x[0] == ":" else
-                   letf(x.find(":"), 
+                   letf(x.find(":"),
                         lambda index:
                                 (if_let(find_package(x[0:index].upper()),
                                         lambda p:
@@ -217,6 +190,15 @@ def read_symbol(x, package = None):
                                  if index != -1 else
                                  (x, coerce_to_package(package)))))
         return intern0(name, p)
+
+# (defun package-string-for-prompt (package)
+#   "Return the shortest nickname (or canonical name) of PACKAGE."
+#   (unparse-name
+#    (or (canonical-package-nickname package)
+#        (auto-abbreviated-package-name package)
+#        (shortest-package-nickname package))))
+def package_string_for_prompt(package):
+        return package_name(_package_())
 
 def pythonise_lisp_name(x):
         ret = re.sub(r"[\-\*]", "_", x).lower()
@@ -238,6 +220,9 @@ def init_package_system():
         nil.__bool__ = lambda _: False
         intern("quote", "CL")
         intern(".", "CL")
+
+        enable_pytracer() ## essential symbols are there, enable HANDLER-BIND (and, later, RESTART-BIND)
+
         package("PERGAMUM",                    use = ["CL"])
         package("MORE_AST",                    use = ["CL", "PERGAMUM"])
         __swank_package__ =   package("SWANK", use = ["CL", "PERGAMUM", "MORE_AST"])
@@ -253,16 +238,6 @@ def init_package_system():
         #         ]
         # import_to(mapcar(lambda s: find_symbol(s, "INSPECTOR"), inspector_syms),
         #           "SWANK")
-
-###
-### Evaluation result.
-###
-___expr___ = None
-def set_value(value):
-        global ___expr___
-        ___expr___ = value
-def get_value():
-        return ___expr___
 
 ###
 ### Pythonese framing.
@@ -578,64 +553,6 @@ def swank_require(slime_connection, sldb_state, contribs):
 def create_repl(slime_connection, sldb_state, env, *args):
         return ["python", "python"]
 
-# `swank:listener-eval` <- function(slimeConnection, sldbState, string) {
-#   ## O how ugly
-#   string <- gsub("#\\.\\(swank:lookup-presented-object-or-lose([^)]*)\\)", ".(`swank:lookup-presented-object-or-lose`(slimeConnection, sldbState,\\1))", string)
-#   for(expr in parse(text=string)) {
-#     expr <- expr
-#     ## O maybe this is even uglier
-#     lookedup <- do.call("bquote", list(expr))
-#     tmp <- withVisible(eval(lookedup, envir = globalenv()))
-#     if(tmp$visible) {
-#       sendReplResultFunction(slimeConnection, tmp$value)
-#     }
-#   }
-#   list}()
-def writeurn_output(output):
-        string = get_output_stream_string(output)
-        close(output)
-        if len(string):
-                send_to_emacs(env.slime_connection, [keyword('write-string'), string])
-                # send_to_emacs(env.slime_connection, [keyword('write-string'), "\n"])
-        return string
-
-def error_handler(c, sldb_state, output = None):
-        global condition
-        condition = c
-        # debug_printf("===( e-ha %s, sldb_state: %s", c, sldb_state)
-        if output:
-                writeurn_output(output)
-        new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, env.id)
-        with env.let(sldb_state = new_sldb_state):
-                # debug_printf("===( e-ha %s, new_sldb_state: %s", c, new_sldb_state)
-                def with_restarts_body():
-                        return sldb_loop(env.slime_connection, new_sldb_state, env.id)
-                with_restarts(with_restarts_body,
-                              abort = "return to sldb level %s" % str(new_sldb_state.level))
-
-def swank_ast_name(x):
-        return ast_name(x) if debug else ast_attribute(ast_name("swank"), x)
-
-def listener_eval(slime_connection, sldb_state, string):
-        # string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"(lookup-presented-object \\1))", string)
-        def eval_stage(name, fn):
-                try:
-                        return fn()
-                except Exception as cond:
-                        # debug_printf("===( LISTENER %s: %s, sldb state: %s", name, cond, sldb_state)
-                        error_handler(cond, sldb_state)
-                        return None
-        ast_ = eval_stage("PARSE", lambda: ast.parse(string))
-        if ast_ and ast_.body:
-                exprp = typep(ast_.body[0], ast.Expr)
-                if exprp:
-                        ast_.body[0] = ast_assign_var("", ast_funcall(swank_ast_name("set_value"), ast_.body[0].value))
-                co = eval_stage("COMPILE", lambda: compile(ast.fix_missing_locations(ast_), "", 'exec'))
-                eval_stage("EXEC", lambda: exec(co, env.python_user.__dict__))
-                return [keyword("values")] + [str(___expr___)] if (ast_.body and exprp) else []
-        else:
-                return [keyword("values")]
-
 # `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
 #   "No Arglist Information"
 # }
@@ -784,7 +701,7 @@ def eval_string_in_frame(slime_connection, sldb_state, string, index):
                 value = eval_in_frame(parse(string),
                                       env = frame)
         with_retry_restart(with_retry_restart_body,
-                           mesg = "retry SLIME interactive evaluation request")
+                           msg = "retry SLIME interactive evaluation request")
         return print_to_string(value)
 
 # `swank:frame-locals-and-catch-tags` <- function(slimeConnection, sldbState, index) {
@@ -918,7 +835,7 @@ def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, posit
 #                    handler=function() retry <<- TRUE))
 #   }
 # }
-def with_retry_restart(fn, mesg = "Retry"):
+def with_retry_restart(fn, msg = "Retry"):
         retry = True
         while retry:
                 retry = False
@@ -926,9 +843,118 @@ def with_retry_restart(fn, mesg = "Retry"):
                         nonlocal retry
                         retry = True
                 with_restarts(fn,
-                              retry = { 'description': mesg,
+                              retry = { 'description': msg,
                                         'handler':     handler_body })
-                        
+
+##### Evaluation result.
+___expr___ = None
+def set_value(value):
+        global ___expr___
+        ___expr___ = value
+def get_value():
+        return ___expr___
+
+##### EVAL-REGION
+# (defun eval-region (string)
+#   "Evaluate STRING.
+# Return the results of the last form as a list and as secondary value the
+# last form."
+#   (with-input-from-string (stream string)
+#     (let (- values)
+#       (loop
+#        (let ((form (read stream nil stream)))
+#          (when (eq form stream)
+#            (finish-output)
+#            (return (values values -)))
+#          (setq - form)
+#          (setq values (multiple-value-list (eval form)))
+#          (finish-output))))))
+def writeurn_output(output):
+        string = get_output_stream_string(output)
+        close(output)
+        if len(string):
+                send_to_emacs(env.slime_connection, [keyword('write-string'), string])
+                # send_to_emacs(env.slime_connection, [keyword('write-string'), "\n"])
+        return string
+
+def error_handler(c, sldb_state, output = None):
+        global condition
+        condition = c
+        debug_printf("EE %s, sldb_state: %s", c, sldb_state)
+        if output:
+                writeurn_output(output)
+        new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, env.id)
+        with env.let(sldb_state = new_sldb_state):
+                # debug_printf("===( e-ha %s, new_sldb_state: %s", c, new_sldb_state)
+                def with_restarts_body():
+                        return sldb_loop(env.slime_connection, new_sldb_state, env.id)
+                with_restarts(with_restarts_body,
+                              abort = "return to sldb level %s" % str(new_sldb_state.level))
+
+def swank_ast_name(x):
+        return ast_name(x) if debug else ast_attribute(ast_name("swank"), x)
+
+def eval_region(string):
+        # string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"(lookup-presented-object \\1))", string)
+        form = None
+        def eval_stage(name, fn):
+                try:
+                        return fn()
+                except Exception as cond:
+                        # debug_printf("===( LISTENER %s: %s, sldb state: %s", name, cond, sldb_state)
+                        error_handler(cond, env.sldb_state)
+                        return None
+        ast_ = eval_stage("PARSE", lambda: ast.parse(string))
+        if ast_ and ast_.body:
+                exprp = typep(ast_.body[0], ast.Expr)
+                if exprp:
+                        ast_.body[0] = ast_assign_var("", ast_funcall(swank_ast_name("set_value"), ast_.body[0].value))
+                co = eval_stage("COMPILE", lambda: compile(ast.fix_missing_locations(ast_), "", 'exec'))
+                eval_stage("EXEC", lambda: exec(co, env.python_user.__dict__))
+                return [keyword("values")] + [str(___expr___)] if (ast_.body and exprp) else []
+        else:
+                return [keyword("values")]
+
+##### LISTENER-EVAL
+def track_package(fn):
+        p = _package_()
+        try:
+                return fn()
+        finally:
+                if p is not _package_():
+                        send_to_emacs(env.slime_connection,
+                                      [keyword("new-package", package_name(_package_()),
+                                               package_string_for_prompt(_package_()))])
+
+def send_repl_results_to_emacs(values):
+        finish_output()
+        if not values:
+                send_to_emacs(env.slime_connection,
+                              [keyword("write-string"), "; No value", keyword("repl-result"),])
+                mapc(lambda v: send_to_emacs(
+                                env.slime_connection,
+                                [keyword("write-string"), prin1_to_string(v) + "\n", keyword("repl-result")]),
+                     values)
+
+send_repl_results_function = send_repl_results_to_emacs
+
+def repl_eval(string):
+        # clear_user_input()
+        def track_package_body():
+                values, form = eval_region(string)
+                # (setq *** **  ** *  * (car values)
+                #       /// //  // /  / values
+                #       +++ ++  ++ +  + last-form)
+                send_repl_results_function(values)
+        with_retry_restart(lambda: track_package(track_package_body),
+                           msg = "Retry SLIME REPL evaluation request.")
+
+listener_eval_function = repl_eval
+
+def listener_eval(slime_connection, sldb_state, string):
+        return listener_eval_function(string)
+
+
 # `swank:interactive-eval` <-  function(slimeConnection, sldbState, string) {
 #   withRetryRestart("retry SLIME interactive evaluation request",
 #                    tmp <- withVisible(eval(parse(text=string), envir=globalenv())))
@@ -945,7 +971,7 @@ def interactive_eval(slime_connection, sldb_state, string):
                 tmp = with_visible(lambda: eval(string)) # FIXME: envir
                 pass
         with_retry_restart(with_retry_restart_body,
-                           mesg = "retry SLIME interactive evaluation request")
+                           msg = "retry SLIME interactive evaluation request")
         return prin1_to_string(value) if tmp.visible else "# invisible value"
 
 # `swank:eval-and-grab-output` <- function(slimeConnection, sldbState, string) {
@@ -970,7 +996,7 @@ def eval_and_grab_output(slime_connection, sldb_state, string):
                         pass
                 output = with_captured_output(with_captured_output_body)
         with_retry_restart(with_retry_restart_body,
-                           mesg = "retry SLIME interactive evaluation request")
+                           msg = "retry SLIME interactive evaluation request")
         return ["\n".join(output), prin1_to_string(value) if tmp.visible else "# invisible value"]
 
 # `swank:interactive-eval-region` <- function(slimeConnection, sldbState, string) {
@@ -1059,7 +1085,7 @@ def init_inspector(slime_connection, sldb_state, string):
                                        eval(string)) # FIXME envir
                 pass
         with_retry_restart(with_retry_restart_body,
-                           mesg = "retry SLIME inspection request")
+                           msg = "retry SLIME inspection request")
         return value
 
 # `swank:quit-inspector` <- function(slimeConnection, sldbState) {
@@ -1149,28 +1175,17 @@ def inspect_frame_var(slime_connection, sldb_state, frame, var):
         varname = ordered_frame_locals(frame)[var]
         return inspect_object(slime_connection, frame_local_value(frame, varname))
 
-# `swank:default-directory` <- function(slimeConnection, sldbState) {
-#   getwd()
-# }
+##### Crude tops.
 def default_directory(slime_connection, sldb_state):
         return os.getcwd()
-
-# `swank:set-default-directory` <- function(slimeConnection, sldbState, directory) {
-#   setwd(directory)
-#   `swank:default-directory`(slimeConnection, sldbState)
-# }
 def set_default_directory(slime_connection, sldb_state, directory):
         os.chdir(directory)
         return default_directory(slime_connection, sldb_state)
-
-# `swank:load-file` <- function(slimeConnection, sldbState, filename) {
-#   source(filename, local=FALSE, keep.source=TRUE)
-#   TRUE
-# }
 def load_file(slime_connection, sldb_state, filename):
-        exec(filename.co)
+        exec(compile(file_as_string(filename), filename, 'exec'))
         return True
-
+def quit_lisp(slime_connection, sldb_state):
+        exit()
 # `swank:compile-file-for-emacs` <- function(slimeConnection, sldbState, filename, loadp, ...) {
 #   times <- system.time(parse(filename, srcfile=srcfile(filename)))
 #   if(loadp) {
@@ -1182,17 +1197,11 @@ def load_file(slime_connection, sldb_state, filename):
 #   list(quote(`:compilation-result`), list(), TRUE, times[3], substitute(loadp), filename)
 # }
 def compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, *args):
-        import ast
-        filename.co, time = clocking(lambda: compile(filename.name, filename.src))
+        filename.co, time = clocking(lambda: compile(file_as_string(filename), filename, 'exec'))
         if loadp:
                 load_file(slime_connection, sldb_state, filename)
         return [keyword('compilation-result'), [], True, time, substitute(loadp), filename]
 
-# `swank:quit-lisp` <- function(slimeConnection, sldbState) {
-#   quit()
-# }
-def quit_lisp(slime_connection, sldb_state):
-        exit()
 
 ###
 ### emacs-rex
@@ -1256,34 +1265,113 @@ def callify(form, quoted = False):
         else:
                 error("Unable to convert form %s", form)
 
-# emacsRex <- function(slimeConnection, sldbState, form, pkg, thread, id, level=0) {
-#  ok <- FALSE
-#  value <- NULL
-#  conn <- textConnection(NULL, open="w")
-#  condition <- NULL
-#  tryCatch({
-#    withCallingHandlers({
-#      call <- callify(form)
-#      capture.output(value <- eval(call), file=conn)
-#      string <- paste(textConnectionValue(conn), sep="", collapse="\n")
-#      if(nchar(string) > 0) {
-#        sendToEmacs(slimeConnection, list(quote(`:write-string`), string))
-#        sendToEmacs(slimeConnection, list(quote(`:write-string`), "\n"))
-#      }
-#      close(conn)
-#      ok <- TRUE
-#    }, error=function(c) {
-#      condition <<- c
-#      string <- paste(textConnectionValue(conn), sep="", collapse="\n")
-#      if(nchar(string) > 0) {
-#        sendToEmacs(slimeConnection, list(quote(`:write-string`), string))
-#        sendToEmacs(slimeConnection, list(quote(`:write-string`), "\n"))
-#      }
-#      close(conn)
-#      newSldbState <- makeSldbState(c, if(is.null(sldbState)) 0 else sldbState$level+1, id)
-#      withRestarts(sldbLoop(slimeConnection, newSldbState, id), abort=paste("return to sldb level", newSldbState$level)) })},
-#    finally=sendToEmacs(slimeConnection, list(quote(`:return`), if(ok) list(quote(`:ok`), value) else list(quote(`:abort`), as.character(condition)), id)))
-# }
+##### WITH/OUT-SLIME-INTERRUPTS
+# (defun check-slime-interrupts ()
+#   "Execute pending interrupts if any.
+# This should be called periodically in operations which
+# can take a long time to complete.
+# Return a boolean indicating whether any interrupts was processed."
+#   (when (and (boundp '*pending-slime-interrupts*)
+#              *pending-slime-interrupts*)
+#     (funcall (pop *pending-slime-interrupts*))
+#     t))
+def check_slime_interrupts():
+        if env.boundp("_pending_slime_interrupts_") and env._pending_slime_interrupts_:
+                _pending_slime_interrupts_.pop()()
+                return True
+
+def with_slime_interrupts(body):
+        check_slime_interrupts()
+        with env.let(_slime_interrupts_enabled_ = True):
+                ret = body()
+        check_slime_interrupts()
+        return ret
+
+def without_slime_interrupts(body):
+        with env.let(_slime_interrupts_enabled_ = False):
+                return body()
+
+# (defun parse-package (string)
+#   "Find the package named STRING.
+# Return the package or nil."
+#   ;; STRING comes usually from a (in-package STRING) form.
+#   (ignore-errors
+#     (find-package (let ((*package* *swank-io-package*))
+#                     (read-from-string string)))))
+
+# (defun unparse-name (string)
+#   "Print the name STRING according to the current printer settings."
+#   ;; this is intended for package or symbol names
+#   (subseq (prin1-to-string (make-symbol string)) 2))
+
+# (defun guess-package (string)
+#   "Guess which package corresponds to STRING.
+# Return nil if no package matches."
+#   (when string
+#     (or (find-package string)
+#         (parse-package string)
+#         (if (find #\! string)           ; for SBCL
+#             (guess-package (substitute #\- #\! string))))))
+
+# ;;;; Evaluation
+# (defvar *pending-continuations* '()
+#   "List of continuations for Emacs. (thread local)")
+
+# (defun guess-buffer-package (string)
+#   "Return a package for STRING.
+# Fall back to the the current if no such package exists."
+#   (or (and string (guess-package string))
+#       *package*))
+
+# (defun eval-for-emacs (form buffer-package id)
+#   "Bind *BUFFER-PACKAGE* to BUFFER-PACKAGE and evaluate FORM.
+# Return the result to the continuation ID.
+# Errors are trapped and invoke our debugger."
+#   (let (ok result condition)
+#     (unwind-protect
+#          (let ((*buffer-package* (guess-buffer-package buffer-package))
+#                (*pending-continuations* (cons id *pending-continuations*)))
+#            (check-type *buffer-package* package)
+#            ;; APPLY would be cleaner than EVAL.
+#            ;; (setq result (apply (car form) (cdr form)))
+#            (handler-bind ((t (lambda (c) (setf condition c))))
+#              (setq result (with-slime-interrupts (eval form))))
+#            (run-hook *pre-reply-hook*)
+#            (setq ok t))
+#       (send-to-emacs `(:return ,(current-thread)
+#                                ,(if ok
+#                                     `(:ok ,result)
+#                                     `(:abort ,(prin1-to-string condition)))
+#                                ,id)))))
+def run_hook(x):
+        if functionp(x):
+                x()
+
+def eval_for_emacs(form, buffer_package, id):
+        ok, result, condition = None, None, None
+        def set_result(x):    nonlocal result;    result = x
+        def set_condition(x): nonlocal condition; condition = x
+        def unwind_protect_body():
+                nonlocal ok
+                with env.let(_buffer_package_ = guess_buffer_package(),
+                             _pending_continuations_ = [id] + env._pending_continuations_):
+                        check_type(_buffer_package_, package)
+                        def with_slime_interrupts_body():
+                                return eval(form)
+                        handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
+                                     Exception = set_condition)
+                        run_hook(env.boundp("_pre_reply_hook_") and env._pre_reply_hook_)
+                        ok = True
+        unwind_protect(
+                unwind_protect_body,
+                lambda: send_to_emacs(env.slime_connection,
+                                      [keyword('return'),
+                                       current_thread(),
+                                       ([keyword('ok'), result]
+                                        if ok else
+                                        [keyword('abort'), condition]),
+                                       id]))
+
 def emacs_rex(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
         ok = False
         value = nil
@@ -1577,19 +1665,118 @@ def read_packet(sock, file):
 #     }
 #   }, finally=sendToEmacs(slimeConnection, c(list(quote(`:debug-return`), id, sldbState$level, FALSE))))
 # }
-def sldb_loop(slime_connection, sldb_state, id_):
-        try:
-                io = slime_connection.io
-                send_to_emacs(slime_connection, [keyword('debug'), id_, sldb_state.level] + debugger_info_for_emacs(slime_connection, sldb_state))
-                send_to_emacs(slime_connection, [keyword('debug-activate'), id_, sldb_state.level, False])
-                while True:
-                        dispatch(slime_connection, read_packet(slime_connection.sock, slime_connection.file), sldb_state)
-        except Exception as cond:
-                print_backtrace()
-                # debug_printf("===( SLDB got X: %s", cond)
-        finally:
-                send_to_emacs(slime_connection, [keyword('debug-return'), id_, sldb_state.level, False])
+# def sldb_loop(slime_connection, sldb_state, id_):
+#         try:
+#                 io = slime_connection.io
+#                 send_to_emacs(slime_connection, [keyword('debug'), id_, sldb_state.level] + debugger_info_for_emacs(slime_connection, sldb_state))
+#                 send_to_emacs(slime_connection, [keyword('debug-activate'), id_, sldb_state.level, False])
+#                 while True:
+#                         dispatch(slime_connection, read_packet(slime_connection.sock, slime_connection.file), sldb_state)
+#         except Exception as cond:
+#                 print_backtrace()
+#                 # debug_printf("===( SLDB got X: %s", cond)
+#         finally:
+#                 send_to_emacs(slime_connection, [keyword('debug-return'), id_, sldb_state.level, False])
+# (defun sldb-loop (level)
+#   (unwind-protect
+#        (loop
+#         (with-simple-restart (abort "Return to sldb level ~D." level)
+#           (send-to-emacs
+#            (list* :debug (current-thread-id) level
+#                   (with-bindings *sldb-printer-bindings*
+#                     (debugger-info-for-emacs 0 *sldb-initial-frames*))))
+#           (send-to-emacs
+#            (list :debug-activate (current-thread-id) level nil))
+#           (loop
+#            (handler-case
+#                (destructure-case (wait-for-event
+#                                   `(or (:emacs-rex . _)
+#                                        (:sldb-return ,(1+ level))))
+#                  ((:emacs-rex &rest args) (apply #'eval-for-emacs args))
+#                  ((:sldb-return _) (declare (ignore _)) (return nil)))
+#              (sldb-condition (c)
+#                (handle-sldb-condition c))))))
+#     (send-to-emacs `(:debug-return
+#                      ,(current-thread-id) ,level ,*sldb-stepping-p*))
+#     (wait-for-event `(:sldb-return ,(1+ level)) t) ; clean event-queue
+#     (when (> level 1)
+#       (send-event (current-thread) `(:sldb-return ,level)))))
 
+## XXX: need to set the top-level bindings for these
+# (defvar *swank-debugger-condition* nil "The condition being debugged.")
+# (defvar *sldb-level*               0   "The current level of recursive debugging.")
+# (defvar *sldb-initial-frames*      20  "The initial number of backtrace frames to send to Emacs.")
+# (defvar *sldb-restarts*            nil "The list of currenlty active restarts.")
+# (defvar *sldb-stepping-p*          nil "True during execution of a step command.")
+# (defun debug-in-emacs (condition)
+#   (let ((*swank-debugger-condition* condition)
+#         (*sldb-restarts* (compute-restarts condition))
+#         (*sldb-quit-restart* (and *sldb-quit-restart*
+#                                   (find-restart *sldb-quit-restart*)))
+#         (*package* (or (and (boundp '*buffer-package*)
+#                             (symbol-value '*buffer-package*))
+#                        *package*))
+#         (*sldb-level* (1+ *sldb-level*))
+#         (*sldb-stepping-p* nil))
+#     (force-user-output)
+#     (call-with-debugging-environment
+#      (lambda ()
+#        ;; We used to have (WITH-BINDING *SLDB-PRINTER-BINDINGS* ...)
+#        ;; here, but that truncated the result of an eval-in-frame.
+#        (sldb-loop *sldb-level*)))))
+
+def debug_in_emacs(condition):
+        with env.let(_swank_debugger_condition_ = condition,
+                     _sldb_restarts_            = compute_restarts(condition),
+                     _sldb_quit_restart_        = env._sldb_quit_restart_ and find_restart(env._sldb_quit_restart_),
+                     _package_                  = ((env.boundp("_buffer_package_") and env._buffer_package_) or
+                                                   env._package_),
+                     _sldb_level_               = 1 + env._sldb_level_,
+                     _sldb_stepping_p_          = None):
+                force_user_output()
+                ## We used to have (WITH-BINDING *SLDB-PRINTER-BINDINGS* ...)
+                ## here, but that truncated the result of an eval-in-frame.
+                call_with_debugging_environment(lambda: sldb_loop(_sldb_level_))
+
+@block
+def sldb_loop(level):
+        def unwind_protect_form():
+                while True:
+                        def with_simple_restart_body():
+                                send_to_emacs(env.slime_connection,
+                                              [keyword("debug"), current_thread_id(), level] +
+                                              # was wrapped into (with-bindings *sldb-printer-bindings*)
+                                              debugger_info_for_emacs(0, env._sldb_initial_frames_))
+                                send_to_emacs(env.slime_connection,
+                                              [keyword(debug-activate), current_thread_id(), level, None])
+                                while True:
+                                        def handler_case_body():
+                                                evt = wait_for_event(env.slime_connection,
+                                                                     ["or",
+                                                                      [keyword("emacs-rex")],
+                                                                      [keyword("sldb-return", level + 1)]])
+                                                if evt[0] is keyword("emacs-rex"):
+                                                        eval_for_emacs(*evt[1:])
+                                                elif evt[0] is keyword("sldb-return"):
+                                                        return_from("sldb_loop", None)
+                                        handler_case(handler_case_body,
+                                                     sldb_condition = lambda c: handle_sldb_condition(c))
+                        with_simple_restart(with_simple_restart_body,
+                                            abort = "Return to sldb level %d." % level)
+        def unwind_protect_body():
+                send_to_emacs(env.slime_connection,
+                              [keyword("debug-return"),
+                               current_thread_id(),
+                               level,
+                               env._sldb_stepping_p])
+                wait_for_event(env.slime_connection,
+                               [keyword("sldb-return"), level + 1],
+                               True)                   # clean event-queue
+                if level > 1:
+                        send_event(env.slime_connection,
+                                   current_thread(), [keyword("sldb-return"), level])
+        unwind_protect(unwind_protect_form,
+                       unwind_protect_body)
 ###
 ### Globals.
 ###

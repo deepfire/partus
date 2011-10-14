@@ -12,7 +12,7 @@ import sys
 from functools import reduce
 
 from cl         import typep, null, listp, integerp, floatp, boolp, sequencep, stringp, mapcar, mapc,\
-                       remove_if, sort, car, identity, every, find, with_output_to_string
+                       remove_if, sort, car, identity, every, find, with_output_to_string, error
 from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, tuplep
 from neutrality import py3p, fprintf
 
@@ -294,6 +294,12 @@ def pp_ast(o, stream = sys.stdout):
     do_pp_ast_rec(o, '', [])
     return o
 
+class NotImplemented(Exception):
+        def __init__(self, action, x):
+                self.action, self.x = action, x
+        def __str__(self):
+                return "%s %s is not implemented." % (action.capitalize(), x)
+
 def pp_ast_as_code(x):
         def iterate(xs):
                 return mapcar(pp_ast_as_code, xs)
@@ -340,7 +346,10 @@ def pp_ast_as_code(x):
         def pp_num(x):     return str(x.n)
         def pp_module(x):
                 return "\n".join(iterate(x.body))
+        def pp_Expr(x):
+                return pp_ast_as_code(x.value)
         map = { ast.Module:    pp_module,
+                ast.Expr:      pp_Expr,
                 ast.Call:      pp_call,
                 ast.Attribute: pp_attribute,
                 ast.Name:      pp_name,
@@ -356,8 +365,15 @@ def pp_ast_as_code(x):
                 ast.Str:       pp_string,
                 ast.Num:       pp_num,
                 }
-        def fail(x): raise Exception("Cannot pretty-print AST node %s." % x)
-        return map.get(type(x), fail)(x)
+        def fail(x): raise NotImplemented("pretty-printing", "AST node %s" % x)
+        try:
+                return map.get(type(x), fail)(x)
+        except Exception as cond:
+                if typep(cond, NotImplemented):
+                        raise
+                else:
+                        error("ERROR: %s, while pretty-printing %s.  Slots: %s",
+                              cond, x, dir(x))
 
 
 ## symbols

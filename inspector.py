@@ -86,7 +86,6 @@ def prepare_part(istate, part):
         elif part[0] is keyword("line"):
                 return [ print_to_string(part[1]), ": ",
                          value_part(istate, part[2], NULL), "\n"]
-                
 
 # prepareRange <- function(istate, start, end) {
 #   range <- istate$content[start+1:min(end+1, length(istate$content))]
@@ -140,7 +139,7 @@ def emacs_inspect(object):
 #            (1:length(numeric)), numeric))
 # }
         # elif integerp(object):
-        #         return ["a numeric", ":newline"] + 
+        #         return ["a numeric", ":newline"] +
         else:
 # emacsInspect.default <- function(thing) {
 #   c(list(paste("a ", class(thing)[[1]], sep=""), list(quote(`:newline`))))
@@ -250,7 +249,7 @@ def present_repl_results(values):
 ##
 ## choice: The string naming the action from above
 ##
-## object: The object 
+## object: The object
 ##
 ## id: The presentation id of the object
 ##
@@ -288,7 +287,7 @@ def swank_ioify(thing):
 
 # (defun execute-menu-choice-for-presentation-id (id count item)
 #   (let ((ob (lookup-presented-object id)))
-#     (assert (equal id (car *presentation-active-menu*)) () 
+#     (assert (equal id (car *presentation-active-menu*)) ()
 # 	    "Bug: Execute menu call for id ~a  but menu has id ~a"
 # 	    id (car *presentation-active-menu*))
 #     (let ((action (second (nth (1- count) (cdr *presentation-active-menu*)))))
@@ -323,7 +322,7 @@ def menu_choices_for_presentation(ob):
 	     #      (list "Dired containing directory"
 	     #    	(lambda (choice object id)
 	     #    	  (declare (ignore choice id))
-	     #    	  (ed-in-emacs (namestring 
+	     #    	  (ed-in-emacs (namestring
 	     #    			(truename
 	     #    			 (merge-pathnames
 	     #    			  (make-pathname :name "" :type "") object))))
@@ -335,7 +334,7 @@ def menu_choices_for_presentation(ob):
 	     # (and fasl-file
 	     #      (list "Load this fasl file"
 	     #    	(lambda (choice object id)
-	     #    	  (declare (ignore choice id object)) 
+	     #    	  (declare (ignore choice id object))
 	     #    	  (load ob)
 	     #    	  nil)))
                        [fasl_file and
@@ -345,7 +344,7 @@ def menu_choices_for_presentation(ob):
 	     # (and fasl-file
 	     #      (list "Delete this fasl file"
 	     #    	(lambda (choice object id)
-	     #    	  (declare (ignore choice id object)) 
+	     #    	  (declare (ignore choice id object))
 	     #    	  (let ((nt (namestring (truename ob))))
 	     #    	    (when (y-or-n-p-in-emacs "Delete ~a? " nt)
 	     #    	      (delete-file nt)))
