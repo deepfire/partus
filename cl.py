@@ -454,41 +454,56 @@ def unwind_protect(form, fn):
 
 # WARNING: non-specific try/except clauses and BaseException handlers break this!
 class __catcher_throw__(BaseException):
-        def __init__(self, ball, value):
-                self.ball, self.value = ball, value
+        def __str__(self):
+                return "The ball escaped!"
+        def __init__(self, ball, value, reenable_pytracer = False):
+                self.ball, self.value, self.reenable_pytracer = ball, value, reenable_pytracer
 
 def catch(ball, body):
         "This seeks the stack like mad, like the real one."
-        name = sys.intern(ball)
+        ball = sys.intern(ball)
         try:
                 return body()
         except __catcher_throw__ as ct:
+                # printf("catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
                 if ct.ball is ball:
+                        if ct.reenable_pytracer:
+                                enable_pytracer()
                         return ct.value
                 else:
                         raise
 
 def throw(ball, value):
         "Stack this seeks, like mad, like the real one."
-        raise __catcher_throw__(ball = ball, value = value)
+        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = env.boundp('_signalling_frame_'))
 
 def make_ball(name, nonce):
         return nonce + name + nonce # Shall we do something smarter?
 
-def block(nonce, body):
+def __block__(fn):
+        "An easy decorator-styled interface for block establishment."
+        nonce = gensym("BLOCK")
+        ret = (lambda *args, **kwargs:
+                       catch(nonce,
+                             lambda: fn(*args, **kwargs)))
+        setattr(ret, "ball", nonce)
+        return ret
+
+def block(nonce_or_fn, body = None):
         """A lexically-bound counterpart to CATCH/THROW.
 Note, how, in this form, it is almost a synonym to CATCH/THROW -- the lexical aspect
 of nonce-ing is to be handled manually."""
-        return catch(nonce, body)
+        if not body: # Assuming we were called as a decorator..
+                return __block__(nonce_or_fn)
+        else:
+                return catch(nonce, body)
 
 def return_from(nonce, value):
+        nonce = (nonce if not functionp(nonce) else
+                 (getattr(nonce, "ball", None) or
+                  error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
         raise throw(nonce, value)
 
-def __block__(nonce):
-        "NOTE: this conflates CATCH/THROW with BLOCK/RETURN-FROM."
-        return lambda fn: (lambda *args, **kwargs:
-                                   catch(nonce,
-                                         lambda: fn(*args, **kwargs)))
 
 ## dynamic scope (XXX: NOT PER-THREAD YET!!!)
 __dynamic_binding_clusters__ = []
@@ -539,24 +554,11 @@ def pytracer(frame, event, arg):
                 method(arg, frame)
         return pytracer
 
-__tracer_enabled__ = False
-def pytracer_enabled(): return __tracer_enabled__
-def enable_pytracer():  global __tracer_enabled__; sys.settrace(pytracer); __tracer_enabled__ = True
-def disable_pytracer(): global __tracer_enabled__; sys.settrace(None);     __tracer_enabled__ = False
+def pytracer_enabled_p(): return sys.gettrace() is pytracer
+def enable_pytracer():    sys.settrace(pytracer)
+def disable_pytracer():   sys.settrace(None)
 
-__condition_handler__ = None
-def condition_handler(cond, frame):
-        if __condition_handler__:
-                __condition_handler__(cond, frame)
-
-def set_condition_handler(fn):         global __condition_handler__; __condition_handler__ = fn
-def     condition_handler_enabled_p(): return __condition_handler__
-
-def condition_handler_active_p():
-        return __condition_handler__ and tracer_hook('exception') is condition_handler
-
-def activate_condition_handler(fn):
-        set_condition_handler(fn)
+def set_condition_handler(fn):
         set_tracer_hook('exception', fn)
 
 ## debugging
@@ -568,13 +570,19 @@ def activate_condition_handler(fn):
 setq("__handler_clusters__", [])
 
 def signal(condition):
-        name = type_of(cond).__name__
+        # printf("Signalling %s", condition)
+        name = type_of(condition).__name__
         for cluster in reversed(env.__handler_clusters__):
+                # printf("Analysing cluster %s for '%s'.", cluster, name)
                 if name in cluster:
                         cluster[name](cond)
 
 def __cl_condition_handler__(cond, frame):
-        with env.let(_signalling_frame_ = frame): # This binding is the deviation from the CL standard.
+        type, cond, traceback = cond
+        # printf("__cl_condition_handler__(%s, %s), line %d", cond, pp_frame(frame), traceback.tb_lineno)
+        # print_frames(frames_upward_from(frame))
+        with env.let(_traceback_ = traceback,
+                     _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
                 signal(cond)
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
@@ -583,61 +591,49 @@ def __cl_condition_handler__(cond, frame):
         # condition handlers.
         # If we've hit any HANDLER-CASE-bound handlers, then we won't
         # even reach this point, as the stack is already unwound.
-
-activate_condition_handler(__cl_condition_handler__)
+set_condition_handler(__cl_condition_handler__)
 
 def error(datum, *args):
         "With all said and done, this ought to jump straight above, into __CL_CONDITION_HANDLER__."
-        raise Exception(datum % args) if stringp(datum) else datum(*args)
+        raise (Exception(datum % args) if stringp(datum) else
+               datum(*args)            if functionp(datum) else
+               datum)
 
 def handler_bind(fn, no_error = identity, **handlers):
         "Works like real HANDLER-BIND, when the conditions are right.  Ha."
         value = None
 
         # this is:
-        #     pytracer_enabled() and condition_handler_active_p()
+        #     pytracer_enabled_p() and condition_handler_active_p()
         # ..inlined for speed.
-        if __tracer_enabled__ and __condition_handler__ and __tracer_hooks__.get('exception') is condition_handler:
+        if pytracer_enabled_p() and __tracer_hooks__.get('exception') is __cl_condition_handler__:
                 ### XXX: This is a temporary shitty workaround for broken FIND-CLASS (oh, yes, Python, thank you again!)
                 # resolved = dict()
                 # for type, handler in handlers.items():
                 #         resolved[resolve_exception_type(type)] = handler
                 with env.let(__handler_clusters__ = env.__handler_clusters__ + [handlers]):
+                        # printf("crap ok, going on, new __handler_clusters__ = %s", env.__handler_clusters__)
                         return no_error(fn())
         else:
                 # old world case..
+                # printf("crap FAIL: pep %s, exhook is cch: %s",
+                #        pytracer_enabled_p(), __tracer_hooks__.get('exception') is __cl_condition_handler__)
+                if len(handlers) > 1:
+                        error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
+                              len(handlers))
+                condition_type_name, handler = handlers.popitem()
                 try:
                         value = fn()
-                except Exception as cond:
-                        return error(cond)
+                except find_class(condition_type_name) as cond:
+                        return handler(cond)
                 finally:
                         return no_error(value)
 
 def handler_case(body, no_error = identity, **handlers):
         "Works like real HANDLER-CASE, when the conditions are right.  Ha."
-        wrapped_handlers = dict()
-        for cond_name, handler in handlers.items():
-                # The below won't quite work: will trip over any intervening __HANDLER_CASE__'s.
-                wrapped_handlers[cond_name] = lambda cond: return_from("__handler_case__", handler(cond))
-        @block
-        def __handler_case__():
-                return handler_bind(body, *wrapped_handlers)
-        return __handler_case__()
-
-# (handler-case form
-#  (type1 (var1) . body1)
-#  (type2 (var2) . body2) ...)
-
-# is approximately equivalent to:
-# (block #1=#:g0001
-#  (let ((#2=#:g0002 nil))
-#      (tagbody
-#        (handler-bind ((type1 #'(lambda (temp)
-#                                        (setq #1# temp)
-#                                        (go #3=#:g0003)))
-#                       (type2 #'(lambda (temp)
-#                                        (setq #2# temp)
-#                                        (go #4=#:g0004))) ...)
-#        (return-from #1# form))
-#          #3# (return-from #1# (let ((var1 #2#)) . body1))
-#          #4# (return-from #1# (let ((var2 #2#)) . body2)) ...)))
+        nonce            = gensym("HANDLER-CASE")
+        wrapped_handlers = { cond_name: (lambda cond: return_from(nonce, handler(cond)))
+                             for cond_name, handler in handlers.items () }
+        ret = catch(nonce,
+                     lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+        return ret
