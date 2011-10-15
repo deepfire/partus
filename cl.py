@@ -341,6 +341,103 @@ def intersection(x, y):
 def gethash(key, dict):
         return dict.get(key), key in dict
 
+## py-cltl2, if you like..
+# >>> dir(f)
+# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
+# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
+# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
+# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
+# '__subclasshook__', 'f_back', 'f_builtins', 'f_code', 'f_globals',
+# 'f_lasti', 'f_lineno', 'f_locals', 'f_trace']
+# >>> dir(f.f_code)
+# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
+# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
+# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
+# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
+# '__subclasshook__', 'co_argcount', 'co_cellvars', 'co_code',
+# 'co_consts', 'co_filename', 'co_firstlineno', 'co_flags',
+# 'co_freevars', 'co_kwonlyargcount', 'co_lnotab', 'co_name',
+# 'co_names', 'co_nlocals', 'co_stacksize', 'co_varnames']
+def example_frame():
+        "cellvars: closed over non-globals;  varnames: bound"
+        def xceptor(xceptor_arg):
+                "names: globals;  varnames: args + otherbind;  locals: len(varnames)"
+                try:
+                        error("This is xceptor talking: %s.", xceptor_arg)
+                except Exception as cond:
+                        return this_frame()
+        def midder(midder_arg):
+                "freevars: non-global-free;  varnames: args + otherbind;  locals: ..."
+                midder_stack_var = 0
+                return xceptor(midder_arg + midder_stack_var)
+        def outer():
+                "freevars: non-global-free;  varnames: args + otherbind"
+                outer_stack_var = 3
+                return midder(outer_stack_var)
+        return outer()
+
+def all_threads_frames():
+        return sys._current_frames()
+
+def this_frame():
+        return sys._getframe(1)
+
+def exception_frame():
+        return sys.exc_info()[2].tb_frame
+
+def frames_upward_from(f):
+        return [f] + (frames_upward_from(f.f_back) if f.f_back else [])
+
+def frame_info(f):
+        "Return frame (function, lineno, locals, globals, builtins)."
+        return (f.f_code,
+                f.f_lineno,
+                f.f_locals,
+                f.f_globals,
+                f.f_builtins,
+                )
+
+def frame_fun(f):               return f.f_code
+def frame_lineno(f):            return f.f_lineno
+def frame_locals(f):            return f.f_locals
+def frame_globals(f):           return f.f_globals
+def frame_local_value(f, name): return f.f_locals[name]
+
+### XXX: this is the price of Pythonic pain
+__ordered_frame_locals__ = dict()
+def ordered_frame_locals(f):
+        global __ordered_frame_locals__
+        if f not in __ordered_frame_locals__:
+                __ordered_frame_locals__[f] = list(f.f_locals.keys())
+        return __ordered_frame_locals__[f]
+
+def fun_info(f):
+        "Return function (name, params, filename, lineno, nlines)."
+        return (f.co_name or "<unknown-name>",
+                f.co_varnames[:f.co_argcount], # parameters
+                f.co_filename or "<unknown-file>",
+                f.co_firstlineno,
+                1 + max(f.co_lnotab or [0]),        # lines
+                f.co_varnames[f.co_argcount:], # non-parameter bound locals
+                f.co_freevars,
+                )
+def fun_name(f):       return f.co_name
+def fun_filename(f):   return f.co_filename
+def fun_bytecode(f):   return f.co_code
+def fun_constants(f):  return f.co_consts
+
+def pp_frame(f, align = None):
+        fun = frame_fun(f)
+        fun_name, fun_params, filename = fun_info(fun)[:3]
+        padding = " " * ((align or len(filename)) - len(filename))
+        return "%s: %s(%s)" % (padding + filename, fun_name, ", ".join(fun_params))
+
+def print_frame(f):
+        print(pp_frame(f))
+
+def print_frames(fs):
+        mapc(lambda i, f: print("%2d: %s" % (i, pp_frame(f))), *zip(*enumerate(fs)))
+
 ## non-local control transfers
 def unwind_protect(form, fn):
         "For the times, when statements won't do."
