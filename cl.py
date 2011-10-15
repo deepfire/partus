@@ -14,10 +14,16 @@ nil = None
 
 most_positive_fixnum = 67108864
 
+def ___(str, expr):
+        printf("%s: %s" % (str, expr))
+        return expr
+
 ## symbols
 __gensym_counter__ = 0
 def gensym(x = "G"):
         "Not a real GENSYM, as it returns merely a string."
+        global __gensym_counter__
+        __gensym_counter__ += 1
         return sys.intern(x + str(__gensym_counter__))
 
 ## basic
