@@ -658,6 +658,216 @@ def handler_case(body, no_error = identity, **handlers):
         nonce            = gensym("HANDLER-CASE")
         wrapped_handlers = { cond_name: (lambda cond: return_from(nonce, handler(cond)))
                              for cond_name, handler in handlers.items () }
-        ret = catch(nonce,
+        return catch(nonce,
                      lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
-        return ret
+
+## restarts
+class restart(_servile):
+        pass
+# RESTART-BIND executes the body of forms in a dynamic environment where
+# restarts with the given names are in effect.
+
+# If a name is nil, it indicates an anonymous restart; if a name is a
+# non-NIL symbol, it indicates a named restart.
+
+# The function, interactive-function, and report-function are
+# unconditionally evaluated in the current lexical and dynamic
+# environment prior to evaluation of the body. Each of these forms must
+# evaluate to a function.
+
+# If INVOKE-RESTART is done on that restart, the function which resulted
+# from evaluating function is called, in the dynamic environment of the
+# INVOKE-RESTART, with the arguments given to INVOKE-RESTART. The
+# function may either perform a non-local transfer of control or may
+# return normally.
+
+
+# If the restart is invoked interactively from the debugger (using
+# invoke-restart-interactively), the arguments are defaulted by calling
+# the function which resulted from evaluating interactive-function. That
+# function may optionally prompt interactively on query I/O, and should
+# return a list of arguments to be used by invoke-restart-interactively
+# when invoking the restart.
+
+# If a restart is invoked interactively but no interactive-function is
+# used, then an argument list of nil is used. In that case, the function
+# must be compatible with an empty argument list.
+
+# If the restart is presented interactively (e.g., by the debugger), the
+# presentation is done by calling the function which resulted from
+# evaluating report-function. This function must be a function of one
+# argument, a stream. It is expected to print a description of the
+# action that the restart takes to that stream. This function is called
+# any time the restart is printed while *print-escape* is nil.
+
+# restart_bind(body,
+#              name = ((lambda *args: 1),
+#                      dict(interactive_function = lambda: compute_invoke_restart_interactively_args(),
+#                           report_function      = lambda stream: print_restart_summary(stream),
+#                           test_function        = lambda condition: visible_p(condition))))
+setq("__restart_clusters__", [])
+
+def restartp(x):
+        return typep(x, restart)
+
+def restart_name(x):
+        return x.name
+
+def _specs_restarts_args(restart_specs):
+        # printf ("_s_r: %s", restart_specs)
+        restarts_args = dict()
+        for name, spec in restart_specs.items():
+                function, options = ((spec[0], spec[1]) if _tuplep(spec) else
+                                     spec, dict())
+                restarts_args[name] = _updated_dict(options, dict(name = name,
+                                                                  function = function))
+        return restarts_args
+
+###
+### XXX: :TEST-FUNCTION is currently IGNORED!
+###
+def _restart_bind(body, restarts_args):
+        with env.let(__restart_clusters__ = env.__restart_clusters__ + [_remap_hash_table(lambda _, restart_args: restart(**restart_args), restarts_args)]):
+                return body()
+
+def restart_bind(body, **restart_specs):
+        return _restart_bind(body, _specs_restarts_args(restart_specs))
+
+def _restart_case(body, **restarts_args):
+        nonce            = gensym("RESTART-CASE")
+        wrapped_restarts_args = { restart_name: _letf(restart_args['function'],
+                                                      lambda function:
+                                                              _updated_dict(restart_args,
+                                                                       dict(function =
+                                                                            lambda *args, **keys: return_from(nonce, function(*args, **keys)))))
+                             for restart_name, restart_args in restarts_args.items () }
+        return catch(nonce,
+                     lambda: _restart_bind(body, wrapped_restarts_args))
+
+def restart_case(body, **restart_specs):
+        return _restart_case(body, **_specs_restarts_args(restart_specs))
+
+def with_simple_restart(name, format_control_and_arguments, body):
+        """
+WITH-SIMPLE-RESTART establishes a restart.
+
+If the restart designated by NAME is not invoked while executing
+FORMS, all values returned by the last of FORMS are returned. If the
+restart designated by NAME is invoked, control is transferred to
+WITH-SIMPLE-RESTART, which returns two values, NIL and T.
+
+If name is NIL, an anonymous restart is established.
+
+The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
+"""
+        description = (format_control_and_arguments if stringp(format_control_and_arguments) else
+                       format(nil, format_control_and_arguments[0], *format_control_and_arguments[1:]))
+        return restart_case(body, **{ name: dict(name            = name,
+                                                 function        = lambda: None,
+                                                 report_function = lambda stream: format(stream, "%s", description)) })
+
+def restart_condition_association_check(condition, restart):
+        """
+When CONDITION is non-NIL, only those restarts are considered that are
+either explicitly associated with that condition, or not associated
+with any condition; that is, the excluded restarts are those that are
+associated with a non-empty set of conditions of which the given
+condition is not an element. If condition is NIL, all restarts are
+considered.
+"""
+        return (not condition or
+                "associated_conditions" not in restart or
+                condition in restart["associated_conditions"])
+
+def find_restart(identifier, condition = None):
+        """
+FIND-RESTART searches for a particular restart in the current dynamic
+environment.
+
+When CONDITION is non-NIL, only those restarts are considered that are
+either explicitly associated with that condition, or not associated
+with any condition; that is, the excluded restarts are those that are
+associated with a non-empty set of conditions of which the given
+condition is not an element. If condition is NIL, all restarts are
+considered.
+
+If IDENTIFIER is a symbol, then the innermost (most recently
+established) applicable restart with that name is returned. nil is
+returned if no such restart is found.
+
+If IDENTIFIER is a currently active restart, then it is
+returned. Otherwise, NIL is returned.
+"""
+        if restartp(identifier):
+                return find_restart(restart_name(identifier)) is identifier
+        else:
+                for cluster in reversed(env.__restart_clusters__):
+                        # printf("Analysing cluster %s for '%s'.", cluster, name)
+                        restart = cluster.get(identifier, None)
+                        if restart and restart_condition_association_check(condition, restart):
+                                return restart
+
+def compute_restarts(condition = None):
+        """
+COMPUTE-RESTARTS uses the dynamic state of the program to compute a
+list of the restarts which are currently active.
+
+The resulting list is ordered so that the innermost (more-recently
+established) restarts are nearer the head of the list.
+
+When CONDITION is non-NIL, only those restarts are considered that are
+either explicitly associated with that condition, or not associated
+with any condition; that is, the excluded restarts are those that are
+associated with a non-empty set of conditions of which the given
+condition is not an element. If condition is NIL, all restarts are
+considered.
+
+COMPUTE-RESTARTS returns all applicable restarts, including anonymous
+ones, even if some of them have the same name as others and would
+therefore not be found by FIND-RESTART when given a symbol argument.
+
+Implementations are permitted, but not required, to return distinct
+lists from repeated calls to COMPUTE-RESTARTS while in the same
+dynamic environment. The consequences are undefined if the list
+returned by COMPUTE-RESTARTS is every modified.
+"""
+        restarts = list()
+        for cluster in reversed(env.__restart_clusters__):
+                # printf("Analysing cluster %s for '%s'.", cluster, name)
+                restarts.extend(remove_if_not(curry(restart_condition_association_check, condition), cluster.values())
+                                if condition else
+                                cluster.values())
+        return restarts
+
+def invoke_restart(restart, *args, **keys):
+        """
+Calls the function associated with RESTART, passing arguments to
+it. Restart must be valid in the current dynamic environment.
+"""
+        assert(stringp(restart) or restartp(restart))
+        restart = restart if restartp(restart) else find_restart(restart)
+        return restart.function(*args, **keys)
+
+def invoke_restart_interactively(restart):
+        """
+INVOKE-RESTART-INTERACTIVELY calls the function associated with
+RESTART, prompting for any necessary arguments. If RESTART is a name,
+it must be valid in the current dynamic environment.
+
+INVOKE-RESTART-INTERACTIVELY prompts for arguments by executing the
+code provided in the :INTERACTIVE KEYWORD to RESTART-CASE or
+:INTERACTIVE-FUNCTION keyword to RESTART-BIND.
+
+If no such options have been supplied in the corresponding
+RESTART-BIND or RESTART-CASE, then the consequences are undefined if
+the restart takes required arguments. If the arguments are optional,
+an argument list of nil is used.
+
+Once the arguments have been determined, INVOKE-RESTART-INTERACTIVELY
+executes the following:
+
+ (apply #'invoke-restart restart arguments)
+"""
+        assert(stringp(restart) or restartp(restart))
+        restart = restart if restartp(restart) else find_restart(restart)
+        return invoke_restart(*restart.interactive_function())

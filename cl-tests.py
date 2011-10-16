@@ -74,3 +74,29 @@ def f():
                 X1 = lambda cond: "Surrounding HANDLER-CASE won!")
 assert(f() == "Woot: cl-tests.py: raiser()")
 print("HANDLER-CASE-AROUND-HANDLER-BIND: passed")
+
+@block
+def f():
+        return format(nil, "%s",
+                      with_simple_restart(
+                        "fooage", ("Yay: %s!", 3.14),
+                        lambda: with_simple_restart(
+                                "brooage", ("Yay2: %s!", 2.71),
+                                lambda: str(mapcar(lambda x: x.name, compute_restarts())))))
+assert(f() == "['brooage', 'fooage']")
+print("WITH-SIMPLE-RESTARTS: passed")
+
+@block
+def f():
+        def raiser():
+                raise X("HANDLER-BIND: Ugh.")
+        def with_restarter(body):
+                return restart_bind(body,
+                                    RETURN = lambda *args: return_from(f, "Winnage: %s, %s!" % args))
+        def finder_invoker(body):
+                return handler_bind(body,
+                                    X = lambda _: invoke_restart("RETURN", 1, 2))
+        return with_restarter(lambda:
+                                      finder_invoker(raiser))
+assert(f() == 'Winnage: 1, 2!')
+print("CONDITIONS-RESTARTS: passed")
