@@ -18,9 +18,19 @@ most_positive_fixnum = 67108864
 def ___(str, expr):
         printf("%s: %s" % (str, expr))
         return expr
+def _updated_dict(to, from_):
+        to.update(from_)
+        return to
 def _letf(value, body):
         return body(value)
 def _tuplep(x): return type(x) is tuple
+class _servile():
+        def __repr__(self):
+                return "#%s(%s)" % (type(self).__name__,
+                                    ", ".join(maphash(lambda k, v: "%s = %s" % (k, v),
+                                                      self.__dict__)))
+        def __init__(self, **keys):
+                self.__dict__.update(keys)
 
 ## symbols
 __gensym_counter__ = 0
@@ -283,6 +293,10 @@ def count_if(p, xs, key = identity, start = 0):
 sort = sorted
 
 ## strings
+def print_to_string(x):
+        return with_output_to_string(s,
+                                     lambda: print(x, file = s, end = ''))
+
 def format(stream, format_control, *format_arguments):
         string = format_control % format_arguments
         if not stream:
@@ -350,6 +364,12 @@ def intersection(x, y):
 ## dicts
 def gethash(key, dict):
         return dict.get(key), key in dict
+
+def maphash(f, dict):
+        return [ f(k, v) for k, v in dict.items() ]
+
+def _remap_hash_table(f, xs):
+        return { k: f(k, v) for k, v in xs.items() }
 
 ## py-cltl2, if you like..
 # >>> dir(f)

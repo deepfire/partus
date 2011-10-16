@@ -10,6 +10,8 @@ from cl import *
 from pergamum import *
 from more_ast import *
 
+from cl import _servile as servile
+
 ###
 ### Package system.
 ###
@@ -312,10 +314,6 @@ def init_package_system():
 #   class(ret) <- c("sldbState", class(ret))
 #   ret
 # }
-class servile():
-        def __init__(self, **keys):
-                self.__dict__.update(keys)
-
 class SldbState(servile): pass
 
 def make_sldb_state(condition, level, id):

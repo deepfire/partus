@@ -6,6 +6,7 @@ from functools    import reduce, partial
 from neutrality   import printf
 from cl           import _tuplep as tuplep
 from cl           import _letf   as letf
+from cl           import _remap_hash_table as remap_hash_table
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]
@@ -296,9 +297,6 @@ def unzip_to_sets(pred, xs):
         return yep, nay
 
 ## dicts
-def map_hash_table(f, xs):
-        return [ f(k, v) for (k, v) in xs.items() ]
-
 def invert_hash(xs):
         acc = dict()
         for k in xs:
