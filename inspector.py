@@ -232,7 +232,7 @@ def present_repl_results(values):
                 send_to_emacs([keyword("write-string"),       value.__repr__(),       keyword("repl-result")])
                 send_to_emacs([keyword("presentation-end"),   id,                     keyword("repl-result")])
                 send_to_emacs([keyword("write-string"),       "\n",                   keyword("repl-result")])
-        printf("\n")
+        format(t, "\n")
         if not values:
                 send_to_emacs([keyword("write-string"),       "; No value.",          keyword("repl-result")])
         else:

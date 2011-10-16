@@ -3,11 +3,9 @@ import sys
 def stringp(o):
         return (type(o) is str) or (type(o) is unicode)
 
-def printf(format_control, *format_args):
-        print (format_control % format_args)
-
-def fprintf(stream, format_control, *format_args):
-        print >> stream, format_control % format_args
+def write_string(string, stream):
+        print >> stream, string
+        return string
 
 def file_content(path):
         with open(path, "r") as f:

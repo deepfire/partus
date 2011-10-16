@@ -70,22 +70,22 @@ def accept_connections(port, port_file):
         global s
         if port_file:
                 with open(port_file, "rw") as f:
-                        print(port, file = f)
+                        format(f, "%d", port)
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(('', port))
         s.listen(0)
         swank.init_package_system()
-        debug_printf("waiting for clients..")
+        format(sys.stderr, "waiting for clients..")
         c, a = s.accept()
-        debug_printf("serving connection from %s", a)
+        format(sys.stderr, "serving connection from %s", a)
         serve(c, c.makefile(mode = "rw"))
 
 # serve <- function(io) {
 #  mainLoop(io)
 # }
 def serve(sock, file):
-        debug_printf("serve: sock = %s, file = %s", sock, file)
+        format(sys.stderr, "serve: sock = %s, file = %s", sock, file)
         main_loop(sock, file)
 
 # mainLoop <- function(io) {

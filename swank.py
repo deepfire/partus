@@ -408,9 +408,9 @@ def write_sexp_to_string(obj):
 def send_to_emacs(slime_connection, obj):
         file = slime_connection.file
         payload = write_sexp_to_string(obj)
-        print("%06x" % len(payload), file = file, end = '')
-        print(payload,               file = file, end = '')
-        debug_printf("-> %06x %s", len(payload), payload)
+        write_string("%06x" % len(payload), file)
+        write_string(payload, file)
+        format(sys.stderr, "-> %06x %s", len(payload), payload)
         file.flush()
 
 # `swank:connection-info` <- function (slimeConnection, sldbState) {
@@ -779,7 +779,7 @@ def writeurn_output(output):
 def error_handler(c, sldb_state, output = None):
         global condition
         condition = c
-        debug_printf("EE %s, sldb_state: %s", c, sldb_state)
+        format(sys.stderr, "EE %s, sldb_state: %s", c, sldb_state)
         if output:
                 writeurn_output(output)
         new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, env.id)
@@ -1551,7 +1551,7 @@ def read_packet(sock, file):
         header = read_chunk(file, 6)
         len = int(header, 16)
         payload = read_chunk(file, len)
-        debug_printf("<- %s %s", header, payload)
+        format(sys.stderr, "<- %s %s", header, payload)
         return read_sexp_from_string(payload)
 
 # sldbLoop <- function(slimeConnection, sldbState, id) {

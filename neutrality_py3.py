@@ -4,14 +4,9 @@ import sys
 def stringp(o):
         return type(o) is str
 
-def printf(format_control, *format_args):
-        try:
-                print(format_control % format_args)
-        except UnicodeEncodeError:
-                print((format_control % format_args).encode("utf-8"))
-
-def fprintf(stream, format_control, *format_args):
-        print(format_control % format_args, file = stream, end = '')
+def write_string(string, stream):
+        print(string, file = stream, end = '')
+        return string
 
 def file_content(path):
         with open(path, "r", encoding = 'utf-8-sig') as f:

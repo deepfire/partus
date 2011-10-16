@@ -16,7 +16,7 @@ most_positive_fixnum = 67108864
 
 ## secret, non-CL things, without which life can be very, very painful
 def ___(str, expr):
-        printf("%s: %s" % (str, expr))
+        write_string("%s: %s" % (str, expr), sys.stdout)
         return expr
 def _updated_dict(to, from_):
         to.update(from_)
@@ -302,9 +302,9 @@ def format(stream, format_control, *format_arguments):
         if not stream:
                 return string
         elif stream is True:
-                printf(string)
+                write_string(string, sys.stdout)
         else:
-                fprintf(stream, string)
+                write_string(string, stream)
 
 def string_right_trim(cs, s):
         "http://www.lispworks.com/documentation/lw50/CLHS/Body/f_stg_tr.htm"
@@ -340,6 +340,16 @@ def with_output_to_string(f):
                 return get_output_stream_string(x)
         finally:
                 close(x)
+
+## pretty-printing
+def print_unreadable_object(object, stream, body, identity = None, type = None):
+        write_string("#<", stream)
+        if type:
+                format(stream, "%s ", type_of(object).__name__)
+        body()
+        if identity:
+                format(stream, " {%x}", id(object))
+        write_string(">", stream)
 
 ## streams
 def make_string_output_stream():
@@ -489,7 +499,7 @@ def catch(ball, body):
         try:
                 return body()
         except __catcher_throw__ as ct:
-                # printf("catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
+                # format(t, "catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
                 if ct.ball is ball:
                         if ct.reenable_pytracer:
                                 enable_pytracer()
@@ -594,16 +604,16 @@ def set_condition_handler(fn):
 setq("__handler_clusters__", [])
 
 def signal(condition):
-        # printf("Signalling %s", condition)
+        # format(t, "Signalling %s", condition)
         name = type_of(condition).__name__
         for cluster in reversed(env.__handler_clusters__):
-                # printf("Analysing cluster %s for '%s'.", cluster, name)
+                # format(t, "Analysing cluster %s for '%s'.", cluster, name)
                 if name in cluster:
                         cluster[name](cond)
 
 def __cl_condition_handler__(cond, frame):
         type, cond, traceback = cond
-        # printf("__cl_condition_handler__(%s, %s), line %d", cond, pp_frame(frame), traceback.tb_lineno)
+        # format(t, "__cl_condition_handler__(%s, %s), line %d", cond, pp_frame(frame), traceback.tb_lineno)
         # print_frames(frames_upward_from(frame))
         with env.let(_traceback_ = traceback,
                      _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
@@ -636,11 +646,11 @@ def handler_bind(fn, no_error = identity, **handlers):
                 # for type, handler in handlers.items():
                 #         resolved[resolve_exception_type(type)] = handler
                 with env.let(__handler_clusters__ = env.__handler_clusters__ + [handlers]):
-                        # printf("crap ok, going on, new __handler_clusters__ = %s", env.__handler_clusters__)
+                        # format(t, "crap ok, going on, new __handler_clusters__ = %s", env.__handler_clusters__)
                         return no_error(fn())
         else:
                 # old world case..
-                # printf("crap FAIL: pep %s, exhook is cch: %s",
+                # format(t, "crap FAIL: pep %s, exhook is cch: %s",
                 #        pytracer_enabled_p(), __tracer_hooks__.get('exception') is __cl_condition_handler__)
                 if len(handlers) > 1:
                         error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
@@ -714,7 +724,7 @@ def restart_name(x):
         return x.name
 
 def _specs_restarts_args(restart_specs):
-        # printf ("_s_r: %s", restart_specs)
+        # format (t, "_s_r: %s", restart_specs)
         restarts_args = dict()
         for name, spec in restart_specs.items():
                 function, options = ((spec[0], spec[1]) if _tuplep(spec) else
@@ -802,7 +812,7 @@ returned. Otherwise, NIL is returned.
                 return find_restart(restart_name(identifier)) is identifier
         else:
                 for cluster in reversed(env.__restart_clusters__):
-                        # printf("Analysing cluster %s for '%s'.", cluster, name)
+                        # format(t, "Analysing cluster %s for '%s'.", cluster, name)
                         restart = cluster.get(identifier, None)
                         if restart and restart_condition_association_check(condition, restart):
                                 return restart
@@ -833,7 +843,7 @@ returned by COMPUTE-RESTARTS is every modified.
 """
         restarts = list()
         for cluster in reversed(env.__restart_clusters__):
-                # printf("Analysing cluster %s for '%s'.", cluster, name)
+                # format(t, "Analysing cluster %s for '%s'.", cluster, name)
                 restarts.extend(remove_if_not(curry(restart_condition_association_check, condition), cluster.values())
                                 if condition else
                                 cluster.values())

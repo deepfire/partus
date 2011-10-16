@@ -3,7 +3,6 @@
 ###
 from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref
 from functools    import reduce, partial
-from neutrality   import printf
 from cl           import _tuplep as tuplep
 from cl           import _letf   as letf
 from cl           import _remap_hash_table as remap_hash_table
@@ -447,9 +446,9 @@ def condition_variable_name(x):
 
 def print_backtrace():
         exc_type, exc_value, _ = sys.exc_info()
-        printf("%s: %s", str(exc_type), str(exc_value))
+        format(t, "%s: %s", str(exc_type), str(exc_value))
         for line in traceback.format_exc().splitlines():
-                printf("%s", line)
+                format(t, "%s", line)
 
 ## files
 def subfiles(top, test = identity):
@@ -514,20 +513,9 @@ On errors, call ON-WALK-ERRORS, passing it the condition object."""
                                                 return
         except Exception as cond:
                 print_backtrace()
-                printf("Error %s, last processed: directory '%s', file '%s'.", cond, last_dir, last_file)
+                format(t, "Error %s, last processed: directory '%s', file '%s'.", cond, last_dir, last_file)
 
 ## pretty-printing
-def pass_printf(pass_value, format_control, *format_arguments):
-        printf(format_control, *format_arguments)
-        return pass_value
-
-def syncprintf(format_control, *format_args):
-        printf(format_control, *format_args)
-        sys.stdout.flush()
-
-def debug_printf(format_control, *format_args):
-        neutrality.fprintf(sys.stderr, format_control + "\n", *format_args)
-
 def eng_yesno(x):     return "yes" if x else "no"
 def eng_s(x):         return "" if x == 1 else "s"
 def eng_is(x):        return "is" if x == 1 else "are"
@@ -608,3 +596,19 @@ def chunkify(n, size, overlap):
                 acc.append((i, min(i + size, n)))
                 i += size - overlap
         return acc
+
+## printing
+def printf(format_control, *format_args):
+        try:
+                write_string(format_control % format_args, sys.stdout)
+        except UnicodeEncodeError:
+                write_string((format_control % format_args).encode("utf-8"), sys.stdout)
+
+fprintf = format
+
+def syncprintf(format_control, *format_args):
+        format(t, format_control, *format_args)
+        sys.stdout.flush()
+
+def debug_printf(format_control, *format_args):
+        format(sys.stderr, format_control + "\n", *format_args)
