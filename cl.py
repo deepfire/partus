@@ -14,9 +14,13 @@ nil = None
 
 most_positive_fixnum = 67108864
 
+## secret, non-CL things, without which life can be very, very painful
 def ___(str, expr):
         printf("%s: %s" % (str, expr))
         return expr
+def _letf(value, body):
+        return body(value)
+def _tuplep(x): return type(x) is tuple
 
 ## symbols
 __gensym_counter__ = 0

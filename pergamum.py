@@ -4,6 +4,8 @@
 from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref
 from functools    import reduce, partial
 from neutrality   import printf
+from cl           import _tuplep as tuplep
+from cl           import _letf   as letf
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]
@@ -26,7 +28,6 @@ def bytesp(o):            return type(o) is bytes
 def dictp(o):             return type(o) is dict
 def frozensetp(o):        return type(o) is frozenset
 def setp(o):              return type(o) is set or frozensetp(o)
-def tuplep(o):            return type(o) is tuple
 def astp(x):              return typep(x, ast.AST)
 def code_object_p(x):     return type(x) is type(code_object_p.__code__)
 
@@ -38,9 +39,6 @@ def if_let(condition, consequent, antecedent = lambda: None):
 def when_let(condition, consequent):
         x = condition() if functionp(condition) else condition
         return consequent(x) if x else None
-
-def letf(value, body):
-        return body(value)
 
 def lret(value, body):
         body(value)
