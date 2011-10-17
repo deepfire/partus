@@ -9,12 +9,11 @@ import ast
 import symtable
 import marshal
 import sys
-from functools import reduce
 
 from cl         import typep, null, listp, integerp, floatp, boolp, sequencep, stringp, mapcar, mapc,\
-                       remove_if, sort, car, identity, every, find, with_output_to_string, error
-from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, tuplep
-from neutrality import py3p, fprintf
+                       remove_if, sort, car, identity, every, find, with_output_to_string, error, reduce
+from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, tuplep, fprintf
+from neutrality import py3p
 
 
 def extract_ast(source, filename='<virtualitty>'):

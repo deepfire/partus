@@ -1,11 +1,16 @@
 ###
 ### Some utilities, in the spirit of Common Lisp.
 ###
-from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref
+from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref, t
 from functools    import reduce, partial
-from cl           import _tuplep as tuplep
+from cl           import _tuplep as tuplep, _dictp as dictp
 from cl           import _letf   as letf
-from cl           import _remap_hash_table as remap_hash_table
+from cl           import _map_into_hash as map_into_hash, _remap_hash_table as remap_hash_table
+from cl           import _not_implemented_error as not_implemented_error, _not_implemented as not_implemented
+from cl           import _curry as curry, _compose as compose
+from cl           import _mapset as mapset, _mapsetn as mapsetn
+from cl           import _slotting as slotting
+from cl           import _ensure_list as ensure_list
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]
@@ -25,7 +30,6 @@ def type_name(x):         return type(x).__name__
 def nonep(o):             return o is None
 def minus1p(o):           return o is -1
 def bytesp(o):            return type(o) is bytes
-def dictp(o):             return type(o) is dict
 def frozensetp(o):        return type(o) is frozenset
 def setp(o):              return type(o) is set or frozensetp(o)
 def astp(x):              return typep(x, ast.AST)
@@ -67,11 +71,6 @@ def ftypecase(val, *clauses):
                         return result if not functionp(result) else result()
 
 ## functions
-def compose(f, g):
-        return lambda *args, **keys: f(g(*args, **keys))
-
-curry = partial
-
 def applying_to(args):
         return lambda fn: fn(*args)
 
@@ -192,19 +191,6 @@ value for the current node, rather than its raw value."""
         return combine_fn(this_acc, *mapcar(lambda c: map_tree(accumulate_fn, combine_fn, c, key, children, this_acc, leafp), childs))
 
 ## sets
-def mapset(f, xs):
-        acc = set()
-        for x in xs:
-                acc.add(f(x))
-        return acc
-
-def mapsetn(f, xs):
-        acc = set()
-        for x in xs:
-                acc |= f(x)
-        return acc
-
-
 def mapset_star(f, xs):
         acc = set()
         for x in xs:
@@ -302,18 +288,6 @@ def invert_hash(xs):
                 acc[xs[k]] = k
         return acc
 
-def map_into_hash(f, xs):
-        acc = dict()
-        for x in xs:
-                acc[x] = f(x)
-        return acc
-
-def map_into_hash_inverted(f, xs):
-        acc = dict()
-        for x in xs:
-                acc[f(x)] = x
-        return acc
-
 def alist_hash_table(xs):
         acc = dict()
         for (k, v) in xs:
@@ -360,7 +334,6 @@ def mapunzip(fpred, xs):
         return yep, nay
 
 ## objects
-def slotting(x):             return lambda y: getattr(y, x, None)
 def slot_of(x):              return lambda y: getattr(x, y, None)
 def slot_equal(slot, val):   return lambda y: getattr(y, slot, None) == val
 

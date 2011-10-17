@@ -3,27 +3,209 @@
 ###
 import io
 import sys
+import types
 import inspect
 import builtins
+import functools
+import collections
+
 from functools import reduce
-from neutrality import stringp, printf, fprintf
+from neutrality import stringp, write_string
 
-## "constants"
-t = True
-nil = None
+###
+### Ring 0.
+###
+def identity(x):
+        return x
 
-most_positive_fixnum = 67108864
+###
+### Basis
+###
+## frames
+# >>> dir(f)
+# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
+# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
+# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
+# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
+# '__subclasshook__', 'f_back', 'f_builtins', 'f_code', 'f_globals',
+# 'f_lasti', 'f_lineno', 'f_locals', 'f_trace']
+# >>> dir(f.f_code)
+# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
+# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
+# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
+# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
+# '__subclasshook__', 'co_argcount', 'co_cellvars', 'co_code',
+# 'co_consts', 'co_filename', 'co_firstlineno', 'co_flags',
+# 'co_freevars', 'co_kwonlyargcount', 'co_lnotab', 'co_name',
+# 'co_names', 'co_nlocals', 'co_stacksize', 'co_varnames']
+def _example_frame():
+        "cellvars: closed over non-globals;  varnames: bound"
+        def xceptor(xceptor_arg):
+                "names: globals;  varnames: args + otherbind;  locals: len(varnames)"
+                try:
+                        error("This is xceptor talking: %s.", xceptor_arg)
+                except Exception as cond:
+                        return _this_frame()
+        def midder(midder_arg):
+                "freevars: non-global-free;  varnames: args + otherbind;  locals: ..."
+                midder_stack_var = 0
+                return xceptor(midder_arg + midder_stack_var)
+        def outer():
+                "freevars: non-global-free;  varnames: args + otherbind"
+                outer_stack_var = 3
+                return midder(outer_stack_var)
+        return outer()
 
-## secret, non-CL things, without which life can be very, very painful
-def ___(str, expr):
-        write_string("%s: %s" % (str, expr), sys.stdout)
-        return expr
+def _all_threads_frames():
+        return sys._current_frames()
+
+def _this_frame():
+        return sys._getframe(1)
+
+def _exception_frame():
+        return sys.exc_info()[2].tb_frame
+
+def _frames_upward_from(f):
+        return [f] + (_frames_upward_from(f.f_back) if f.f_back else [])
+
+def _top_frame():
+        return _frames_upward_from(_this_frame())[-1]
+
+def _frame_info(f):
+        "Return frame (function, lineno, locals, globals, builtins)."
+        return (f.f_code,
+                f.f_lineno,
+                f.f_locals,
+                f.f_globals,
+                f.f_builtins,
+                )
+
+def _frame_fun(f):               return f.f_code
+def _frame_lineno(f):            return f.f_lineno
+def _frame_locals(f):            return f.f_locals
+def _frame_globals(f):           return f.f_globals
+def _frame_local_value(f, name): return f.f_locals[name]
+
+## Study done by the means of:
+# print("\n".join(map(lambda f:
+#                             "== def %s\n%s\n" %
+#                     (fun_name(f),
+#                      "\n  ".join(map(lambda s: s + ": " + str(getattr(f, s)),
+#                                      ['co_argcount',
+#                                       'co_cellvars',
+#                                       'co_names',
+#                                       'co_varnames',
+#                                       'co_freevars',
+#                                       'co_nlocals']))),
+#                     ffuns)))
+
+# == def xceptor
+# co_argcount: 1
+#   co_cellvars: ()
+#   co_names: ('error', 'Exception', 'this_frame')
+#   co_varnames: ('xceptor_arg', 'cond')
+#   co_freevars: ()
+#   co_nlocals: 2
+
+# == def midder
+# co_argcount: 1
+#   co_cellvars: ()
+#   co_names: ()
+#   co_varnames: ('midder_arg', 'midder_stack_var')
+#   co_freevars: ('xceptor',)
+#   co_nlocals: 2
+
+# == def outer
+# co_argcount: 0
+#   co_cellvars: ()
+#   co_names: ()
+#   co_varnames: ('outer_stack_var',)
+#   co_freevars: ('midder',)
+#   co_nlocals: 1
+
+# == def example_frame
+# co_argcount: 0
+#   co_cellvars: ('xceptor', 'midder')
+#   co_names: ()
+#   co_varnames: ('outer',)
+#   co_freevars: ()
+#   co_nlocals: 1
+
+# == def <module>
+# co_argcount: 0
+#   co_cellvars: ()
+#   co_names: ('example_frame', 'f')
+#   co_varnames: ()
+#   co_freevars: ()
+#   co_nlocals: 0
+## More info:
+## sys.call_tracing()
+# p = Pdb(self.completekey, self.stdin, self.stdout)
+# p.prompt = "(%s) " % self.prompt.strip()
+# print >>self.stdout, "ENTERING RECURSIVE DEBUGGER"
+# sys.call_tracing(p.run, (arg, globals, locals))
+# print >>self.stdout, "LEAVING RECURSIVE DEBUGGER"
+# sys.settrace(self.trace_dispatch)
+# self.lastcmd = p.lastcmd
+
+## not_implemented
+class _not_implemented_error(Exception):
+        def __init__(*args):
+                format(t, "_n_i_e __init__(%s)\n", ", ".join(mapcar(_compose(str, type_of), args)))
+                self, name = args[0], args[1]
+                self.name = name
+        def __str__(self):
+                return "Not implemented: " + self.name.upper()
+        def __repr__(self):
+                return self.__str__()
+
+def _not_implemented(x):
+        error(_not_implemented_error, x)
+
+## tools
+def _letf(value, body):
+        return body(value)
+
+_curry = functools.partial
+
+def _compose(f, g):
+        return lambda *args, **keys: f(g(*args, **keys))
+
+def _tuplep(x): return type(x) is tuple
+def _dictp(o):  return type(o) is dict
+
+def _ensure_list(x):
+        return x if listp(x)   else [x]
+
+def _mapset(f, xs):
+        acc = set()
+        for x in xs:
+                acc.add(f(x))
+        return acc
+
+def _mapsetn(f, xs):
+        acc = set()
+        for x in xs:
+                acc |= f(x)
+        return acc
+
+def _slotting(x):             return lambda y: getattr(y, x, None)
+
+def _map_into_hash(f, xs, key = identity):
+        acc = dict()
+        for x in xs:
+                acc[key(x)] = f(x)
+        return acc
+
 def _updated_dict(to, from_):
         to.update(from_)
         return to
-def _letf(value, body):
-        return body(value)
-def _tuplep(x): return type(x) is tuple
+
+## lesser tools
+def ___(str, expr):
+        write_string("%s: %s" % (str, expr), sys.stdout)
+        return expr
+
 class _servile():
         def __repr__(self):
                 return "#%s(%s)" % (type(self).__name__,
@@ -32,6 +214,9 @@ class _servile():
         def __init__(self, **keys):
                 self.__dict__.update(keys)
 
+###
+### CL
+###
 ## symbols
 __gensym_counter__ = 0
 def gensym(x = "G"):
@@ -88,21 +273,21 @@ def the(type, x):
 
 def typecase(val, *clauses):
         for (ctype, result) in clauses:
-                if (ctype is True) or typep(val, ctype):
+                if (ctype is t) or (ctype is True) or typep(val, ctype):
                         return result
 
 def etypecase(val, *clauses):
         for (ctype, result) in clauses:
-                if (ctype is True) or typep(val, ctype):
+                if (ctype is t) or (ctype is True) or typep(val, ctype):
                         return result
         else:
-                raise TypeError("%s fell through ETYPECASE expression. Wanted one of (%s)." %
-                                (val, ", ".join(mapcar(lambda c: c[0].__name__, clauses))))
+                error(TypeError, "%s fell through ETYPECASE expression. Wanted one of (%s)." %
+                      (val, ", ".join(mapcar(lambda c: c[0].__name__, clauses))))
 
 def check_type(x, type):
         if not typep(x, type):
-                raise TypeError("The value %s is not of type %s." %
-                                (x, type.__name__))
+                error(TypeError, "The value %s is not of type %s." %
+                      (x, type.__name__))
 
 def coerce(x, type):
         if type(x) is type:
@@ -115,7 +300,12 @@ def coerce(x, type):
                 return dict.fromkeys(x)
 
 ## type predicates
-def functionp(o):     return getattr(o, '__call__', False) and True
+__function_types__ = frozenset([types.BuiltinFunctionType,
+                                types.BuiltinMethodType,
+                                types.FunctionType,
+                                types.LambdaType,
+                                types.MethodType])
+def functionp(o):     return type(o) in __function_types__
 def integerp(o):      return type(o) is int
 def floatp(o):        return type(o) is float
 def listp(o):         return type(o) is list
@@ -138,9 +328,6 @@ def cdr(x):           return x[1]
 def cadr(x):          return x[1][0]
 
 ## functions
-def identity(x):
-        return x
-
 def complement(f):
         return lambda x: not f(x)
 
@@ -295,14 +482,14 @@ sort = sorted
 ## strings
 def print_to_string(x):
         return with_output_to_string(s,
-                                     lambda: print(x, file = s, end = ''))
+                                     lambda: format(s, "%s", x))
 
 def format(stream, format_control, *format_arguments):
         string = format_control % format_arguments
         if not stream:
                 return string
-        elif stream is True:
-                write_string(string, sys.stdout)
+        elif stream is t:
+                write_string(string, symbol_value("_standard_output_"))
         else:
                 write_string(string, stream)
 
@@ -341,6 +528,314 @@ def with_output_to_string(f):
         finally:
                 close(x)
 
+## dynamic scope (XXX: NOT PER-THREAD YET!!!)
+__dynamic_binding_clusters__ = []
+
+class env_block(object):
+        def __init__(self, kwargs):
+                self.kwargs = kwargs
+        def __enter__(self):
+                __dynamic_binding_clusters__.append(self.kwargs)
+        def __exit__(self, t, v, tb):
+                __dynamic_binding_clusters__.pop()
+
+def symbol_value(name):
+        for scope in reversed(__dynamic_binding_clusters__):
+                if name in scope:
+                        return scope[name]
+        error(AttributeError, "Unbound variable: %s." % name)
+
+class dynamic_scope(object):
+        "Courtesy of Jason Orendorff."
+        def __getattr__(self, name):
+                return symbol_value(name)
+        def let(self, **keys):
+                return env_block(keys)
+        def boundp(self, name):
+                for scope in reversed(__dynamic_binding_clusters__):
+                        if name in scope:
+                                return True
+        def __setattr__(self, name, value):
+                error(AttributeError, "Use SETQ to set special globals.")
+
+def setq(name, value):
+        __dynamic_binding_clusters__[-1][name] = value
+        return value
+
+
+__cl_top_level_dynamic_scope__ = dict()
+class cl_dynamic_scope(dynamic_scope):
+        def __init__(self):
+                __dynamic_binding_clusters__.append(__cl_top_level_dynamic_scope__)
+
+__dynamic_scope__ = cl_dynamic_scope()
+env = __dynamic_scope__             # shortcut..
+
+## package system
+__packages__        = dict()
+__keyword_package__ = None
+
+def symbol_conflict_error(op, obj, pkg, x, y):
+        error("%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
+              (op, obj, pkg, x, y))
+
+def symbols_not_accessible_error(package, syms):
+        error("These symbols are not accessible in the %s package:(%s)",
+              package_name(package), ", ".join(mapcar(print_symbol, syms)))
+
+def _use_package_symbols(dest, src, syms):
+        assert(packagep(dest) and packagep(src) and _dictp(syms))
+        conflict_set = _mapset(_slotting('name'), syms.values()) & set(dest.accessible.keys())
+        for name in conflict_set:
+                if syms[name] is not dest.accessible[name]:
+                        symbol_conflict_error("USE-PACKAGE", src, dest, syms[name], dest.accessible[name])
+        ## no conflicts anymore? go on..
+        for name, sym in syms.items():
+                dest.inherited[sym].add(src)
+                if name not in dest.accessible: # Addition of this conditional is important for package use loops.
+                        dest.accessible[name] = sym
+                        # if dest.name == "SWANK" and src.name == "INSPECTOR":
+                        #         debug_printf("merging %s into %s: test: %s", s, dest, read_symbol(print_symbol(s)))
+                if dest.module and name not in dest.module.__dict__:
+                        dest.module.__dict__[name] = s.value
+
+def use_package(dest, src):
+        "Warning: we're doing a circular package use."
+        dest, src = coerce_to_package(dest), coerce_to_package(src)
+        _use_package_symbols(dest, src, _map_into_hash(identity, src.external, key = _slotting("name")))
+        src.packages_using.add(dest)
+        dest.used_packages.add(src)
+
+def package_used_by_list(package):
+        package = coerce_to_package(package)
+        return package.packages_using
+
+class package(collections.UserDict):
+        def __str__ (self):
+                return '#<PACKAGE "%s">' % self.name
+        def __bool__(self):
+                return True
+        def __hash__(self):
+                return hash(id(self))
+        def __init__(self, name, ignore_python = False, use = []):
+                self.name = string(name)
+
+                self.own         = set()                        # sym
+                self.imported    = set()                        # sym
+              # self.present     = own + imported
+                self.inherited   = collections.defaultdict(set) # sym -> set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
+                self.accessible  = dict()                       # str -> sym      ## accessible = present + inherited
+                self.external    = set()                        # sym             ## subset of accessible
+              # self.internal    = accessible - external
+
+                self.module = sys.modules.get(name.lower()) ## XXX: deal away with this mangling
+                self.used_packages  = set(mapcar(lambda x: coerce_to_package(x, if_null = 'error'), use))
+                self.packages_using = set()
+                mapc(_curry(use_package, self), self.used_packages)
+
+                ## Import the corresponding python dictionary.  Intern depends on
+                if not ignore_python:
+                        moddict = self.module and dict(self.module.__dict__)
+                        if moddict:
+                                explicit_exports = set(moddict.get("__all__", []))
+                                for (key, value) in moddict.items():
+                                        ## intern the python symbol, when it is known not to be inherited
+                                        if key not in self.accessible:
+                                                s = _intern0(key, self)
+                                                s.value = value
+                                                if functionp(value):
+                                                        s.function = value
+                                        ## export symbol, according to the python model
+                                        if not explicit_exports or key in explicit_exports:
+                                                self.external.add(self.accessible[key])
+                ## Hit the street.
+                self.data          = self.accessible
+                __packages__[name] = self
+def packagep(x):     return typep(x, package)
+def package_name(x): return x.name
+
+def make_package(name, nicknames = [], use = []):
+        "XXX: NICKNAMES are ignored."
+        return package(string(name), ignore_python = True, use = [])
+
+def find_package(x):
+        return __packages__.get(x)
+def coerce_to_package(x, if_null = 'current'):
+        return (x                         if packagep(x) else
+                find_package(x)           if stringp(x) else
+                symbol_value("_package_") if not x and if_null == 'current' else
+                error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
+
+def print_symbol(s):
+        return "%s%s%s" % (s.package.name if s.package else
+                           "#",
+                           ":" if not s.package or (s in s.package.external) else
+                           "::",
+                           s.name)
+def _print_symbol2(x, package = None): return letf(coerce_to_package(package),
+                                                   lambda p: (x.name if x.package and p.accessible[x.name] is x else
+                                                              str(x)))
+def print_keyword(s):
+        return ":%s" % s.name
+
+class symbol():
+        def __str__(self):
+                return (print_keyword if self.package is __keyword_package__ else print_symbol)(self)
+        def __repr__(self):
+                return str(self)
+        def __init__(self, name):
+                self.name, self.package, self.value, self.function = name, None, None, None
+def symbolp(x):                      return typep(x, symbol)
+def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
+def symbol_name(x):                  return x.name.lower()
+def symbol_package(x):               return x.package
+def coerce_to_symbol(s_or_n, package = None):
+        return intern(s_or_n, coerce_to_package(package))
+
+def _keyword(s):
+        return _intern(s, __keyword_package__)[0]
+
+def symbol_relation(x, p):
+        "NOTE: here we trust that X belongs to P, when it's a symbol."
+        s = p.accessible.get(x) if stringp(x) else x
+        if s:
+                return (_keyword("inherited") if s.name in p.inherited else
+                        _keyword("external")  if s in p.external else
+                        _keyword("internal"))
+
+def find_symbol(x, package = None):
+        p = coerce_to_package(package)
+        s = p.get(x)
+        # write_string("FIND_SYMBOL %s (co-to-pa %s -> %s) -> %s\n" % (x, package, p, s), sys.stdout)
+        if not s:
+                cl = find_package("CL")
+                format(t, "find_symbol('%s', %s) -> %s\n", x, cl, find_symbol(x, cl))
+        if s:
+                return s, symbol_relation(s, p)
+        else:
+                return None, None
+def _find_symbol0(x, package = None): return find_symbol(x, package)[0]
+
+def _intern(x, package = None):
+        p = coerce_to_package(package)
+        s = p.accessible.get(x) if stringp(x) else x
+        if not (s or stringp(x)):
+                error("Attempted to intern object >%s< of type %s into %s.", x, type(x), p)
+        if s:
+                # debug_printf("Found >%s< in %s.", s, p)
+                return s, p
+        else:
+                s = symbol(x)
+                p.own.add(s)
+                p.accessible[x], s.package = s, p
+                # debug_printf("Interned >%s< into %s.", s, p)
+                if p is __keyword_package__:
+                        # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
+                        p.external.add(s)
+                        s.value = s
+                return s, None
+def intern(x, package = None):
+        s, found_in_package = _intern(x, package)
+        return s, symbol_relation(s, found_in_package) if found_in_package else None
+def _intern0(x, package = None): return intern(x, package)[0]
+
+def _import(symbols, package = None):
+        p = coerce_to_package(package)
+        symbols = _ensure_list(symbols)
+        format(t, "importing %s into %s\n", symbols, p)
+        for s in symbols:
+                ps = p.get(s.name)
+                if ps: # conflict
+                        symbol_conflict_error("IMPORT", s, p, s, ps)
+                else:
+                        p.imported.add(s)
+                        p.accessible[s.name] = s
+        return True
+
+def export(symbols, package = None):
+        symbols, package = _ensure_list(symbols), coerce_to_package(package)
+        assert(every(symbolp, symbols))
+        symdict = _map_into_hash(identity, symbols, key = _slotting("name"))
+        # what about importing?
+        package.external |= 
+        for user in package.packages_using:
+                _use_package_symbols(user, package, symdict)
+        return True
+
+def read_symbol(x, package = None):
+        # debug_printf("read_symbol >%s<, x[0]: >%s<", x, x[0])
+        name, p = ((x[1:], __keyword_package__)
+                   if x[0] == ":" else
+                   letf(x.find(":"),
+                        lambda index:
+                                (if_let(find_package(x[0:index].upper()),
+                                        lambda p:
+                                                (x[index + 1:], p),
+                                        lambda:
+                                                error("Package \"%s\" doesn't exist, while reading symbol \"%s\".", x[0:index], x))
+                                 if index != -1 else
+                                 (x, coerce_to_package(package)))))
+        return _intern0(name, p)
+
+def string(x):
+        return (x              if stringp(x) else
+                symbol_name(x) if symbolp(x) else
+                error(TypeError, "%s cannot be coerced to string." % x))
+
+def in_package(name):
+        return setq("_package_", find_package(string(name)))
+
+def _pythonise_lisp_name(x):
+        ret = re.sub(r"[\-\*]", "_", x).lower()
+        # debug_printf("==> Python(Lisp %s) == %s", x, ret)
+        return ret
+
+def _init_condition_system():
+        enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
+
+def _init_package_system():
+        # debug_printf("   --  -- [ package system init..")
+        global __packages__
+        global __keyword_package__
+        global t, nil
+        __packages__ = dict()
+        __keyword_package__ = package("KEYWORD", ignore_python = True)
+        cl = package("CL")
+        intern(".", cl)
+
+        t                  = _intern0("t", cl)       # Nothing much works without these..
+        nil                = _intern0("nil", cl)
+        t.value, nil.value = t, nil     # Self-evaluation.
+        nil.__bool__       = lambda _: False
+        quote              = _intern0("quote", cl)
+
+        export([t, nil, quote], cl)
+
+        setq("_package_", package("CL_USER", use = ["CL"]))
+
+def _init_swank_packages():
+        global __swank_package__
+        package("PERGAMUM",                    use = ["CL"])
+        package("MORE_AST",                    use = ["CL", "PERGAMUM"])
+        __swank_package__ =   package("SWANK", use = ["CL", "PERGAMUM", "MORE_AST"])
+
+        import inspector
+        package("INSPECTOR",                   use = ["CL", "PERGAMUM", "SWANK"])
+        inspector.nil_surrogate = _intern0("nil_surrogate", "INSPECTOR")
+        use_package(__swank_package__, "INSPECTOR")
+        # inspector_syms = [
+        #         "inspect_object", "lookup_presented_object"
+        #         ]
+        # _import(mapcar(lambda s: find_symbol(s, "INSPECTOR"), inspector_syms),
+        #           "SWANK")
+
+## globals
+setq("_standard_output_", sys.stdout)
+setq("_error_output_",    sys.stderr)
+# setq("_debug_io_",    ???) XXX: ???
+
+most_positive_fixnum = 67108864
+
 ## pretty-printing
 def print_unreadable_object(object, stream, body, identity = None, type = None):
         write_string("#<", stream)
@@ -352,6 +847,9 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
         write_string(">", stream)
 
 ## streams
+def write_line(string, stream):
+        return write_string(string + "\n", stream)
+
 def make_string_output_stream():
         return io.StringIO()
 
@@ -361,8 +859,11 @@ def get_output_stream_string(x):
 def close(x):
         x.close()
 
-def finish_output(stream = sys.stdout):
+def finish_output(stream = symbol_value("_standard_output_")):
         stream.flush()
+
+def force_output(*args, **keys):
+        finish_output(*args, **keys)
 
 ## sets
 def union(x, y):
@@ -381,77 +882,15 @@ def maphash(f, dict):
 def _remap_hash_table(f, xs):
         return { k: f(k, v) for k, v in xs.items() }
 
-## py-cltl2, if you like..
-# >>> dir(f)
-# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
-# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
-# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
-# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
-# '__subclasshook__', 'f_back', 'f_builtins', 'f_code', 'f_globals',
-# 'f_lasti', 'f_lineno', 'f_locals', 'f_trace']
-# >>> dir(f.f_code)
-# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
-# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
-# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
-# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
-# '__subclasshook__', 'co_argcount', 'co_cellvars', 'co_code',
-# 'co_consts', 'co_filename', 'co_firstlineno', 'co_flags',
-# 'co_freevars', 'co_kwonlyargcount', 'co_lnotab', 'co_name',
-# 'co_names', 'co_nlocals', 'co_stacksize', 'co_varnames']
-def example_frame():
-        "cellvars: closed over non-globals;  varnames: bound"
-        def xceptor(xceptor_arg):
-                "names: globals;  varnames: args + otherbind;  locals: len(varnames)"
-                try:
-                        error("This is xceptor talking: %s.", xceptor_arg)
-                except Exception as cond:
-                        return this_frame()
-        def midder(midder_arg):
-                "freevars: non-global-free;  varnames: args + otherbind;  locals: ..."
-                midder_stack_var = 0
-                return xceptor(midder_arg + midder_stack_var)
-        def outer():
-                "freevars: non-global-free;  varnames: args + otherbind"
-                outer_stack_var = 3
-                return midder(outer_stack_var)
-        return outer()
-
-def all_threads_frames():
-        return sys._current_frames()
-
-def this_frame():
-        return sys._getframe(1)
-
-def exception_frame():
-        return sys.exc_info()[2].tb_frame
-
-def frames_upward_from(f):
-        return [f] + (frames_upward_from(f.f_back) if f.f_back else [])
-
-def frame_info(f):
-        "Return frame (function, lineno, locals, globals, builtins)."
-        return (f.f_code,
-                f.f_lineno,
-                f.f_locals,
-                f.f_globals,
-                f.f_builtins,
-                )
-
-def frame_fun(f):               return f.f_code
-def frame_lineno(f):            return f.f_lineno
-def frame_locals(f):            return f.f_locals
-def frame_globals(f):           return f.f_globals
-def frame_local_value(f, name): return f.f_locals[name]
-
 ### XXX: this is the price of Pythonic pain
 __ordered_frame_locals__ = dict()
-def ordered_frame_locals(f):
+def _frame_ordered_locals(f):
         global __ordered_frame_locals__
         if f not in __ordered_frame_locals__:
                 __ordered_frame_locals__[f] = list(f.f_locals.keys())
         return __ordered_frame_locals__[f]
 
-def fun_info(f):
+def _fun_info(f):
         "Return function (name, params, filename, lineno, nlines)."
         return (f.co_name or "<unknown-name>",
                 f.co_varnames[:f.co_argcount], # parameters
@@ -461,22 +900,22 @@ def fun_info(f):
                 f.co_varnames[f.co_argcount:], # non-parameter bound locals
                 f.co_freevars,
                 )
-def fun_name(f):       return f.co_name
-def fun_filename(f):   return f.co_filename
-def fun_bytecode(f):   return f.co_code
-def fun_constants(f):  return f.co_consts
+def _fun_name(f):       return f.co_name
+def _fun_filename(f):   return f.co_filename
+def _fun_bytecode(f):   return f.co_code
+def _fun_constants(f):  return f.co_consts
 
-def pp_frame(f, align = None):
-        fun = frame_fun(f)
-        fun_name, fun_params, filename = fun_info(fun)[:3]
+def _pp_frame(f, align = None):
+        fun = _frame_fun(f)
+        fun_name, fun_params, filename = _fun_info(fun)[:3]
         padding = " " * ((align or len(filename)) - len(filename))
         return "%s: %s(%s)" % (padding + filename, fun_name, ", ".join(fun_params))
 
-def print_frame(f):
-        print(pp_frame(f))
+def _print_frame(f):
+        print(_pp_frame(f))
 
-def print_frames(fs):
-        mapc(lambda i, f: print("%2d: %s" % (i, pp_frame(f))), *zip(*enumerate(fs)))
+def _print_frames(fs):
+        mapc(lambda i, f: format(t, "%2d: %s" % (i, _pp_frame(f))), *zip(*enumerate(fs)))
 
 ## non-local control transfers
 def unwind_protect(form, fn):
@@ -536,46 +975,7 @@ def return_from(nonce, value):
         nonce = (nonce if not functionp(nonce) else
                  (getattr(nonce, "ball", None) or
                   error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
-        raise throw(nonce, value)
-
-
-## dynamic scope (XXX: NOT PER-THREAD YET!!!)
-__dynamic_binding_clusters__ = []
-
-class env_block(object):
-        def __init__(self, kwargs):
-                self.kwargs = kwargs
-        def __enter__(self):
-                __dynamic_binding_clusters__.append(self.kwargs)
-        def __exit__(self, t, v, tb):
-                __dynamic_binding_clusters__.pop()
-
-class dynamic_scope(object):
-        "Courtesy of Jason Orendorff."
-        def __getattr__(self, name):
-                for scope in reversed(__dynamic_binding_clusters__):
-                        if name in scope:
-                                return scope[name]
-                raise AttributeError("Unbound variable: %s." % name)
-        def let(self, **keys):
-                return env_block(keys)
-        def boundp(self, name):
-                for scope in reversed(__dynamic_binding_clusters__):
-                        if name in scope:
-                                return True
-        def __setattr__(self, name, value):
-                raise AttributeError("Use SETQ to set special globals.")
-
-def setq(name, value):
-        __dynamic_binding_clusters__[-1][name] = value
-
-__cl_top_level_dynamic_scope__ = dict()
-class cl_dynamic_scope(dynamic_scope):
-        def __init__(self):
-                __dynamic_binding_clusters__.append(__cl_top_level_dynamic_scope__)
-
-__dynamic_scope__ = cl_dynamic_scope()
-env = __dynamic_scope__             # shortcut..
+        throw(nonce, value)
 
 ## Pythonese execution tracing: for HANDLER-BIND.
 __tracer_hooks__   = dict() # allowed keys: 'call', 'line', 'return', 'exception', 'c_call', 'c_return', 'c_exception'
@@ -603,13 +1003,45 @@ def set_condition_handler(fn):
 ## conditions
 setq("__handler_clusters__", [])
 
+class simple_condition(BaseException):
+        def __init__(self, format_control, *format_arguments):
+                self.format_control, self.format_arguments = format_control, format_arguments
+        def __str__(self):
+                return format(nil, self.format_control, self.format_arguments)
+
+class warning(BaseException): pass
+
+class simple_warning(simple_condition, warning): pass
+
+def make_condition(datum, *args, default_type = Exception, **keys):
+        """
+It's a slightly weird interpretation of MAKE-CONDITION, as the latter only accepts symbols as DATUM,
+while this one doesn't accept symbols at all.
+"""
+        return (default_type(datum % args) if stringp(datum) else
+                datum(*args, **keys)       if typep(datum, type_of(BaseException)) else
+                datum                      if typep(datum, BaseException) else
+                error(TypeError, "The first argument to MAKE-CONDITION must either a string, a condition type or a condition."))
+
 def signal(condition):
+        "XXX: this is crippled by inheritance-ignorant exact matching of the condition name."
         # format(t, "Signalling %s", condition)
         name = type_of(condition).__name__
         for cluster in reversed(env.__handler_clusters__):
                 # format(t, "Analysing cluster %s for '%s'.", cluster, name)
                 if name in cluster:
                         cluster[name](cond)
+        return nil
+
+def error(datum, *args, **keys):
+        "With all said and done, this ought to jump right into __CL_CONDITION_HANDLER__."
+        raise make_condition(datum, *args, **keys)
+
+def warn(datum, *args):
+        condition = make_condition(datum, *args, default_type = simple_warning, **keys)
+        signal(condition)
+        format(symbol_value("_error_output_"), "%s", condition)
+        return nil
 
 def __cl_condition_handler__(cond, frame):
         type, cond, traceback = cond
@@ -626,12 +1058,6 @@ def __cl_condition_handler__(cond, frame):
         # If we've hit any HANDLER-CASE-bound handlers, then we won't
         # even reach this point, as the stack is already unwound.
 set_condition_handler(__cl_condition_handler__)
-
-def error(datum, *args):
-        "With all said and done, this ought to jump straight above, into __CL_CONDITION_HANDLER__."
-        raise (Exception(datum % args) if stringp(datum) else
-               datum(*args)            if functionp(datum) else
-               datum)
 
 def handler_bind(fn, no_error = identity, **handlers):
         "Works like real HANDLER-BIND, when the conditions are right.  Ha."
@@ -670,6 +1096,10 @@ def handler_case(body, no_error = identity, **handlers):
                              for cond_name, handler in handlers.items () }
         return catch(nonce,
                      lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+
+def ignore_errors(body):
+        return handler_case(body,
+                            Exception = lambda _: None)
 
 ## restarts
 class restart(_servile):
@@ -844,7 +1274,7 @@ returned by COMPUTE-RESTARTS is every modified.
         restarts = list()
         for cluster in reversed(env.__restart_clusters__):
                 # format(t, "Analysing cluster %s for '%s'.", cluster, name)
-                restarts.extend(remove_if_not(curry(restart_condition_association_check, condition), cluster.values())
+                restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
                                 if condition else
                                 cluster.values())
         return restarts
@@ -881,3 +1311,8 @@ executes the following:
         assert(stringp(restart) or restartp(restart))
         restart = restart if restartp(restart) else find_restart(restart)
         return invoke_restart(*restart.interactive_function())
+
+###
+### Global
+###
+_init_package_system()

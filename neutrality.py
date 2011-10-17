@@ -1,4 +1,5 @@
 import platform
+import sys
 
 py_ver_major = platform.python_version_tuple()[0] 
 
@@ -11,7 +12,7 @@ elif py3p():
         from neutrality_py3 import stringp, write_string, file_content, set_file_content, to_unicode, to_raw_text, hunter_seeker, package_hunter_seeker
         pass
 
-printf("python neutrality: initialised for version %s", py_ver_major)
+write_string("python neutrality: initialised for version %s\n" % py_ver_major, sys.stdout)
 
 __all__ = ['py2p',
            'py3p',
