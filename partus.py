@@ -16,6 +16,10 @@ from swank import *
 
 from swank_backend import *
 
+# Python silently clobbers on FROM x IMPORT *
+# 'inspect' unable to get source of funtions entered through REPL:
+#   def foo(): pass; getsource(foo)... IOError: source code not available
+
 import imp
 def load_code_object_as_module(name, x, parent_package = None, built_ins = None, packagep = None, filename = 'garbage'):
         if not code_object_p(x):

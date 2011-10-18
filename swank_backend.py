@@ -1,6 +1,8 @@
 import sys
+import more_ast
+import inspect
 
-from cl import setq, nil, t, symbol_value, mapcar, remove, warn, _not_implemented, env, _keyword#, format
+from cl import setq, nil, t, symbol_value, mapcar, remove, warn, _not_implemented, env, _keyword, functionp, error#, format
 
 setq("_debug_swank_backend_",      nil)
 """If this is true, backends should not catch errors but enter the
@@ -14,7 +16,7 @@ setq("_unimplemented_interfaces_", [])
 """List of interface functions that are not implemented.
 DEFINTERFACE adds to this list and DEFIMPLEMENTATION removes."""
 
-def definterface(fn):
+def definterface(*args, **keys):
         """Define an interface function for the backend to implement.
 A function is defined with NAME, ARGS, and DOCUMENTATION.  This
 function first looks for a function to call in NAME's property list
@@ -27,8 +29,19 @@ ARGS will be added to NAME's property list as the property indicated
 by 'DEFAULT.
 
 Backends implement these functions using DEFIMPLEMENTATION."""
-        symbol_value("_unimplemented_interfaces_").append(fn.__name__)
-        return lambda *_, **__: _not_implemented(fn.__name__)
+        if not keys and args and len(args) == 1 and functionp(args[0]):
+                fn, name = args[0], args[0].__name__
+                symbol_value("_interface_functions_").append(name)
+                fn_body_ast = more_ast.extract_ast(inspect.getsource(fn)).body[0].body
+                if not fn_body_ast:
+                        error("DEFINTERFACE %s: function has no body.", name)
+                if fn_body_ast and len(fn_body_ast) == 1 and more_ast.ast_pass_p(fn_body_ast[0]):
+                        symbol_value("_unimplemented_interfaces_").append(name)
+                        return lambda *_, **__: _not_implemented(name)
+                else:
+                        return fn
+        else:
+                error("DEFINTERFACE decorator does not accept arguments.")
 
 def defimplementation(fn):
         setq("_unimplemented_interfaces_", remove(fn.__name__, symbol_value("_unimplemented_interfaces_")))

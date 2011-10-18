@@ -46,6 +46,7 @@ def ast_num_p(x):               return typep(x, ast.Num)
 def ast_name_p(x):              return typep(x, ast.Name)
 def ast_string_equalp(x, s):    return ast_string_p(x) and x.s == s
 def ast_assign_p(x, to):        return typep(x, ast.Assign) and to in x.targets
+def ast_pass_p(x):              return typep(x, ast.Pass)
 def ast_module_p(x):            return typep(x, ast.Module)
 def ast_def_p(x):               return typep(x, ast.FunctionDef)
 def ast_import_p(x):            return typep(x, ast.Import)

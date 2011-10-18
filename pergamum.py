@@ -21,6 +21,8 @@ import time               # clock()
 import sys                # sys.stdout
 import traceback
 
+from neutrality   import file_content
+
 ## "constants"
 Empty = frozenset([])
 
