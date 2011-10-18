@@ -2,6 +2,7 @@
 ### Some utilities, in the spirit of Common Lisp.
 ###
 from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref, t
+from cl           import write_string
 from functools    import reduce, partial
 from cl           import _tuplep as tuplep, _dictp as dictp
 from cl           import _letf   as letf
@@ -571,17 +572,18 @@ def chunkify(n, size, overlap):
         return acc
 
 ## printing
-def printf(format_control, *format_args):
+def fprintf(stream, format_control, *format_args):
         try:
-                write_string(format_control % format_args, sys.stdout)
+                return neutrality._write_string(format_control % format_args, stream)
         except UnicodeEncodeError:
-                write_string((format_control % format_args).encode("utf-8"), sys.stdout)
+                return neutrality._write_string((format_control % format_args).encode("utf-8"), stream)
 
-fprintf = format
+def printf(format_control, *format_args):
+        fprintf(sys.stdout, format_control, *format_args)
 
 def syncprintf(format_control, *format_args):
-        format(t, format_control, *format_args)
+        fprintf(sys.stdout, format_control, *format_args)
         sys.stdout.flush()
 
 def debug_printf(format_control, *format_args):
-        format(sys.stderr, format_control + "\n", *format_args)
+        fprintf(sys.stderr, format_control + "\n", *format_args)
