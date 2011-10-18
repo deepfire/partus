@@ -21,7 +21,9 @@ def identity(x):
 ###
 ### Basis
 ###
+##
 ## frames
+##
 # >>> dir(f)
 # ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
 # '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
@@ -86,7 +88,42 @@ def _frame_locals(f):            return f.f_locals
 def _frame_globals(f):           return f.f_globals
 def _frame_local_value(f, name): return f.f_locals[name]
 
-## Study done by the means of:
+### XXX: this is the price of Pythonic pain
+__ordered_frame_locals__ = dict()
+def _frame_ordered_locals(f):
+        global __ordered_frame_locals__
+        if f not in __ordered_frame_locals__:
+                __ordered_frame_locals__[f] = list(f.f_locals.keys())
+        return __ordered_frame_locals__[f]
+
+def _fun_info(f):
+        "Return function (name, params, filename, lineno, nlines)."
+        return (f.co_name or "<unknown-name>",
+                f.co_varnames[:f.co_argcount], # parameters
+                f.co_filename or "<unknown-file>",
+                f.co_firstlineno,
+                1 + max(f.co_lnotab or [0]),        # lines
+                f.co_varnames[f.co_argcount:], # non-parameter bound locals
+                f.co_freevars,
+                )
+def _fun_name(f):       return f.co_name
+def _fun_filename(f):   return f.co_filename
+def _fun_bytecode(f):   return f.co_code
+def _fun_constants(f):  return f.co_consts
+
+def _pp_frame(f, align = None):
+        fun = _frame_fun(f)
+        fun_name, fun_params, filename = _fun_info(fun)[:3]
+        padding = " " * ((align or len(filename)) - len(filename))
+        return "%s: %s(%s)" % (padding + filename, fun_name, ", ".join(fun_params))
+
+def _print_frame(f):
+        print(_pp_frame(f))
+
+def _print_frames(fs):
+        mapc(lambda i, f: format(t, "%2d: %s" % (i, _pp_frame(f))), *zip(*enumerate(fs)))
+
+# Study was done by the means of:
 # print("\n".join(map(lambda f:
 #                             "== def %s\n%s\n" %
 #                     (fun_name(f),
@@ -138,8 +175,9 @@ def _frame_local_value(f, name): return f.f_locals[name]
 #   co_varnames: ()
 #   co_freevars: ()
 #   co_nlocals: 0
-## More info:
-## sys.call_tracing()
+
+# More info:
+# sys.call_tracing()
 # p = Pdb(self.completekey, self.stdin, self.stdout)
 # p.prompt = "(%s) " % self.prompt.strip()
 # print >>self.stdout, "ENTERING RECURSIVE DEBUGGER"
@@ -148,10 +186,23 @@ def _frame_local_value(f, name): return f.f_locals[name]
 # sys.settrace(self.trace_dispatch)
 # self.lastcmd = p.lastcmd
 
-## not_implemented
+##
+## Condition: not_implemented
+##
+class simple_condition(BaseException):
+        def __init__(self, format_control, *format_arguments):
+                self.format_control, self.format_arguments = format_control, format_arguments
+        def __str__(self):
+                return self.format_control % tuple(self.format_arguments)
+        def __repr__(self):
+                return self.__str__()
+
+class warning(BaseException): pass
+
+class simple_warning(simple_condition, warning): pass
+
 class _not_implemented_error(Exception):
         def __init__(*args):
-                format(t, "_n_i_e __init__(%s)\n", ", ".join(mapcar(_compose(str, type_of), args)))
                 self, name = args[0], args[1]
                 self.name = name
         def __str__(self):
@@ -162,7 +213,9 @@ class _not_implemented_error(Exception):
 def _not_implemented(x):
         error(_not_implemented_error, x)
 
-## tools
+##
+## Non-CL tools
+##
 def _letf(value, body):
         return body(value)
 
@@ -201,7 +254,9 @@ def _updated_dict(to, from_):
         to.update(from_)
         return to
 
-## lesser tools
+##
+## Lesser non-CL tools
+##
 def ___(str, expr):
         write_string("%s: %s" % (str, expr), sys.stdout)
         return expr
@@ -214,10 +269,9 @@ class _servile():
         def __init__(self, **keys):
                 self.__dict__.update(keys)
 
-###
-### CL
-###
-## symbols
+##
+## Symbols
+##
 __gensym_counter__ = 0
 def gensym(x = "G"):
         "Not a real GENSYM, as it returns merely a string."
@@ -225,7 +279,9 @@ def gensym(x = "G"):
         __gensym_counter__ += 1
         return sys.intern(x + str(__gensym_counter__))
 
-## basic
+##
+## Basic
+##
 __iff__ = { True:  lambda x, _: x,
             False: lambda _, y: y }
 def iff(val, consequent, antecedent):
@@ -253,7 +309,9 @@ def case(val, *clauses):
                 if val == cval or (cval is True):
                         return result
 
-## types
+##
+## Types
+##
 def find_class(x):
         "XXX: how to do this?"
         return globals()[name]
@@ -299,7 +357,9 @@ def coerce(x, type):
         elif type is dict:
                 return dict.fromkeys(x)
 
-## type predicates
+##
+## Type predicates
+##
 __function_types__ = frozenset([types.BuiltinFunctionType,
                                 types.BuiltinMethodType,
                                 types.FunctionType,
@@ -312,14 +372,18 @@ def listp(o):         return type(o) is list
 def boolp(o):         return type(o) is bool
 def sequencep(x):     return getattr(type(x), '__len__', None) is not None
 
-## predicates
+##
+## Predicates
+##
 def null(x):          return not x
 def evenp(x):         return x % 2 == 0
 def zerop(x):         return x == 0
 def plusp(x):         return x > 0
 def minusp(x):        return x < 0
 
-## conses
+##
+## Conses
+##
 def cons(x, y):       return (x, y)
 def consp(o):         return type(o) is tuple and len(o) is 2
 def atom(o):          return type(o) is not tuple
@@ -327,7 +391,9 @@ def car(x):           return x[0]
 def cdr(x):           return x[1]
 def cadr(x):          return x[1][0]
 
-## functions
+##
+## Functions
+##
 def complement(f):
         return lambda x: not f(x)
 
@@ -353,7 +419,9 @@ def none(fn, xs):
                 if fn(x): return False
         return True
 
-## sequences
+##
+## Sequences
+##
 def aref(xs, *indices):
         r = xs
         for i in indices:
@@ -479,7 +547,9 @@ def count_if(p, xs, key = identity, start = 0):
 
 sort = sorted
 
-## strings
+##
+## Strings
+##
 def print_to_string(x):
         return with_output_to_string(s,
                                      lambda: format(s, "%s", x))
@@ -528,7 +598,10 @@ def with_output_to_string(f):
         finally:
                 close(x)
 
-## dynamic scope (XXX: NOT PER-THREAD YET!!!)
+
+##
+## Dynamic scope (XXX: NOT PER-THREAD YET!!!)
+##
 __dynamic_binding_clusters__ = []
 
 class env_block(object):
@@ -571,17 +644,27 @@ class cl_dynamic_scope(dynamic_scope):
 __dynamic_scope__ = cl_dynamic_scope()
 env = __dynamic_scope__             # shortcut..
 
-## package system
+##
+## Package system
+##
 __packages__        = dict()
 __keyword_package__ = None
 
+class package_error(Exception):
+        pass
+
+class simple_package_error(simple_condition, package_error):
+        pass
+
 def symbol_conflict_error(op, obj, pkg, x, y):
-        error("%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
+        error(simple_package_error, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
               (op, obj, pkg, x, y))
 
 def symbols_not_accessible_error(package, syms):
-        error("These symbols are not accessible in the %s package:(%s)",
-              package_name(package), ", ".join(mapcar(print_symbol, syms)))
+        def pp_sym_or_string(x):
+                return "'%s'" % x if stringp(x) else print_symbol(x)
+        error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
+              package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
 
 def _use_package_symbols(dest, src, syms):
         assert(packagep(dest) and packagep(src) and _dictp(syms))
@@ -716,6 +799,12 @@ def find_symbol(x, package = None):
                 return None, None
 def _find_symbol0(x, package = None): return find_symbol(x, package)[0]
 
+def _find_symbol_or_fail(x, package = None):
+        package = coerce_to_package(package)
+        sym, foundp = find_symbol(x, package)
+        return (sym if foundp else
+                symbols_not_accessible_error(package, [x]))
+
 def _intern(x, package = None):
         p = coerce_to_package(package)
         s = p.accessible.get(x) if stringp(x) else x
@@ -756,10 +845,15 @@ def export(symbols, package = None):
         symbols, package = _ensure_list(symbols), coerce_to_package(package)
         assert(every(symbolp, symbols))
         symdict = _map_into_hash(identity, symbols, key = _slotting("name"))
-        # what about importing?
-        package.external |= 
         for user in package.packages_using:
                 _use_package_symbols(user, package, symdict)
+        # No conflicts?  Alright, we can proceed..
+        symset = set(symdict.values())
+        for_interning = symset & set(package.inherited)
+        for sym in for_interning:
+                del package.inherited[sym]
+                self.internal.add(sym)
+        package.external |= symset
         return True
 
 def read_symbol(x, package = None):
@@ -829,14 +923,18 @@ def _init_swank_packages():
         # _import(mapcar(lambda s: find_symbol(s, "INSPECTOR"), inspector_syms),
         #           "SWANK")
 
-## globals
+##
+## Globals
+##
 setq("_standard_output_", sys.stdout)
 setq("_error_output_",    sys.stderr)
 # setq("_debug_io_",    ???) XXX: ???
 
 most_positive_fixnum = 67108864
 
-## pretty-printing
+##
+## Pretty-printing
+##
 def print_unreadable_object(object, stream, body, identity = None, type = None):
         write_string("#<", stream)
         if type:
@@ -846,7 +944,9 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, " {%x}", id(object))
         write_string(">", stream)
 
-## streams
+##
+## Streams
+##
 def write_line(string, stream):
         return write_string(string + "\n", stream)
 
@@ -865,14 +965,18 @@ def finish_output(stream = symbol_value("_standard_output_")):
 def force_output(*args, **keys):
         finish_output(*args, **keys)
 
-## sets
+##
+## Sets
+##
 def union(x, y):
         return x | y
 
 def intersection(x, y):
         return x & y
 
-## dicts
+##
+## Dicts
+##
 def gethash(key, dict):
         return dict.get(key), key in dict
 
@@ -882,42 +986,10 @@ def maphash(f, dict):
 def _remap_hash_table(f, xs):
         return { k: f(k, v) for k, v in xs.items() }
 
-### XXX: this is the price of Pythonic pain
-__ordered_frame_locals__ = dict()
-def _frame_ordered_locals(f):
-        global __ordered_frame_locals__
-        if f not in __ordered_frame_locals__:
-                __ordered_frame_locals__[f] = list(f.f_locals.keys())
-        return __ordered_frame_locals__[f]
 
-def _fun_info(f):
-        "Return function (name, params, filename, lineno, nlines)."
-        return (f.co_name or "<unknown-name>",
-                f.co_varnames[:f.co_argcount], # parameters
-                f.co_filename or "<unknown-file>",
-                f.co_firstlineno,
-                1 + max(f.co_lnotab or [0]),        # lines
-                f.co_varnames[f.co_argcount:], # non-parameter bound locals
-                f.co_freevars,
-                )
-def _fun_name(f):       return f.co_name
-def _fun_filename(f):   return f.co_filename
-def _fun_bytecode(f):   return f.co_code
-def _fun_constants(f):  return f.co_consts
-
-def _pp_frame(f, align = None):
-        fun = _frame_fun(f)
-        fun_name, fun_params, filename = _fun_info(fun)[:3]
-        padding = " " * ((align or len(filename)) - len(filename))
-        return "%s: %s(%s)" % (padding + filename, fun_name, ", ".join(fun_params))
-
-def _print_frame(f):
-        print(_pp_frame(f))
-
-def _print_frames(fs):
-        mapc(lambda i, f: format(t, "%2d: %s" % (i, _pp_frame(f))), *zip(*enumerate(fs)))
-
-## non-local control transfers
+##
+## Non-local control transfers
+##
 def unwind_protect(form, fn):
         "For the times, when statements won't do."
         try:
@@ -977,7 +1049,9 @@ def return_from(nonce, value):
                   error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
         throw(nonce, value)
 
+##
 ## Pythonese execution tracing: for HANDLER-BIND.
+##
 __tracer_hooks__   = dict() # allowed keys: 'call', 'line', 'return', 'exception', 'c_call', 'c_return', 'c_exception'
 def set_tracer_hook(type, fn): __tracer_hooks__[type] = fn
 def     tracer_hook(type):     return __tracer_hooks__.get(type)
@@ -1000,28 +1074,29 @@ def set_condition_handler(fn):
 #         pass
 # activate_condition_handler(debugger_hook)
 
-## conditions
+##
+## Condition system
+##
 setq("__handler_clusters__", [])
-
-class simple_condition(BaseException):
-        def __init__(self, format_control, *format_arguments):
-                self.format_control, self.format_arguments = format_control, format_arguments
-        def __str__(self):
-                return format(nil, self.format_control, self.format_arguments)
-
-class warning(BaseException): pass
-
-class simple_warning(simple_condition, warning): pass
 
 def make_condition(datum, *args, default_type = Exception, **keys):
         """
-It's a slightly weird interpretation of MAKE-CONDITION, as the latter only accepts symbols as DATUM,
-while this one doesn't accept symbols at all.
+It's a slightly weird interpretation of MAKE-CONDITION, as the latter
+only accepts symbols as DATUM, while this one doesn't accept symbols
+at all.
 """
-        return (default_type(datum % args) if stringp(datum) else
+        # format(t, "stringp: %s\nclassp: %s\nBaseException-p: %s\n",
+        #        stringp(datum),
+        #        typep(datum, type_of(BaseException)),
+        #        typep(datum, BaseException))
+        cond = (default_type(datum % args) if stringp(datum) else
                 datum(*args, **keys)       if typep(datum, type_of(BaseException)) else
                 datum                      if typep(datum, BaseException) else
-                error(TypeError, "The first argument to MAKE-CONDITION must either a string, a condition type or a condition."))
+                error(TypeError, "The first argument to MAKE-CONDITION must either a string, a condition type or a condition, was: %s, of type %s.",
+                      datum, type_of(datum)))
+        # format(t, "made %s %s %s\n", datum, args, keys)
+        # format(t, "    %s\n", cond)
+        return cond
 
 def signal(condition):
         "XXX: this is crippled by inheritance-ignorant exact matching of the condition name."
@@ -1101,7 +1176,9 @@ def ignore_errors(body):
         return handler_case(body,
                             Exception = lambda _: None)
 
-## restarts
+##
+## Restarts
+##
 class restart(_servile):
         pass
 # RESTART-BIND executes the body of forms in a dynamic environment where
@@ -1163,9 +1240,9 @@ def _specs_restarts_args(restart_specs):
                                                                   function = function))
         return restarts_args
 
-###
-### XXX: :TEST-FUNCTION is currently IGNORED!
-###
+##
+# XXX: :TEST-FUNCTION is currently IGNORED!
+##
 def _restart_bind(body, restarts_args):
         with env.let(__restart_clusters__ = env.__restart_clusters__ + [_remap_hash_table(lambda _, restart_args: restart(**restart_args), restarts_args)]):
                 return body()
@@ -1313,6 +1390,6 @@ executes the following:
         return invoke_restart(*restart.interactive_function())
 
 ###
-### Global
+### Init
 ###
 _init_package_system()

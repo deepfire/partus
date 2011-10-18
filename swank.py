@@ -10,7 +10,7 @@ from cl import *
 from pergamum import *
 from more_ast import *
 
-from cl import _servile as servile, _import, _find_symbol0
+from cl import _servile as servile, _import, _find_symbol0, _find_symbol_or_fail
 
 from swank_backend import *
 import swank_python
@@ -133,7 +133,7 @@ setq("_debug_on_swank_protocol_error_", None)
 ### Utilities: swank.lisp:406
 ### Logging: swank.lisp:409
 setq("_swank_io_package_", lret(make_package("SWANK_IO_PACKAGE"),
-                                lambda package: _import(mapcar(_find_symbol0, ["t", "nil", "quote"]),
+                                lambda package: _import(mapcar(_find_symbol_or_fail, ["t", "nil", "quote"]),
                                                         package)))
 setq("_log_events_",       nil)
 setq("_log_output_",       nil)
