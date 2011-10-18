@@ -76,15 +76,15 @@ def setup_server(port, announce_fn, style, dont_close, coding_system):
         init_log_output()
         find_external_format_or_lose(coding_system)
         socket     = create_socket(symbol_value('_loopback_interface_'), port)
-        local_port = local_port(socket)
-        announce_fn(local_port)
+        port = local_port(socket)
+        announce_fn(port)
         def serve():
                 accept_connections(socket, style, codint_system, dont_close)
         def loop_serve():
                 while True:
                         ignore_errors(serve)
         if style is _keyword('spawn'):
-                initialise_multiprocessing(
+                initialize_multiprocessing(
                         lambda:
                                 spawn(lambda: (loop_serve() if dont_close else
                                                serve())))
@@ -94,7 +94,7 @@ def setup_server(port, announce_fn, style, dont_close, coding_system):
                 while symbol_value("_dont_close_"):
                         loop_serve()
         symbol_value("_listener_sockets_")[port] = [style, socket]
-        return local_port
+        return port
 
 def stop_server(port):
         style, socket = symbol_value("_listener_sockets_")[port]
@@ -147,7 +147,7 @@ def announce_server_port(file, port):
                 format(s, "%s\n", port)
         simple_announce_function(port)
 
-def simple_announce_function():
+def simple_announce_function(port):
         if symbol_value("_swank_debug_p_"):
                 format(symbol_value("_log_output_"), "\n;; Swank started at port: ~%d.\n", port)
                 force_output(symbol_value("_log_output_"))

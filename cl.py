@@ -2,6 +2,7 @@
 ### Some surfacial Common Lisp compatibility.
 ###
 import io
+import _io
 import sys
 import types
 import inspect
@@ -10,7 +11,7 @@ import functools
 import collections
 
 from functools import reduce
-from neutrality import stringp, write_string
+from neutrality import stringp, _write_string
 
 ###
 ### Ring 0.
@@ -258,7 +259,7 @@ def _updated_dict(to, from_):
 ## Lesser non-CL tools
 ##
 def ___(str, expr):
-        write_string("%s: %s" % (str, expr), sys.stdout)
+        write_string("%s: %s" % (str, expr))
         return expr
 
 class _servile():
@@ -312,6 +313,8 @@ def case(val, *clauses):
 ##
 ## Types
 ##
+stream = _io._IOBase
+
 def find_class(x):
         "XXX: how to do this?"
         return globals()[name]
@@ -556,10 +559,8 @@ def print_to_string(x):
 
 def format(stream, format_control, *format_arguments):
         string = format_control % format_arguments
-        if not stream:
+        if  stream is nil:
                 return string
-        elif stream is t:
-                write_string(string, symbol_value("_standard_output_"))
         else:
                 write_string(string, stream)
 
@@ -789,7 +790,7 @@ def symbol_relation(x, p):
 def find_symbol(x, package = None):
         p = coerce_to_package(package)
         s = p.get(x)
-        # write_string("FIND_SYMBOL %s (co-to-pa %s -> %s) -> %s\n" % (x, package, p, s), sys.stdout)
+        # write_string("FIND_SYMBOL %s (co-to-pa %s -> %s) -> %s\n" % (x, package, p, s))
         if not s:
                 cl = find_package("CL")
                 format(t, "find_symbol('%s', %s) -> %s\n", x, cl, find_symbol(x, cl))
@@ -947,7 +948,18 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
 ##
 ## Streams
 ##
-def write_line(string, stream):
+def streamp(x):
+        return typep(x, stream)
+
+def _coerce_to_stream(x):
+        return (x                                 if streamp(x) else
+                symbol_value("_standard_output_") if x is t else
+                error("%s cannot be coerced to a stream.", x))
+
+def write_string(string, stream = symbol_value("_standard_output_")):
+        return _write_string(string, _coerce_to_stream(stream))
+
+def write_line(string, stream = symbol_value("_standard_output_")):
         return write_string(string + "\n", stream)
 
 def make_string_output_stream():
@@ -960,7 +972,7 @@ def close(x):
         x.close()
 
 def finish_output(stream = symbol_value("_standard_output_")):
-        stream.flush()
+        stream is not nil and _coerce_to_stream(stream).flush()
 
 def force_output(*args, **keys):
         finish_output(*args, **keys)

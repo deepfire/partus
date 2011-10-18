@@ -4,7 +4,7 @@ import sys
 def stringp(o):
         return type(o) is str
 
-def write_string(string, stream):
+def _write_string(string, stream):
         print(string, file = stream, end = '')
         return string
 

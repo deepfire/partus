@@ -10,7 +10,7 @@ from cl import *
 from pergamum import *
 from more_ast import *
 
-from cl import _servile as servile, _import, _find_symbol0, _find_symbol_or_fail
+from cl import _servile as servile, _keyword as keyword, _import, _find_symbol0, _find_symbol_or_fail
 
 from swank_backend import *
 import swank_python
@@ -38,6 +38,17 @@ def make_sldb_state(condition, level, id):
                          id = id)
 
 ### Top-level variables, constants, macros: swank.lisp:74
+cl_package      = find_package("CL")
+keyword_package = find_package("KEYWORD")
+
+setq("_canonical_package_nicknames_", [keyword("common-lisp-user"), keyword("cl-user")])
+
+setq("_auto_abbreviate_dotted_packages_", t)
+
+default_server_port = 4005
+
+setq("_swank_debug_p_", t)
+
 ### SLDB customized pprint dispatch table: swank.lisp:95
 ### Hooks: swank.lisp:213
 def add_hook(name, function):
@@ -89,9 +100,9 @@ def default_connection():
         return env._connections_[0]
 
 def make_connection(socket, stream, style, coding_system):
-        serve, cleanup = ((spawn_threads_for_connection, cleanup-connection-threads) if style is _keyword("spawn") else
-                          (install_sigio_handler, deinstall_sigio_handler) if style is _keyword("sigio") else
-                          (install_fd_handler, deinstall_fd_handler) if style is _keyword("fd-handler") else
+        serve, cleanup = ((spawn_threads_for_connection, cleanup-connection-threads) if style is keyword("spawn") else
+                          (install_sigio_handler, deinstall_sigio_handler) if style is keyword("sigio") else
+                          (install_fd_handler, deinstall_fd_handler) if style is keyword("fd-handler") else
                           (simple-serve-requests, None))
         conn = connection(socket = socket,
                           socket_io = stream,
@@ -265,7 +276,7 @@ def without_slime_interrupts(body):
 def dispatch_event(slime_connection, event, sldb_state):
         kind = event[0]
         # debug_printf("===( DISPATCH, sldb_state: %s", sldb_state)
-        if kind is _keyword('emacs_rex'):
+        if kind is keyword('emacs_rex'):
                 emacs_rex(*([slime_connection, sldb_state] + event[1:]))
 ### Signal driven IO: swank.lisp:1333
 ### SERVE-EVENT based IO: swank.lisp:1354
@@ -569,11 +580,11 @@ def eval_for_emacs(form, buffer_package, id):
                         ok = True
         finally:
                 send_to_emacs(env.slime_connection,
-                              [_keyword('return'),
+                              [keyword('return'),
                                current_thread(),
-                               ([_keyword('ok'), result]
+                               ([keyword('ok'), result]
                                 if ok else
-                                [_keyword('abort'), condition]),
+                                [keyword('abort'), condition]),
                                id])
 
 # XXX: :emacs-rex processing (EVAL-FOR-EMACS)  was done by this one
@@ -615,10 +626,10 @@ def _eval_for_emacs(slime_connection, sldb_state, form, pkg, thread, id, level =
                         handler_bind(with_calling_handlers_body,
                                      error = lambda cond: error_handler(cond, sldb_state, output = output))
         finally:
-                send_to_emacs(slime_connection, [_keyword('return'),
-                                                 ([_keyword('ok'), value]
+                send_to_emacs(slime_connection, [keyword('return'),
+                                                 ([keyword('ok'), value]
                                                   if ok else
-                                                  [_keyword('abort'), condition]),
+                                                  [keyword('abort'), condition]),
                                                  id])
 def lisp_name_ast(x):
         def rec(x):
@@ -679,8 +690,8 @@ def writeurn_output(output):
         string = get_output_stream_string(output)
         close(output)
         if len(string):
-                send_to_emacs(env.slime_connection, [_keyword('write-string'), string])
-                # send_to_emacs(env.slime_connection, [_keyword('write-string'), "\n"])
+                send_to_emacs(env.slime_connection, [keyword('write-string'), string])
+                # send_to_emacs(env.slime_connection, [keyword('write-string'), "\n"])
         return string
 
 def error_handler(c, sldb_state, output = None):
@@ -714,9 +725,9 @@ def eval_region(string):
                         ast_.body[0] = ast_assign_var("", ast_funcall(swank_ast_name("set_value"), ast_.body[0].value))
                 co = eval_stage("COMPILE", lambda: compile(ast.fix_missing_locations(ast_), "", 'exec'))
                 eval_stage("EXEC", lambda: exec(co, env.python_user.__dict__))
-                return [_keyword("values")] + [str(___expr___)] if (ast_.body and exprp) else []
+                return [keyword("values")] + [str(___expr___)] if (ast_.body and exprp) else []
         else:
-                return [_keyword("values")]
+                return [keyword("values")]
 #### interactive-eval-region
 #### re-evaluate-defvar
 
@@ -747,14 +758,14 @@ def send_to_emacs(slime_connection, obj):
 #                                            quote(`:version`), paste(R.version$major, R.version$minor, sep=".")))
 # }
 def connection_info(slime_connection, sldb_state):
-        return [_keyword("pid"),                 getpid(),
+        return [keyword("pid"),                 getpid(),
                 ## TODO: current package
-                _keyword("package"),             [_keyword("name"), "python",
-                                                  _keyword("prompt"), "python>"],
-                _keyword("version"),             partus_version,
-                _keyword("lisp-implementation"), [_keyword("type"), "python",
-                                                  _keyword("name"), "python",
-                                                  _keyword("version"), "%d.%d.%d" % sys.version_info[:3]]]
+                keyword("package"),             [keyword("name"), "python",
+                                                  keyword("prompt"), "python>"],
+                keyword("version"),             partus_version,
+                keyword("lisp-implementation"), [keyword("type"), "python",
+                                                  keyword("name"), "python",
+                                                  keyword("version"), "%d.%d.%d" % sys.version_info[:3]]]
 
 # `swank:swank-require` <- function (slimeConnection, sldbState, contribs) {
 #   for(contrib in contribs) {
@@ -881,9 +892,9 @@ def frame_locals_and_catch_tags(index):
         return [frame_locals_for_emacs(index),
                 mapcar(to_string, frame_catch_tags(index))]
         # frame = sldb_state.frames[index] # XXX: was [index + 1]
-        # return [mapcar(lambda local_name: [_keyword('name'), local_name,
-        #                                    _keyword('id'), 0,
-        #                                    _keyword('value'), handler_bind(lambda: print_to_string(frame_local_value(frame, local_name)),
+        # return [mapcar(lambda local_name: [keyword('name'), local_name,
+        #                                    keyword('id'), 0,
+        #                                    keyword('value'), handler_bind(lambda: print_to_string(frame_local_value(frame, local_name)),
         #                                                                    Exception = lambda c: "Error printing object: %s." % c)],
         #                ordered_frame_locals(frame)),
         #         []]
@@ -892,9 +903,9 @@ def frame_locals_for_emacs(index):
         # with-bindings *backtrace-printer-bindings*
         return mapcar(lambda var: destructuring_bind(var,
                                                      lambda name = "", id = "", value = "":
-                                                             [_keyword("name"),  prin1_to_string(name),
-                                                              _keyword("id"),    id,
-                                                              _keyword("value"), to_line(value)]),
+                                                             [keyword("name"),  prin1_to_string(name),
+                                                              keyword("id"),    id,
+                                                              keyword("value"), to_line(value)]),
                       frame_locals(index))
         
 
@@ -972,9 +983,9 @@ def simple_completions(slime_connection, sldb_state, prefix, package):
 def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
         line_offset = char_offset = col_offset = None
         for pos in position:
-                if pos[0] is _keyword('position'):
+                if pos[0] is keyword('position'):
                         char_offset = pos[1]
-                elif pos[0] is _keyword('line'):
+                elif pos[0] is keyword('line'):
                         line_offset = pos[1]
                         char_offset = pos[2]
                 else:
@@ -995,7 +1006,7 @@ def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, posit
                 val, time = clocking(clocking_body)
                 return val
         with_restarts(with_restarts_body)
-        return [_keyword('compilation-result'), [], True, time, False, False]
+        return [keyword('compilation-result'), [], True, time, False, False]
 
 # withRetryRestart <- function(description, expr) {
 #   call <- substitute(expr)
@@ -1026,10 +1037,10 @@ def send_repl_results_to_emacs(values):
         finish_output()
         if not values:
                 send_to_emacs(env.slime_connection,
-                              [_keyword("write-string"), "; No value", _keyword("repl-result"),])
+                              [keyword("write-string"), "; No value", keyword("repl-result"),])
                 mapc(lambda v: send_to_emacs(
                                 env.slime_connection,
-                                [_keyword("write-string"), prin1_to_string(v) + "\n", _keyword("repl-result")]),
+                                [keyword("write-string"), prin1_to_string(v) + "\n", keyword("repl-result")]),
                      values)
 
 setq("_send_repl_results_to_emacs_", send_repl_results_to_emacs)
@@ -1054,7 +1065,7 @@ def track_package(fn):
         finally:
                 if p is not _package_():
                         send_to_emacs(env.slime_connection,
-                                      [_keyword("new-package", package_name(_package_()),
+                                      [keyword("new-package", package_name(_package_()),
                                                 package_string_for_prompt(_package_()))])
 
 #### cat
@@ -1129,20 +1140,20 @@ def sldb_loop(level):
                 while True:
                         def with_simple_restart_body():
                                 send_to_emacs(env.slime_connection,
-                                              [_keyword("debug"), current_thread_id(), level] +
+                                              [keyword("debug"), current_thread_id(), level] +
                                               # was wrapped into (with-bindings *sldb-printer-bindings*)
                                               debugger_info_for_emacs(0, env._sldb_initial_frames_))
                                 send_to_emacs(env.slime_connection,
-                                              [_keyword(debug-activate), current_thread_id(), level, None])
+                                              [keyword(debug-activate), current_thread_id(), level, None])
                                 while True:
                                         def handler_case_body():
                                                 evt = wait_for_event(env.slime_connection,
                                                                      ["or",
-                                                                      [_keyword("emacs-rex")],
-                                                                      [_keyword("sldb-return", level + 1)]])
-                                                if evt[0] is _keyword("emacs-rex"):
+                                                                      [keyword("emacs-rex")],
+                                                                      [keyword("sldb-return", level + 1)]])
+                                                if evt[0] is keyword("emacs-rex"):
                                                         eval_for_emacs(*evt[1:])
-                                                elif evt[0] is _keyword("sldb-return"):
+                                                elif evt[0] is keyword("sldb-return"):
                                                         return_from("sldb_loop", None)
                                         handler_case(handler_case_body,
                                                      SLDB_CONDITION = lambda c: handle_sldb_condition(c))
@@ -1150,16 +1161,16 @@ def sldb_loop(level):
                                             with_simple_restart_body)
         finally:
                 send_to_emacs(env.slime_connection,
-                              [_keyword("debug-return"),
+                              [keyword("debug-return"),
                                current_thread_id(),
                                level,
                                env._sldb_stepping_p])
                 wait_for_event(env.slime_connection,
-                               [_keyword("sldb-return"), level + 1],
+                               [keyword("sldb-return"), level + 1],
                                True)                   # clean event-queue
                 if level > 1:
                         send_event(env.slime_connection,
-                                   current_thread(), [_keyword("sldb-return"), level])
+                                   current_thread(), [keyword("sldb-return"), level])
 
 #### handle-sldb-condition
 #### defvar *sldb-condition-printer*
@@ -1180,7 +1191,7 @@ def backtrace(start, end):
 I is an integer, and can be used to reference the corresponding frame
 from Emacs; FRAME is a string representation of an implementation's
 frame."""
-        return mapcar(lambda i, frame: [i, frame_to_string(frame)] + ([_keyword("restartable"), True]
+        return mapcar(lambda i, frame: [i, frame_to_string(frame)] + ([keyword("restartable"), True]
                                                                       if frame_restartable_p(frame) else
                                                                       []),
                       *zip(*enumerate(compute_backtrace(start, end), start)))
@@ -1279,7 +1290,7 @@ def compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, *args)
         filename.co, time = clocking(lambda: compile(file_as_string(filename), filename, 'exec'))
         if loadp:
                 load_file(slime_connection, sldb_state, filename)
-        return [_keyword('compilation-result'), [], True, time, substitute(loadp), filename]
+        return [keyword('compilation-result'), [], True, time, substitute(loadp), filename]
 setq("_fasl_pathname_function_", None)
 #### pathname-as-directory
 #### compile-file-output

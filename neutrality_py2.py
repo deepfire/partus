@@ -3,7 +3,7 @@ import sys
 def stringp(o):
         return (type(o) is str) or (type(o) is unicode)
 
-def write_string(string, stream):
+def _write_string(string, stream):
         print >> stream, string
         return string
 

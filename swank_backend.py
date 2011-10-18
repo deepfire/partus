@@ -28,7 +28,7 @@ by 'DEFAULT.
 
 Backends implement these functions using DEFIMPLEMENTATION."""
         symbol_value("_unimplemented_interfaces_").append(fn.__name__)
-        return lambda: _not_implemented(fn.__name__)
+        return lambda *_, **__: _not_implemented(fn.__name__)
 
 def defimplementation(fn):
         setq("_unimplemented_interfaces_", remove(fn.__name__, symbol_value("_unimplemented_interfaces_")))
