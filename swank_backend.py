@@ -286,8 +286,11 @@ def eval_context():			pass
 #### defmacro label-value-line*
 @definterface
 def describe_primitive_type():		pass
+
 @definterface
-def initialize_multiprocessing():	pass
+def initialize_multiprocessing(fn):
+        return fn()
+
 @definterface
 def spawn():				pass
 @definterface
