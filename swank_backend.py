@@ -84,6 +84,13 @@ setq("_gray_stream_symbols_", [_keyword("fundamental-character-output-stream"),
 #### when-let
 #### with-symbol
 
+# XXX: arglists are not enforced here, if body is PASS, and in such a case
+#      they are meaningless..
+
+### Partus extensions
+#     Anything using anything not in the __builtins__ module is good here.
+
+### Original Slime backend definitions
 @definterface
 def create_socket():                    pass
 @definterface

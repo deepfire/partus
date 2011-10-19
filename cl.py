@@ -1,6 +1,7 @@
 ###
 ### Some surfacial Common Lisp compatibility.
 ###
+import os
 import io
 import _io
 import sys
@@ -288,6 +289,10 @@ __iff__ = { True:  lambda x, _: x,
 def iff(val, consequent, antecedent):
         "This restores sanity."
         return __iff__[not not val](consequent, antecedent)()
+
+def loop(body):
+        while True:
+                body()
 
 def eq(x, y):
         return x is y
@@ -1075,11 +1080,12 @@ def pytracer(frame, event, arg):
         return pytracer
 
 def pytracer_enabled_p(): return sys.gettrace() is pytracer
-def enable_pytracer():    sys.settrace(pytracer)
-def disable_pytracer():   sys.settrace(None)
+def enable_pytracer():    sys.settrace(pytracer); return True
+def disable_pytracer():   sys.settrace(None);     return True
 
 def set_condition_handler(fn):
         set_tracer_hook('exception', fn)
+        return True
 
 ## debugging
 # def debugger_hook(cond, frame):
@@ -1400,6 +1406,12 @@ executes the following:
         assert(stringp(restart) or restartp(restart))
         restart = restart if restartp(restart) else find_restart(restart)
         return invoke_restart(*restart.interactive_function())
+
+##
+## Environment
+##
+def user_homedir_pathname():
+        return os.path.expanduser("~")
 
 ###
 ### Init

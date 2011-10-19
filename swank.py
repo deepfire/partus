@@ -273,11 +273,159 @@ def without_slime_interrupts(body):
 ### Event Decoding/Encoding: swank.lisp:1008
 ### Event Processing: swank.lisp:1028
 ### Thread based communication: swank.lisp:1107
+setq("_active_threads_", [])
+
+def read_loop(connection):
+        input_stream, control_thread = connection.socket_io, connection.control_thread
+        with_swank_error_handler(
+                lambda connection:
+                        loop(lambda: send(control_thread, decode_message(input_stream))))
+
+def dispatch_loop(connection):
+        with env.let(_emacs_connection_ = connection):
+                with_panic_handler(
+                        lambda connection:
+                                loop(lambda: dispatch_event(receive())))
+
+setq("_auto_flush_interval_", 0.5)
+
+@block
+def auto_flush_loop(stream):
+        def body():
+                if not (open_stream_p(stream) and output_stream_p(stream)):
+                        return_from(auto_flush_loop, nil)
+                call_with_io_timeout(
+                        lambda: finish_output(stream),
+                        seconds = 0.1)
+                sleep(symbol_value("_auto_flush_interval_"))
+        loop(body)
+
+def find_repl_thread(connection):
+        if not use_threads_p():
+                return current_thread()
+        else:
+                thread = connection_repl_thread
+                if not thread:
+                        pass
+                elif thread_alive_p(thread):
+                        return thread
+                else:
+                        connection.repl_thread = spawn_repl_thread(connection, "new-repl-thread")
+                        return connection.repl_thread
+
+def find_worker_thread(id):
+        if id is t:
+                return first(symbol_value("_active_threads_"))
+        elif id is keyword("repl-thread"):
+                return find_repl_thread(symbol_value("_emacs_connection_"))
+        elif integerp(id):
+                return find_thread(id)
+        else:
+                error(TypeError, "FIND-WORKER-THREAD: id must be one of: T, :REPL-THREAD or a fixnum, was: %s" % id)
+
+def interrupt_worker_thread(id):
+        thread = (find_worker_thread(id) or
+                  find_repl_thread(symbol_value("_emacs_connection_")) or
+                  ## FIXME: to something better here
+                  spawn(lambda:, name = "ephemeral"))
+        log_event("interrupt_worker_thread: %s %s\n", id, thread)
+        assert(thread)
+        if use_threads_p():
+                interrupt_thread(thread,
+                                 lambda:
+                                         ## safely interrupt THREAD
+                                         invoke_or_queue_interrupt(simple_break))
+        else:
+                simple_break()
+
+def thread_for_evaluation(id):
+        c = symbol_value("_emacs_connection_")
+        if id is t:
+                return (spawn_worker_thread(c) if use_threads_p els
+                        current_thread())
+        elif id is keyword("repl-thread"):
+                return find_repl_thread(c)
+        elif integerp(id):
+                return find_thread(id)
+        else:
+                error(TypeError, "THREAD-FOR-EVALUATION: id must be one of: T, :REPL-THREAD or a fixnum, was: %s" % id)
+
+def spawn_worker_thread(connection):
+        spawn(lambda:
+                      with_bindings(
+                        symbol_value("_default_worker_thread_bindings_"),
+                        lambda:
+                                with_top_level_restart(
+                                connection, nil,
+                                lambda:
+                                        eval_for_emacs(*wait_for_event([keyword("emacs_rex"),
+                                                                        # XXX: was: :emacs-rex . _
+                                                                        ])[1:]))),
+              name = "worker")
+
+def spawn_repl_thread(connection, name):
+        spawn(lambda:
+                      with_bindings(symbol_value("_default_worker_thread_bindings_"),
+                                    lambda: repl_loop(connection)),
+              name = name)
+
 def dispatch_event(slime_connection, event, sldb_state):
-        kind = event[0]
-        # debug_printf("===( DISPATCH, sldb_state: %s", sldb_state)
-        if kind is keyword('emacs_rex'):
-                emacs_rex(*([slime_connection, sldb_state] + event[1:]))
+        log_event("dispatch_event: %s\n", event)
+        destructure_case(
+                event,
+                [([keyword("emacs-rex")],
+                  lambda form, package, thread_id, id:
+                          t),
+                 ([keyword("return")],
+                  lambda thread, *args, **keys:
+                          t),
+                 ([keyword("emacs-interrupt")],
+                  lambda thread_id:
+                          interrup_worker_thread()),
+                 ([set([keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        keyword(""),
+                        ])],
+                  lambda *_, **__:
+                          encode_message(event, current_socket_io())),
+                 ([set([keyword("emacs-pong"), keyword("emacs-return"), keyword("emacs-return-string")])],
+                  lambda thread_id, *args, **keys:
+                          send_event(find_thread(thread_id),
+                                     [first(event)] + args)), # XXX: keys?
+                 ([keyword("emacs-channel-send")],
+                  lambda channel_id, msg:
+                          t),
+                 ([keyword("reader-error")],
+                  lambda packet, condition:
+                          t),
+                 ])
 ### Signal driven IO: swank.lisp:1333
 ### SERVE-EVENT based IO: swank.lisp:1354
 ### Simple sequential IO: swank.lisp:1377

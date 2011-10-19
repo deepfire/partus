@@ -71,9 +71,9 @@ def create_server(port          = symbol_value("_default_server_port_"),
         setup_server(port, simple_announce_function,
                      style, dont_close, coding_system)
 
-def find_external_format_or_lose(format):
-        assert(format in ['utf-8'])
-        return format
+def find_external_format_or_lose(fmt):
+        assert(fmt in ['utf-8'])
+        return fmt
 
 def setup_server(port, announce_fn, style, dont_close, coding_system):
         assert(functionp(announce_fn))
@@ -83,7 +83,7 @@ def setup_server(port, announce_fn, style, dont_close, coding_system):
         port = local_port(socket)
         announce_fn(port)
         def serve():
-                accept_connections(socket, style, codint_system, dont_close)
+                accept_connections(socket, style, dont_close, coding_system)
         def loop_serve():
                 while True:
                         ignore_errors(serve)
@@ -140,8 +140,10 @@ def authenticate_client(stream):
                 set_stream_timeout(stream, None)
 
 def slime_secret():
-        with open(os.path.join(user_homedir_pathname(), ".slime-secret"), "r") as f:
-                return f and read_line(f, nil, "")
+        secret_path = os.path.join(user_homedir_pathname(), ".slime-secret")
+        if os.path.exists(secret_path):
+                with open(secret_path, "r") as f:
+                        return f and read_line(f, nil, "")
 
 def serve_requests(connection):
         connection.serve-requests(connection)

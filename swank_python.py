@@ -1,8 +1,11 @@
 import os
 import inspect
 import socket
+import threading
 
-from cl import env, handler_bind, symbol_value, signal, make_condition
+import cl
+
+from cl import env, handler_bind, symbol_value, signal, make_condition, t, nil, format
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword
 
@@ -27,7 +30,8 @@ def close_socket(socket):
         socket.close()
 
 @defimplementation
-def accept_connection(socket, external_format, buffering, timeout):
+def accept_connection(socket, external_format = "utf-8", buffering = "full", timeout = None):
+        # XXX: socket external format and buffering ought to be honored
         socket.listen(0)
         client, _ = socket.accept()
         return client
@@ -179,9 +183,12 @@ def buffer_first_change(slime_connection, sldb_state, filename):
 # def eval_context():			pass
 # def describe_primitive_type():		pass
 # def initialize_multiprocessing():	pass
-
+@defimplementation
 def spawn(fn, name = "<unnamed-thread>"):
-        ???
+        thread = threading.Thread(name = name)
+        thread.run = lambda: cl.enable_pytracer() and fn()
+        thread.start()
+        return thread
 
 # (progn
 #   (defvar *thread-id-counter* 0)
