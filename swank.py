@@ -12,8 +12,11 @@ from more_ast import *
 
 from cl import _servile as servile, _keyword as keyword, _import, _find_symbol0, _find_symbol_or_fail
 
+import swank_backend
+import swank_python  # the thing patches swank_backend, to avoid indirection
 from swank_backend import *
-import swank_python
+
+from swank_rpc import *
 
 ##*
 ##* SLDB state.
@@ -52,11 +55,13 @@ setq("_swank_debug_p_", t)
 ### SLDB customized pprint dispatch table: swank.lisp:95
 ### Hooks: swank.lisp:213
 def add_hook(name, function):
+        if not functionp(function):
+                error(TypeError, "ADD-HOOK: second argument must be a function, was %s.", function)
         symbol_value(name).append(function)
 
 def run_hook(funs, *args, **keys):
         for f in funs:
-                f(*args, **kwargs)
+                f(*args, **keys)
 
 setq("_new_connection_hook_",    [])
 setq("_connection_closed_hook_", [])
@@ -100,26 +105,26 @@ def default_connection():
         return env._connections_[0]
 
 def make_connection(socket, stream, style, coding_system):
-        serve, cleanup = ((spawn_threads_for_connection, cleanup-connection-threads) if style is keyword("spawn") else
+        serve, cleanup = ((spawn_threads_for_connection, cleanup_connection_threads) if style is keyword("spawn") else
                           (install_sigio_handler, deinstall_sigio_handler) if style is keyword("sigio") else
                           (install_fd_handler, deinstall_fd_handler) if style is keyword("fd-handler") else
                           (simple-serve-requests, None))
         conn = connection(socket = socket,
                           socket_io = stream,
                           communication_style = style,
-                          coding_sysmte = coding_system,
+                          coding_system = coding_system,
                           serve_requests = serve,
                           cleanup = cleanup)
-        run_hook("_new_connection_hook_", conn)
-        symbol_value("_connections_").add(conn)
+        run_hook(symbol_value("_new_connection_hook_"), conn)
+        symbol_value("_connections_").append(conn)
         return conn
-
-def ping(tag):
-        return tag
 
 def connection_external_format(connection):
         return ignore_errors(lambda:
                                      stream_external_format(connection.socket_io))
+
+def ping(tag):
+        return tag
 
 def safe_backtrace():
         return ignore_errors(lambda:
@@ -137,10 +142,32 @@ def make_swank_error(condition, backtrace = safe_backtrace()):
         return swank_error(condition = condition, backtrace = backtrace)
 
 setq("_debug_on_swank_protocol_error_", None)
-#### with-swank-error-handler
-#### with-panic-handler
-#### notify-backend-of-connection
-#### add_hook("_new_connection_hook_", notify_backend_of_connection)
+
+def with_swank_error_handler(connection, body):
+        def handler_case_body():
+                return handler_bind(
+                        body,
+                        swank_error = (lambda condition:
+                                               symbol_value("_debug_on_swank_protocol_error_") and
+                                       invoke_default_debugger(condition)))
+        return handler_case(handler_case_body,
+                            swank_error = (lambda condition:
+                                                   close_connection(connection,
+                                                                    condition.condition,
+                                                                    condition.backtrace)))
+
+def with_panic_handler (connection, body):
+        return handler_bind(body,
+                            Exception = (lambda condition:
+                                                 close_connection(connection,
+                                                                  condition,
+                                                                  safe_backtrace())))
+
+def notify_backend_of_connection(connection):
+        return emacs_connected()
+
+add_hook("_new_connection_hook_", notify_backend_of_connection)
+
 ### Utilities: swank.lisp:406
 ### Logging: swank.lisp:409
 setq("_swank_io_package_", lret(make_package("SWANK_IO_PACKAGE"),
@@ -174,14 +201,14 @@ def real_output_stream(x):
                                  x))
 
 setq("_event_history_",        make_list(40))
-setq("_event_histoty_index_",  0)
+setq("_event_history_index_",  0)
 setq("_enable_event_history_", t)
 
 def log_event(format_string, *args):
         def wsios_body():
                 with env.let(_print_readably_ = nil,
                              _print_pretty_   = nil,
-                             _package_        = symbol_value("_swank_package_")):
+                             _package_        = symbol_value("_swank_io_package_")):
                         if symbol_value("_enable_event_history_"):
                                 symbol_value("_event_history_")[symbol_value("_event_history_index_")] = format(nil, format_string, *args)
                                 setq("_event_history_index_",
@@ -241,7 +268,7 @@ def destructure_case(x, *clauses):
 # setq("_slime_interrupts_enabled_", <unbound>) 
 
 def check_slime_interrupts():
-        if env.boundp("_pending_slime_interrupts_") and env._pending_slime_interrupts_:
+        if boundp("_pending_slime_interrupts_") and env._pending_slime_interrupts_:
                 _pending_slime_interrupts_.pop()()
                 return True
 
@@ -255,9 +282,28 @@ def with_slime_interrupts(body):
 def without_slime_interrupts(body):
         with env.let(_slime_interrupts_enabled_ = False):
                 return body()
+
 #### invoke-or-queue-interrupt
-#### macro with-io-redirection
-#### macro with-connection
+
+def with_io_redirection(connection, body):
+        return with_bindings(connection.env, body)
+
+def with_connection(connection, body):
+        if symbol_value("_emacs_connection_") is connection:
+                return body()
+        else:
+                with env.let(_emacs_connection_ = connection,
+                         _pending_slime_interrupts_ = []):
+                        without_slime_interrupts(
+                                lambda: with_swank_error_handler(
+                                        connection,
+                                        lambda: with_io_redirection(
+                                                connection,
+                                                lambda:
+                                                        call_with_debugger_hook(
+                                                        swank_debugger_hook,
+                                                        body))))
+
 #### call-with-retry-restart
 #### macro with-retry-restart
 #### with-struct*
@@ -271,21 +317,92 @@ def without_slime_interrupts(body):
 ### TCP Server: swank.lisp:769
 # implementation in partus.py
 ### Event Decoding/Encoding: swank.lisp:1008
+
+def decode_message(stream):
+        "Read an S-expression from STREAM using the SLIME protocol."
+        log_event("decode_message\n")
+        return without_slime_interrupts(
+                lambda:
+                        handler_bind(
+                        lambda:
+                                handler_case(
+                                lambda: read_message(stream,
+                                                     symbol_value("_swank_io_package_")),
+                                swank_reader_error =
+                                lambda c: [keyword("reader-error"), c.packet, c.cause]),
+                        Exception = lambda c: error(make_swank_error(c))))
+
+def encode_message(message, stream):
+        "Write an S-expression to STREAM using the SLIME protocol."
+        log_event("encode_message\n")
+        return without_slime_interrupts(
+                lambda:
+                        handler_bind(lambda: write_message(message,
+                                                           symbol_value("_swank_io_package_"),
+                                                           stream),
+                                     Exception = lambda c: error(make_swank_error(c))))
+
 ### Event Processing: swank.lisp:1028
+setq("_sldb_quit_restart_", None)
+
+def with_top_level_restart(connection, k, body):
+        def restart_case_body():
+                with env.let(_sldb_quit_restart_ = find_restart("ABORT")):
+                        return body()
+        return with_connection(
+                connection,
+                lambda: restart_case(restart_case_body,
+                                     abort = ((lambda v = None:
+                                                       force_user_output() and k()),
+                                              dict(report = "Return to SLIME's top level."))))
+
+def handle_requests(connection, timeout = None):
+        def tag_body():
+                start
+                with_top_level_restart(connection,
+                                       lambda: go(start),
+                                       lambda: process_requests(timeout))
+        with_connection(
+                connection,
+                lambda: (process_requests(timeout) if symbol_value("_sldb_quit_restart_") else
+                         tag_body()))
+
+@block
+def process_requests(timeout):
+        def body():
+                event, timeoutp = wait_for_event(find_symbol0("or"),
+                                                 [keyword("emacs-rex"), ],        # XXX: (:emacs-rex . _)
+                                                 [keyword("emacs-channel-send")]) # XXX: (:emacs-channel-send . _)
+                if timeoutp:
+                        return_from(process_requests, None)
+                destructure_case(
+                        event,
+                        [([keyword("emacs-rex",
+                                   eval_for_emacs)]),
+                         ([keyword("emacs-channel-send",
+                                   lambda channel, selector, *args:
+                                           channel_send(channel, selector, args))])])
+        return loop(body)
+
+def current_socket_io():
+        return symbol_value("_emacs_connectino_").socket_io
+
+#### close-connection
+
 ### Thread based communication: swank.lisp:1107
 setq("_active_threads_", [])
 
 def read_loop(connection):
         input_stream, control_thread = connection.socket_io, connection.control_thread
-        with_swank_error_handler(
-                lambda connection:
-                        loop(lambda: send(control_thread, decode_message(input_stream))))
+        with_swank_error_handler(connection,
+                                 lambda:
+                                         loop(lambda: send(control_thread, decode_message(input_stream))))
 
 def dispatch_loop(connection):
         with env.let(_emacs_connection_ = connection):
-                with_panic_handler(
-                        lambda connection:
-                                loop(lambda: dispatch_event(receive())))
+                with_panic_handler(connection,
+                                   lambda:
+                                           loop(lambda: dispatch_event(receive())))
 
 setq("_auto_flush_interval_", 0.5)
 
@@ -327,7 +444,7 @@ def interrupt_worker_thread(id):
         thread = (find_worker_thread(id) or
                   find_repl_thread(symbol_value("_emacs_connection_")) or
                   ## FIXME: to something better here
-                  spawn(lambda:, name = "ephemeral"))
+                  spawn(lambda: None, name = "ephemeral"))
         log_event("interrupt_worker_thread: %s %s\n", id, thread)
         assert(thread)
         if use_threads_p():
@@ -341,7 +458,7 @@ def interrupt_worker_thread(id):
 def thread_for_evaluation(id):
         c = symbol_value("_emacs_connection_")
         if id is t:
-                return (spawn_worker_thread(c) if use_threads_p els
+                return (spawn_worker_thread(c) if use_threads_p else
                         current_thread())
         elif id is keyword("repl-thread"):
                 return find_repl_thread(c)
@@ -371,61 +488,167 @@ def spawn_repl_thread(connection, name):
 
 def dispatch_event(slime_connection, event, sldb_state):
         log_event("dispatch_event: %s\n", event)
+        def emacs_rex(form, package, thread_id, id):
+                thread = thread_for_evaluation(thread_id)
+                if thread:
+                        symbol_value("_active_threads_").append(thread)
+                        send_event(thread, [keyword("emacs-rex"), form, package, id])
+                else:
+                        encode_message([keyword("invalid-rpc"), id,
+                                        format(nil, "Thread not found: %s", thread_id)],
+                                       current_socket_io())
+        def return_(thread, *args, **keys):
+                tail = member(thread, symbol_value("_active_threads_"))
+                setq("_active_threads_",
+                     ldiff(symbol_value("_active_threads_"), tail) +
+                     rest(tail))
+                encode_message([keyword("return")] + args, current_socket_io())
         destructure_case(
                 event,
-                [([keyword("emacs-rex")],
-                  lambda form, package, thread_id, id:
-                          t),
-                 ([keyword("return")],
-                  lambda thread, *args, **keys:
-                          t),
-                 ([keyword("emacs-interrupt")],
-                  lambda thread_id:
-                          interrup_worker_thread()),
-                 ([set([keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
-                        keyword(""),
+                [([keyword("emacs-rex")],       emacs_rex),
+                 ([keyword("return")],          return_),
+                 ([keyword("emacs-interrupt")], (lambda thread_id:
+                                                  interrup_worker_thread(thread_id))),
+                 ([set([keyword("write-string"),
+                        keyword("debug"),
+                        keyword("debug-condition"),
+                        keyword("debug-activate"),
+                        keyword("debug-return"),
+                        keyword("channel-send"),
+                        keyword("presentation-start"),
+                        keyword("presentation-end"),
+                        keyword("new-package"),
+                        keyword("new-features"),
+                        keyword("ed"),
+                        keyword("indentation-update"),
+                        keyword("eval"),
+                        keyword("eval-no-wait"),
+                        keyword("background-message"),
+                        keyword("inspect"),
+                        keyword("ping"),
+                        keyword("y-or-n-p"),
+                        keyword("read-from-minibuffer"),
+                        keyword("read-string"),
+                        keyword("read-aborted"),
                         ])],
                   lambda *_, **__:
                           encode_message(event, current_socket_io())),
-                 ([set([keyword("emacs-pong"), keyword("emacs-return"), keyword("emacs-return-string")])],
+                 ([set([keyword("emacs-pong"),
+                        keyword("emacs-return"),
+                        keyword("emacs-return-string")])],
                   lambda thread_id, *args, **keys:
                           send_event(find_thread(thread_id),
-                                     [first(event)] + args)), # XXX: keys?
+                                     [first(event)] + args)), # XXX: keys? linearise?
                  ([keyword("emacs-channel-send")],
                   lambda channel_id, msg:
-                          t),
+                          letf(find_channel(channel_id),
+                               lambda ch:
+                                       send_event(channel_thread(ch),
+                                                  [keyword("emacs-channel-send"), ch, msg]))),
                  ([keyword("reader-error")],
                   lambda packet, condition:
-                          t),
-                 ])
+                          encode_message([keyword("reader-error"), packet,
+                                          safe_condition_message(condition)],
+                                         current_socket_io()))])
+
+setq("_event_queue_",     [])
+setq("_events_enqueued_", 0)
+
+def send_event(thread, event):
+        log_event("send-event: %s %s\n", thread, event)
+        if use_threads_p:
+                send (thread, event)
+        else:
+                symbol_value("_event_queue_").append(event)
+                setq("_events_enqueued_",
+                     (symbol_value("_events_enqueued_") + 1) % most_positive_fixnum)
+
+def send_to_emacs(event):
+        # (log-event "send-to-emacs: ~s ~s~%" event)
+        if use_threads_p():
+                send (symbol_value ("_emacs_connection_").control_thread, event)
+        else:
+                dispatch_event (event)
+
+def wait_for_event (pattern, timeout = None):
+        log_event("wait_for_event: %s %s\n", pattern, timeout)
+        without_slime_interrupts(
+                lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)
+                         if use_threads_p() else
+                         wait_for_event_event_loop(pattern, timeout)))
+
+@block
+def wait_for_event_event_loop(pattern, timeout):
+        assert((not timeout) or timeout is t)
+        def body():
+                check_slime_interrupts()
+                event = poll_for_event(pattern)
+                if event:
+                        return_from(wait_for_event_event_loop, first(event))
+                events_enqueued = symbol_value("_events_enqueued_")
+                ready = wait_for_input([current_socket_io(), timeout])
+                if timeout and not ready:
+                        return_from(wait_for_event_event_loop, (nil, t))
+                elif (events_enqueued != symbol_value("_events_enqueued_") or
+                      ready is keyword("interrupt")):
+                        # rescan event queue, interrupts may enqueue new events
+                        pass
+                else:
+                        assert(ready == [current_socket_io()])
+                        dispatch_event(decode_message(current_socket_io()))
+        loop(body)
+
+def poll_for_event(pattern):
+        tail = member_if(lambda e: event_match_p(e, pattern),
+                         symbol_value("_event_queue_"))
+        if tail:
+                setq("_event_queue_",
+                     ldiff(symbol_value("_event_queue_"), tail) +
+                     rest(tail))
+                return tail
+
+or_, some_ = _find_symbol0("or", "CL"), _find_symbol0("some", "CL")
+def event_match_p(event, pattern):
+        if (keywordp(pattern) or numberp(pattern) or stringp(pattern) or
+            pattern is t or pattern is nil):
+                return event == pattern
+        elif symbolp(pattern):
+                return t
+        elif listp(pattern):
+                f = pattern[0] # XXX: symbols or strings?
+                if f is or_:
+                        return some(lambda p: event_match_p(event, p), rest(pattern))
+                else:
+                        return (listp(event) and
+                                event_match_p(first(event), first(pattern)) and
+                                event_match_p(rest(event), rest(pattern)))
+        else:
+                error("Invalid pattern: %s.", pattern)
+
+def spawn_threads_for_connection(connection):
+        connection.control_thread = spawn(lambda: control_thread(connection),
+                                          name = "control-thread")
+        return connection
+
+def control_thread(connection):
+        connection.control_thread = current_thread()
+        connection.reader_thread  = spawn(lambda: read_loop(connection),
+                                          name = "reader-thread")
+
+def cleanup_connection_threads(connection):
+        threads = [connection.repl_thread,
+                   connection.reader_thread,
+                   connection.control_thread,
+                   connection.auto_flush_thread]
+        for thread in threads:
+                if (thread and
+                    thread_alive_p(thread) and
+                    thread is not current_thread()):
+                        kill_thread(thread)
+
+def repl_loop(connection):
+        handle_requests(connection)
+
 ### Signal driven IO: swank.lisp:1333
 ### SERVE-EVENT based IO: swank.lisp:1354
 ### Simple sequential IO: swank.lisp:1377
@@ -724,7 +947,7 @@ def eval_for_emacs(form, buffer_package, id):
                                 return eval(form)
                         handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
                                      Exception = set_condition)
-                        run_hook(env.boundp("_pre_reply_hook_") and env._pre_reply_hook_)
+                        run_hook(boundp("_pre_reply_hook_") and symbol_value(env._pre_reply_hook_))
                         ok = True
         finally:
                 send_to_emacs(env.slime_connection,
@@ -1273,8 +1496,9 @@ def debug_in_emacs(condition):
         with env.let(_swank_debugger_condition_ = condition,
                      _sldb_restarts_            = compute_restarts(condition),
                      _sldb_quit_restart_        = env._sldb_quit_restart_ and find_restart(env._sldb_quit_restart_),
-                     _package_                  = ((env.boundp("_buffer_package_") and env._buffer_package_) or
-                                                   env._package_),
+                     _package_                  = ((boundp("_buffer_package_") and
+                                                    symbol_value("_buffer_package_")) or
+                                                   symbol_value("_package_")),
                      _sldb_level_               = 1 + env._sldb_level_,
                      _sldb_stepping_p_          = None):
                 force_user_output()

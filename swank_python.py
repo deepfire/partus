@@ -36,38 +36,47 @@ def accept_connection(socket, external_format = "utf-8", buffering = "full", tim
         client, _ = socket.accept()
         return client
 
-# def add_sigio_handler():		pass
-# def remove_sigio_handlers():		pass
-# def add_fd_handler():			pass
-# def remove_fd_handlers():		pass
+# def add_sigio_handler(socket, fn):			pass
+# def remove_sigio_handlers(socket):			pass
+# def add_fd_handler(socket, fn):			pass
+# def remove_fd_handlers(socket):			pass
 
 @defimplementation
 def preferred_communication_style():
         return _keyword("spawn")
 
-# def set_stream_timeout():		pass
-# def emacs_connected():			pass
+# def set_stream_timeout(stream, timeout):		pass
+
+@defimplementation
+def emacs_connected():
+        """Hook called when the first connection from Emacs is established.
+Called from the INIT-FN of the socket server that accepts the
+connection.
+
+This is intended for setting up extra context, e.g. to discover
+that the calling thread is the one that interacts with Emacs."""
+        return None
 
 @defimplementation
 def getpid():
         return os.getpid()
 
-# def install_sigint_handler():		pass
-# def call_with_user_break_handler():	pass
+# def install_sigint_handler(function):			pass
+# def call_with_user_break_handler(handler, function):	pass
 
 @defimplementation
 def quit_lisp(slime_connection, sldb_state):
         exit()
 
-# def lisp_implementation_type_name():	pass
-# def lisp_implementation_program():	pass
-# def socket_fd():			pass
-# def make_fd_stream():			pass
-# def dup():				pass
-# def exec_image():			pass
-# def command_line_args():		pass
-# def filename_to_pathname():		pass
-# def pathname_to_filename():		pass
+# def lisp_implementation_type_name():			pass
+# def lisp_implementation_program():			pass
+# def socket_fd(socket_stream):				pass
+# def make_fd_stream(fd, external_format):		pass
+# def dup(fd):						pass
+# def exec_image(image_file, args):			pass
+# def command_line_args():				pass
+# def filename_to_pathname(filename):			pass
+# def pathname_to_filename(pathname):			pass
 
 @defimplementation
 def default_directory(slime_connection, sldb_state):
@@ -78,25 +87,43 @@ def set_default_directory(slime_connection, sldb_state, directory):
         os.chdir(directory)
         return default_directory(slime_connection, sldb_state)
 
-# def call_with_syntax_hooks():		pass
-# def default_readtable_alist():		pass
-# def call_with_compilation_hooks():	pass
-# def swank_compile_string():		pass
-# def swank_compile_file():		pass
-# def find_external_format():		pass
-# def guess_external_format():		pass
-# def make_output_stream():		pass
-# def make_input_stream():		pass
-# def arglist():				pass
-# def function_name():			pass
-# def valid_function_name_p():		pass
-# def macroexpand_all():			pass
-# def compiler_macroexpand_1():		pass
-# def compiler_macroexpand():		pass
-# def format_string_expand():		pass
-# def describe_symbol_for_emacs():	pass
-# def describe_definition():		pass
-# def install_debugger_globally():	pass
+# def call_with_syntax_hooks(fn):			pass
+# def default_readtable_alist():			pass
+# def call_with_compilation_hooks(func):		pass
+# def swank_compile_string(string,
+#                          buffer = None,
+#                          position = None,
+#                          filename = None,
+#                          policy = None):		pass
+# def swank_compile_file(input_file,
+#                        output_file,
+#                        load_p,
+#                        external_format,
+#                        policy = None):		pass
+
+@defimplementation
+def find_external_format(coding_system):
+        return (coding_system
+                if coding_system in ['utf-8'] else
+                None)
+
+# def guess_external_format(pathname):			pass
+# def make_output_stream(write_string):			pass
+# def make_input_stream(read_string):			pass
+# def arglist(name):					pass
+
+@defimplementation
+def function_name(function):
+        return function.__name__
+
+# def valid_function_name_p(form):			pass
+# def macroexpand_all(form):				pass
+# def compiler_macroexpand_1(form, env = None):		pass
+# def compiler_macroexpand(form, env = None):		pass
+# def format_string_expand(control_string):		pass
+# def describe_symbol_for_emacs(symbol):		pass
+# def describe_definition(name, type):			pass
+# def install_debugger_globally(function):		pass
 
 # setq("_sldb_stack_top_", None)
 
@@ -110,13 +137,13 @@ def call_with_debugging_environment(debugger_loop_fn):
                              debug_condition = lambda condition: signal((make_condition(sldb_condition,
                                                                                         original_condition = condition))))
 
-# def call_with_debugger_hook():		pass
-# def compute_backtrace():		pass
-# def print_frame():			pass
-# def frame_restartable_p():		pass
+# def call_with_debugger_hook(hook, fun):		pass
+# def compute_backtrace(start, end):			pass
+# def print_frame(frame, stream):			pass
+# def frame_restartable_p(frame):			pass
 
 @defimplementation
-def frame_source_location(slime_connection, sldb_state, n):
+def frame_source_location(n):
         fun = _frame_fun(sldb_state.frames[n]) # XXX: was [n + 1]
         name, _, srcfile, line, nlines = _fun_info(fun)[:5]
         if not srcfile:
@@ -127,15 +154,15 @@ def frame_source_location(slime_connection, sldb_state, n):
                         [_keyword('line'), line, line + nlines],
                         find_symbol0('nil')]
 
-# def frame_catch_tags():			pass
-# def frame_locals():			pass
-# def frame_var_value():			pass
-# def disassemble_frame():		pass
-# def eval_in_frame():			pass
-# def frame_call():			pass
-# def return_from_frame():		pass
-# def restart_frame():			pass
-# def format_sldb_condition():		pass
+# def frame_catch_tags(frame_number):			pass
+# def frame_locals(frame_number):			pass
+# def frame_var_value(frame_number, var_id):		pass
+# def disassemble_frame(frame_number):			pass
+# def eval_in_frame(form, frame_number):		pass
+# def frame_call(frame_number):				pass
+# def return_from_frame(frame_number, form):		pass
+# def restart_frame(frame_number):			pass
+# def format_sldb_condition(condition):			pass
 
 # (defimplementation condition-extras (condition)
 #   (cond #+#.(swank-backend::sbcl-with-new-stepper-p)
@@ -149,40 +176,37 @@ def frame_source_location(slime_connection, sldb_state, n):
 def condition_extras(condition):
         return []
 
-# def gdb_initial_commands():		pass
-# def activate_stepping():		pass
-# def sldb_break_on_return():		pass
-# def sldb_break_at_start():		pass
-# def sldb_stepper_condition_p():		pass
-# def sldb_step_into():			pass
-# def sldb_step_next():			pass
-# def sldb_step_out():			pass
-# def find_definitions():			pass
-# def find_source_location():		pass
+# def gdb_initial_commands():				pass
+# def activate_stepping(frame_number):			pass
+# def sldb_break_on_return(frame_number):		pass
+# def sldb_break_at_start(symbol):			pass
+# def sldb_stepper_condition_p(condition):		pass
+# def sldb_step_into():					pass
+# def sldb_step_next():					pass
+# def sldb_step_out():					pass
+# def find_definitions(object):				pass
+# def find_source_location(object):			pass
+# def buffer_first_change(filename):			pass
+# def who_calls(function_name):				pass
+# def calls_who(function_name):				pass
+# def who_references(variable_name):			pass
+# def who_binds(variable_name):				pass
+# def who_sets(variable_name):				pass
+# def who_macroexpands(macro_name):			pass
+# def who_specializes(class_name):			pass
+# def list_callers(function_name):			pass
+# def list_callees(function_name):			pass
+# def profile(fname):					pass
+# def profiled_functions():				pass
+# def unprofile(fname):					pass
+# def unprofile_all():					pass
+# def profile_report():					pass
+# def profile_reset():					pass
+# def profile_package(package, callers_p, methods):	pass
+# def eval_context(object):				pass
+# def describe_primitive_type(object):			pass
+# def initialize_multiprocessing(continuation):		pass
 
-@defimplementation
-def buffer_first_change(slime_connection, sldb_state, filename):
-        return
-
-# def who_calls():			pass
-# def calls_who():			pass
-# def who_references():			pass
-# def who_binds():			pass
-# def who_sets():				pass
-# def who_macroexpands():			pass
-# def who_specializes():			pass
-# def list_callers():			pass
-# def list_callees():			pass
-# def profile():				pass
-# def profiled_functions():		pass
-# def unprofile():			pass
-# def unprofile_all():			pass
-# def profile_report():			pass
-# def profile_reset():			pass
-# def profile_package():			pass
-# def eval_context():			pass
-# def describe_primitive_type():		pass
-# def initialize_multiprocessing():	pass
 @defimplementation
 def spawn(fn, name = "<unnamed-thread>"):
         thread = threading.Thread(name = name)
@@ -327,29 +351,57 @@ def spawn(fn, name = "<unnamed-thread>"):
 #          (when (eq timeout t) (return (values nil t)))
 #          (condition-timed-wait waitq mutex 0.2)))))
 #   )
-# def thread_id():			pass
-# def find_thread():			pass
-# def thread_name():			pass
-# def thread_status():			pass
-# def thread_attributes():		pass
-# def make_lock():			pass
-# def call_with_lock_held():		pass
-# def current_thread():			pass
-# def all_threads():			pass
-# def thread_alive_p():			pass
-# def interrupt_thread():			pass
-# def kill_thread():			pass
-# def send():				pass
-# def receive():				pass
-# def receive_if():			pass
-# def set_default_initial_binding():	pass
-# def wait_for_input():			pass
-# def toggle_trace():			pass
-# def make_weak_key_hash_table():		pass
-# def make_weak_value_hash_table():	pass
-# def hash_table_weakness():		pass
-# def character_completion_set():		pass
-# def save_image():			pass
-# def background_save_image():		pass
-# def codepoint_length():			pass
-# def call_with_io_timeout():		pass
+# def thread_id(thread):				pass
+# def find_thread(id):					pass
+
+@defimplementation
+def thread_name(thread):
+        return thread.name
+
+# def thread_status(thread):				pass
+# def thread_attributes(thread):			pass
+
+@defimplementation
+def make_lock(name = None):
+        return threading.Lock()
+
+@defimplementation
+def call_with_lock_held(lock, function):
+        try:
+                lock.acquire()
+                return function()
+        finally:
+                lock.release()
+
+@defimplementation
+def current_thread():
+        return threading.current_thread()
+
+@defimplementation
+def all_threads():
+        return threading.enumerate()
+
+@defimplementation
+def thread_alive_p(x):
+        return x.is_alive()
+
+# def interrupt_thread(thread, fn):			pass
+# def kill_thread(thread):				pass
+# def send(thread, object):				pass
+# def receive(timeout = None):				pass
+# def receive_if(predicate, timeout = None):		pass
+# def set_default_initial_binding(var, form):		pass
+# def wait_for_input(streams, timeout = None):		pass
+# def toggle_trace(spec):				pass
+# def make_weak_key_hash_table(*args, **keys):		pass
+# def make_weak_value_hash_table(*args, **keys):	pass
+# def hash_table_weakness(hashtable):			pass
+# def character_completion_set(prefix, matchp):		pass
+# def save_image(filename,
+#                restart_function = constantly(t)):	pass
+# def background_save_image(filename,
+#                           restart_function = constantly(t),
+#                           completion_function = constantly(t)):
+#         pass
+# def codepoint_length(string):				pass
+# def call_with_io_timeout(function, seconds = None):	pass

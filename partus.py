@@ -6,7 +6,7 @@ import socket
 import re
 
 from cl import *
-from cl import _keyword
+from cl import _keyword as keyword
 
 from pergamum import *
 from more_ast import *
@@ -49,7 +49,7 @@ setq('_dedicated_output_stream_port_',      0)
 setq('_communication_style_',               preferred_communication_style())
 setq('_dont_close_',                        None)
 setq('_dedicated_output_stream_buffering_', ("full"
-                                             if symbol_value("_communication_style_") is _keyword("spawn") else
+                                             if symbol_value("_communication_style_") is keyword("spawn") else
                                              "none"))
 setq('_coding_system_',                     "utf-8")
 setq('_listener_sockets_',                  dict())
@@ -72,8 +72,7 @@ def create_server(port          = symbol_value("_default_server_port_"),
                      style, dont_close, coding_system)
 
 def find_external_format_or_lose(fmt):
-        assert(fmt in ['utf-8'])
-        return fmt
+        return find_external_format(fmt) or error()
 
 def setup_server(port, announce_fn, style, dont_close, coding_system):
         assert(functionp(announce_fn))
@@ -87,12 +86,12 @@ def setup_server(port, announce_fn, style, dont_close, coding_system):
         def loop_serve():
                 while True:
                         ignore_errors(serve)
-        if style is _keyword('spawn'):
+        if style is keyword('spawn'):
                 initialize_multiprocessing(
                         lambda:
                                 spawn(lambda: (loop_serve() if dont_close else
                                                serve())))
-        elif style is _keyword("fd-handler"):
+        elif style is keyword("fd-handler"):
                 add_fd_handler(socket, lambda: serve())
         else:
                 while symbol_value("_dont_close_"):
@@ -102,14 +101,14 @@ def setup_server(port, announce_fn, style, dont_close, coding_system):
 
 def stop_server(port):
         style, socket = symbol_value("_listener_sockets_")[port]
-        if style is _keyword("spawn"):
+        if style is keyword("spawn"):
                 thread_position = position_if(lambda x: x[1] == "Swank %s" % port, list_threads())
                 if thread_position:
                         kill_nth_thread(thread_position - 1)
                         close_socket(socket)
                         # XXX: REMHASH
                         del symbol_value("_listener_sockets_")[port]
-        elif style is _keyword("fd-handler"):
+        elif style is keyword("fd-handler"):
                 remove_fd_handlers(socket)
                 close_socket(socket)
                 # XXX: REMHASH
@@ -146,7 +145,7 @@ def slime_secret():
                         return f and read_line(f, nil, "")
 
 def serve_requests(connection):
-        connection.serve-requests(connection)
+        connection.serve_requests(connection)
 
 def announce_server_port(file, port):
         with open(file, "w") as s:
@@ -169,8 +168,8 @@ DEDICATED-OUTPUT INPUT OUTPUT IO REPL-RESULTS"""
         in_ = make_input_stream(input_fn)
         out = dedicated_output or make_output_stream(make_output_function(connection))
         io = make_two_way_stream(in_, out)
-        repl_results = make_output_stream_for_target(connection, _keyword("repl-result"))
-        if connection.communication_style is _keyword("spawn"):
+        repl_results = make_output_stream_for_target(connection, keyword("repl-result"))
+        if connection.communication_style is keyword("spawn"):
                 connection.set_auto_flush_thread(spawn(lambda: auto_flush_loop(out),
                                                        name = "auto-flush-thread"))
         return dedicated_output, in_, out, io, repl_results
@@ -189,11 +188,11 @@ def send_user_output(string, pcount, tag, plength):
         if (pcount  > symbol_value("_maximum_pipelined_output_chunks_") or
             plength > symbol_value("_maximum_pipelined_output_length_")):
                 tag = (tag + 1) % 1000
-                send_to_emacs([_keyword("ping"), current_thread_id(), tag])
+                send_to_emacs([keyword("ping"), current_thread_id(), tag])
                 with_simple_restart("ABORT", "Abort sending output to Emacs.")
-                wait_for_event([_keyword("emacs-pong", tag)])
+                wait_for_event([keyword("emacs-pong", tag)])
                 pcount, plength = 0
-        send_to_emacs([_keyword("write-string"), string])
+        send_to_emacs([keyword("write-string"), string])
         return pcount + 1, tag, plength + len(string)
 
 def make_output_function_for_target(connection, target):
@@ -201,7 +200,7 @@ def make_output_function_for_target(connection, target):
         return (lambda string:
                         with_connection(connection,
                                         lambda: with_simple_restart("ABORT", "Abort sending output to Emacs.",
-                                                                    lambda: send_to_emacs([_keyword("write-string", string, target)]))))
+                                                                    lambda: send_to_emacs([keyword("write-string", string, target)]))))
 
 def make_output_stream_for_target(connection, target):
         return make_output_stream(make_output_function_for_target(connection, target))
@@ -215,9 +214,9 @@ This is an optimized way for Lisp to deliver output to Emacs."""
                                symbol_value('_dedicated_output_stream_port_'))
         try:
                 port = local_port(socket)
-                encode_message([_keyword("open-dedicated-output-stream"), port], socket_io)
+                encode_message([keyword("open-dedicated-output-stream"), port], socket_io)
                 dedicated = accept_connection(socket,
-                                              external_format = ignore_errors(stream_external_format(socket_io)) or "default", # was: _keyword("default")
+                                              external_format = ignore_errors(stream_external_format(socket_io)) or "default", # was: keyword("default")
                                               buffering = symbol_value('_dedicated_output_stream_buffering_'),
                                               timeout = 30)
                 close_socket(socket)

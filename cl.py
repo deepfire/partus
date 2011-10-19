@@ -376,6 +376,8 @@ __function_types__ = frozenset([types.BuiltinFunctionType,
 def functionp(o):     return type(o) in __function_types__
 def integerp(o):      return type(o) is int
 def floatp(o):        return type(o) is float
+def complexp(o):      return type(o) is complex
+def numberp(o):       return type(o) in frozenset([float, int, complex])
 def listp(o):         return type(o) is list
 def boolp(o):         return type(o) is bool
 def sequencep(x):     return getattr(type(x), '__len__', None) is not None
@@ -624,6 +626,15 @@ def symbol_value(name):
                         return scope[name]
         error(AttributeError, "Unbound variable: %s." % name)
 
+def boundp(name):
+        for scope in reversed(__dynamic_binding_clusters__):
+                if name in scope:
+                        return t
+
+def setq(name, value):
+        __dynamic_binding_clusters__[-1][name] = value
+        return value
+
 class dynamic_scope(object):
         "Courtesy of Jason Orendorff."
         def __getattr__(self, name):
@@ -636,10 +647,6 @@ class dynamic_scope(object):
                                 return True
         def __setattr__(self, name, value):
                 error(AttributeError, "Use SETQ to set special globals.")
-
-def setq(name, value):
-        __dynamic_binding_clusters__[-1][name] = value
-        return value
 
 
 __cl_top_level_dynamic_scope__ = dict()
@@ -798,7 +805,7 @@ def find_symbol(x, package = None):
         # write_string("FIND_SYMBOL %s (co-to-pa %s -> %s) -> %s\n" % (x, package, p, s))
         if not s:
                 cl = find_package("CL")
-                format(t, "find_symbol('%s', %s) -> %s\n", x, cl, find_symbol(x, cl))
+                format(t, "find_symbol('%s', %s) -> None\n", x, cl)
         if s:
                 return s, symbol_relation(s, p)
         else:
@@ -907,9 +914,9 @@ def _init_package_system():
         nil                = _intern0("nil", cl)
         t.value, nil.value = t, nil     # Self-evaluation.
         nil.__bool__       = lambda _: False
-        quote              = _intern0("quote", cl)
-
-        export([t, nil, quote], cl)
+        export([t, nil] + mapcar(lambda n: _intern0(n, cl),
+                                 ["quote", "or", "some"]),
+               cl)
 
         setq("_package_", package("CL_USER", use = ["CL"]))
 
@@ -950,6 +957,10 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, " {%x}", id(object))
         write_string(">", stream)
 
+def with_standard_io_syntax(body):
+        # XXX: is this true?
+        return body()
+
 ##
 ## Streams
 ##
@@ -962,7 +973,9 @@ def _coerce_to_stream(x):
                 error("%s cannot be coerced to a stream.", x))
 
 def write_string(string, stream = symbol_value("_standard_output_")):
-        return _write_string(string, _coerce_to_stream(stream))
+        if stream is not nil:
+                _write_string(string, _coerce_to_stream(stream))
+        return string
 
 def write_line(string, stream = symbol_value("_standard_output_")):
         return write_string(string + "\n", stream)
@@ -1130,7 +1143,7 @@ def error(datum, *args, **keys):
         "With all said and done, this ought to jump right into __CL_CONDITION_HANDLER__."
         raise make_condition(datum, *args, **keys)
 
-def warn(datum, *args):
+def warn(datum, *args, **keys):
         condition = make_condition(datum, *args, default_type = simple_warning, **keys)
         signal(condition)
         format(symbol_value("_error_output_"), "%s", condition)
