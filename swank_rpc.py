@@ -1,3 +1,7 @@
+import select
+import socket
+import sys
+
 from cl import *
 
 class swank_reader_error(Exception):
@@ -12,18 +16,25 @@ def read_message(stream, package):
                                      error(make_condition(swank_reader_error,
                                                           packet, cause))))
 
-# use peek-char to detect EOF, read-sequence may return 0 instead of
-# signaling a condition.
-def read_packet(stream):
-        peek_char(None, stream)
-        header = read_chunk(stream, 6)
+def read_packet(sock):
+        "And this is the harsh reality."
+        # peek_char(None, stream)
+        select.select([sock.fileno()], [], [])
+        header = read_chunk(sock, 6)
         length = parse_integer(header, radix = 0x10)
         return read_chunk(stream, length)
 
-def read_chunk(stream, length):
-        buffer = make_list(length, initial_element = None)
-        count = read_sequence(buffer, stream)
-        if count != length:
+## Original version from swank-rpc.lisp:
+# def read_chunk(stream, length):
+#         buffer = make_list(length, initial_element = None)
+#         count = read_sequence(buffer, stream)
+#         if count != length:
+#                 error("Short read: length=%d, count=%d", length, count)
+#         return buffer
+def read_chunk(sock, length):
+        assert(typep(sock, socket.socket))
+        buffer = sock.recv(length).encode()
+        if len(buffer) != length:
                 error("Short read: length=%d, count=%d", length, count)
         return buffer
 

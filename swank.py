@@ -564,7 +564,7 @@ def send_event(thread, event):
                      (symbol_value("_events_enqueued_") + 1) % most_positive_fixnum)
 
 def send_to_emacs(event):
-        # (log-event "send-to-emacs: ~s ~s~%" event)
+        # log_event("send-to-emacs: %s %s\n", event)
         if use_threads_p():
                 send (symbol_value ("_emacs_connection_").control_thread, event)
         else:
