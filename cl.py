@@ -221,6 +221,18 @@ def _not_implemented(x):
 def _letf(value, body):
         return body(value)
 
+def _if_let(condition, consequent, antecedent = lambda: None):
+        x = condition() if functionp(condition) else condition
+        return consequent(x) if x else antecedent()
+
+def _when_let(condition, consequent):
+        x = condition() if functionp(condition) else condition
+        return consequent(x) if x else None
+
+def _lret(value, body):
+        body(value)
+        return value
+
 _curry = functools.partial
 
 def _compose(f, g):
