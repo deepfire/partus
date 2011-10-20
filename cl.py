@@ -1136,7 +1136,7 @@ def signal(condition):
         for cluster in reversed(env.__handler_clusters__):
                 # format(t, "Analysing cluster %s for '%s'.", cluster, name)
                 if name in cluster:
-                        cluster[name](cond)
+                        cluster[name](condition)
         return nil
 
 def error(datum, *args, **keys):

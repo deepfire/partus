@@ -46,6 +46,12 @@ def validating_read(string):
                         return simple_read()
         return with_input_from_string(string, body)
 
+def peek_char(peek_type, stream = nil, eof_error_p = True, eof_value = None, recursive_p = None):
+        return "a"
+
+def read_sequence(sequence, stream, start = 0, end = None):
+        return 0
+
 def simple_read(istream):
         "Read a form that conforms to the protocol, otherwise signal an error."
         c = read_char(istream)
@@ -59,31 +65,38 @@ def simple_read(istream):
                                 c = read_char(istream)
                 return with_output_to_string(body)
         elif c == "(":
-#        (#\( (loop collect (simple-read)
-#                   while (ecase (read-char)
-#                           (#\) nil)
-#                           (#\space t))))
+                ## Don't we just loove Python for the lack of concise loops?
+                # (#\( (loop collect (simple-read)
+                #            while (ecase (read-char)
+                #                    (#\) nil)
+                #                    (#\space t))))
                 acc = []
-                x = simple_read (istream)
+                x = simple_read (istream); acc.append(x)
                 c = read_char(istream)
-                while c != ")":
-                        if c != " ":
+                goon = c == " "
+                while goon:
+                        if c != ")":
                                 error("SIMPLE-READ: only spaces are allowed as token separators.")
-                                
-                ???
+                        x = simple_read (istream); acc.append(x)
+                        c = read_char(istream)
+                        goon = c == " "
                 return acc
         elif c == "'":
-                return [quote, simple_read()]
+                return [quote, simple_read(istream)]
         else:
                 def body(str):
-                        ???
-#        (t (let ((string (with-output-to-string (*standard-output*)
-#                           (loop for ch = c then (read-char nil nil) do
-#                                 (case ch
-#                                   ((nil) (return))
-#                                   (#\\ (write-char (read-char)))
-#                                   ((#\space #\)) (unread-char ch)(return))
-#                                   (t (write-char ch)))))))
+                        ch = c
+                        goon = True
+                        while goon:
+                                if ch == "\\":
+                                        write_char(read_char(istream), str)
+                                elif ch == " " or ch == ")":
+                                        unread_char(ch, istream)
+                                        return
+                                else:
+                                        write_char(ch, str)
+                                ch = read_char(istream, None, nil)
+                                goon = ch is not nil
                 string = with_output_to_string(body)
                 return (parse_integer(string) if digit_char_p(c) else
                         intern(string))
