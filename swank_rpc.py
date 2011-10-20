@@ -7,6 +7,8 @@ from cl import *
 class swank_reader_error(Exception):
         def __init__(self, packet, cause):
                 self.packet, self.cause = packet, cause
+        def __str__(self):
+                return str(self.cause)
 
 def read_message(stream, package):
         packet = read_packet(stream)
@@ -14,26 +16,22 @@ def read_message(stream, package):
                 lambda: read_form(packet, package),
                 Exception = (lambda c: # XXX: originally, caught only READER-ERROR
                                      error(make_condition(swank_reader_error,
-                                                          packet, cause))))
+                                                          packet, c))))
 
-def read_packet(sock):
+def read_packet(socket):
         "And this is the harsh reality."
+        ## Original version from swank-rpc.lisp:
         # peek_char(None, stream)
-        select.select([sock.fileno()], [], [])
-        header = read_chunk(sock, 6)
+        select.select([socket.sock.fileno()], [], [])
+        header = read_chunk(socket, 6)
         length = parse_integer(header, radix = 0x10)
-        return read_chunk(stream, length)
+        return read_chunk(socket, length)
 
-## Original version from swank-rpc.lisp:
-# def read_chunk(stream, length):
-#         buffer = make_list(length, initial_element = None)
-#         count = read_sequence(buffer, stream)
-#         if count != length:
-#                 error("Short read: length=%d, count=%d", length, count)
-#         return buffer
-def read_chunk(sock, length):
-        assert(typep(sock, socket.socket))
-        buffer = sock.recv(length).encode()
+def read_chunk(stream, length):
+        ## Original version from swank-rpc.lisp:
+        # buffer = make_list(length, initial_element = None)
+        # count = read_sequence(buffer, stream)
+        buffer = stream.read(length)
         if len(buffer) != length:
                 error("Short read: length=%d, count=%d", length, count)
         return buffer

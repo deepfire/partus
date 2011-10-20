@@ -19,22 +19,26 @@ def create_socket(address, port):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((address, port))
-        return sock
+        socket_ = sock.makefile()
+        socket_.sock = sock
+        return socket_
 
 @defimplementation
-def local_port(sock):
-        return sock.getsockname()[1]
+def local_port(socket):
+        return socket.sock.getsockname()[1]
 
 @defimplementation
 def close_socket(socket):
-        socket.close()
+        socket.sock.close()
 
 @defimplementation
 def accept_connection(socket, external_format = "utf-8", buffering = "full", timeout = None):
-        # XXX: socket external format and buffering ought to be honored
-        socket.listen(0)
-        client, _ = socket.accept()
-        return client
+        # XXX: socket buffering ought to be honored
+        socket.sock.listen(0)
+        client_sock, _ = socket.sock.accept()
+        client_socket = client_sock.makefile(encoding = external_format)
+        client_socket.sock = client_sock
+        return client_socket
 
 # def add_sigio_handler(socket, fn):			pass
 # def remove_sigio_handlers(socket):			pass
