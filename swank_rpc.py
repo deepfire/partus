@@ -46,12 +46,6 @@ def validating_read(string):
                         return simple_read()
         return with_input_from_string(string, body)
 
-def peek_char(peek_type, stream = nil, eof_error_p = True, eof_value = None, recursive_p = None):
-        return "a"
-
-def read_sequence(sequence, stream, start = 0, end = None):
-        return 0
-
 def simple_read(istream):
         "Read a form that conforms to the protocol, otherwise signal an error."
         c = read_char(istream)

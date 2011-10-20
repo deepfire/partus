@@ -589,15 +589,6 @@ def string_trim(cs, s):
         "http://www.lispworks.com/documentation/lw50/CLHS/Body/f_stg_tr.htm"
         return string_left_trim(cs, string_right_trim(cs, s))
 
-def parse_integer(xs, junk_allowed = None):
-        if junk_allowed:
-                try:
-                        return int(xs)
-                except:
-                        return None
-        else:
-                return int(xs)
-
 def with_output_to_string(f):
         x = make_string_output_stream()
         try:
@@ -1016,6 +1007,10 @@ def maphash(f, dict):
 def _remap_hash_table(f, xs):
         return { k: f(k, v) for k, v in xs.items() }
 
+###
+### Complex part.
+###
+_init_package_system()
 
 ##
 ## Non-local control transfers
@@ -1078,6 +1073,130 @@ def return_from(nonce, value):
                  (getattr(nonce, "ball", None) or
                   error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
         throw(nonce, value)
+
+##
+## Reader
+##
+def parse_integer(xs, junk_allowed = None, radix = 10):
+        "Does not /quite/ conform."
+        l = len(xs)
+        def hexcharp(x): return x.isdigit() or x in ['a', 'b', 'c', 'd', 'e', 'f']
+        (test, xform) = ((str.isdigit, identity)      if radix == 10 else
+                         (hexcharp,    float.fromhex) if radix == 16 else
+                         _not_implemented("PARSE-INTEGER only implemented for radices 10 and 16."))
+        for end in range(0, l):
+                format(t, "parse-integer: xs[%s] == %s\n", end, xs[end])
+                if not test(xs[end]):
+                        if junk_allowed:
+                                end -= 1
+                                break
+                        else:
+                                error("Junk in string '%s'.", xs)
+        return int(xform(xs[start:(end + 1)]))
+
+@block
+def read_from_string(string, eof_error_p = True, eof_value = nil,
+                     start = 0, end = None, preserve_whitespace = None):
+        "Does not conform."
+        # string = re.sub(r"swank\:lookup-presented-object ", r"lookup_presented_object ", string)
+        pos, end = start, end or len(str)
+        def handle_short_read_if(test):
+                if test:
+                        (error("EOF during read") if eof_error_p else
+                         return_from(read_from_string, eof_value))
+        def read():
+                skip_whitespace()
+                char = string[pos]
+                # debug_printf("read(#\\%s :: '%s')", char, string[pos + 1:])
+                if   char == "(":  obj = read_list()
+                elif char == "\"": obj = read_string()
+                elif char == "'":  obj = read_quote()
+                else:
+                        handle_short_read_if(pos > end)
+                        obj = read_number_or_symbol()
+                        if obj == _find_symbol0("."):
+                                error("Consing dot not implemented")
+                # debug_printf("read(): returning %s", obj)
+                return obj
+        def skip_whitespace():
+                nonlocal pos
+                while string[pos] in frozenset([" ", "\t", "\n"]):
+                        pos += 1
+        def read_list():
+                nonlocal pos
+                ret = []
+                pos += 1
+                while True:
+                        skip_whitespace()
+                        char = string[pos]
+                        if char == ")":
+                                pos += 1
+                                break
+                        else:
+                                obj = read()
+                                if not listp(obj) and obj is _find_symbol0("."):
+                                        error("Consing dot not implemented")
+                                ret += [obj]
+                # debug_printf("read_list(): returning %s", ret)
+                return ret
+        def read_string():
+                nonlocal pos
+                ret = ""
+                def add_char(c):
+                        nonlocal ret
+                        ret += c
+                while True:
+                        pos += 1
+                        char = string[pos]
+                        if char == "\"":
+                                pos += 1
+                                break
+                        elif char == "\\":
+                                pos += 1
+                                char2 = string[pos]
+                                if   char2 == "\"": add_char(char2)
+                                elif char2 == "\\": add_char(char2)
+                                else:
+                                        error("READ-FROM-STRING: unrecognized escape character '%s'.", char2)
+                        else:
+                                add_char(char)
+                # debug_printf("read_string(): returning %s", ret)
+                return ret
+        def read_number_or_symbol():
+                token = read_token()
+                handle_short_read_if(not token)
+                if re.match("^[0-9]+$", token):
+                        ret = int(token)
+                elif re.match("^[0-9]+\\.[0-9]+$", token):
+                        ret = float(token)
+                else:
+                        name = read_symbol(pythonise_lisp_name(token))
+                        # debug_printf("-- interned %s as %s", token, name)
+                        if name is t:
+                                ret = True
+                        elif name is nil:
+                                ret = False
+                        else:
+                                ret = name
+                # debug_printf("read_number_or_symbol(): returning %s", ret)
+                return ret
+        def read_token():
+                nonlocal pos
+                token = ""
+                while True:
+                        char = string[pos]
+                        if char == "":
+                                break
+                        elif char in set([" ", "\t", "\n", "(", ")", "\"", "'"]):
+                                break
+                        else:
+                                token += char
+                                pos += 1
+                # debug_printf("read_token(): returning %s", token)
+                return token
+        ret = handler_case(read,
+                           IndexError = lambda c: handle_short_read_if(True))
+        return ret
 
 ##
 ## Pythonese execution tracing: for HANDLER-BIND.
@@ -1427,6 +1546,10 @@ def user_homedir_pathname():
         return os.path.expanduser("~")
 
 ###
-### Init
+### Missing stuff
 ###
-_init_package_system()
+# def peek_char(peek_type, stream = nil, eof_error_p = True, eof_value = None, recursive_p = None):
+#         return "a"
+#
+# def read_sequence(sequence, stream, start = 0, end = None):
+#         return 0
