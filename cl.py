@@ -1206,9 +1206,59 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                                 pos += 1
                 # debug_printf("read_token(): returning %s", token)
                 return token
-        ret = handler_case(read,
-                           IndexError = lambda c: handle_short_read_if(True))
-        return ret
+        return read()
+        ## XXX: Issue PROBABLE-LIMIT-EXCEEDED -- mystery -- this:
+        # ret = handler_case(read,
+        #                    IndexError = lambda c: handle_short_read_if(True))
+        # return ret
+        ## breaks unrelated code --
+        ##      the 're.match("^[0-9]+$", token)' line in read_number_or_symbol():
+        # Exception in thread reader-thread:
+        # Traceback (most recent call last):
+        #   File "/usr/lib/python3.2/functools.py", line 176, in wrapper
+        #     result = cache[key]
+        # KeyError: (<class 'str'>, '^[0-9]+$', 0)
+        #
+        # During handling of the above exception, another exception occurred:
+        # ...
+        # ...lengthy stack trace omitted
+        # ...
+        # File "cl.py", line 1203, in read_from_string
+        #   IndexError = lambda c: handle_short_read_if(True))
+        # File "cl.py", line 1329, in handler_case
+        #   lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+        # File "cl.py", line 1037, in catch
+        #   return body()
+        # File "cl.py", line 1329, in <lambda>
+        #   lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+        # File "cl.py", line 1307, in handler_bind
+        #   return no_error(fn())
+        # File "cl.py", line 1112, in read
+        #   if   char == "(":  obj = read_list()
+        # File "cl.py", line 1137, in read_list
+        #   obj = read()
+        # File "cl.py", line 1117, in read
+        #   obj = read_number_or_symbol()
+        # File "cl.py", line 1171, in read_number_or_symbol
+        #   token, re.match("^[0-9]+$", token))
+        # File "/usr/lib/python3.2/re.py", line 153, in match
+        #   return _compile(pattern, flags).match(string)
+        # File "/usr/lib/python3.2/re.py", line 255, in _compile
+        #   return _compile_typed(type(pattern), pattern, flags)
+        # File "/usr/lib/python3.2/functools.py", line 180, in wrapper
+        #   result = user_function(*args, **kwds)
+        # File "/usr/lib/python3.2/re.py", line 267, in _compile_typed
+        #   return sre_compile.compile(pattern, flags)
+        # File "/usr/lib/python3.2/sre_compile.py", line 495, in compile
+        #   code = _code(p, flags)
+        # File "/usr/lib/python3.2/sre_compile.py", line 480, in _code
+        #   _compile(code, p.data, flags)
+        # File "/usr/lib/python3.2/sre_compile.py", line 82, in _compile
+        #   _compile(code, av[2], flags)
+        # File "/usr/lib/python3.2/sre_compile.py", line 40, in _compile
+        #   for op, av in pattern:
+        # File "/usr/lib/python3.2/sre_parse.py", line 134, in __getitem__
+        #   return self.data[index]
 
 ##
 ## Pythonese execution tracing: for HANDLER-BIND.
