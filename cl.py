@@ -1,6 +1,7 @@
 ###
 ### Some surfacial Common Lisp compatibility.
 ###
+import re
 import os
 import io
 import _io
@@ -771,9 +772,9 @@ def print_symbol(s):
                            ":" if not s.package or (s in s.package.external) else
                            "::",
                            s.name)
-def _print_symbol2(x, package = None): return letf(coerce_to_package(package),
-                                                   lambda p: (x.name if x.package and p.accessible[x.name] is x else
-                                                              str(x)))
+def _print_symbol2(x, package = None): return _letf(coerce_to_package(package),
+                                                    lambda p: (x.name if x.package and p.accessible[x.name] is x else
+                                                               str(x)))
 def print_keyword(s):
         return ":%s" % s.name
 
@@ -876,15 +877,15 @@ def read_symbol(x, package = None):
         # debug_printf("read_symbol >%s<, x[0]: >%s<", x, x[0])
         name, p = ((x[1:], __keyword_package__)
                    if x[0] == ":" else
-                   letf(x.find(":"),
-                        lambda index:
-                                (if_let(find_package(x[0:index].upper()),
-                                        lambda p:
-                                                (x[index + 1:], p),
-                                        lambda:
-                                                error("Package \"%s\" doesn't exist, while reading symbol \"%s\".", x[0:index], x))
-                                 if index != -1 else
-                                 (x, coerce_to_package(package)))))
+                   _letf(x.find(":"),
+                         lambda index:
+                                 (_if_let(find_package(x[0:index].upper()),
+                                          lambda p:
+                                                  (x[index + 1:], p),
+                                          lambda:
+                                                  error("Package \"%s\" doesn't exist, while reading symbol \"%s\".", x[0:index], x))
+                                  if index != -1 else
+                                  (x, coerce_to_package(package)))))
         return _intern0(name, p)
 
 def string(x):
@@ -1097,21 +1098,20 @@ def parse_integer(xs, junk_allowed = None, radix = 10):
                          (hexcharp,    float.fromhex) if radix == 16 else
                          _not_implemented("PARSE-INTEGER only implemented for radices 10 and 16."))
         for end in range(0, l):
-                format(t, "parse-integer: xs[%s] == %s\n", end, xs[end])
                 if not test(xs[end]):
                         if junk_allowed:
                                 end -= 1
                                 break
                         else:
                                 error("Junk in string '%s'.", xs)
-        return int(xform(xs[start:(end + 1)]))
+        return int(xform(xs[:(end + 1)]))
 
 @block
 def read_from_string(string, eof_error_p = True, eof_value = nil,
                      start = 0, end = None, preserve_whitespace = None):
         "Does not conform."
         # string = re.sub(r"swank\:lookup-presented-object ", r"lookup_presented_object ", string)
-        pos, end = start, end or len(str)
+        pos, end = start, (end or len(string))
         def handle_short_read_if(test):
                 if test:
                         (error("EOF during read") if eof_error_p else
@@ -1182,7 +1182,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 elif re.match("^[0-9]+\\.[0-9]+$", token):
                         ret = float(token)
                 else:
-                        name = read_symbol(pythonise_lisp_name(token))
+                        name = read_symbol(_pythonise_lisp_name(token))
                         # debug_printf("-- interned %s as %s", token, name)
                         if name is t:
                                 ret = True
