@@ -5,6 +5,8 @@ import sys
 import socket
 import re
 
+import cl
+
 from cl import *
 from cl import _keyword as keyword
 
@@ -43,6 +45,26 @@ def load_code_object_as_module(name, x, parent_package = None, built_ins = None,
                 mod.__children__ = set([])
         return mod
 
+def _init_swank_packages():
+        "Hooked."
+        global __swank_package__
+        package("PERGAMUM",      use = ["CL"])
+        package("MORE_AST",      use = ["CL", "PERGAMUM"])
+        defpackage("SWANK",      use = ["CL", "PERGAMUM", "MORE_AST"])
+        __swank_package__ = find_package("SWANK")
+
+        import inspector
+        package("INSPECTOR",     use = ["CL", "PERGAMUM", "SWANK"])
+        inspector.nil_surrogate = cl._intern0("nil_surrogate", "INSPECTOR")
+        # WARNING: circular package use!
+        use_package(__swank_package__, "INSPECTOR")
+
+        # inspector_syms = [
+        #         "inspect_object", "lookup_presented_object"
+        #         ]
+        # _import(mapcar(lambda s: find_symbol(s, "INSPECTOR"), inspector_syms),
+        #           "SWANK")
+
 ### TCP Server: swank.lisp:769
 setq('_use_dedicated_output_stream_',       None)
 setq('_dedicated_output_stream_port_',      0)
@@ -76,6 +98,7 @@ def find_external_format_or_lose(fmt):
 
 def setup_server(port, announce_fn, style, dont_close, coding_system):
         assert(functionp(announce_fn))
+        _init_swank_packages()
         init_log_output()
         find_external_format_or_lose(coding_system)
         socket     = create_socket(symbol_value('_loopback_interface_'), port)

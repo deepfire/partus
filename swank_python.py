@@ -391,7 +391,78 @@ def thread_alive_p(x):
 
 # def interrupt_thread(thread, fn):			pass
 # def kill_thread(thread):				pass
-# def send(thread, object):				pass
+
+# ..so.. the globals ought to be thread-local, from now on, eh?
+setq("_mailbox_lock_", threading.Lock(name = "mailbox lock")) # (sb-thread:make-mutex :name "mailbox lock")
+setq("_mailboxes_", [])
+
+class _mailbox():
+        def __init__(self, thread):
+                self.thread = thread
+                self.mutex = threading.Lock()
+                self.waitqueue = ???
+                self.queue = []
+
+def mailbox(thread):
+        def body():
+                mboxes = symbol_value("_mailboxes_")
+                mbox = find(thread, mboxes, key = slotting(thread))
+                if mbox:
+                        return mbox
+                else:
+                        mbox = _mailbox(thread)
+                        mboxes.add(mbox)
+                        return mbox
+        return with_lock_held(symbol_value("_mailbox_lock_"), body)
+
+@defimplementation
+def send(thread, message):
+        mbox = mailbox(thread)
+        def body():
+                mbox.queue.add(message)
+        # Note: we return None here!
+        return with_lock_held(mbox.mutex, body
+
+@defimplementation
+  # #-sb-lutex
+  # (defun condition-timed-wait (waitqueue mutex timeout)
+  #   (handler-case 
+  #       (let ((*break-on-signals* nil))
+  #         (sb-sys:with-deadline (:seconds timeout :override t)
+  #           (sb-thread:condition-wait waitqueue mutex) t))
+  #     (sb-ext:timeout ()
+  #       nil)))
+
+  # ;; FIXME: with-timeout doesn't work properly on Darwin
+  # #+sb-lutex
+  # (defun condition-timed-wait (waitqueue mutex timeout)
+  #   (declare (ignore timeout))
+  #   (sb-thread:condition-wait waitqueue mutex))
+def condition_timed_wait(waitqueue, mutex, timeout):
+        threading.condition_wait(waitqueue, mutex)
+
+@defimplementation 
+@block
+def receive_if(test, timeout = None):
+        mbox = mailbox(current_thread())
+        mutex, waitq = mbox.mutex, mbox.waitqueue
+        assert(not timeout or timeout is t)
+        def body():
+                check_slime_interrupts()
+                def lockbody():
+                        q = mbox.queue
+                        tail = member_if(test, q)
+                        if tail:
+                                mbox.queue = ldiff(q, tail) + rest(tail)
+                                return_from(receive_if,
+                                            (first(tail), None))
+                        if timeout is t:
+                                return_from(receive_if,
+                                            (None, True))
+                        condition_timed_wait(waitq, mutex, 0.2)
+                with_lock_held(lockbody)
+        return loop(body)
+
 # def receive(timeout = None):				pass
 # def receive_if(predicate, timeout = None):		pass
 # def set_default_initial_binding(var, form):		pass

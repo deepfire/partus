@@ -219,8 +219,9 @@ def _not_implemented(x):
 ##
 ## Non-CL tools
 ##
-def _letf(value, body):
-        return body(value)
+def _letf(*values_and_body):
+        values, body = values_and_body[:-1], values_and_body[-1]
+        return body(*values)
 
 def _if_let(condition, consequent, antecedent = lambda: None):
         x = condition() if functionp(condition) else condition
@@ -697,7 +698,7 @@ def _use_package_symbols(dest, src, syms):
                         # if dest.name == "SWANK" and src.name == "INSPECTOR":
                         #         debug_printf("merging %s into %s: test: %s", s, dest, read_symbol(print_symbol(s)))
                 if dest.module and name not in dest.module.__dict__:
-                        dest.module.__dict__[name] = s.value
+                        dest.module.__dict__[name] = sym.value
 
 def use_package(dest, src):
         "Warning: we're doing a circular package use."
@@ -717,7 +718,8 @@ class package(collections.UserDict):
                 return True
         def __hash__(self):
                 return hash(id(self))
-        def __init__(self, name, ignore_python = False, use = []):
+        def __init__(self, name, use = [],
+                     ignore_python = False, python_exports = True):
                 self.name = string(name)
 
                 self.own         = set()                        # sym
@@ -746,7 +748,8 @@ class package(collections.UserDict):
                                                 if functionp(value):
                                                         s.function = value
                                         ## export symbol, according to the python model
-                                        if not explicit_exports or key in explicit_exports:
+                                        if python_exports and ((not explicit_exports) or
+                                                               key in explicit_exports):
                                                 self.external.add(self.accessible[key])
                 ## Hit the street.
                 self.data          = self.accessible
@@ -765,6 +768,15 @@ def coerce_to_package(x, if_null = 'current'):
                 find_package(x)           if stringp(x) else
                 symbol_value("_package_") if not x and if_null == 'current' else
                 error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
+
+def defpackage(name, use = [], export = []):
+        p = package(name, use = use)
+        for symname in export:
+                ... # XXX: populate the for-INTERN-time-export set of names
+        return p
+
+def in_package(name):
+        setq("_package_", coerce_to_package(name))
 
 def print_symbol(s):
         return "%s%s%s" % (s.package.name if s.package else
@@ -883,7 +895,8 @@ def read_symbol(x, package = None):
                                           lambda p:
                                                   (x[index + 1:], p),
                                           lambda:
-                                                  error("Package \"%s\" doesn't exist, while reading symbol \"%s\".", x[0:index], x))
+                                                  error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
+                                                        x[0:index].upper(), x))
                                   if index != -1 else
                                   (x, coerce_to_package(package)))))
         return _intern0(name, p)
@@ -923,22 +936,6 @@ def _init_package_system():
                cl)
 
         setq("_package_", package("CL_USER", use = ["CL"]))
-
-def _init_swank_packages():
-        global __swank_package__
-        package("PERGAMUM",                    use = ["CL"])
-        package("MORE_AST",                    use = ["CL", "PERGAMUM"])
-        __swank_package__ =   package("SWANK", use = ["CL", "PERGAMUM", "MORE_AST"])
-
-        import inspector
-        package("INSPECTOR",                   use = ["CL", "PERGAMUM", "SWANK"])
-        inspector.nil_surrogate = _intern0("nil_surrogate", "INSPECTOR")
-        use_package(__swank_package__, "INSPECTOR")
-        # inspector_syms = [
-        #         "inspect_object", "lookup_presented_object"
-        #         ]
-        # _import(mapcar(lambda s: find_symbol(s, "INSPECTOR"), inspector_syms),
-        #           "SWANK")
 
 ##
 ## Globals

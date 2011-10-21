@@ -67,6 +67,7 @@ setq("_new_connection_hook_",    [])
 setq("_connection_closed_hook_", [])
 setq("_pre_reply_hook_",         [])
 setq("_after_init_hook_",        [])
+
 ### Connections: swank.lisp:245
 class connection():
         def __init__(self, socket, socket_io, communication_style, coding_system, serve_requests, cleanup):
@@ -916,11 +917,7 @@ def callify(form, quoted = False):
                                 callify(form[1], quoted = True))
                 else:
                         return ast_funcall(lisp_name_ast(symbol_name(form[0])),
-                                           *(([ast_attribute(swank_ast_name("env"), "slime_connection"),
-                                               ast_attribute(swank_ast_name("env"), "sldb_state")]
-                                              if symbol_package(form[0]) is __swank_package__ else []
-                                              ) +
-                                             list(map(callify, form[1:]))))
+                                           *list(map(callify, form[1:])))
         elif symbolp(form):
                 return (ast_funcall(swank_ast_name("read_symbol"), str(form)) if quoted or keywordp(form) else
                         ast_name(symbol_name(form)))
@@ -1664,8 +1661,16 @@ def inspect_frame_var(slime_connection, sldb_state, frame, var):
 #### clean-arglist
 #### well-formed-list-p
 #### print-indentation-lossage
-#### before-init
-#### init
+# add_hook("_pre_reply_hook_", sync_indentation_to_emacs)
+
+def before_init(version, load_path):
+        # (pushnew :swank *features*)
+        setq("_swank_wire_protocol_version_", version)
+        setq("_load_path_",                   load_path)
+        warn_unimplemented_interfaces()
+
+def init():
+        run_hook("_after_init_hook")
 ### swank.lisp ends here:4043
 
 ##*
