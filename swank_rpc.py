@@ -25,7 +25,9 @@ def read_packet(socket):
         select.select([socket.sock.fileno()], [], [])
         header = read_chunk(socket, 6)
         length = parse_integer(header, radix = 0x10)
-        return read_chunk(socket, length)
+        packet = read_chunk(socket, length)
+        format(t, "--> %06d, '%s'\n", len(packet), packet)
+        return packet
 
 def read_chunk(stream, length):
         ## Original version from swank-rpc.lisp:
@@ -47,7 +49,9 @@ def read_form(string, package):
                                 return validating_read(string)
                         else:
                                 return read_from_string(string)
-        return with_standard_io_syntax(body)
+        form = with_standard_io_syntax(body)
+        format(t, "==> %s\n", form)
+        return form
 
 def validating_read(string):
         def body(stream):
@@ -106,10 +110,12 @@ def simple_read(istream):
 
 ##### Output
 def write_message(message, package, stream):
+        format(t, "<== %s\n", message)
         string = prin1_to_string_for_emacs(message, package)
         length = codepoint_length(string)
         with env.let(_print_pretty_ = nil):
                 format(stream, "%06d", length)
+        format(t, "<-- %06d, '%s'\n", length, string)
         write_string(string, stream)
         finish_output(stream)
 

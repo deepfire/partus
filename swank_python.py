@@ -5,9 +5,12 @@ import threading
 
 import cl
 
-from cl import env, handler_bind, symbol_value, signal, make_condition, t, nil, format
+from cl import env, setq, symbol_value, t, nil, format, find
+from cl import block, return_from, handler_bind, signal, make_condition
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword
+
+from pergamum import slotting
 
 from swank_backend import defimplementation
 
@@ -392,15 +395,14 @@ def thread_alive_p(x):
 # def interrupt_thread(thread, fn):			pass
 # def kill_thread(thread):				pass
 
-# ..so.. the globals ought to be thread-local, from now on, eh?
-setq("_mailbox_lock_", threading.Lock(name = "mailbox lock")) # (sb-thread:make-mutex :name "mailbox lock")
+setq("_mailbox_lock_", threading.Lock()) # (sb-thread:make-mutex :name "mailbox lock")
 setq("_mailboxes_", [])
 
 class _mailbox():
         def __init__(self, thread):
                 self.thread = thread
                 self.mutex = threading.Lock()
-                self.waitqueue = ???
+                self.waitqueue = threading.Condition(self.mutex)
                 self.queue = []
 
 def mailbox(thread):
@@ -411,17 +413,15 @@ def mailbox(thread):
                         return mbox
                 else:
                         mbox = _mailbox(thread)
-                        mboxes.add(mbox)
+                        mboxes.append(mbox)
                         return mbox
-        return with_lock_held(symbol_value("_mailbox_lock_"), body)
+        return call_with_lock_held(symbol_value("_mailbox_lock_"), body)
 
 @defimplementation
 def send(thread, message):
         mbox = mailbox(thread)
-        def body():
-                mbox.queue.add(message)
-        # Note: we return None here!
-        return with_lock_held(mbox.mutex, body
+        return call_with_lock_held(mbox.mutex,
+                                   lambda: mbox.queue.append(message))
 
 @defimplementation
   # #-sb-lutex
@@ -460,8 +460,8 @@ def receive_if(test, timeout = None):
                                 return_from(receive_if,
                                             (None, True))
                         condition_timed_wait(waitq, mutex, 0.2)
-                with_lock_held(lockbody)
-        return loop(body)
+                call_with_lock_held(lockbody)
+        loop(body)
 
 # def receive(timeout = None):				pass
 # def receive_if(predicate, timeout = None):		pass
