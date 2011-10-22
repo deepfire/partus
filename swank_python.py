@@ -420,8 +420,11 @@ def mailbox(thread):
 @defimplementation
 def send(thread, message):
         mbox = mailbox(thread)
+        def body():
+                mbox.queue.append(message)
+                mbox.waitqueue.notify_all()
         return call_with_lock_held(mbox.mutex,
-                                   lambda: mbox.queue.append(message))
+                                   body)
 
 @defimplementation
   # #-sb-lutex
@@ -460,7 +463,7 @@ def receive_if(test, timeout = None):
                                 return_from(receive_if,
                                             (None, True))
                         condition_timed_wait(waitq, mutex, 0.2)
-                call_with_lock_held(lockbody)
+                call_with_lock_held(lock, body)
         loop(body)
 
 # def receive(timeout = None):				pass
