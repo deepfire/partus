@@ -743,7 +743,8 @@ def _use_package_symbols(dest, src, syms):
 def use_package(dest, src):
         "Warning: we're doing a circular package use."
         dest, src = coerce_to_package(dest), coerce_to_package(src)
-        _use_package_symbols(dest, src, _map_into_hash(identity, src.external, key = _slotting("name")))
+        symhash = _map_into_hash(identity, src.external, key = _slotting("name"))
+        _use_package_symbols(dest, src, symhash)
         src.packages_using.add(dest)
         dest.used_packages.add(src)
 
@@ -812,7 +813,7 @@ def coerce_to_package(x, if_null = 'current'):
 def defpackage(name, use = [], export = []):
         p = package(name, use = use)
         for symname in export:
-                ... # XXX: populate the for-INTERN-time-export set of names
+                _not_implemented("DEFPACKAGE: :EXPORT keyword") # XXX: populate the for-INTERN-time-export set of names
         return p
 
 def in_package(name):
@@ -837,6 +838,8 @@ class symbol():
                 return str(self)
         def __init__(self, name):
                 self.name, self.package, self.value, self.function = name, None, None, None
+        def __bool__(self):
+                return self is not nil
 def symbolp(x):                      return typep(x, symbol)
 def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
 def symbol_name(x):                  return x.name.lower()
@@ -850,7 +853,7 @@ def _keyword(s):
 def symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
         s = p.accessible.get(x) if stringp(x) else x
-        if s:
+        if s is not None:
                 return (_keyword("inherited") if s.name in p.inherited else
                         _keyword("external")  if s in p.external else
                         _keyword("internal"))
@@ -858,26 +861,24 @@ def symbol_relation(x, p):
 def find_symbol(x, package = None):
         p = coerce_to_package(package)
         s = p.get(x)
-        # write_string("FIND_SYMBOL %s (co-to-pa %s -> %s) -> %s\n" % (x, package, p, s))
-        if not s:
-                cl = find_package("CL")
-                format(t, "find_symbol('%s', %s) -> None\n", x, cl)
-        if s:
+        if s is not None:
+                # format(t, "FIND-SYMBOL:%s, %s -> %s, %s\n", 
+                #        x, package, s, symbol_relation(s, p))
                 return s, symbol_relation(s, p)
         else:
                 return None, None
 def _find_symbol0(x, package = None): return find_symbol(x, package)[0]
 
 def _find_symbol_or_fail(x, package = None):
-        package = coerce_to_package(package)
-        sym, foundp = find_symbol(x, package)
+        p = coerce_to_package(package)
+        sym, foundp = find_symbol(x, p)
         return (sym if foundp else
-                symbols_not_accessible_error(package, [x]))
+                symbols_not_accessible_error(p, [x]))
 
 def _intern(x, package = None):
         p = coerce_to_package(package)
         s = p.accessible.get(x) if stringp(x) else x
-        if not (s or stringp(x)):
+        if not (s is not None or stringp(x)):
                 error("Attempted to intern object >%s< of type %s into %s.", x, type(x), p)
         if s:
                 # debug_printf("Found >%s< in %s.", s, p)
@@ -903,7 +904,7 @@ def _import(symbols, package = None):
         format(t, "importing %s into %s\n", symbols, p)
         for s in symbols:
                 ps = p.get(s.name)
-                if ps: # conflict
+                if ps is not None: # conflict
                         symbol_conflict_error("IMPORT", s, p, s, ps)
                 else:
                         p.imported.add(s)
@@ -923,6 +924,7 @@ def export(symbols, package = None):
                 del package.inherited[sym]
                 self.internal.add(sym)
         package.external |= symset
+        format(t, "just exported from %s: %s\n", package, symset)
         return True
 
 def read_symbol(x, package = None):
@@ -970,7 +972,6 @@ def _init_package_system():
         t                  = _intern0("t", cl)       # Nothing much works without these..
         nil                = _intern0("nil", cl)
         t.value, nil.value = t, nil     # Self-evaluation.
-        nil.__bool__       = lambda _: False
         export([t, nil] + mapcar(lambda n: _intern0(n, cl),
                                  ["quote", "or", "some"]),
                cl)
