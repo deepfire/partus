@@ -487,7 +487,7 @@ def spawn_repl_thread(connection, name):
                                     lambda: repl_loop(connection)),
               name = name)
 
-def dispatch_event(slime_connection, event, sldb_state):
+def dispatch_event(event):
         log_event("dispatch_event: %s\n", event)
         def emacs_rex(form, package, thread_id, id):
                 thread = thread_for_evaluation(thread_id)
