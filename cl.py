@@ -357,12 +357,12 @@ def the(type, x):
 def typecase(val, *clauses):
         for (ctype, result) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return result
+                        return result() if functionp(result) else result
 
 def etypecase(val, *clauses):
         for (ctype, result) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return result
+                        return result() if functionp(result) else result
         else:
                 error(TypeError, "%s fell through ETYPECASE expression. Wanted one of (%s)." %
                       (val, ", ".join(mapcar(lambda c: c[0].__name__, clauses))))
