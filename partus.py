@@ -177,7 +177,7 @@ def announce_server_port(file, port):
 
 def simple_announce_function(port):
         if symbol_value("_swank_debug_p_"):
-                format(symbol_value("_log_output_"), "\n;; Swank started at port: ~%d.\n", port)
+                format(symbol_value("_log_output_"), "\n;; Swank started at port: %d.\n", port)
                 force_output(symbol_value("_log_output_"))
 
 def open_streams(connection):

@@ -53,6 +53,66 @@ default_server_port = 4005
 setq("_swank_debug_p_", t)
 
 ### SLDB customized pprint dispatch table: swank.lisp:95
+setq("_sldb_string_length_", nil)
+setq("_sldb_bitvector_length_", nil)
+
+setq("_sldb_pprint_dispatch_table_",
+     # XXX: ???
+     None)
+
+setq("_sldb_printer_bindings_",
+     [(keyword("_print_pretty_"),          t),
+      (keyword("_print_level_"),           4),
+      (keyword("_print_length_"),          10),
+      (keyword("_print_circle_"),          t),
+      (keyword("_print_readably_"),        nil),
+      (keyword("_print_pprint_dispatch_"), symbol_value("_sldb_pprint_dispatch_table_")),
+      (keyword("_print_gensym_"),          t),
+      (keyword("_print_base_"),            10),
+      (keyword("_print_radix_"),           nil),
+      (keyword("_print_array_"),           t),
+      (keyword("_print_lines_"),           nil),
+      (keyword("_print_escape_"),          t),
+      (keyword("_print_right_margin_"),    65),
+      (keyword("_sldb__"),                 25),
+      (keyword("_sldb__"),                 50)])
+
+setq("_backtrace_pprint_dispatch_table_",
+     # XXX: ???
+     None)
+
+setq("_backtrace_printer_bindings_",
+     [(keyword("_print_pretty_"),          t),
+      (keyword("_print_readably_"),        nil),
+      (keyword("_print_level_"),           4),
+      (keyword("_print_length_"),          5),
+      (keyword("_print_lines_"),           1),
+      (keyword("_print_right_margin_"),    200),
+      (keyword("_print_pprint_dispatch_"), symbol_value("_backtrace_pprint_dispatch_table_"))])
+
+setq("_default_worker_thread_bindings_", nil)
+
+def call_with_bindings(alist, fun):
+        if not alist:
+                return fun()
+        else:
+                # (let* ((rlist (reverse alist))
+                #        (vars (mapcar #'car rlist))
+                #        (vals (mapcar #'cdr rlist)))
+                #   (progv vars vals
+                #    (funcall fun)))
+                alist.reverse()
+                vars = mapcar(first, alist)
+                vals = mapcar(rest, alist)
+                progv(vars, vals, fun)
+
+with_bindings = call_with_bindings            #### Note: was: defmacro with-bindings
+
+#### defmacro defslimefun
+
+def missing_arg():
+        error("A required &KEY or &OPTIONAL argument was not supplied.")
+
 ### Hooks: swank.lisp:213
 def add_hook(name, function):
         if not functionp(function):
@@ -172,6 +232,7 @@ add_hook("_new_connection_hook_", notify_backend_of_connection)
 ### Utilities: swank.lisp:406
 ### Logging: swank.lisp:409
 setq("_swank_io_package_", lret(make_package("SWANK_IO_PACKAGE"),
+                                # curry(_import, mapcar(_find_symbol_or_fail, ["t", "nil", "quote"]))
                                 lambda package: _import(mapcar(_find_symbol_or_fail, ["t", "nil", "quote"]),
                                                         package)))
 setq("_log_events_",       nil)
@@ -185,19 +246,21 @@ add_hook("_after_init_hook_", init_log_output)
 
 def real_input_stream(x):
         return typecase(x,
-                        (synonym_stream, lambda:
-                                 real_input_stream(symbol_value(synonym_stream_symbol(x)))),
-                        (two_way_stream, lambda:
-                                 real_input_stream(two_way_stream_input_stream(x))),
+                        ## XXX: ...
+                        # (synonym_stream, lambda:
+                        #          real_input_stream(symbol_value(synonym_stream_symbol(x)))),
+                        # (two_way_stream, lambda:
+                        #          real_input_stream(two_way_stream_input_stream(x))),
                         (t,              lambda:
                                  x))
 
 def real_output_stream(x):
         return typecase(x,
-                        (synonym_stream, lambda:
-                                 real_output_stream(symbol_value(synonym_stream_symbol(x)))),
-                        (two_way_stream, lambda:
-                                 real_output_stream(two_way_stream_output_stream(x))),
+                        ## XXX: ...
+                        # (synonym_stream, lambda:
+                        #          real_output_stream(symbol_value(synonym_stream_symbol(x)))),
+                        # (two_way_stream, lambda:
+                        #          real_output_stream(two_way_stream_output_stream(x))),
                         (t,              lambda:
                                  x))
 
@@ -255,11 +318,18 @@ def ascii_char_p(o):
 ### Helper macros: swank.lisp:502
 
 def destructure_case(x, *clauses):
+        format(t, "D/C: %s\n", x)
         op, body = x[0], x[1:]
+        format(t, "clauses:\n")
+        for c in clauses:
+                format(t, "    %s\n", c)
         for struc, action in clauses:
                 cop, cbody = struc[0], struc[1:]
                 if cop is t or cop is op:
                         return action(*body)
+                else:
+                        format(t, "%s is not %s, but %s == %s: %s\n", 
+                               cop, op, cop, op, cop == op)
         else:
                 error("DESTRUCTURE-CASE failed: %s", x)
 
@@ -308,8 +378,12 @@ def with_connection(connection, body):
 #### do-symbols*
 # UNUSABLE define-special
 ### Misc: swank.lisp:624
-####   use-threads-p
-####   current-thread-id
+def use_threads_p():
+        return symbol_value("_emacs_connection_").communication_style is keyword("spawn")
+
+def current_thread_id():
+        return thread_id(current_thread())
+
 ####   ensure-list
 ### Symbols: swank.lisp:637
 ### TCP Server: swank.lisp:769
@@ -383,7 +457,7 @@ def process_requests(timeout):
         return loop(body)
 
 def current_socket_io():
-        return symbol_value("_emacs_connectino_").socket_io
+        return symbol_value("_emacs_connection_").socket_io
 
 #### close-connection
 
