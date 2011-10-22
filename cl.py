@@ -584,6 +584,33 @@ def count_if(p, xs, key = identity, start = 0):
 
 sort = sorted
 
+# XXX: This is geared at cons-style lists, and so is fucking costly
+# for imperative lists.
+def tailp(object, list):
+        """If OBJECT is the same as some tail of LIST, TAILP returns
+true; otherwise, it returns false."""
+        if len(object) > len(list):
+                return None
+        else:
+                list_start = len(list) - len(object)
+                return list[list_start:] == object
+
+# XXX: This is geared at cons-style lists, and so is fucking costly
+# for imperative lists.
+def ldiff(object, list_):
+        """If OBJECT is the same as some tail of LIST, LDIFF returns a
+fresh list of the elements of LIST that precede OBJECT in the
+list structure of LIST; otherwise, it returns a copy[2] of
+LIST."""
+        if len(object) > len(list_):
+                return list(list_)
+        else:
+                list_start = len(list_) - len(object)
+                if list_[list_start:] == object:
+                        return list_[:list_start]
+                else:
+                        return list(list_)
+
 ##
 ## Strings
 ##

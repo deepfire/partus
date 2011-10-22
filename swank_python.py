@@ -5,7 +5,7 @@ import threading
 
 import cl
 
-from cl import env, setq, symbol_value, t, nil, format, find, member_if, constantly, loop
+from cl import env, setq, symbol_value, t, nil, format, find, member_if, constantly, loop, ldiff, rest, first
 from cl import block, return_from, handler_bind, signal, make_condition
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword
