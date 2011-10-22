@@ -257,12 +257,9 @@ def ascii_char_p(o):
 def destructure_case(x, *clauses):
         op, body = x[0], x[1:]
         for struc, action in clauses:
-                struc_op, struc_body = struc[0], struc[1:]
-                if struc_op is t:
+                cop, cbody = struc[0], struc[1:]
+                if cop is t or cop is op:
                         return action(*body)
-                elif op == struc_op:
-                        if match(body, struc_body):
-                                return action(*body)
         else:
                 error("DESTRUCTURE-CASE failed: %s", x)
 
@@ -378,11 +375,11 @@ def process_requests(timeout):
                         return_from(process_requests, None)
                 destructure_case(
                         event,
-                        [([keyword("emacs-rex",
-                                   eval_for_emacs)]),
-                         ([keyword("emacs-channel-send",
-                                   lambda channel, selector, *args:
-                                           channel_send(channel, selector, args))])])
+                        ([keyword("emacs-rex",
+                                  eval_for_emacs)]),
+                        ([keyword("emacs-channel-send",
+                                  lambda channel, selector, *args:
+                                          channel_send(channel, selector, args))]))
         return loop(body)
 
 def current_socket_io():
@@ -403,7 +400,7 @@ def dispatch_loop(connection):
         with env.let(_emacs_connection_ = connection):
                 with_panic_handler(connection,
                                    lambda:
-                                           loop(lambda: dispatch_event(receive())))
+                                           loop(lambda: dispatch_event(receive()[0]))) # WARNING: multiple values!
 
 setq("_auto_flush_interval_", 0.5)
 
@@ -506,51 +503,54 @@ def dispatch_event(event):
                 encode_message([keyword("return")] + args, current_socket_io())
         destructure_case(
                 event,
-                [([keyword("emacs-rex")],       emacs_rex),
-                 ([keyword("return")],          return_),
-                 ([keyword("emacs-interrupt")], (lambda thread_id:
-                                                  interrup_worker_thread(thread_id))),
-                 ([set([keyword("write-string"),
-                        keyword("debug"),
-                        keyword("debug-condition"),
-                        keyword("debug-activate"),
-                        keyword("debug-return"),
-                        keyword("channel-send"),
-                        keyword("presentation-start"),
-                        keyword("presentation-end"),
-                        keyword("new-package"),
-                        keyword("new-features"),
-                        keyword("ed"),
-                        keyword("indentation-update"),
-                        keyword("eval"),
-                        keyword("eval-no-wait"),
-                        keyword("background-message"),
-                        keyword("inspect"),
-                        keyword("ping"),
-                        keyword("y-or-n-p"),
-                        keyword("read-from-minibuffer"),
-                        keyword("read-string"),
-                        keyword("read-aborted"),
-                        ])],
-                  lambda *_, **__:
-                          encode_message(event, current_socket_io())),
-                 ([set([keyword("emacs-pong"),
-                        keyword("emacs-return"),
-                        keyword("emacs-return-string")])],
-                  lambda thread_id, *args, **keys:
-                          send_event(find_thread(thread_id),
-                                     [first(event)] + args)), # XXX: keys? linearise?
-                 ([keyword("emacs-channel-send")],
-                  lambda channel_id, msg:
-                          letf(find_channel(channel_id),
-                               lambda ch:
-                                       send_event(channel_thread(ch),
-                                                  [keyword("emacs-channel-send"), ch, msg]))),
-                 ([keyword("reader-error")],
-                  lambda packet, condition:
-                          encode_message([keyword("reader-error"), packet,
-                                          safe_condition_message(condition)],
-                                         current_socket_io()))])
+                ([keyword("emacs-rex")],
+                 emacs_rex),
+                ([keyword("return")],
+                 return_),
+                ([keyword("emacs-interrupt")],
+                 lambda thread_id:
+                         interrup_worker_thread(thread_id)),
+                ([set([keyword("write-string"),
+                       keyword("debug"),
+                       keyword("debug-condition"),
+                       keyword("debug-activate"),
+                       keyword("debug-return"),
+                       keyword("channel-send"),
+                       keyword("presentation-start"),
+                       keyword("presentation-end"),
+                       keyword("new-package"),
+                       keyword("new-features"),
+                       keyword("ed"),
+                       keyword("indentation-update"),
+                       keyword("eval"),
+                       keyword("eval-no-wait"),
+                       keyword("background-message"),
+                       keyword("inspect"),
+                       keyword("ping"),
+                       keyword("y-or-n-p"),
+                       keyword("read-from-minibuffer"),
+                       keyword("read-string"),
+                       keyword("read-aborted"),
+                       ])],
+                 lambda *_, **__:
+                         encode_message(event, current_socket_io())),
+                ([set([keyword("emacs-pong"),
+                       keyword("emacs-return"),
+                       keyword("emacs-return-string")])],
+                 lambda thread_id, *args, **keys:
+                         send_event(find_thread(thread_id),
+                                    [first(event)] + args)), # XXX: keys? linearise?
+                ([keyword("emacs-channel-send")],
+                 lambda channel_id, msg:
+                         letf(find_channel(channel_id),
+                              lambda ch:
+                                      send_event(channel_thread(ch),
+                                                 [keyword("emacs-channel-send"), ch, msg]))),
+                ([keyword("reader-error")],
+                 lambda packet, condition:
+                         encode_message([keyword("reader-error"), packet,
+                                         safe_condition_message(condition)],
+                                        current_socket_io())))
 
 setq("_event_queue_",     [])
 setq("_events_enqueued_", 0)
@@ -571,10 +571,10 @@ def send_to_emacs(event):
         else:
                 dispatch_event (event)
 
-def wait_for_event (pattern, timeout = None):
+def wait_for_event(pattern, timeout = None):
         log_event("wait_for_event: %s %s\n", pattern, timeout)
         without_slime_interrupts(
-                lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)
+                lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)[0] # WARNING: multiple values!
                          if use_threads_p() else
                          wait_for_event_event_loop(pattern, timeout)))
 
