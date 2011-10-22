@@ -657,11 +657,11 @@ def with_output_to_string(f):
 ##
 __dynamic_binding_clusters__ = []
 
-class env_block(object):
-        def __init__(self, kwargs):
-                self.kwargs = kwargs
+class env_cluster(object):
+        def __init__(self, cluster):
+                self.cluster = cluster
         def __enter__(self):
-                __dynamic_binding_clusters__.append(self.kwargs)
+                __dynamic_binding_clusters__.append(self.cluster)
         def __exit__(self, t, v, tb):
                 __dynamic_binding_clusters__.pop()
 
@@ -685,14 +685,13 @@ class dynamic_scope(object):
         def __getattr__(self, name):
                 return symbol_value(name)
         def let(self, **keys):
-                return env_block(keys)
+                return env_cluster(keys)
         def boundp(self, name):
                 for scope in reversed(__dynamic_binding_clusters__):
                         if name in scope:
                                 return True
         def __setattr__(self, name, value):
                 error(AttributeError, "Use SETQ to set special globals.")
-
 
 __cl_top_level_dynamic_scope__ = dict()
 class cl_dynamic_scope(dynamic_scope):
@@ -701,6 +700,24 @@ class cl_dynamic_scope(dynamic_scope):
 
 __dynamic_scope__ = cl_dynamic_scope()
 env = __dynamic_scope__             # shortcut..
+
+class progv():
+        """Two usage modes:
+progv(['foovar', 'barvar'],
+      [3.14, 2.71],
+      lambda: body())
+
+with progv(foovar = 3.14,
+           barvar = 2.71):
+      body()
+
+..with the latter being lighter on the stack frame usage."""
+        def __init__(vars = None, vals = None, body = None, **cluster):
+                if body:
+                        with env_cluster({ var:val for var, val in zip(vars, vals) }):
+                                return body()
+                else:
+                        return env_cluster(cluster)
 
 ##
 ## Package system
@@ -924,7 +941,6 @@ def export(symbols, package = None):
                 del package.inherited[sym]
                 self.internal.add(sym)
         package.external |= symset
-        format(t, "just exported from %s: %s\n", package, symset)
         return True
 
 def read_symbol(x, package = None):
@@ -1104,9 +1120,9 @@ def make_ball(name, nonce):
 def __block__(fn):
         "An easy decorator-styled interface for block establishment."
         nonce = gensym("BLOCK")
-        ret = (lambda *args, **kwargs:
+        ret = (lambda *args, **keys:
                        catch(nonce,
-                             lambda: fn(*args, **kwargs)))
+                             lambda: fn(*args, **keys)))
         setattr(ret, "ball", nonce)
         return ret
 
