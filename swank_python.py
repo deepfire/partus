@@ -375,9 +375,13 @@ def make_lock(name = None):
 @defimplementation
 def call_with_lock_held(lock, function):
         try:
+                format (t, "||| -> acquiring %s\n", lock)
+                cl.backtrace()
                 lock.acquire()
                 return function()
         finally:
+                format (t, "||| <- releasing %s\n", lock)
+                cl.backtrace()
                 lock.release()
 
 @defimplementation

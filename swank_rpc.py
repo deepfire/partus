@@ -12,21 +12,22 @@ class swank_reader_error(Exception):
 
 def read_message(stream, package):
         packet = read_packet(stream)
-        return handler_case(
+        format(t, "--> %06d, '%s'\n", len(packet), packet)
+        message = handler_case(
                 lambda: read_form(packet, package),
                 Exception = (lambda c: # XXX: originally, caught only READER-ERROR
-                                     error(make_condition(swank_reader_error,
-                                                          packet, c))))
+                             error(make_condition(swank_reader_error,
+                                                  packet, c))))
+        format(t, "==> %s\n", message)
+        return message
 
 def read_packet(socket):
-        "And this is the harsh reality."
         ## Original version from swank-rpc.lisp:
         # peek_char(None, stream)
         select.select([socket.sock.fileno()], [], [])
         header = read_chunk(socket, 6)
         length = parse_integer(header, radix = 0x10)
         packet = read_chunk(socket, length)
-        format(t, "--> %06d, '%s'\n", len(packet), packet)
         return packet
 
 def read_chunk(stream, length):
@@ -49,9 +50,7 @@ def read_form(string, package):
                                 return validating_read(string)
                         else:
                                 return read_from_string(string)
-        form = with_standard_io_syntax(body)
-        format(t, "==> %s\n", form)
-        return form
+        return with_standard_io_syntax(body)
 
 def validating_read(string):
         def body(stream):
