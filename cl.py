@@ -21,6 +21,8 @@ from neutrality import stringp, _write_string
 def identity(x):
         return x
 
+most_positive_fixnum = 67108864
+
 ###
 ### Basis
 ###
@@ -216,8 +218,10 @@ class _not_implemented_error(Exception):
         def __repr__(self):
                 return self.__str__()
 
-def _not_implemented(x):
-        error(_not_implemented_error, x)
+def _not_implemented(x = None):
+        error(_not_implemented_error,
+              x if x is not None else
+              _fun_name(_frame_fun(_this_frame())))
 
 ##
 ## Non-CL tools
@@ -614,17 +618,6 @@ LIST."""
 ##
 ## Strings
 ##
-def print_to_string(x):
-        return with_output_to_string(s,
-                                     lambda: format(s, "%s", x))
-
-def format(stream, format_control, *format_arguments):
-        string = format_control % format_arguments
-        if  stream is nil:
-                return string
-        else:
-                write_string(string, stream)
-
 def string_right_trim(cs, s):
         "http://www.lispworks.com/documentation/lw50/CLHS/Body/f_stg_tr.htm"
         for i in range(len(s) - 1, 0, -1):
@@ -651,9 +644,29 @@ def with_output_to_string(f):
         finally:
                 close(x)
 
+##
+## Sets
+##
+def union(x, y):
+        return x | y
+
+def intersection(x, y):
+        return x & y
 
 ##
-## Dynamic scope (XXX: NOT PER-THREAD YET!!!)
+## Dicts
+##
+def gethash(key, dict):
+        return dict.get(key), key in dict
+
+def maphash(f, dict):
+        return [ f(k, v) for k, v in dict.items() ]
+
+def _remap_hash_table(f, xs):
+        return { k: f(k, v) for k, v in xs.items() }
+
+##
+## Dynamic scope (XXX: NOT THREAD-COMPATIBLE YET!!!)
 ##
 __dynamic_binding_clusters__ = []
 
@@ -805,9 +818,10 @@ class package(collections.UserDict):
                                                 s.value = value
                                                 if functionp(value):
                                                         s.function = value
-                                        ## export symbol, according to the python model
-                                        if python_exports and ((not explicit_exports) or
-                                                               key in explicit_exports):
+                                        ## export symbols, according to the python model
+                                        if (python_exports and key[0] != '_' and
+                                            ((not explicit_exports) or
+                                             key in explicit_exports)):
                                                 self.external.add(self.accessible[key])
                 ## Hit the street.
                 self.data          = self.accessible
@@ -994,14 +1008,7 @@ def _init_package_system():
 
         setq("_package_", package("CL_USER", use = ["CL"]))
 
-##
-## Globals
-##
-setq("_standard_output_", sys.stdout)
-setq("_error_output_",    sys.stderr)
-# setq("_debug_io_",    ???) XXX: ???
-
-most_positive_fixnum = 67108864
+_init_package_system()
 
 ##
 ## Pretty-printing
@@ -1015,13 +1022,84 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, " {%x}", id(object))
         write_string(">", stream)
 
+def _make_default_pprint_dispatch_table():
+        "XXX: this is crap!"
+        return dict()
+
+setq("_print_array_",           t)
+setq("_print_base_",            10)
+setq("_print_case_",            _keyword("upcase"))
+setq("_print_circle_",          nil)
+setq("_print_escape_",          t)
+setq("_print_gensym_",          t)
+setq("_print_length_",          nil)
+setq("_print_level_",           nil)
+setq("_print_lines_",           nil)
+setq("_print_pretty_",          t)
+setq("_print_radix_",           nil)
+setq("_print_readably_",        nil)
+setq("_print_miser_width_",     nil)
+setq("_print_pprint_dispatch_", _make_default_pprint_dispatch_table())
+setq("_print_right_margin_",    nil)
+
 def with_standard_io_syntax(body):
         # XXX: is this true?
         return body()
 
+def write_to_string(object,
+                    array = None,
+                    base = None,
+                    case = None,
+                    circle = None,
+                    escape = None,
+                    gensym = None,
+                    length = None,
+                    level = None,
+                    lines = None,
+                    miser_width = None,
+                    pprint_dispatch = None,
+                    pretty = None,
+                    radix = None,
+                    readably = None,
+                    right_margin = None):
+        array           = array           if array           is not None else symbol_value("_print_array_")
+        base            = base            if base            is not None else symbol_value("_print_base_")
+        case            = case            if case            is not None else symbol_value("_print_case_")
+        circle          = circle          if circle          is not None else symbol_value("_print_circle_")
+        escape          = escape          if escape          is not None else symbol_value("_print_escape_")
+        gensym          = gensym          if gensym          is not None else symbol_value("_print_gensym_")
+        length          = length          if length          is not None else symbol_value("_print_length_")
+        level           = level           if level           is not None else symbol_value("_print_level_")
+        lines           = lines           if lines           is not None else symbol_value("_print_lines_")
+        miser_width     = miser_width     if miser_width     is not None else symbol_value("_print_miser_width_")
+        pprint_dispatch = pprint_dispatch if pprint_dispatch is not None else symbol_value("_print_pprint_dispatch_")
+        pretty          = pretty          if pretty          is not None else symbol_value("_print_pretty_")
+        radix           = radix           if radix           is not None else symbol_value("_print_radix_")
+        readably        = readably        if readably        is not None else symbol_value("_print_readably_")
+        right_margin    = right_margin    if right_margin    is not None else symbol_value("_print_right_margin_")
+        _not_implemented()
+
+def prin1_to_string(object):
+        return write_to_string(object, escape = t)
+
+def princ_to_string(object):
+        return write_to_string(object, escape = nil, readably = nil)
+
+def format(stream, format_control, *format_arguments):
+        string = format_control % format_arguments
+        if  stream is nil:
+                return string
+        else:
+                write_string(string, stream)
+
 ##
 ## Streams
 ##
+setq("_standard_output_", sys.stdout)
+setq("_error_output_",    sys.stderr)
+# setq("_debug_io_",    ???) XXX: ???
+# setq("_query_io_",    ???) XXX: ???
+
 def streamp(x):
         return typep(x, stream)
 
@@ -1052,32 +1130,6 @@ def finish_output(stream = symbol_value("_standard_output_")):
 
 def force_output(*args, **keys):
         finish_output(*args, **keys)
-
-##
-## Sets
-##
-def union(x, y):
-        return x | y
-
-def intersection(x, y):
-        return x & y
-
-##
-## Dicts
-##
-def gethash(key, dict):
-        return dict.get(key), key in dict
-
-def maphash(f, dict):
-        return [ f(k, v) for k, v in dict.items() ]
-
-def _remap_hash_table(f, xs):
-        return { k: f(k, v) for k, v in xs.items() }
-
-###
-### Complex part.
-###
-_init_package_system()
 
 ##
 ## Non-local control transfers
