@@ -124,7 +124,10 @@ def _print_frame(f):
         print(_pp_frame(f))
 
 def _print_frames(fs):
-        mapc(lambda i, f: format(t, "%2d: %s" % (i, _pp_frame(f))), *zip(*enumerate(fs)))
+        mapc(lambda i, f: format(t, "%2d: %s\n" % (i, _pp_frame(f))), *zip(*enumerate(fs)))
+
+def backtrace(x = -1):
+        _print_frames(_frames_upward_from(_this_frame())[:x])
 
 # Study was done by the means of:
 # print("\n".join(map(lambda f:
