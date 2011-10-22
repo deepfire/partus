@@ -5,7 +5,7 @@ import threading
 
 import cl
 
-from cl import env, setq, symbol_value, t, nil, format, find
+from cl import env, setq, symbol_value, t, nil, format, find, member_if, constantly, loop
 from cl import block, return_from, handler_bind, signal, make_condition
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword
@@ -13,6 +13,7 @@ from cl import _keyword
 from pergamum import slotting
 
 from swank_backend import defimplementation
+from swank_backend import check_slime_interrupts
 
 def not_implemented():
         raise NotImplemented("Not implemented: %s.", inspect.stack()[1][3].upper())
@@ -329,7 +330,7 @@ def spawn(fn, name = "<unnamed-thread>"):
 #         (sb-thread:condition-broadcast (mailbox.waitqueue mbox)))))
 #   #-sb-lutex
 #   (defun condition-timed-wait (waitqueue mutex timeout)
-#     (handler-case 
+#     (handler-case
 #         (let ((*break-on-signals* nil))
 #           (sb-sys:with-deadline (:seconds timeout :override t)
 #             (sb-thread:condition-wait waitqueue mutex) t))
@@ -341,7 +342,7 @@ def spawn(fn, name = "<unnamed-thread>"):
 #   (defun condition-timed-wait (waitqueue mutex timeout)
 #     (declare (ignore timeout))
 #     (sb-thread:condition-wait waitqueue mutex))
-# 
+#
 #   (defimplementation receive-if (test &optional timeout)
 #     (let* ((mbox (mailbox (current-thread)))
 #            (mutex (mailbox.mutex mbox))
@@ -352,7 +353,7 @@ def spawn(fn, name = "<unnamed-thread>"):
 #        (sb-thread:with-mutex (mutex)
 #          (let* ((q (mailbox.queue mbox))
 #                 (tail (member-if test q)))
-#            (when tail 
+#            (when tail
 #              (setf (mailbox.queue mbox) (nconc (ldiff q tail) (cdr tail)))
 #              (return (car tail))))
 #          (when (eq timeout t) (return (values nil t)))
@@ -375,13 +376,11 @@ def make_lock(name = None):
 @defimplementation
 def call_with_lock_held(lock, function):
         try:
-                format (t, "||| -> acquiring %s\n", lock)
-                cl.backtrace()
+                # format (t, "||| -> acquiring %s\n", lock); cl.backtrace()
                 lock.acquire()
                 return function()
         finally:
-                format (t, "||| <- releasing %s\n", lock)
-                cl.backtrace()
+                # format (t, "||| <- releasing %s\n", lock); cl.backtrace()
                 lock.release()
 
 @defimplementation
@@ -412,7 +411,7 @@ class _mailbox():
 def mailbox(thread):
         def body():
                 mboxes = symbol_value("_mailboxes_")
-                mbox = find(thread, mboxes, key = slotting(thread))
+                mbox = find(thread, mboxes, key = slotting('thread'))
                 if mbox:
                         return mbox
                 else:
@@ -433,7 +432,7 @@ def send(thread, message):
 @defimplementation
   # #-sb-lutex
   # (defun condition-timed-wait (waitqueue mutex timeout)
-  #   (handler-case 
+  #   (handler-case
   #       (let ((*break-on-signals* nil))
   #         (sb-sys:with-deadline (:seconds timeout :override t)
   #           (sb-thread:condition-wait waitqueue mutex) t))
@@ -446,9 +445,13 @@ def send(thread, message):
   #   (declare (ignore timeout))
   #   (sb-thread:condition-wait waitqueue mutex))
 def condition_timed_wait(waitqueue, mutex, timeout):
-        threading.condition_wait(waitqueue, mutex)
+        waitqueue.wait(timeout)
 
-@defimplementation 
+@defimplementation
+def receive(timeout = None):
+        return receive_if(constantly(t), timeout)
+
+@defimplementation
 @block
 def receive_if(test, timeout = None):
         mbox = mailbox(current_thread())
@@ -467,11 +470,9 @@ def receive_if(test, timeout = None):
                                 return_from(receive_if,
                                             (None, True))
                         condition_timed_wait(waitq, mutex, 0.2)
-                call_with_lock_held(lock, body)
+                call_with_lock_held(mutex, lockbody)
         loop(body)
 
-# def receive(timeout = None):				pass
-# def receive_if(predicate, timeout = None):		pass
 # def set_default_initial_binding(var, form):		pass
 # def wait_for_input(streams, timeout = None):		pass
 # def toggle_trace(spec):				pass

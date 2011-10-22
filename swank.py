@@ -635,6 +635,7 @@ def control_thread(connection):
         connection.control_thread = current_thread()
         connection.reader_thread  = spawn(lambda: read_loop(connection),
                                           name = "reader-thread")
+        dispatch_loop(connection)
 
 def cleanup_connection_threads(connection):
         threads = [connection.repl_thread,

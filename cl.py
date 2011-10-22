@@ -534,6 +534,16 @@ def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
 def find(elt, xs, **keys):
         return find_if(lambda x: x == elt, xs, **keys)
 
+def member_if(test, xs):
+        "XXX: not terribly compliant."
+        for i, x in enumerate(xs):
+                if test(x):
+                        return xs[i:]
+
+def member(x, xs):
+        "XXX: not terribly compliant."
+        return member_if(lambda y: y == x, xs)
+
 def position_if(p, xs, key = identity, start = 0, end = None, from_end = None):
         end = end or len(xs)
         if start or end:

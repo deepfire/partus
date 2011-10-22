@@ -2,7 +2,7 @@ import sys
 import more_ast
 import inspect
 
-from cl import setq, nil, t, symbol_value, mapcar, remove, warn, _not_implemented, env, _keyword, functionp, error#, format
+from cl import setq, nil, t, boundp, symbol_value, mapcar, remove, warn, _not_implemented, env, _keyword, functionp, error#, format
 
 setq("_debug_swank_backend_",      nil)
 """If this is true, backends should not catch errors but enter the
@@ -332,9 +332,23 @@ def receive():				pass
 def receive_if():			pass
 @definterface
 def set_default_initial_binding():	pass
+
+## List of delayed interrupts.
+## This should only have thread-local bindings, so no init form.
 #### defvar *pending-slime-interrupts* UNBOUND
-#### check-slime-interrupts
+
+def check_slime_interrupts():
+        """Execute pending interrupts if any.
+This should be called periodically in operations which
+can take a long time to complete.
+Return a boolean indicating whether any interrupts was processed."""
+        if (boundp("_pending_slime_interrupts_") and
+            symbol_value("_pending_slime_interrupts_")):
+                symbol_value("_pending_slime_interrupts_").pop()
+                return True
+
 setq("_interrupt_queued_handler_", nil)
+
 @definterface
 def wait_for_input():			pass
 #### wait-for-streams
