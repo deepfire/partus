@@ -3,6 +3,7 @@ import socket
 import sys
 
 from cl import *
+from cl import _keyword as keyword
 
 class swank_reader_error(Exception):
         def __init__(self, packet, cause):
