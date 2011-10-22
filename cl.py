@@ -1220,14 +1220,14 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 elif re.match("^[0-9]+\\.[0-9]+$", token):
                         ret = float(token)
                 else:
-                        name = read_symbol(_pythonise_lisp_name(token))
+                        ret = read_symbol(token)
                         # debug_printf("-- interned %s as %s", token, name)
-                        if name is t:
-                                ret = True
-                        elif name is nil:
-                                ret = False
-                        else:
-                                ret = name
+                        # if name is t:
+                        #         ret = True
+                        # elif name is nil:
+                        #         ret = False
+                        # else:
+                        #         ret = name
                 # debug_printf("read_number_or_symbol(): returning %s", ret)
                 return ret
         def read_token():
