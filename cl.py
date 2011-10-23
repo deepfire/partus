@@ -1088,11 +1088,19 @@ def write_to_string(object,
         right_margin    = right_margin    if right_margin    is not None else symbol_value("_print_right_margin_")
         assert(array is t and
                base is 10 and
-               case is _keyword("upcase") and
+               # case is
                circle is nil and
-               # escape is
-               gensym is t and
-               )
+               # escape is !
+               # gensym is
+               length is nil and
+               level is nil and
+               lines is nil and
+               miser_width is nil and
+               pretty is nil and
+               pprint_dispatch is __default_pprint_dispatch_table__ and
+               radix is nil and
+               readably is nil and
+               right_margin is nil)
         _not_implemented()
 
 def prin1_to_string(object):
