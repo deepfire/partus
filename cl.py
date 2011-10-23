@@ -69,6 +69,9 @@ def _all_threads_frames():
 def _this_frame():
         return sys._getframe(1)
 
+def _caller_frame():
+        return sys._getframe(2)
+
 def _exception_frame():
         return sys.exc_info()[2].tb_frame
 
@@ -221,7 +224,7 @@ class _not_implemented_error(Exception):
 def _not_implemented(x = None):
         error(_not_implemented_error,
               x if x is not None else
-              _fun_name(_frame_fun(_this_frame())))
+              _fun_name(_frame_fun(_caller_frame())))
 
 ##
 ## Non-CL tools
