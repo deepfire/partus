@@ -10,7 +10,7 @@ from cl import *
 from pergamum import *
 from more_ast import *
 
-from cl import _servile as servile, _keyword as keyword, _import, _find_symbol0, _find_symbol_or_fail
+from cl import _servile as servile, _keyword as keyword, _import, _find_symbol0, _find_symbol_or_fail, _intern0 as intern0
 
 import swank_backend
 import swank_python  # the thing patches swank_backend, to avoid indirection
@@ -61,34 +61,34 @@ setq("_sldb_pprint_dispatch_table_",
      None)
 
 setq("_sldb_printer_bindings_",
-     [(keyword("_print_pretty_"),          t),
-      (keyword("_print_level_"),           4),
-      (keyword("_print_length_"),          10),
-      (keyword("_print_circle_"),          t),
-      (keyword("_print_readably_"),        nil),
-      (keyword("_print_pprint_dispatch_"), symbol_value("_sldb_pprint_dispatch_table_")),
-      (keyword("_print_gensym_"),          t),
-      (keyword("_print_base_"),            10),
-      (keyword("_print_radix_"),           nil),
-      (keyword("_print_array_"),           t),
-      (keyword("_print_lines_"),           nil),
-      (keyword("_print_escape_"),          t),
-      (keyword("_print_right_margin_"),    65),
-      (keyword("_sldb__"),                 25),
-      (keyword("_sldb__"),                 50)])
+     [(intern0("_print_pretty_"),          t),
+      (intern0("_print_level_"),           4),
+      (intern0("_print_length_"),          10),
+      (intern0("_print_circle_"),          t),
+      (intern0("_print_readably_"),        nil),
+      (intern0("_print_pprint_dispatch_"), symbol_value("_sldb_pprint_dispatch_table_")),
+      (intern0("_print_gensym_"),          t),
+      (intern0("_print_base_"),            10),
+      (intern0("_print_radix_"),           nil),
+      (intern0("_print_array_"),           t),
+      (intern0("_print_lines_"),           nil),
+      (intern0("_print_escape_"),          t),
+      (intern0("_print_right_margin_"),    65),
+      (intern0("_sldb_bitvector_length_"), 25),
+      (intern0("_sldb_string_length_"),    50)])
 
 setq("_backtrace_pprint_dispatch_table_",
      # XXX: ???
      None)
 
 setq("_backtrace_printer_bindings_",
-     [(keyword("_print_pretty_"),          t),
-      (keyword("_print_readably_"),        nil),
-      (keyword("_print_level_"),           4),
-      (keyword("_print_length_"),          5),
-      (keyword("_print_lines_"),           1),
-      (keyword("_print_right_margin_"),    200),
-      (keyword("_print_pprint_dispatch_"), symbol_value("_backtrace_pprint_dispatch_table_"))])
+     [(intern0("_print_pretty_"),          t),
+      (intern0("_print_readably_"),        nil),
+      (intern0("_print_level_"),           4),
+      (intern0("_print_length_"),          5),
+      (intern0("_print_lines_"),           1),
+      (intern0("_print_right_margin_"),    200),
+      (intern0("_print_pprint_dispatch_"), symbol_value("_backtrace_pprint_dispatch_table_"))])
 
 setq("_default_worker_thread_bindings_", nil)
 
@@ -169,7 +169,7 @@ def make_connection(socket, stream, style, coding_system):
         serve, cleanup = ((spawn_threads_for_connection, cleanup_connection_threads) if style is keyword("spawn") else
                           (install_sigio_handler, deinstall_sigio_handler) if style is keyword("sigio") else
                           (install_fd_handler, deinstall_fd_handler) if style is keyword("fd-handler") else
-                          (simple-serve-requests, None))
+                          (simple_serve_requests, None))
         conn = connection(socket = socket,
                           socket_io = stream,
                           communication_style = style,
@@ -449,11 +449,11 @@ def process_requests(timeout):
                         return_from(process_requests, None)
                 destructure_case(
                         event,
-                        ([keyword("emacs-rex",
-                                  eval_for_emacs)]),
-                        ([keyword("emacs-channel-send",
-                                  lambda channel, selector, *args:
-                                          channel_send(channel, selector, args))]))
+                        ([keyword("emacs-rex"),
+                          eval_for_emacs]),
+                        ([keyword("emacs-channel-send"),
+                          lambda channel, selector, *args:
+                                  channel_send(channel, selector, args)]))
         return loop(body)
 
 def current_socket_io():
@@ -1062,12 +1062,12 @@ def eval_region(string):
 #### interactive-eval-region
 #### re-evaluate-defvar
 
-setq("_swank_pprint_bindings_", [("_print_pretty_",   t),
-                                 ("_print_level_",    nil),
-                                 ("_print_length_",   nil),
-                                 ("_print_circle_",   t),
-                                 ("_print_gensym_",   t),
-                                 ("_print_readably_", nil)])
+setq("_swank_pprint_bindings_", [(intern0("_print_pretty_"),   t),
+                                 (intern0("_print_level_"),    nil),
+                                 (intern0("_print_length_"),   nil),
+                                 (intern0("_print_circle_"),   t),
+                                 (intern0("_print_gensym_"),   t),
+                                 (intern0("_print_readably_"), nil)])
 
 #### swank-pprint
 #### pprint-eval
@@ -1396,8 +1396,8 @@ def track_package(fn):
         finally:
                 if p is not _package_():
                         send_to_emacs(env.slime_connection,
-                                      [keyword("new-package", package_name(_package_()),
-                                                package_string_for_prompt(_package_()))])
+                                      [keyword("new-package"), package_name(_package_()),
+                                       package_string_for_prompt(_package_())])
 
 #### cat
 #### truncate-string
