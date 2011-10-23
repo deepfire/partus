@@ -875,8 +875,8 @@ def symbol_package(x):               return x.package
 def coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, coerce_to_package(package))
 
-def _keyword(s):
-        return _intern(s, __keyword_package__)[0]
+def _keyword(s, upcase = True):
+        return _intern(s.upcase() if upcase else s, __keyword_package__)[0]
 
 def symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
