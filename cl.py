@@ -866,6 +866,8 @@ class symbol():
                 return str(self)
         def __init__(self, name):
                 self.name, self.package, self.value, self.function = name, None, None, None
+        def __hash__(self):
+                return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __bool__(self):
                 return self is not nil
 def symbolp(x):                      return typep(x, symbol)
