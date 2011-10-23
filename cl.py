@@ -1085,6 +1085,13 @@ def write_to_string(object,
         radix           = radix           if radix           is not None else symbol_value("_print_radix_")
         readably        = readably        if readably        is not None else symbol_value("_print_readably_")
         right_margin    = right_margin    if right_margin    is not None else symbol_value("_print_right_margin_")
+        assert(array is t and
+               base is 10 and
+               case is _keyword("upcase") and
+               circle is nil and
+               # escape is
+               gensym is t and
+               )
         _not_implemented()
 
 def prin1_to_string(object):
