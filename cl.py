@@ -753,7 +753,7 @@ def symbol_conflict_error(op, obj, pkg, x, y):
 
 def symbols_not_accessible_error(package, syms):
         def pp_sym_or_string(x):
-                return "'%s'" % x if stringp(x) else print_symbol(x)
+                return "'%s'" % x if stringp(x) else _print_symbol(x)
         error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
               package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
 
@@ -769,7 +769,7 @@ def _use_package_symbols(dest, src, syms):
                 if name not in dest.accessible: # Addition of this conditional is important for package use loops.
                         dest.accessible[name] = sym
                         # if dest.name == "SWANK" and src.name == "INSPECTOR":
-                        #         debug_printf("merging %s into %s: test: %s", s, dest, read_symbol(print_symbol(s)))
+                        #         debug_printf("merging %s into %s: test: %s", s, dest, read_symbol(_print_symbol(s)))
                 if dest.module and name not in dest.module.__dict__:
                         dest.module.__dict__[name] = sym.value
 
@@ -853,12 +853,6 @@ def defpackage(name, use = [], export = []):
 def in_package(name):
         setq("_package_", coerce_to_package(name))
 
-def print_symbol(s):
-        return "%s%s%s" % (s.package.name if s.package else
-                           "#",
-                           ":" if not s.package or (s in s.package.external) else
-                           "::",
-                           s.name)
 def _print_symbol2(x, package = None): return _letf(coerce_to_package(package),
                                                     lambda p: (x.name if x.package and p.accessible[x.name] is x else
                                                                str(x)))
@@ -867,7 +861,7 @@ def print_keyword(s):
 
 class symbol():
         def __str__(self):
-                return (print_keyword if self.package is __keyword_package__ else print_symbol)(self)
+                return (print_keyword if self.package is __keyword_package__ else _print_symbol)(self)
         def __repr__(self):
                 return str(self)
         def __init__(self, name):
@@ -1044,6 +1038,17 @@ setq("_print_readably_",        nil)
 setq("_print_miser_width_",     nil)
 setq("_print_pprint_dispatch_", _make_default_pprint_dispatch_table())
 setq("_print_right_margin_",    nil)
+
+_case_attribute_map = dict (UPCASE = "upper", DOWNCASE = "lower", CAPITALIZE = "capitalize")
+def _print_symbol(s, gensym = True, case = None):
+        case = case if case is not None else symbol_value("_print_case_")
+        def mangle_case(x, type):
+                return getattr(x, _case_attribute_map[type.name])(x)
+        return "%s%s%s" % (s.package.name if s.package else
+                           ("#" if gensym else ""),
+                           (":" if not gensym or s.package else "") if not s.package or (s in s.package.external) else
+                           "::",
+                           mangle_case(s.name))
 
 def with_standard_io_syntax(body):
         # XXX: is this true?
