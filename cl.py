@@ -1019,36 +1019,37 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, " {%x}", id(object))
         write_string(">", stream)
 
-def _make_default_pprint_dispatch_table():
-        "XXX: this is crap!"
-        return dict()
+__standard_pprint_dispatch__ = dict() # XXX: this is crap!
 
-setq("_print_array_",           t)
-setq("_print_base_",            10)
-setq("_print_case_",            _keyword("upcase"))
-setq("_print_circle_",          nil)
-setq("_print_escape_",          t)
-setq("_print_gensym_",          t)
-setq("_print_length_",          nil)
-setq("_print_level_",           nil)
-setq("_print_lines_",           nil)
-setq("_print_pretty_",          t)
-setq("_print_radix_",           nil)
-setq("_print_readably_",        nil)
-setq("_print_miser_width_",     nil)
-setq("_print_pprint_dispatch_", _make_default_pprint_dispatch_table())
-setq("_print_right_margin_",    nil)
+__standard_io_syntax__ = dict(_print_array_           = t,
+                              _print_base_            = 10,
+                              _print_case_            = _keyword("UPCASE"),
+                              _print_circle_          = nil,
+                              _print_escape_          = t,
+                              _print_gensym_          = t,
+                              _print_length_          = nil,
+                              _print_level_           = nil,
+                              _print_lines_           = nil,
+                              _print_miser_width_     = nil,
+                              _print_pprint_dispatch_ = __standard_pprint_dispatch__,
+                              _print_pretty_          = t,
+                              _print_radix_           = nil,
+                              _print_readably_        = nil,
+                              _print_right_margin_    = nil)
+
+for var, standard_value in __standard_io_syntax__.items():
+        setq(var, standard_value)
 
 _case_attribute_map = dict (UPCASE = "upper", DOWNCASE = "lower", CAPITALIZE = "capitalize")
 def _print_symbol(s, gensym = True, case = None):
         case = case if case is not None else symbol_value("_print_case_")
         def mangle_case(x, type):
-                return getattr(x, _case_attribute_map[type.name])(x)
+                return getattr(x, _case_attribute_map[type.name])()
         return "%s%s%s" % (s.package.name if s.package else
                            ("#" if gensym else ""),
                            (":" if not gensym or s.package else "") if not s.package or (s in s.package.external) else
                            "::",
-                           mangle_case(s.name))
+                           mangle_case(s.name, case))
 
 def with_standard_io_syntax(body):
         # XXX: is this true?
