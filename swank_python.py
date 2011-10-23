@@ -138,7 +138,7 @@ def function_name(function):
 @defimplementation
 def call_with_debugging_environment(debugger_loop_fn):
         with env.let(_sldb_stack_top_ = (_top_frame()
-                                         if symbol_value("_debug_swank_backend_") or not env.boundp("_stack_top_hint_") else
+                                         if symbol_value("_debug_swank_backend_") or not boundp("_stack_top_hint_") else
                                          env._stack_top_hint_),
                      _stack_top_hint_ = None):
                 handler_bind(lambda: debugger_loop_fn(),

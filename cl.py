@@ -10,6 +10,7 @@ import types
 import inspect
 import builtins
 import functools
+import threading
 import collections
 
 from functools import reduce
@@ -712,7 +713,7 @@ def catch(ball, body):
 
 def throw(ball, value):
         "Stack this seeks, like mad, like the real one."
-        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = env.boundp('_signalling_frame_'))
+        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp('_signalling_frame_'))
 
 def make_ball(name, nonce):
         return nonce + name + nonce # Shall we do something smarter?
@@ -979,32 +980,42 @@ def _init_condition_system():
         enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
 
 ##
-## Dynamic scope (XXX: NOT THREAD-COMPATIBLE YET!!!)
+## Dynamic scope
 ##
-__dynamic_binding_clusters__ = []
+__global_scope__ = dict()
 
-class env_cluster(object):
-        def __init__(self, cluster):
-                self.cluster = cluster
-        def __enter__(self):
-                __dynamic_binding_clusters__.append(self.cluster)
-        def __exit__(self, t, v, tb):
-                __dynamic_binding_clusters__.pop()
+class thread_local_storage(threading.local):
+        def __init__(self):
+                self.dynamic_scope = []
+
+__tls__ = thread_local_storage()
+
+def boundp(name):
+        for scope in reversed(__tls__.dynamic_scope):
+                if name in scope:
+                        return t
+        if name in __global_scope__:
+                return t
 
 def _symbol_value(name):
-        for scope in reversed(__dynamic_binding_clusters__):
+        for scope in reversed(__tls__.dynamic_scope):
                 if name in scope:
                         return scope[name]
+        if name in __global_scope__:
+                return __global_scope__[name]
         error(AttributeError, "Unbound variable: %s." % name)
 
 def symbol_value(symbol):
         return _symbol_value(symbol.name if symbolp(symbol) else
                              _case_xform(_symbol_value("_READ_CASE_"), symbol))
 
-def boundp(name):
-        for scope in reversed(__dynamic_binding_clusters__):
-                if name in scope:
-                        return t
+class env_cluster(object):
+        def __init__(self, cluster):
+                self.cluster = cluster
+        def __enter__(self):
+                __tls__.dynamic_scope.append(self.cluster)
+        def __exit__(self, t, v, tb):
+                __tls__.dynamic_scope.pop()
 
 class dynamic_scope(object):
         "Courtesy of Jason Orendorff."
@@ -1012,17 +1023,10 @@ class dynamic_scope(object):
                 return symbol_value(name)
         def let(self, **keys):
                 return env_cluster(keys)
-        def boundp(self, name):
-                for scope in reversed(__dynamic_binding_clusters__):
-                        if name in scope:
-                                return True
         def __setattr__(self, name, value):
                 error(AttributeError, "Use SETQ to set special globals.")
-
-__cl_top_level_dynamic_scope__ = dict()
 class cl_dynamic_scope(dynamic_scope):
-        def __init__(self):
-                __dynamic_binding_clusters__.append(__cl_top_level_dynamic_scope__)
+        pass
 
 __dynamic_scope__ = cl_dynamic_scope()
 env = __dynamic_scope__             # shortcut..
@@ -1081,11 +1085,12 @@ def _init_package_system_0():
 _init_package_system_0()
 
 def _init_reader_0():
-        __dynamic_binding_clusters__[-1]["_READ_CASE_"] = _keyword("upcase", upcase = True)
+        __global_scope__["_READ_CASE_"] = _keyword("upcase", upcase = True)
 _init_reader_0()
 
 def setq(name, value):
-        __dynamic_binding_clusters__[-1][_case_xform(symbol_value("_read_case_"), name)] = value
+        dict = __tls__.dynamic_scope[-1] if __tls__.dynamic_scope else __global_scope__
+        dict[_case_xform(symbol_value("_read_case_"), name)] = value
         return value
 
 def _init_package_system_1():
