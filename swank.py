@@ -217,7 +217,7 @@ def with_swank_error_handler(connection, body):
                                                                     condition.condition,
                                                                     condition.backtrace)))
 
-def with_panic_handler (connection, body):
+def with_panic_handler(connection, body):
         return handler_bind(body,
                             Exception = (lambda condition:
                                                  close_connection(connection,
@@ -233,7 +233,7 @@ add_hook("_new_connection_hook_", notify_backend_of_connection)
 ### Logging: swank.lisp:409
 setq("_swank_io_package_", lret(make_package("SWANK_IO_PACKAGE"),
                                 # curry(_import, mapcar(_find_symbol_or_fail, ["t", "nil", "quote"]))
-                                lambda package: _import(mapcar(_find_symbol_or_fail, ["t", "nil", "quote"]),
+                                lambda package: _import(mapcar(_find_symbol_or_fail, ["T", "NIL", "QUOTE"]),
                                                         package)))
 setq("_log_events_",       nil)
 setq("_log_output_",       nil)

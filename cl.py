@@ -23,6 +23,17 @@ def identity(x):
 
 most_positive_fixnum = 67108864
 
+def string_upcase(x):     return x.upper()
+def string_downcase(x):   return x.lower()
+def string_capitalize(x): return x.capitalize()
+
+_case_attribute_map = dict(UPCASE     = string_upcase,
+                           DOWNCASE   = string_downcase,
+                           CAPITALIZE = string_capitalize,
+                           PRESERVE   = identity)
+def _case_xform(type, s):
+        return _case_attribute_map[type.name](s)
+
 ###
 ### Basis
 ###
@@ -669,71 +680,66 @@ def _remap_hash_table(f, xs):
         return { k: f(k, v) for k, v in xs.items() }
 
 ##
-## Dynamic scope (XXX: NOT THREAD-COMPATIBLE YET!!!)
+## Non-local control transfers
 ##
-__dynamic_binding_clusters__ = []
+def unwind_protect(form, fn):
+        "For the times, when statements won't do."
+        try:
+                return form()
+        finally:
+                fn()
 
-class env_cluster(object):
-        def __init__(self, cluster):
-                self.cluster = cluster
-        def __enter__(self):
-                __dynamic_binding_clusters__.append(self.cluster)
-        def __exit__(self, t, v, tb):
-                __dynamic_binding_clusters__.pop()
+# WARNING: non-specific try/except clauses and BaseException handlers break this!
+class __catcher_throw__(BaseException):
+        def __str__(self):
+                return "The ball escaped!"
+        def __init__(self, ball, value, reenable_pytracer = False):
+                self.ball, self.value, self.reenable_pytracer = ball, value, reenable_pytracer
 
-def symbol_value(name):
-        for scope in reversed(__dynamic_binding_clusters__):
-                if name in scope:
-                        return scope[name]
-        error(AttributeError, "Unbound variable: %s." % name)
-
-def boundp(name):
-        for scope in reversed(__dynamic_binding_clusters__):
-                if name in scope:
-                        return t
-
-def setq(name, value):
-        __dynamic_binding_clusters__[-1][name] = value
-        return value
-
-class dynamic_scope(object):
-        "Courtesy of Jason Orendorff."
-        def __getattr__(self, name):
-                return symbol_value(name)
-        def let(self, **keys):
-                return env_cluster(keys)
-        def boundp(self, name):
-                for scope in reversed(__dynamic_binding_clusters__):
-                        if name in scope:
-                                return True
-        def __setattr__(self, name, value):
-                error(AttributeError, "Use SETQ to set special globals.")
-
-__cl_top_level_dynamic_scope__ = dict()
-class cl_dynamic_scope(dynamic_scope):
-        def __init__(self):
-                __dynamic_binding_clusters__.append(__cl_top_level_dynamic_scope__)
-
-__dynamic_scope__ = cl_dynamic_scope()
-env = __dynamic_scope__             # shortcut..
-
-class progv():
-        """Two usage modes:
-progv(['foovar', 'barvar'],
-      [3.14, 2.71],
-      lambda: body())
-
-with progv(foovar = 3.14,
-           barvar = 2.71):
-      body()
-
-..with the latter being lighter on the stack frame usage."""
-        def __init__(vars = None, vals = None, body = None, **cluster):
-                if body:
-                        with env_cluster({ var:val for var, val in zip(vars, vals) }):
-                                return body()
+def catch(ball, body):
+        "This seeks the stack like mad, like the real one."
+        ball = sys.intern(ball)
+        try:
+                return body()
+        except __catcher_throw__ as ct:
+                # format(t, "catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
+                if ct.ball is ball:
+                        if ct.reenable_pytracer:
+                                enable_pytracer()
+                        return ct.value
                 else:
-                        return env_cluster(cluster)
+                        raise
+
+def throw(ball, value):
+        "Stack this seeks, like mad, like the real one."
+        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = env.boundp('_signalling_frame_'))
+
+def make_ball(name, nonce):
+        return nonce + name + nonce # Shall we do something smarter?
+
+def __block__(fn):
+        "An easy decorator-styled interface for block establishment."
+        nonce = gensym("BLOCK")
+        ret = (lambda *args, **keys:
+                       catch(nonce,
+                             lambda: fn(*args, **keys)))
+        setattr(ret, "ball", nonce)
+        return ret
+
+def block(nonce_or_fn, body = None):
+        """A lexically-bound counterpart to CATCH/THROW.
+Note, how, in this form, it is almost a synonym to CATCH/THROW -- the lexical aspect
+of nonce-ing is to be handled manually."""
+        if not body: # Assuming we were called as a decorator..
+                return __block__(nonce_or_fn)
+        else:
+                return catch(nonce, body)
+
+def return_from(nonce, value):
+        nonce = (nonce if not functionp(nonce) else
+                 (getattr(nonce, "ball", None) or
+                  error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
+        throw(nonce, value)
 
 ##
 ## Package system
@@ -769,7 +775,7 @@ def _use_package_symbols(dest, src, syms):
                 if name not in dest.accessible: # Addition of this conditional is important for package use loops.
                         dest.accessible[name] = sym
                         # if dest.name == "SWANK" and src.name == "INSPECTOR":
-                        #         debug_printf("merging %s into %s: test: %s", s, dest, read_symbol(_print_symbol(s)))
+                        #         debug_printf("merging %s into %s: test: %s", s, dest, _read_symbol(_print_symbol(s)))
                 if dest.module and name not in dest.module.__dict__:
                         dest.module.__dict__[name] = sym.value
 
@@ -878,7 +884,7 @@ def coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, coerce_to_package(package))
 
 def _keyword(s, upcase = True):
-        return _intern(s.upcase() if upcase else s, __keyword_package__)[0]
+        return _intern((s.upper() if upcase else s), __keyword_package__)[0]
 
 def symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
@@ -956,22 +962,6 @@ def export(symbols, package = None):
         package.external |= symset
         return True
 
-def read_symbol(x, package = None):
-        # debug_printf("read_symbol >%s<, x[0]: >%s<", x, x[0])
-        name, p = ((x[1:], __keyword_package__)
-                   if x[0] == ":" else
-                   _letf(x.find(":"),
-                         lambda index:
-                                 (_if_let(find_package(x[0:index].upper()),
-                                          lambda p:
-                                                  (x[index + 1:], p),
-                                          lambda:
-                                                  error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
-                                                        x[0:index].upper(), x))
-                                  if index != -1 else
-                                  (x, coerce_to_package(package)))))
-        return _intern0(name, p)
-
 def string(x):
         return (x              if stringp(x) else
                 symbol_name(x) if symbolp(x) else
@@ -988,7 +978,74 @@ def _pythonise_lisp_name(x):
 def _init_condition_system():
         enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
 
-def _init_package_system():
+##
+## Dynamic scope (XXX: NOT THREAD-COMPATIBLE YET!!!)
+##
+__dynamic_binding_clusters__ = []
+
+class env_cluster(object):
+        def __init__(self, cluster):
+                self.cluster = cluster
+        def __enter__(self):
+                __dynamic_binding_clusters__.append(self.cluster)
+        def __exit__(self, t, v, tb):
+                __dynamic_binding_clusters__.pop()
+
+def _symbol_value(name):
+        for scope in reversed(__dynamic_binding_clusters__):
+                if name in scope:
+                        return scope[name]
+        error(AttributeError, "Unbound variable: %s." % name)
+
+def symbol_value(symbol):
+        return _symbol_value(symbol.name if symbolp(symbol) else
+                             _case_xform(_symbol_value("_READ_CASE_"), symbol))
+
+def boundp(name):
+        for scope in reversed(__dynamic_binding_clusters__):
+                if name in scope:
+                        return t
+
+class dynamic_scope(object):
+        "Courtesy of Jason Orendorff."
+        def __getattr__(self, name):
+                return symbol_value(name)
+        def let(self, **keys):
+                return env_cluster(keys)
+        def boundp(self, name):
+                for scope in reversed(__dynamic_binding_clusters__):
+                        if name in scope:
+                                return True
+        def __setattr__(self, name, value):
+                error(AttributeError, "Use SETQ to set special globals.")
+
+__cl_top_level_dynamic_scope__ = dict()
+class cl_dynamic_scope(dynamic_scope):
+        def __init__(self):
+                __dynamic_binding_clusters__.append(__cl_top_level_dynamic_scope__)
+
+__dynamic_scope__ = cl_dynamic_scope()
+env = __dynamic_scope__             # shortcut..
+
+class progv():
+        """Two usage modes:
+progv(['foovar', 'barvar'],
+      [3.14, 2.71],
+      lambda: body())
+
+with progv(foovar = 3.14,
+           barvar = 2.71):
+      body()
+
+..with the latter being lighter on the stack frame usage."""
+        def __init__(vars = None, vals = None, body = None, **cluster):
+                if body:
+                        with env_cluster({ var:val for var, val in zip(vars, vals) }):
+                                return body()
+                else:
+                        return env_cluster(cluster)
+
+def _init_package_system_0():
         # debug_printf("   --  -- [ package system init..")
         global __packages__
         global __keyword_package__
@@ -998,16 +1055,43 @@ def _init_package_system():
         cl = package("CL")
         intern(".", cl)
 
-        t                  = _intern0("t", cl)       # Nothing much works without these..
-        nil                = _intern0("nil", cl)
+        t                  = _intern0("T", cl)       # Nothing much works without these..
+        nil                = _intern0("NIL", cl)
         t.value, nil.value = t, nil     # Self-evaluation.
         export([t, nil] + mapcar(lambda n: _intern0(n, cl),
-                                 ["quote", "or", "some"]),
+                                 ["QUOTE", "OR", "SOME"]),
                cl)
 
+def _init_package_system_0():
+        # debug_printf("   --  -- [ package system init..")
+        global __packages__
+        global __keyword_package__
+        global t, nil
+        __packages__ = dict()
+        __keyword_package__ = package("KEYWORD", ignore_python = True)
+        cl = package("CL")
+        intern(".", cl)
+
+        t                  = _intern0("T", cl)       # Nothing much works without these..
+        nil                = _intern0("NIL", cl)
+        t.value, nil.value = t, nil     # Self-evaluation.
+        export([t, nil] + mapcar(lambda n: _intern0(n, cl),
+                                 ["QUOTE", "OR", "SOME"]),
+               cl)
+_init_package_system_0()
+
+def _init_reader_0():
+        __dynamic_binding_clusters__[-1]["_READ_CASE_"] = _keyword("upcase", upcase = True)
+_init_reader_0()
+
+def setq(name, value):
+        __dynamic_binding_clusters__[-1][_case_xform(symbol_value("_read_case_"), name)] = value
+        return value
+
+def _init_package_system_1():
         setq("_package_", package("CL_USER", use = ["CL"]))
 
-_init_package_system()
+_init_package_system_1()
 
 ##
 ## Pretty-printing
@@ -1025,7 +1109,7 @@ __standard_pprint_dispatch__ = dict() # XXX: this is crap!
 
 __standard_io_syntax__ = dict(_print_array_           = t,
                               _print_base_            = 10,
-                              _print_case_            = _keyword("UPCASE"),
+                              _print_case_            = _keyword("upcase"),
                               _print_circle_          = nil,
                               _print_escape_          = t,
                               _print_gensym_          = t,
@@ -1042,16 +1126,13 @@ __standard_io_syntax__ = dict(_print_array_           = t,
 for var, standard_value in __standard_io_syntax__.items():
         setq(var, standard_value)
 
-_case_attribute_map = dict (UPCASE = "upper", DOWNCASE = "lower", CAPITALIZE = "capitalize")
 def _print_symbol(s, gensym = True, case = None):
         case = case if case is not None else symbol_value("_print_case_")
-        def mangle_case(x, type):
-                return getattr(x, _case_attribute_map[type.name])()
         return "%s%s%s" % (s.package.name if s.package else
                            ("#" if gensym else ""),
                            (":" if not gensym or s.package else "") if not s.package or (s in s.package.external) else
                            "::",
-                           mangle_case(s.name, case))
+                           _case_xform(case, s.name))
 
 def with_standard_io_syntax(body):
         # XXX: is this true?
@@ -1119,111 +1200,11 @@ def format(stream, format_control, *format_arguments):
                 write_string(string, stream)
 
 ##
-## Streams
-##
-setq("_standard_output_", sys.stdout)
-setq("_error_output_",    sys.stderr)
-# setq("_debug_io_",    ???) XXX: ???
-# setq("_query_io_",    ???) XXX: ???
-
-def streamp(x):
-        return typep(x, stream)
-
-def _coerce_to_stream(x):
-        return (x                                 if streamp(x) else
-                symbol_value("_standard_output_") if x is t else
-                error("%s cannot be coerced to a stream.", x))
-
-def write_string(string, stream = symbol_value("_standard_output_")):
-        if stream is not nil:
-                _write_string(string, _coerce_to_stream(stream))
-        return string
-
-def write_line(string, stream = symbol_value("_standard_output_")):
-        return write_string(string + "\n", stream)
-
-def make_string_output_stream():
-        return io.StringIO()
-
-def get_output_stream_string(x):
-        return x.getvalue()
-
-def close(x):
-        x.close()
-
-def finish_output(stream = symbol_value("_standard_output_")):
-        stream is not nil and _coerce_to_stream(stream).flush()
-
-def force_output(*args, **keys):
-        finish_output(*args, **keys)
-
-##
-## Non-local control transfers
-##
-def unwind_protect(form, fn):
-        "For the times, when statements won't do."
-        try:
-                return form()
-        finally:
-                fn()
-
-# WARNING: non-specific try/except clauses and BaseException handlers break this!
-class __catcher_throw__(BaseException):
-        def __str__(self):
-                return "The ball escaped!"
-        def __init__(self, ball, value, reenable_pytracer = False):
-                self.ball, self.value, self.reenable_pytracer = ball, value, reenable_pytracer
-
-def catch(ball, body):
-        "This seeks the stack like mad, like the real one."
-        ball = sys.intern(ball)
-        try:
-                return body()
-        except __catcher_throw__ as ct:
-                # format(t, "catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
-                if ct.ball is ball:
-                        if ct.reenable_pytracer:
-                                enable_pytracer()
-                        return ct.value
-                else:
-                        raise
-
-def throw(ball, value):
-        "Stack this seeks, like mad, like the real one."
-        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = env.boundp('_signalling_frame_'))
-
-def make_ball(name, nonce):
-        return nonce + name + nonce # Shall we do something smarter?
-
-def __block__(fn):
-        "An easy decorator-styled interface for block establishment."
-        nonce = gensym("BLOCK")
-        ret = (lambda *args, **keys:
-                       catch(nonce,
-                             lambda: fn(*args, **keys)))
-        setattr(ret, "ball", nonce)
-        return ret
-
-def block(nonce_or_fn, body = None):
-        """A lexically-bound counterpart to CATCH/THROW.
-Note, how, in this form, it is almost a synonym to CATCH/THROW -- the lexical aspect
-of nonce-ing is to be handled manually."""
-        if not body: # Assuming we were called as a decorator..
-                return __block__(nonce_or_fn)
-        else:
-                return catch(nonce, body)
-
-def return_from(nonce, value):
-        nonce = (nonce if not functionp(nonce) else
-                 (getattr(nonce, "ball", None) or
-                  error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
-        throw(nonce, value)
-
-##
 ## Reader
 ##
-def parse_integer(xs, junk_allowed = None, radix = 10):
-        "Does not /quite/ conform."
+setq("_read_case_", _keyword("upcase"))
+
+def parse_integer(xs, junk_allowed = nil, radix = 10):
         l = len(xs)
         def hexcharp(x): return x.isdigit() or x in ['a', 'b', 'c', 'd', 'e', 'f']
         (test, xform) = ((str.isdigit, identity)      if radix == 10 else
@@ -1237,6 +1218,22 @@ def parse_integer(xs, junk_allowed = None, radix = 10):
                         else:
                                 error("Junk in string '%s'.", xs)
         return int(xform(xs[:(end + 1)]))
+
+def _read_symbol(x, package = None, case = _keyword("upcase")):
+        # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
+        name, p = ((x[1:], __keyword_package__)
+                   if x[0] == ":" else
+                   _letf(x.find(":"),
+                         lambda index:
+                                 (_if_let(find_package(x[0:index].upper()),
+                                          lambda p:
+                                                  (x[index + 1:], p),
+                                          lambda:
+                                                  error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
+                                                        x[0:index].upper(), x))
+                                  if index != -1 else
+                                  (x, coerce_to_package(package)))))
+        return _intern0(_case_xform(case, name), p)
 
 @block
 def read_from_string(string, eof_error_p = True, eof_value = nil,
@@ -1314,7 +1311,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 elif re.match("^[0-9]+\\.[0-9]+$", token):
                         ret = float(token)
                 else:
-                        ret = read_symbol(token)
+                        ret = _read_symbol(token)
                         # debug_printf("-- interned %s as %s", token, name)
                         # if name is t:
                         #         ret = True
@@ -1391,6 +1388,45 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
         #   for op, av in pattern:
         # File "/usr/lib/python3.2/sre_parse.py", line 134, in __getitem__
         #   return self.data[index]
+
+##
+## Streams
+##
+setq("_standard_output_", sys.stdout)
+setq("_error_output_",    sys.stderr)
+# setq("_debug_io_",    ???) XXX: ???
+# setq("_query_io_",    ???) XXX: ???
+
+def streamp(x):
+        return typep(x, stream)
+
+def _coerce_to_stream(x):
+        return (x                                 if streamp(x) else
+                symbol_value("_standard_output_") if x is t else
+                error("%s cannot be coerced to a stream.", x))
+
+def write_string(string, stream = symbol_value("_standard_output_")):
+        if stream is not nil:
+                _write_string(string, _coerce_to_stream(stream))
+        return string
+
+def write_line(string, stream = symbol_value("_standard_output_")):
+        return write_string(string + "\n", stream)
+
+def make_string_output_stream():
+        return io.StringIO()
+
+def get_output_stream_string(x):
+        return x.getvalue()
+
+def close(x):
+        x.close()
+
+def finish_output(stream = symbol_value("_standard_output_")):
+        stream is not nil and _coerce_to_stream(stream).flush()
+
+def force_output(*args, **keys):
+        finish_output(*args, **keys)
 
 ##
 ## Pythonese execution tracing: for HANDLER-BIND.
