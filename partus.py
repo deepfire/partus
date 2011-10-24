@@ -163,7 +163,7 @@ def authenticate_client(stream):
 
 def slime_secret():
         secret_path = os.path.join(user_homedir_pathname(), ".slime-secret")
-        if os.path.exists(secret_path):
+        if probe_file(secret_path):
                 with open(secret_path, "r") as f:
                         return f and read_line(f, nil, "")
 

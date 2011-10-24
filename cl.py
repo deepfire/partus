@@ -1394,6 +1394,15 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
         #   return self.data[index]
 
 ##
+## Files
+##
+def probe_file(pathname):
+        "No, no real pathnames, just namestrings.."
+        assert(stringp(pathname))
+        return handler_case(lambda: os.path.exists(pathname),
+                            error = lambda _: False)
+
+##
 ## Streams
 ##
 setq("_standard_output_", sys.stdout)

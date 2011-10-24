@@ -52,6 +52,16 @@ def e(mesg, expr): fprintf(sys.stderr, "-%s: %s\n" % (mesg, expr)); return expr
 
 enable_pytracer()
 
+@block
+def f():
+        def raiser():
+                raise X1("HANDLER-BIND: Ugh.")
+        return handler_bind(raiser,
+                            X1 = lambda cond:
+                            return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_)))
+assert(f() == "Woot: cl-tests.py: raiser()")
+print("HANDLER-BIND: passed")
+
 def f():
         def raiser():
                 raise X1("HANDLER-CASE: Ugh.")
@@ -68,17 +78,7 @@ def report():
 @block
 def f():
         def raiser():
-                raise X1("HANDLER-BIND: Ugh.")
-        return handler_bind(raiser,
-                            X1 = lambda cond:
-                            return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_)))
-assert(f() == "Woot: cl-tests.py: raiser()")
-print("HANDLER-BIND: passed")
-
-@block
-def f():
-        def raiser():
-                raise X1("HANDLER-BIND: Ugh.")
+                raise X1("HANDLER-CASE: Ugh.")
         return handler_case(
                 lambda: handler_bind(raiser,
                                      X1 = lambda cond:
@@ -112,3 +112,7 @@ def f():
                                       finder_invoker(raiser))
 assert(f() == 'Winnage: 1, 2!')
 print("CONDITIONS-RESTARTS: passed")
+
+assert(probe_file("/etc/passwd") and
+       not probe_file("/does/not/exist"))
+print("PROBE-FILE: passed")

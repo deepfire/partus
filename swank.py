@@ -1160,7 +1160,7 @@ def connection_info(slime_connection, sldb_state):
 def swank_require(slime_connection, sldb_state, contribs):
         for contrib in contribs:
                 filename = "%s/%s.py" % (env.partus_path, str(contrib))
-                if os.path.exists(filename):
+                if probe_file(filename):
                         load_file(filename)
         return []
 
