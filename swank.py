@@ -540,8 +540,8 @@ def thread_for_evaluation(id):
                 error(TypeError, "THREAD-FOR-EVALUATION: id must be one of: T, :REPL-THREAD or a fixnum, was: %s" % id)
 
 def spawn_worker_thread(connection):
-        spawn(lambda:
-                      with_bindings(
+        return spawn(lambda:
+                             with_bindings(
                         symbol_value("_default_worker_thread_bindings_"),
                         lambda:
                                 with_top_level_restart(
@@ -550,13 +550,13 @@ def spawn_worker_thread(connection):
                                         eval_for_emacs(*wait_for_event([keyword("emacs_rex"),
                                                                         # XXX: was: :emacs-rex . _
                                                                         ])[1:]))),
-              name = "worker")
+                     name = "worker")
 
 def spawn_repl_thread(connection, name):
-        spawn(lambda:
-                      with_bindings(symbol_value("_default_worker_thread_bindings_"),
-                                    lambda: repl_loop(connection)),
-              name = name)
+        return spawn(lambda:
+                             with_bindings(symbol_value("_default_worker_thread_bindings_"),
+                                           lambda: repl_loop(connection)),
+                     name = name)
 
 def dispatch_event(event):
         log_event("dispatch_event: %s\n", event)
