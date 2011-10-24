@@ -2,6 +2,18 @@ import sys
 import cl
 from cl import *
 
+setq("_scope_", 0)
+def outer():
+        def inner():
+                setq("_scope_", 2)
+                return symbol_value("_scope_")
+        def midder():
+                with env.let(_scope_ = 1):
+                        return [ symbol_value("_scope_"), inner() ]
+        return [ symbol_value("_scope_") ] + midder() + [ symbol_value("_scope_") ]
+assert(outer() == [0, 1, 2, 0])
+print("DYNAMIC-SCOPE: passed")
+
 def outer():
         def midder(f):
                 catch("midder", f)

@@ -979,93 +979,6 @@ def _pythonise_lisp_name(x):
 def _init_condition_system():
         enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
 
-##
-## Dynamic scope
-##
-__global_scope__ = dict()
-
-class thread_local_storage(threading.local):
-        def __init__(self):
-                self.dynamic_scope = []
-
-__tls__ = thread_local_storage()
-
-def boundp(name):
-        for scope in reversed(__tls__.dynamic_scope):
-                if name in scope:
-                        return t
-        if name in __global_scope__:
-                return t
-
-def _symbol_value(name):
-        for scope in reversed(__tls__.dynamic_scope):
-                if name in scope:
-                        return scope[name]
-        if name in __global_scope__:
-                return __global_scope__[name]
-        error(AttributeError, "Unbound variable: %s." % name)
-
-def symbol_value(symbol):
-        return _symbol_value(symbol.name if symbolp(symbol) else
-                             _case_xform(_symbol_value("_READ_CASE_"), symbol))
-
-class env_cluster(object):
-        def __init__(self, cluster):
-                self.cluster = cluster
-        def __enter__(self):
-                __tls__.dynamic_scope.append(self.cluster)
-        def __exit__(self, t, v, tb):
-                __tls__.dynamic_scope.pop()
-
-class dynamic_scope(object):
-        "Courtesy of Jason Orendorff."
-        def __getattr__(self, name):
-                return symbol_value(name)
-        def let(self, **keys):
-                return env_cluster(keys)
-        def __setattr__(self, name, value):
-                error(AttributeError, "Use SETQ to set special globals.")
-class cl_dynamic_scope(dynamic_scope):
-        pass
-
-__dynamic_scope__ = cl_dynamic_scope()
-env = __dynamic_scope__             # shortcut..
-
-class progv():
-        """Two usage modes:
-progv(['foovar', 'barvar'],
-      [3.14, 2.71],
-      lambda: body())
-
-with progv(foovar = 3.14,
-           barvar = 2.71):
-      body()
-
-..with the latter being lighter on the stack frame usage."""
-        def __init__(vars = None, vals = None, body = None, **cluster):
-                if body:
-                        with env_cluster({ var:val for var, val in zip(vars, vals) }):
-                                return body()
-                else:
-                        return env_cluster(cluster)
-
-def _init_package_system_0():
-        # debug_printf("   --  -- [ package system init..")
-        global __packages__
-        global __keyword_package__
-        global t, nil
-        __packages__ = dict()
-        __keyword_package__ = package("KEYWORD", ignore_python = True)
-        cl = package("CL")
-        intern(".", cl)
-
-        t                  = _intern0("T", cl)       # Nothing much works without these..
-        nil                = _intern0("NIL", cl)
-        t.value, nil.value = t, nil     # Self-evaluation.
-        export([t, nil] + mapcar(lambda n: _intern0(n, cl),
-                                 ["QUOTE", "OR", "SOME"]),
-               cl)
-
 def _init_package_system_0():
         # debug_printf("   --  -- [ package system init..")
         global __packages__
@@ -1084,14 +997,98 @@ def _init_package_system_0():
                cl)
 _init_package_system_0()
 
+##
+## Dynamic scope
+##
+__global_scope__ = dict()
+
+class thread_local_storage(threading.local):
+        def __init__(self):
+                self.dynamic_scope = []
+
+__tls__ = thread_local_storage()
+
 def _init_reader_0():
+        "SETQ, LET and BOUNDP all need this to mangle names."
         __global_scope__["_READ_CASE_"] = _keyword("upcase", upcase = True)
 _init_reader_0()
 
+def _boundp(name):
+        name = _case_xform(_symbol_value("_READ_CASE_"), name)
+        for scope in reversed(__tls__.dynamic_scope):
+                if name in scope:
+                        return t
+        if name in __global_scope__:
+                return t
+
+def _symbol_value(name):
+        for scope in reversed(__tls__.dynamic_scope):
+                if name in scope:
+                        return scope[name]
+        if name in __global_scope__:
+                return __global_scope__[name]
+        error(AttributeError, "Unbound variable: %s." % name)
+
+def _coerce_to_symbol_name(x):
+        return (x.name if symbolp(x) else
+                _case_xform(_symbol_value("_READ_CASE_"), x))
+
+def _coerce_cluster_keys_to_symbol_names(dict):
+        return { _coerce_to_symbol_name(var):val for var, val in dict.items() }
+
+def boundp(symbol):
+        return _boundp(_coerce_to_symbol_name(symbol))
+
+def symbol_value(symbol):
+        return _symbol_value(_coerce_to_symbol_name(symbol))
+
 def setq(name, value):
         dict = __tls__.dynamic_scope[-1] if __tls__.dynamic_scope else __global_scope__
-        dict[_case_xform(symbol_value("_read_case_"), name)] = value
+        # if name == "_scope_":
+        #         _write_string("setq(%s -(%s)> %s, %s)" %
+        #                       (name, symbol_value("_read_case_"), _case_xform(symbol_value("_read_case_"), name), value),
+        #                       sys.stdout)
+        dict[_coerce_to_symbol_name(name)] = value
         return value
+
+class env_cluster(object):
+        def __init__(self, cluster):
+                self.cluster = cluster
+        def __enter__(self):
+                __tls__.dynamic_scope.append(_coerce_cluster_keys_to_symbol_names(self.cluster))
+        def __exit__(self, t, v, tb):
+                __tls__.dynamic_scope.pop()
+
+class dynamic_scope(object):
+        "Courtesy of Jason Orendorff."
+        def let(self, **keys):
+                return env_cluster(keys)
+        def __getattr__(self, name):
+                return symbol_value(name)
+        def __setattr__(self, name, value):
+                error(AttributeError, "Use SETQ to set special globals.")
+
+__dynamic_scope__ = dynamic_scope()
+env = __dynamic_scope__             # shortcut..
+
+class progv():
+        """Two usage modes:
+progv(['foovar', 'barvar'],
+      [3.14, 2.71],
+      lambda: body())
+
+with progv(foovar = 3.14,
+           barvar = 2.71):
+      body()
+
+..with the latter being lighter on the stack frame usage."""
+        def __init__(vars = None, vals = None, body = None, **cluster):
+                if body:
+                        with env_cluster(_map_into_hash(lambda vv: (_coerce_to_symbol_name(vv[0]), vv[1]),
+                                                        zip(vars, vals))):
+                                return body()
+                else:
+                        return env_cluster(_coerce_cluster_keys_to_symbol_names(cluster))
 
 def _init_package_system_1():
         setq("_package_", package("CL_USER", use = ["CL"]))
