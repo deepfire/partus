@@ -36,6 +36,12 @@ def _case_xform(type, s):
         return _case_attribute_map[type.name](s)
 
 ###
+### Ring 1.
+###
+def _defaulting(x, variable):
+        return x if x is not None else symbol_value(variable)
+
+###
 ### Basis
 ###
 ##
@@ -135,18 +141,20 @@ def _pp_frame(f, align = None, lineno = None):
         fun = _frame_fun(f)
         fun_name, fun_params, filename = _fun_info(fun)[:3]
         padding = " " * ((align or len(filename)) - len(filename))
-        return "%s:%s: %s(%s)" % (padding + filename,
-                                  ("%d" % _frame_lineno(f)) if lineno else "",
+        return "%s:%s %s(%s)" % (padding + filename,
+                                  ("%d:" % _frame_lineno(f)) if lineno else "",
                                   fun_name, ", ".join(fun_params))
 
-def _print_frame(f):
-        print(_pp_frame(f))
+def _print_frame(f, stream = None):
+        write_string(_pp_frame(f), _defaulting(stream, "_debug_io_"))
 
-def _print_frames(fs):
-        mapc(lambda i, f: format(t, "%2d: %s\n" % (i, _pp_frame(f, lineno = True))), *zip(*enumerate(fs)))
+def _print_frames(fs, stream = None):
+        mapc(lambda i, f: format(_defaulting(stream, "_debug_io_"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
+             *zip(*enumerate(fs)))
 
-def backtrace(x = -1):
-        _print_frames(_frames_upward_from(_this_frame())[1:x])
+def _backtrace(x = -1, stream = None):
+        _print_frames(_frames_upward_from(_this_frame())[1:x],
+                      _defaulting(stream, "_debug_io_"))
 
 # Study was done by the means of:
 # print("\n".join(map(lambda f:
@@ -1131,12 +1139,11 @@ for var, standard_value in __standard_io_syntax__.items():
         setq(var, standard_value)
 
 def _print_symbol(s, gensym = True, case = None):
-        case = case if case is not None else symbol_value("_print_case_")
         return "%s%s%s" % (s.package.name if s.package else
                            ("#" if gensym else ""),
                            (":" if not gensym or s.package else "") if not s.package or (s in s.package.external) else
                            "::",
-                           _case_xform(case, s.name))
+                           _case_xform(_defaulting(case, "_print_case_"), s.name))
 
 def with_standard_io_syntax(body):
         # XXX: is this true?
