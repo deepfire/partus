@@ -131,20 +131,22 @@ def _fun_filename(f):   return f.co_filename
 def _fun_bytecode(f):   return f.co_code
 def _fun_constants(f):  return f.co_consts
 
-def _pp_frame(f, align = None):
+def _pp_frame(f, align = None, lineno = None):
         fun = _frame_fun(f)
         fun_name, fun_params, filename = _fun_info(fun)[:3]
         padding = " " * ((align or len(filename)) - len(filename))
-        return "%s: %s(%s)" % (padding + filename, fun_name, ", ".join(fun_params))
+        return "%s:%s: %s(%s)" % (padding + filename,
+                                  ("%d" % _frame_lineno(f)) if lineno else "",
+                                  fun_name, ", ".join(fun_params))
 
 def _print_frame(f):
         print(_pp_frame(f))
 
 def _print_frames(fs):
-        mapc(lambda i, f: format(t, "%2d: %s\n" % (i, _pp_frame(f))), *zip(*enumerate(fs)))
+        mapc(lambda i, f: format(t, "%2d: %s\n" % (i, _pp_frame(f, lineno = True))), *zip(*enumerate(fs)))
 
 def backtrace(x = -1):
-        _print_frames(_frames_upward_from(_this_frame())[:x])
+        _print_frames(_frames_upward_from(_this_frame())[1:x])
 
 # Study was done by the means of:
 # print("\n".join(map(lambda f:
@@ -1511,7 +1513,8 @@ def invoke_debugger(condition):
 
 def __cl_condition_handler__(cond, frame):
         type, cond, traceback = cond
-        # format(t, "__cl_condition_handler__(%s, %s), line %d", cond, pp_frame(frame), traceback.tb_lineno)
+        format(t, "Caught: %s\n", cond)
+        backtrace()
         # print_frames(frames_upward_from(frame))
         with env.let(_traceback_ = traceback,
                      _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
