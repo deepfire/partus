@@ -474,7 +474,28 @@ def receive_if(test, timeout = None):
         loop(body)
 
 # def set_default_initial_binding(var, form):		pass
-# def wait_for_input(streams, timeout = None):		pass
+
+#### defvar *wait-for-input-called* <unbound>
+@defimplementation
+@block
+def wait_for_input(streams, timeout = None):
+        assert(timeout is nil or timeout is t)
+        if boundp("_wait_for_input_called_"):
+                 setq("_wait_for_input_called_", t)
+        with progv(_wait_for_input_called_ = nil):
+                def body():
+                        ready = remove_if_not(input_ready_p, streams)
+                        if ready:
+                                return_from(wait_for_input, read)
+                        if timeout:
+                                return_from(wait_for_input, nil)
+                        if check_slime_interrupts():
+                                return_from(wait_for_input, keyword("interrupt"))
+                        if symbol_value("_wait_for_input_called_"):
+                                return_from(wait_for_input, keyword("interrupt"))
+                        sleep(0.2)
+                loop(body)
+
 # def toggle_trace(spec):				pass
 # def make_weak_key_hash_table(*args, **keys):		pass
 # def make_weak_value_hash_table(*args, **keys):	pass
