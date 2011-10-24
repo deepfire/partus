@@ -71,7 +71,7 @@ def f():
                 raise X1("HANDLER-BIND: Ugh.")
         return handler_bind(raiser,
                             X1 = lambda cond:
-                            return_from(f, "Woot: " + pp_frame(env._signalling_frame_)))
+                            return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_)))
 assert(f() == "Woot: cl-tests.py: raiser()")
 print("HANDLER-BIND: passed")
 
@@ -82,7 +82,7 @@ def f():
         return handler_case(
                 lambda: handler_bind(raiser,
                                      X1 = lambda cond:
-                                             return_from(f, "Woot: " + pp_frame(env._signalling_frame_))),
+                                             return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_))),
                 X1 = lambda cond: "Surrounding HANDLER-CASE won!")
 assert(f() == "Woot: cl-tests.py: raiser()")
 print("HANDLER-CASE-AROUND-HANDLER-BIND: passed")
