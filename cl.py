@@ -1518,7 +1518,8 @@ def warn(datum, *args, **keys):
         format(symbol_value("_error_output_"), "%s", condition)
         return nil
 
-setq("_debugger_hook_", nil)
+setq("_presignal_hook_", nil)
+setq("_debugger_hook_",  nil)
 
 def invoke_debugger(condition):
         debugger_hook = symbol_value("_debugger_hook_")
@@ -1527,13 +1528,24 @@ def invoke_debugger(condition):
                         debugger_hook(cond, debugger_hook)
         error(BaseError, "INVOKE-DEBUGGER fell through.")
 
+def _report_condition(condition, stream = None):
+        stream = _defaulting(stream, "_debug_io_")
+        format(t, "Condition: %s\n", condition)
+        _backtrace(-1, )
+
+def _reporting_conditions(body):
+        with env.let(_presignal_hook_ = _report_condition):
+                return body()
+
 def __cl_condition_handler__(cond, frame):
         type, cond, traceback = cond
-        format(t, "Caught: %s\n", cond)
-        backtrace()
         # print_frames(frames_upward_from(frame))
         with env.let(_traceback_ = traceback,
                      _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
+                presignal_hook = symbol_value("_presignal_hook_")
+                if presignal_hook:
+                        with env.let(_presignal_hook_ = nil):
+                                presignal_hook(cond, presignal_hook)
                 signal(cond)
                 debugger_hook = symbol_value("_debugger_hook_")
                 if debugger_hook:
