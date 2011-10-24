@@ -1500,6 +1500,15 @@ def warn(datum, *args, **keys):
         format(symbol_value("_error_output_"), "%s", condition)
         return nil
 
+setq("_debugger_hook_", nil)
+
+def invoke_debugger(condition):
+        debugger_hook = symbol_value("_debugger_hook_")
+        if debugger_hook:
+                with env.let(_debugger_hook_ = nil):
+                        debugger_hook(cond, debugger_hook)
+        error(BaseError, "INVOKE-DEBUGGER fell through.")
+
 def __cl_condition_handler__(cond, frame):
         type, cond, traceback = cond
         # format(t, "__cl_condition_handler__(%s, %s), line %d", cond, pp_frame(frame), traceback.tb_lineno)
@@ -1507,6 +1516,10 @@ def __cl_condition_handler__(cond, frame):
         with env.let(_traceback_ = traceback,
                      _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
                 signal(cond)
+                debugger_hook = symbol_value("_debugger_hook_")
+                if debugger_hook:
+                        with env.let(_debugger_hook_ = nil):
+                                debugger_hook(cond, debugger_hook)
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
         #
