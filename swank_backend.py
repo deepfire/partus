@@ -187,12 +187,22 @@ def format_string_expand():		pass
 def describe_symbol_for_emacs():	pass
 @definterface
 def describe_definition():		pass
+
 @definterface
-def install_debugger_globally():	pass
+def install_debugger_globally(function):
+        """Install FUNCTION as the debugger for all threads/processes. This
+usually involves setting *DEBUGGER-HOOK* and, if the implementation
+permits, hooking into BREAK as well."""
+        setq("_debugger_hook_", function)
+
 @definterface
 def call_with_debugging_environment():  pass
+
 @definterface
-def call_with_debugger_hook():		pass
+def call_with_debugger_hook(function, body):
+        with env.let(_debugger_hook_ = function):
+                return body()
+
 #### define-condition sldb-condition
 @definterface
 def compute_backtrace():		pass

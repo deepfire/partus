@@ -138,18 +138,18 @@ class connection():
                 self.serve_requests             = serve_requests
                 self.cleanup                    = cleanup
                 #
-                self.dedicated_output           = None
-                self.user_input                 = None
-                self.user_output                = None
-                self.user_io                    = None
+                self.dedicated_output           = nil
+                self.user_input                 = nil
+                self.user_output                = nil
+                self.user_io                    = nil
                 self.env                        = None
-                self.trace_output               = None
-                self.repl_results               = None
+                self.trace_output               = nil
+                self.repl_results               = nil
                 self.reader_thread              = None
                 self.control_thread             = None
                 self.repl_thread                = None
                 self.autoflush_thread           = None
-                self.cleanup                    = None
+                self.cleanup                    = nil
                 self.indentation_cache          = dict()
                 self.indentation_cache_packages = []
                 self.communication_style        = None
@@ -756,6 +756,56 @@ def repl_loop(connection):
 ### Global redirection hooks: swank.lisp:1570
 ### Redirection during requests: swank.lisp:1596
 ### Channels: swank.lisp:1631
+setq("_channels_",      [])
+setq("_channel_counter_", 0)
+
+#### class channel
+#### initialize-instance channel
+#### print-object channel
+#### find-channel
+#### channel-send
+#### defmacro define-channel-method
+#### send-to-remote-channel
+#### class listener-channel
+#### initial-channel-bindings
+#### spawn-listener-thread
+#### define-channel-method :eval listener-channel
+#### make-listener-output-stream
+#### make-listener-input-stream
+#### input_available_p
+
+setq("_slime_features_", nil)
+
+def send_oob_to_emacs(object):
+        send_to_emacs(object)
+
+def force_user_output():
+        force_output(symbol_value("_emacs_connection_").user_io)
+
+add_hook("_pre_reply_hook_", force_user_output)
+
+def clear_user_input():
+        clear_input(symbol_value("_emacs_connection_").user_input)
+
+setq("_tag_counter_", 0)
+
+def make_tag():
+        # (mod (1+ *tag-counter*) (expt 2 22))
+        setq("_tag_counter_", (symbol_value("_tag_counter_") + 1) % (1 << 22))
+
+#### read-user-input-from-emacs
+#### y-or-n-p-in-emacs
+#### read-from-minibuffer-in-emacs
+#### process-form-for-emacs
+#### eval-in-emacs
+
+setq("_swank_wire_protocol_version_", nil)
+
+#### defslimefun connection-info
+#### defslimefun io-speed-test
+#### debug-on-swank-error
+#### (setf debug-on-swank-error)
+#### defslimefun toggle-debug-on-swank-error
 ### Reading and printing: swank.lisp:1902
 # (define-special *buffer-package*     
 #     "Package corresponding to slime-buffer-package.  
@@ -914,7 +964,7 @@ def eval_for_emacs(form, buffer_package, id):
                         run_hook(boundp("_pre_reply_hook_") and symbol_value(env._pre_reply_hook_))
                         ok = True
         finally:
-                send_to_emacs(env.slime_connection,
+                send_to_emacs(symbol_value("_slime_connection_"),
                               [keyword('return'),
                                current_thread(),
                                ([keyword('ok'), result]
@@ -1021,7 +1071,7 @@ def writeurn_output(output):
         string = get_output_stream_string(output)
         close(output)
         if len(string):
-                send_to_emacs(env.slime_connection, [keyword('write-string'), string])
+                send_to_emacs(symbol_value("_slime_connection_"), [keyword('write-string'), string])
                 # send_to_emacs(env.slime_connection, [keyword('write-string'), "\n"])
         return string
 
@@ -1035,7 +1085,7 @@ def error_handler(c, sldb_state, output = None):
         with env.let(sldb_state = new_sldb_state):
                 # debug_printf("===( e-ha %s, new_sldb_state: %s", c, new_sldb_state)
                 def with_restarts_body():
-                        return sldb_loop(env.slime_connection, new_sldb_state, env.id)
+                        return sldb_loop(symbol_value("_slime_connection_"), new_sldb_state, env.id)
                 with_restarts(with_restarts_body,
                               abort = "return to sldb level %s" % str(new_sldb_state.level))
 
@@ -1367,10 +1417,10 @@ def listener_eval(slime_connection, sldb_state, string):
 def send_repl_results_to_emacs(values):
         finish_output()
         if not values:
-                send_to_emacs(env.slime_connection,
+                send_to_emacs(symbol_value("_slime_connection_"),
                               [keyword("write-string"), "; No value", keyword("repl-result"),])
                 mapc(lambda v: send_to_emacs(
-                                env.slime_connection,
+                                symbol_value("_slime_connection_"),
                                 [keyword("write-string"), prin1_to_string(v) + "\n", keyword("repl-result")]),
                      values)
 
@@ -1395,7 +1445,7 @@ def track_package(fn):
                 return fn()
         finally:
                 if p is not _package_():
-                        send_to_emacs(env.slime_connection,
+                        send_to_emacs(symbol_value("_slime_connection_"),
                                       [keyword("new-package"), package_name(_package_()),
                                        package_string_for_prompt(_package_())])
 
@@ -1417,14 +1467,36 @@ def track_package(fn):
 # UNUSABLE: sleep-for
 
 ### Debugger: swank.lisp:2474
+def invoke_slime_debugger(condition):
+        """Sends a message to Emacs declaring that the debugger has been entered,
+then waits to handle further requests from Emacs. Eventually returns
+after Emacs causes a restart to be invoked."""
+        without_slime_interrupts(
+                lambda: (debug_in_emacs(condition) if symbol_value("_emacs_connection_") else
+                         when_let(default_connection(),
+                                  lambda connection:
+                                          with_connection(connection,
+                                                          lambda: debug_in_emacs(condition)))))
 
-#### invoke-slime-debuger
-#### condition invoke-default-debugger
-#### swank-debugger-hook
-#### invoke-default-debugger
-#### defvar *global-debugger*
-#### add-hook INSTALL-DEBUGGER
-#### install-debugger
+class invoke_default_debugger_condition(BaseException):
+        pass
+
+def swank_debugger_hook(condition, hook):
+        handler_case(lambda: call_with_debugger_hook(swank_debugger_hook,
+                                                     lambda: invoke_slime_debugger(condition)),
+                     invoke_default_debugger_condition = lambda _: invoke_slime_debugger(condition))
+
+def invoke_default_debugger(condition):
+        call_with_debugger_hook(nil,
+                                lambda: invoke_debugger(condition))
+
+setq("_global_debugger_", t)
+
+def install_debugger(connection):
+        if symbol_value("_global_debugger_"):
+                install_debugger_globally(swank_debugger_hook)
+
+add_hook("_new_connection_hook_", install_debugger)
 
 ### Debugger loop: swank.lisp:2510
 ##
@@ -1468,18 +1540,19 @@ def debug_in_emacs(condition):
 
 @block
 def sldb_loop(level):
+        assert(symbol_value("_slime_connection_"))
         try:
                 while True:
                         def with_simple_restart_body():
-                                send_to_emacs(env.slime_connection,
+                                send_to_emacs(symbol_value("_slime_connection_"),
                                               [keyword("debug"), current_thread_id(), level] +
                                               # was wrapped into (with-bindings *sldb-printer-bindings*)
                                               debugger_info_for_emacs(0, env._sldb_initial_frames_))
-                                send_to_emacs(env.slime_connection,
+                                send_to_emacs(symbol_value("_slime_connection_"),
                                               [keyword(debug-activate), current_thread_id(), level, None])
                                 while True:
                                         def handler_case_body():
-                                                evt = wait_for_event(env.slime_connection,
+                                                evt = wait_for_event(symbol_value("_slime_connection_"),
                                                                      ["or",
                                                                       [keyword("emacs-rex")],
                                                                       [keyword("sldb-return", level + 1)]])
@@ -1492,16 +1565,16 @@ def sldb_loop(level):
                         with_simple_restart("ABORT", "Return to sldb level %d." % level,
                                             with_simple_restart_body)
         finally:
-                send_to_emacs(env.slime_connection,
+                send_to_emacs(symbol_value("_slime_connection_"),
                               [keyword("debug-return"),
                                current_thread_id(),
                                level,
                                env._sldb_stepping_p])
-                wait_for_event(env.slime_connection,
+                wait_for_event(symbol_value("_slime_connection_"),
                                [keyword("sldb-return"), level + 1],
                                True)                   # clean event-queue
                 if level > 1:
-                        send_event(env.slime_connection,
+                        send_event(symbol_value("_slime_connection_"),
                                    current_thread(), [keyword("sldb-return"), level])
 
 #### handle-sldb-condition
