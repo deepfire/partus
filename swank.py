@@ -323,7 +323,7 @@ def destructure_case(x, *clauses):
                 format(t, "    %s\n", c)
         for struc, action in clauses:
                 cop, cbody = struc[0], struc[1:]
-                if cop is t or cop is op:
+                if cop is t or cop is op or (setp(cop) and op in cop):
                         return action(*body)
                 else:
                         format(t, "%s is not %s, but %s == %s: %s\n", 
