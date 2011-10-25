@@ -14,7 +14,7 @@ def file_content(path):
 
 def set_file_content(path, content):
         with open(path, "w", encoding = 'utf-8') as f:
-                fprintf(f, "%s", content)
+                _write_string(content, f)
 
 def to_unicode(x):
         return x

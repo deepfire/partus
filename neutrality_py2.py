@@ -13,7 +13,7 @@ def file_content(path):
 
 def set_file_content(path, content):
         with open(path, "w") as f:
-                fprintf(f, "%s", content.encode('utf-8'))
+                _write_string(content.encode('utf-8'), f)
 
 def to_unicode(x):
         return unicode(x, 'utf-8')
