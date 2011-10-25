@@ -1,1 +1,2 @@
-Not implemented: THREAD_ID
+==> [:EMACS-REX, [SWANK::CONNECTION-INFO], 'COMMON-LISP-USER', CL:T, 1]
+<== [:DEBUG-RETURN, None, 1, None]
