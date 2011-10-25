@@ -962,7 +962,7 @@ def eval_for_emacs(form, buffer_package, id):
                         run_hook(boundp("_pre_reply_hook_") and symbol_value(env._pre_reply_hook_))
                         ok = True
         finally:
-                send_to_emacs(symbol_value("_slime_connection_"),
+                send_to_emacs(symbol_value("_emacs_connection_"),
                               [keyword('return'),
                                current_thread(),
                                ([keyword('ok'), result]
@@ -1069,7 +1069,7 @@ def writeurn_output(output):
         string = get_output_stream_string(output)
         close(output)
         if len(string):
-                send_to_emacs(symbol_value("_slime_connection_"), [keyword('write-string'), string])
+                send_to_emacs(symbol_value("_emacs_connection_"), [keyword('write-string'), string])
                 # send_to_emacs(env.slime_connection, [keyword('write-string'), "\n"])
         return string
 
@@ -1083,7 +1083,7 @@ def error_handler(c, sldb_state, output = None):
         with env.let(sldb_state = new_sldb_state):
                 # debug_printf("===( e-ha %s, new_sldb_state: %s", c, new_sldb_state)
                 def with_restarts_body():
-                        return sldb_loop(symbol_value("_slime_connection_"), new_sldb_state, env.id)
+                        return sldb_loop(symbol_value("_emacs_connection_"), new_sldb_state, env.id)
                 with_restarts(with_restarts_body,
                               abort = "return to sldb level %s" % str(new_sldb_state.level))
 
@@ -1415,10 +1415,10 @@ def listener_eval(slime_connection, sldb_state, string):
 def send_repl_results_to_emacs(values):
         finish_output()
         if not values:
-                send_to_emacs(symbol_value("_slime_connection_"),
+                send_to_emacs(symbol_value("_emacs_connection_"),
                               [keyword("write-string"), "; No value", keyword("repl-result"),])
                 mapc(lambda v: send_to_emacs(
-                                symbol_value("_slime_connection_"),
+                                symbol_value("_emacs_connection_"),
                                 [keyword("write-string"), prin1_to_string(v) + "\n", keyword("repl-result")]),
                      values)
 
@@ -1443,7 +1443,7 @@ def track_package(fn):
                 return fn()
         finally:
                 if p is not _package_():
-                        send_to_emacs(symbol_value("_slime_connection_"),
+                        send_to_emacs(symbol_value("_emacs_connection_"),
                                       [keyword("new-package"), package_name(_package_()),
                                        package_string_for_prompt(_package_())])
 
@@ -1538,19 +1538,19 @@ def debug_in_emacs(condition):
 
 @block
 def sldb_loop(level):
-        assert(symbol_value("_slime_connection_"))
+        assert(symbol_value("_emacs_connection_"))
         try:
                 while True:
                         def with_simple_restart_body():
-                                send_to_emacs(symbol_value("_slime_connection_"),
+                                send_to_emacs(symbol_value("_emacs_connection_"),
                                               [keyword("debug"), current_thread_id(), level] +
                                               # was wrapped into (with-bindings *sldb-printer-bindings*)
                                               debugger_info_for_emacs(0, env._sldb_initial_frames_))
-                                send_to_emacs(symbol_value("_slime_connection_"),
+                                send_to_emacs(symbol_value("_emacs_connection_"),
                                               [keyword(debug-activate), current_thread_id(), level, None])
                                 while True:
                                         def handler_case_body():
-                                                evt = wait_for_event(symbol_value("_slime_connection_"),
+                                                evt = wait_for_event(symbol_value("_emacs_connection_"),
                                                                      ["or",
                                                                       [keyword("emacs-rex")],
                                                                       [keyword("sldb-return", level + 1)]])
@@ -1563,16 +1563,16 @@ def sldb_loop(level):
                         with_simple_restart("ABORT", "Return to sldb level %d." % level,
                                             with_simple_restart_body)
         finally:
-                send_to_emacs(symbol_value("_slime_connection_"),
+                send_to_emacs(symbol_value("_emacs_connection_"),
                               [keyword("debug-return"),
                                current_thread_id(),
                                level,
                                env._sldb_stepping_p])
-                wait_for_event(symbol_value("_slime_connection_"),
+                wait_for_event(symbol_value("_emacs_connection_"),
                                [keyword("sldb-return"), level + 1],
                                True)                   # clean event-queue
                 if level > 1:
-                        send_event(symbol_value("_slime_connection_"),
+                        send_event(symbol_value("_emacs_connection_"),
                                    current_thread(), [keyword("sldb-return"), level])
 
 #### handle-sldb-condition
