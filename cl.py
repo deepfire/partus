@@ -1400,11 +1400,11 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                                 pos += 1
                 # debug_printf("read_token(): returning %s", token)
                 return token
-        return read()
+        # return read()
         ## XXX: Issue PROBABLE-LIMIT-EXCEEDED -- mystery -- this:
-        # ret = handler_case(read,
-        #                    IndexError = lambda c: handle_short_read_if(True))
-        # return ret
+        ret = handler_case(read,
+                           IndexError = lambda c: handle_short_read_if(True))
+        return ret
         ## breaks unrelated code --
         ##      the 're.match("^[0-9]+$", token)' line in read_number_or_symbol():
         # Exception in thread reader-thread:
