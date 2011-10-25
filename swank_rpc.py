@@ -15,7 +15,7 @@ class swank_reader_error(Exception):
 
 def read_message(stream, package):
         packet = read_packet(stream)
-        format(t, "--> %06d, '%s'\n", len(packet), packet)
+        format(t, "--> %06x, '%s'\n", len(packet), packet)
         message = handler_case(
                 lambda: read_form(packet, package),
                 Exception = (lambda c: # XXX: originally, caught only READER-ERROR
@@ -116,8 +116,8 @@ def write_message(message, package, stream):
         string = prin1_to_string_for_emacs(message, package)
         length = codepoint_length(string)
         with env.let(_print_pretty_ = nil):
-                format(stream, "%06d", length)
-        format(t, "<-- %06d, '%s'\n", length, string)
+                format(stream, "%06x", length)
+        format(t, "<-- %06x, '%s'\n", length, string)
         write_string(string, stream)
         finish_output(stream)
 
