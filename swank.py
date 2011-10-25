@@ -316,18 +316,18 @@ def ascii_char_p(o):
 ### Helper macros: swank.lisp:502
 
 def destructure_case(x, *clauses):
-        format(t, "D/C: %s\n", x)
+        # format(t, "D/C: %s\n", x)
         op, body = x[0], x[1:]
-        format(t, "clauses:\n")
-        for c in clauses:
-                format(t, "    %s\n", c)
+        # format(t, "clauses:\n")
+        # for c in clauses:
+        #         format(t, "    %s\n", c)
         for struc, action in clauses:
                 cop, cbody = struc[0], struc[1:]
                 if cop is t or cop is op or (setp(cop) and op in cop):
                         return action(*body)
-                else:
-                        format(t, "%s is not %s, but %s == %s: %s\n", 
-                               cop, op, cop, op, cop == op)
+                # else:
+                #         format(t, "%s is not %s, but %s == %s: %s\n", 
+                #                cop, op, cop, op, cop == op)
         else:
                 error("DESTRUCTURE-CASE failed: %s", x)
 
