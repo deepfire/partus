@@ -240,9 +240,7 @@ def spawn(fn, name = "<unnamed-thread>"):
 #   (defvar *thread-id-map-lock*
 #     (sb-thread:make-mutex :name "thread id map lock"))
 #
-#   (defimplementation spawn (fn &key name)
-#     (sb-thread:make-thread fn :name name))
-#
+# def thread_id(thread):				pass
 #   (defimplementation thread-id (thread)
 #     (block thread-id
 #       (sb-thread:with-mutex (*thread-id-map-lock*)
@@ -260,6 +258,7 @@ def spawn(fn, name = "<unnamed-thread>"):
 #           (setf (gethash id *thread-id-map*) (sb-ext:make-weak-pointer thread))
 #           id))))
 #
+# def find_thread(id):					pass
 #   (defimplementation find-thread (id)
 #     (sb-thread:with-mutex (*thread-id-map-lock*)
 #       (let ((thread-pointer (gethash id *thread-id-map*)))
@@ -273,101 +272,20 @@ def spawn(fn, name = "<unnamed-thread>"):
 #                     nil)))
 #             nil))))
 #
-#   (defimplementation thread-name (thread)
-#     ;; sometimes the name is not a string (e.g. NIL)
-#     (princ-to-string (sb-thread:thread-name thread)))
-#
-#   (defimplementation thread-status (thread)
-#     (if (sb-thread:thread-alive-p thread)
-#         "Running"
-#         "Stopped"))
-# 
-#   (defimplementation make-lock (&key name)
-#     (sb-thread:make-mutex :name name))
-#
-#   (defimplementation call-with-lock-held (lock function)
-#     (declare (type function function))
-#     (sb-thread:with-recursive-lock (lock) (funcall function)))
-#
-#   (defimplementation current-thread ()
-#     sb-thread:*current-thread*)
-#
-#   (defimplementation all-threads ()
-#     (sb-thread:list-all-threads))
-#
 #   (defimplementation interrupt-thread (thread fn)
 #     (sb-thread:interrupt-thread thread fn))
 #
 #   (defimplementation kill-thread (thread)
 #     (sb-thread:terminate-thread thread))
-#
-#   (defimplementation thread-alive-p (thread)
-#     (sb-thread:thread-alive-p thread))
-#
-#   (defvar *mailbox-lock* (sb-thread:make-mutex :name "mailbox lock"))
-#   (defvar *mailboxes* (list))
-#   (declaim (type list *mailboxes*))
-#
-#   (defstruct (mailbox (:conc-name mailbox.))
-#     thread
-#     (mutex (sb-thread:make-mutex))
-#     (waitqueue  (sb-thread:make-waitqueue))
-#     (queue '() :type list))
-#
-#   (defun mailbox (thread)
-#     "Return THREAD's mailbox."
-#     (sb-thread:with-mutex (*mailbox-lock*)
-#       (or (find thread *mailboxes* :key #'mailbox.thread)
-#           (let ((mb (make-mailbox :thread thread)))
-#             (push mb *mailboxes*)
-#             mb))))
-#
-#   (defimplementation send (thread message)
-#     (let* ((mbox (mailbox thread))
-#            (mutex (mailbox.mutex mbox)))
-#       (sb-thread:with-mutex (mutex)
-#         (setf (mailbox.queue mbox)
-#               (nconc (mailbox.queue mbox) (list message)))
-#         (sb-thread:condition-broadcast (mailbox.waitqueue mbox)))))
-#   #-sb-lutex
-#   (defun condition-timed-wait (waitqueue mutex timeout)
-#     (handler-case
-#         (let ((*break-on-signals* nil))
-#           (sb-sys:with-deadline (:seconds timeout :override t)
-#             (sb-thread:condition-wait waitqueue mutex) t))
-#       (sb-ext:timeout ()
-#         nil)))
-#
-#   ;; FIXME: with-timeout doesn't work properly on Darwin
-#   #+sb-lutex
-#   (defun condition-timed-wait (waitqueue mutex timeout)
-#     (declare (ignore timeout))
-#     (sb-thread:condition-wait waitqueue mutex))
-#
-#   (defimplementation receive-if (test &optional timeout)
-#     (let* ((mbox (mailbox (current-thread)))
-#            (mutex (mailbox.mutex mbox))
-#            (waitq (mailbox.waitqueue mbox)))
-#       (assert (or (not timeout) (eq timeout t)))
-#       (loop
-#        (check-slime-interrupts)
-#        (sb-thread:with-mutex (mutex)
-#          (let* ((q (mailbox.queue mbox))
-#                 (tail (member-if test q)))
-#            (when tail
-#              (setf (mailbox.queue mbox) (nconc (ldiff q tail) (cdr tail)))
-#              (return (car tail))))
-#          (when (eq timeout t) (return (values nil t)))
-#          (condition-timed-wait waitq mutex 0.2)))))
-#   )
-# def thread_id(thread):				pass
-# def find_thread(id):					pass
 
 @defimplementation
 def thread_name(thread):
         return thread.name
 
-# def thread_status(thread):				pass
+@defimplementation
+def thread_status(thread):
+        return "Running" if thread_alive_p(thread) else "Stopped"
+
 # def thread_attributes(thread):			pass
 
 @defimplementation
