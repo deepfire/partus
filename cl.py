@@ -1412,10 +1412,62 @@ def probe_file(pathname):
 ##
 ## Streams
 ##
+class two_way_stream(stream):
+        def __init__(self, input, output):
+                self.input, self.output  = input, output
+        def read(self, amount):
+                return self.input.read(amount)
+        def write(self, data):
+                return self.output.write(data)
+        def flush(self):
+                return self.output.flush()
+        def close(self):
+                self.output.close()
+                self.input.close()
+        def readable(self): return True
+        def writable(self): return True
+
+def make_two_way_stream(input, output):   return two_way_stream(input, output)
+def two_way_stream_input_stream(stream):  return stream.input
+def two_way_stream_output_stream(stream): return stream.output
+
+setq("_standard_input_",  sys.stdin)
 setq("_standard_output_", sys.stdout)
 setq("_error_output_",    sys.stderr)
-# setq("_debug_io_",    ???) XXX: ???
-# setq("_query_io_",    ???) XXX: ???
+setq("_debug_io_",        make_two_way_stream(symbol_value("_standard_input_"), symbol_value("_standard_output_")))
+setq("_query_io_",        make_two_way_stream(symbol_value("_standard_input_"), symbol_value("_standard_output_")))
+
+class broadcast_stream(stream):
+        def __init__(self, *streams):
+                self.streams  = streams
+        def write(self, data):
+                for component in self.streams:
+                        component.write(data)
+        def flush(self):
+                for component in self.streams:
+                        component.flush()
+        def readable(self): return False
+        def writable(self): return True
+
+def make_broadcast_stream(*streams):  return broadcast_stream(*streams)
+def broadcast_stream_streams(stream): return stream.streams
+
+class synonym_stream(stream):
+        def __init__(self, symbol):
+                self.symbol  = symbol
+        def stream():
+                return symbol_value(self.symbol)
+        def read(self, amount):
+                return stream().read(amount)
+        def write(self, data):
+                return stream().write(data)
+        def flush(self):
+                return stream().flush()
+        def readable(self): return stream.readable()
+        def writable(self): return stream.writable()
+
+def make_synonym_stream(symbol):   return synonym_stream(symbol)
+def synonym_stream_symbol(stream): return stream.symbol
 
 def streamp(x):
         return typep(x, stream)

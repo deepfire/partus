@@ -246,21 +246,19 @@ add_hook("_after_init_hook_", init_log_output)
 
 def real_input_stream(x):
         return typecase(x,
-                        ## XXX: ...
-                        # (synonym_stream, lambda:
-                        #          real_input_stream(symbol_value(synonym_stream_symbol(x)))),
-                        # (two_way_stream, lambda:
-                        #          real_input_stream(two_way_stream_input_stream(x))),
+                        (synonym_stream, lambda:
+                                 real_input_stream(symbol_value(synonym_stream_symbol(x)))),
+                        (two_way_stream, lambda:
+                                 real_input_stream(two_way_stream_input_stream(x))),
                         (t,              lambda:
                                  x))
 
 def real_output_stream(x):
         return typecase(x,
-                        ## XXX: ...
-                        # (synonym_stream, lambda:
-                        #          real_output_stream(symbol_value(synonym_stream_symbol(x)))),
-                        # (two_way_stream, lambda:
-                        #          real_output_stream(two_way_stream_output_stream(x))),
+                        (synonym_stream, lambda:
+                                 real_output_stream(symbol_value(synonym_stream_symbol(x)))),
+                        (two_way_stream, lambda:
+                                 real_output_stream(two_way_stream_output_stream(x))),
                         (t,              lambda:
                                  x))
 
