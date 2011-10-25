@@ -1492,9 +1492,20 @@ def _coerce_to_stream(x):
                 symbol_value("_standard_output_") if x is t else
                 error("%s cannot be coerced to a stream.", x))
 
+class stream_type_error(simple_condition, io.UnsupportedOperation):
+        pass
+
 def write_string(string, stream = symbol_value("_standard_output_")):
         if stream is not nil:
-                _write_string(string, _coerce_to_stream(stream))
+                def handler():
+                        try:
+                                return _write_string(string, _coerce_to_stream(stream))
+                        except io.UnsupportedOperation as cond:
+                                error(stream_type_error, "%s is not an %s stream: '%s'.",
+                                      stream, ("output" if cond.args[0] == "not writable" else
+                                               "adequate"),
+                                      cond.args[0])
+                _without_condition_system(handler)
         return string
 
 def write_line(string, stream = symbol_value("_standard_output_")):
