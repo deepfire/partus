@@ -1,10 +1,10 @@
-Issue MORE-STRANGE-BACKTRACES:
+Issue MORE-STRANGE-BACKTRACES, Issue PROBABLE-LIMIT-EXCEEDED:
 ###
 ### CAUSE: implementation functions raising an exception,
 ###        which was, then, handled by the condition system
 ### FIX:   disable the condition system around such calls
 ### CODE:  cl:_without_condition_system(), swank_backend:spawn(),
-###        cl:probe_file()
+###        cl:probe_file(), re.match(), builtins.dict.get()
 ###
 python neutrality: initialised for version 3
 importing [CL:T, CL:NIL, CL:QUOTE] into #<PACKAGE "SWANK_IO_PACKAGE">

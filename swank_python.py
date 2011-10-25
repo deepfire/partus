@@ -274,12 +274,13 @@ def thread_id(thread):
 
 @defimplementation
 def find_thread(id):
+        idmap = symbol_value("_thread_id_map_")
         def purge():
-                del symbol_value("_thread_id_map_")[id]
+                del idmap[id]
         call_with_lock_held(
                 symbol_value("_thread_id_map_lock_"),
                 lambda:
-                        when_let(symbol_value("_thread_id_map_").get(id),
+                        when_let(idmap[id] if id in idmap else None,
                                  lambda thread_pointer:
                                          if_let(weak_pointer_value(thread_pointer),
                                                 identity,
@@ -352,7 +353,7 @@ class _mailbox():
         def __init__(self, thread):
                 self.thread = thread
                 self.mutex = threading.Lock()
-                self.waitqueue = threading.Condition(self.mutex)
+                self.waitqueue = cl._without_condition_system(lambda: threading.Condition(self.mutex))
                 self.queue = []
 
 def mailbox(thread):

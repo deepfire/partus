@@ -696,7 +696,8 @@ def intersection(x, y):
 ## Dicts
 ##
 def gethash(key, dict):
-        return dict.get(key), key in dict
+        inp = key in dict
+        return (dict.get(key) if inp else None), key in dict
 
 def maphash(f, dict):
         return [ f(k, v) for k, v in dict.items() ]
@@ -835,7 +836,9 @@ class package(collections.UserDict):
                 self.external    = set()                        # sym             ## subset of accessible
               # self.internal    = accessible - external
 
-                self.module = sys.modules.get(name.lower()) ## XXX: deal away with this mangling
+                modname = name.lower() ## XXX: deal away with this mangling
+                self.module = (sys.modules.get(modname) if modname in sys.modules else
+                               None)
                 self.used_packages  = set(mapcar(lambda x: coerce_to_package(x, if_null = 'error'), use))
                 self.packages_using = set()
                 mapc(_curry(use_package, self), self.used_packages)
@@ -844,7 +847,8 @@ class package(collections.UserDict):
                 if not ignore_python:
                         moddict = self.module and dict(self.module.__dict__)
                         if moddict:
-                                explicit_exports = set(moddict.get("__all__", []))
+                                explicit_exports = set(moddict["__all__"] if "__all__" in moddict else
+                                                       [])
                                 for (key, value) in moddict.items():
                                         ## intern the python symbol, when it is known not to be inherited
                                         if key not in self.accessible:
@@ -868,7 +872,7 @@ def make_package(name, nicknames = [], use = []):
         return package(string(name), ignore_python = True, use = [])
 
 def find_package(x):
-        return __packages__.get(x)
+        return __packages__.get(x) if x in __packages__ else None
 def coerce_to_package(x, if_null = 'current'):
         return (x                         if packagep(x) else
                 find_package(x)           if stringp(x) else
@@ -913,7 +917,7 @@ def _keyword(s, upcase = True):
 
 def symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
-        s = p.accessible.get(x) if stringp(x) else x
+        s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
         if s is not None:
                 return (_keyword("inherited") if s.name in p.inherited else
                         _keyword("external")  if s in p.external else
@@ -921,7 +925,7 @@ def symbol_relation(x, p):
 
 def find_symbol(x, package = None):
         p = coerce_to_package(package)
-        s = p.get(x)
+        s = p.get(x) if x in p else None
         if s is not None:
                 # format(t, "FIND-SYMBOL:%s, %s -> %s, %s\n", 
                 #        x, package, s, symbol_relation(s, p))
@@ -938,7 +942,7 @@ def _find_symbol_or_fail(x, package = None):
 
 def _intern(x, package = None):
         p = coerce_to_package(package)
-        s = p.accessible.get(x) if stringp(x) else x
+        s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
         if not (s is not None or stringp(x)):
                 error("Attempted to intern object >%s< of type %s into %s.", x, type(x), p)
         if s:
@@ -964,7 +968,7 @@ def _import(symbols, package = None):
         symbols = _ensure_list(symbols)
         format(t, "importing %s into %s\n", symbols, p)
         for s in symbols:
-                ps = p.get(s.name)
+                ps = p.get(s.name) if s.name in p else None
                 if ps is not None: # conflict
                         symbol_conflict_error("IMPORT", s, p, s, ps)
                 else:
@@ -996,7 +1000,12 @@ def in_package(name):
         return setq("_package_", find_package(string(name)))
 
 def _pythonise_lisp_name(x):
-        ret = re.sub(r"[\-\*]", "_", x).lower()
+        def _sub(cs):
+                acc = ""
+                for c in cs:
+                        acc += "_" if c in "-*" else c
+                return acc
+        ret = _sub(x).lower()
         # debug_printf("==> Python(Lisp %s) == %s", x, ret)
         return ret
 
@@ -1242,7 +1251,7 @@ def write_to_string(object,
                         elif type(object).__name__ == 'builtin_function_or_method':
                                 string += '"#<builtin %s 0x%x>"' % (object.__name__, id(object))
                         elif stringp(object):
-                                string += r'"%s"' % re.sub(r'(["\\])', r'\\\\1', object)
+                                string += '"%s"' % re.sub(r'(["\\])', r'\\\\1', object)
                         else:
                                 error("Can't write object %s", object)
                         return string
@@ -1371,9 +1380,9 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
         def read_number_or_symbol():
                 token = read_token()
                 handle_short_read_if(not token)
-                if re.match("^[0-9]+$", token):
+                if _without_condition_system(lambda: re.match("^[0-9]+$", token)):
                         ret = int(token)
-                elif re.match("^[0-9]+\\.[0-9]+$", token):
+                elif _without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token)):
                         ret = float(token)
                 else:
                         ret = _read_symbol(token)
@@ -1570,7 +1579,7 @@ def force_output(*args, **keys):
 ##
 __tracer_hooks__   = dict() # allowed keys: 'call', 'line', 'return', 'exception', 'c_call', 'c_return', 'c_exception'
 def _set_tracer_hook(type, fn):        __tracer_hooks__[type] = fn
-def     _tracer_hook(type):     return __tracer_hooks__.get(type)
+def     _tracer_hook(type):     return __tracer_hooks__.get(type) if type in __tracer_hooks__ else None
 
 def _pytracer(frame, event, arg):
         method = _tracer_hook(event)
@@ -1667,6 +1676,7 @@ def __cl_condition_handler__(cond, frame):
                 if presignal_hook:
                         with env.let(_presignal_hook_ = nil):
                                 presignal_hook(cond, presignal_hook)
+                _report_condition(cond)
                 signal(cond)
                 debugger_hook = symbol_value("_debugger_hook_")
                 if debugger_hook:
@@ -1689,7 +1699,7 @@ def handler_bind(fn, no_error = identity, **handlers):
         # this is:
         #     pytracer_enabled_p() and condition_handler_active_p()
         # ..inlined for speed.
-        if _pytracer_enabled_p() and __tracer_hooks__.get('exception') is __cl_condition_handler__:
+        if _pytracer_enabled_p() and 'exception' in __tracer_hooks__ and __tracer_hooks__['exception'] is __cl_condition_handler__:
                 ### XXX: This is a temporary shitty workaround for broken FIND-CLASS (oh, yes, Python, thank you again!)
                 # resolved = dict()
                 # for type, handler in handlers.items():
@@ -1868,7 +1878,7 @@ returned. Otherwise, NIL is returned.
         else:
                 for cluster in reversed(env.__restart_clusters__):
                         # format(t, "Analysing cluster %s for '%s'.", cluster, name)
-                        restart = cluster.get(identifier, None)
+                        restart = cluster[identifier] if identifier in cluster else None
                         if restart and restart_condition_association_check(condition, restart):
                                 return restart
 

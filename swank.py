@@ -1245,7 +1245,9 @@ def simple_completions(slime_connection, sldb_state, prefix, package):
                 return [[], ""]
         else:
                 longest = sorted(matches, key = len)[0]
-                while len(grep("^%s" % literal2rx(longest), matches)) < nmatches:
+                while (cl._without_condition_system(
+                                lambda: len(grep("^%s" % literal2rx(longest), matches)))
+                       < nmatches):
                         longest = longest[:-1]
                 return [matches, longest]
 
