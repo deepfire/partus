@@ -1,3 +1,6 @@
 Issue MUST-BIND-PARTUS-TO-PYTHON-BUFFERS-ONLY:
       <- 00013a (:emacs-rex (swank:autodoc (quote ("defun" "save-presented-object" ("object") "\"Save OBJECT and return the assigned id.
 If OBJECT was saved previously return the old id.\"" ("let" (("object" ("if" ("null" "object") "*nil-surrogate*" "object"))) "" swank::%cursor-marker%))) :print-right-margin 190) ":swank" t 6)
+
+Issue MUST-PATCH-IMPLEMENTATION-TO-DISABLE-CONDITION-HANDLING-AROUND-NON-BOSLY-CLEAN-CODE:
+      file.exists(), builtins.dict.get(), re.match()..
