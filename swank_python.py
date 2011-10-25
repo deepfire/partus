@@ -217,8 +217,9 @@ def condition_extras(condition):
 
 @defimplementation
 def spawn(fn, name = "<unnamed-thread>"):
-        thread = threading.Thread(name = name)
-        thread.run = lambda: cl.enable_pytracer() and fn()
+        thread = cl._without_condition_system(
+                lambda: threading.Thread(name = name))
+        thread.run = lambda: cl._enable_pytracer() and fn()
         thread.start()
         return thread
 
