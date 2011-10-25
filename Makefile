@@ -3,7 +3,7 @@ REPORT ?= nil
 all: run
 
 run:	clean
-	python3 -c "from cl import *; import cl, partus; cl._maybe_reporting_conditions_on_hook($(REPORT), '_debugger_hook_', partus.create_server)"
+	python3 -c "from cl import *; import cl, partus; setq('_presignal_hook_', (lambda c, h: cl._report_condition(c)) if $(REPORT) else nil); partus.create_server()"
 
 clean:
 	rm -rf __pycache__

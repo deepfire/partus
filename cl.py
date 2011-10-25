@@ -1676,7 +1676,6 @@ def __cl_condition_handler__(cond, frame):
                 if presignal_hook:
                         with env.let(_presignal_hook_ = nil):
                                 presignal_hook(cond, presignal_hook)
-                _report_condition(cond)
                 signal(cond)
                 debugger_hook = symbol_value("_debugger_hook_")
                 if debugger_hook:
