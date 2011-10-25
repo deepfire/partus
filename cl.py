@@ -41,6 +41,13 @@ def _case_xform(type, s):
 def _defaulting(x, variable):
         return x if x is not None else symbol_value(variable)
 
+def _read_case_xformed(x):
+        return _case_xform(_symbol_value("_READ_CASE_"), x)
+
+def _coerce_to_symbol_name(x):
+        return (x.name if symbolp(x) else
+                _read_case_xformed(x))
+
 ###
 ### Basis
 ###
@@ -1024,7 +1031,7 @@ def _init_reader_0():
 _init_reader_0()
 
 def _boundp(name):
-        name = _case_xform(_symbol_value("_READ_CASE_"), name)
+        name = _coerce_to_symbol_name(name)
         for scope in reversed(__tls__.dynamic_scope):
                 if name in scope:
                         return t
@@ -1038,10 +1045,6 @@ def _symbol_value(name):
         if name in __global_scope__:
                 return __global_scope__[name]
         error(AttributeError, "Unbound variable: %s." % name)
-
-def _coerce_to_symbol_name(x):
-        return (x.name if symbolp(x) else
-                _case_xform(_symbol_value("_READ_CASE_"), x))
 
 def _coerce_cluster_keys_to_symbol_names(dict):
         return { _coerce_to_symbol_name(var):val for var, val in dict.items() }
@@ -1073,6 +1076,8 @@ class dynamic_scope(object):
         "Courtesy of Jason Orendorff."
         def let(self, **keys):
                 return env_cluster(keys)
+        def maybe_let(self, p, **keys):
+                return env_cluster(keys) if p else None
         def __getattr__(self, name):
                 return symbol_value(name)
         def __setattr__(self, name, value):
@@ -1521,11 +1526,6 @@ def set_condition_handler(fn):
         set_tracer_hook('exception', fn)
         return True
 
-## debugging
-# def debugger_hook(cond, frame):
-#         pass
-# activate_condition_handler(debugger_hook)
-
 ##
 ## Condition system
 ##
@@ -1585,8 +1585,17 @@ def _report_condition(condition, stream = None):
         format(t, "Condition: %s\n", condition)
         _backtrace(-1, )
 
-def _reporting_conditions(body):
-        with env.let(_presignal_hook_ = _report_condition):
+def _maybe_reporting_conditions_on_hook(p, hook, body):
+        if p:
+                old_hook_value = symbol_value(hook)
+                def wrapped_hook(condition, hook_value):
+                        "Let's honor the old hook."
+                        _report_condition(condition)
+                        if old_hook_value:
+                                old_hook_value(condition, old_hook_value)
+                with env.maybe_let(p, **{_coerce_to_symbol_name(hook): wrapped_hook}):
+                        return body()
+        else:
                 return body()
 
 def __cl_condition_handler__(cond, frame):
