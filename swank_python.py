@@ -5,7 +5,7 @@ import threading
 
 import cl
 
-from cl import env, setq, symbol_value, boundp, t, nil, format, find, member_if, constantly, loop, ldiff, rest, first
+from cl import env, identity, setq, symbol_value, boundp, t, nil, format, find, member_if, constantly, loop, ldiff, rest, first
 from cl import block, return_from, handler_bind, signal, make_condition
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword
@@ -223,24 +223,37 @@ def spawn(fn, name = "<unnamed-thread>"):
         thread.start()
         return thread
 
-# (progn
-#   (defvar *thread-id-counter* 0)
-#
-#   (defvar *thread-id-counter-lock*
-#     (sb-thread:make-mutex :name "thread id counter lock"))
-#
-#   (defun next-thread-id ()
-#     (sb-thread:with-mutex (*thread-id-counter-lock*)
-#       (incf *thread-id-counter*)))
-#
-#   (defparameter *thread-id-map* (make-hash-table))
-#
-#   ;; This should be a thread -> id map but as weak keys are not
-#   ;; supported it is id -> map instead.
-#   (defvar *thread-id-map-lock*
-#     (sb-thread:make-mutex :name "thread id map lock"))
-#
-# def thread_id(thread):				pass
+setq("_thread_id_counter_", 0)
+# see below def make_lock(): setq("_thread_id_counter_lock_", make_lock(name = "thread id counter lock"))
+
+def next_thread_id():
+        return call_with_lock_held(
+                symbol_value("_thread_id_counter_lock_"),
+                lambda:
+                        setq("_thread_id_counter_", symbol_value("_thread_id_counter_") + 1))
+
+setq("_thread_id_map_", dict())
+# see below def make_lock(): setq("_thread_id_map_lock_", make_lock(name = "thread id map lock"))
+
+make_weak_pointer  = identity
+weak_pointer_value = identity
+
+@defimplementation
+def thread_id(thread):
+        @block
+        def body():
+                for id, thread_pointer in symbol_value("_thread_id_map_").items():
+                        maybe_thread = weak_pointer_value(thread_pointer)
+                        if not maybe_thread:
+                                del symbol_value("_thread_id_map_")[id]
+                        elif thread is maybe_thread:
+                                return_from(body, id)
+                # lazy numbering
+                id = next_thread_id()
+                symbol_value("_thread_id_map_")[id] = make_weak_pointer(thread)
+                return id
+        call_with_lock_held(symbol_value("_thread_id_map_lock_"),
+                            body)
 #   (defimplementation thread-id (thread)
 #     (block thread-id
 #       (sb-thread:with-mutex (*thread-id-map-lock*)
@@ -258,7 +271,19 @@ def spawn(fn, name = "<unnamed-thread>"):
 #           (setf (gethash id *thread-id-map*) (sb-ext:make-weak-pointer thread))
 #           id))))
 #
-# def find_thread(id):					pass
+
+@defimplementation
+def find_thread(id):
+        def purge():
+                del symbol_value("_thread_id_map_")[id]
+        call_with_lock_held(
+                symbol_value("_thread_id_map_lock_"),
+                lambda:
+                        when_let(symbol_value("_thread_id_map_").get(id),
+                                 lambda thread_pointer:
+                                         if_let(weak_pointer_value(thread_pointer),
+                                                identity,
+                                                purge))) #..the thread pointer.
 #   (defimplementation find-thread (id)
 #     (sb-thread:with-mutex (*thread-id-map-lock*)
 #       (let ((thread-pointer (gethash id *thread-id-map*)))
@@ -291,6 +316,9 @@ def thread_status(thread):
 @defimplementation
 def make_lock(name = None):
         return threading.Lock()
+
+setq("_thread_id_counter_lock_", make_lock(name = "thread id counter lock"))
+setq("_thread_id_map_lock_", make_lock(name = "thread id map lock"))
 
 @defimplementation
 def call_with_lock_held(lock, function):
@@ -426,5 +454,9 @@ def wait_for_input(streams, timeout = None):
 #                           restart_function = constantly(t),
 #                           completion_function = constantly(t)):
 #         pass
-# def codepoint_length(string):				pass
+
+@defimplementation
+def codepoint_length(string):
+        return len(string)
+
 # def call_with_io_timeout(function, seconds = None):	pass

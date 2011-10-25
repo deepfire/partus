@@ -5,6 +5,8 @@ import sys
 from cl import *
 from cl import _keyword as keyword
 
+from swank_backend import codepoint_length
+
 class swank_reader_error(Exception):
         def __init__(self, packet, cause):
                 self.packet, self.cause = packet, cause
