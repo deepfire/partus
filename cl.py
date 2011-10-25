@@ -6,6 +6,7 @@ import os
 import io
 import _io
 import sys
+import time
 import types
 import inspect
 import builtins
@@ -1890,6 +1891,9 @@ executes the following:
 ##
 ## Environment
 ##
+def sleep(x):
+        return time.sleep(x)
+
 def user_homedir_pathname():
         return os.path.expanduser("~")
 
