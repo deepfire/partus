@@ -372,6 +372,12 @@ def case(val, *clauses):
 ##
 ## Types
 ##
+class type_error(Exception):
+        pass
+
+class simple_type_error(simple_condition, type_error):
+        pass
+
 stream = _io._IOBase
 
 def find_class(x):
