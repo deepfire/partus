@@ -1186,6 +1186,7 @@ def write_to_string(object,
                     radix = None,
                     readably = None,
                     right_margin = None):
+        "XXX: does not conform!"
         array           = array           if array           is not None else symbol_value("_print_array_")
         base            = base            if base            is not None else symbol_value("_print_base_")
         case            = case            if case            is not None else symbol_value("_print_case_")
@@ -1212,11 +1213,43 @@ def write_to_string(object,
                lines is nil and
                miser_width is nil and
                pretty is nil and
-               pprint_dispatch is __default_pprint_dispatch_table__ and
+               pprint_dispatch is __standard_pprint_dispatch__ and
                radix is nil and
                readably is nil and
                right_margin is nil)
-        _not_implemented()
+        obj2lisp_xform = {
+                False : "nil",
+                None  : "nil",
+                True  : "t",
+        }
+        def do_write_to_string(object):
+                string = ""
+                def write_to_string_loop(object):
+                        nonlocal string
+                        if listp(object) or _tuplep(object):
+                                string += '('
+                                max = len(object)
+                                if max:
+                                        for i in range(0, max):
+                                                string += do_write_to_string(object[i])
+                                                if i != (max - 1):
+                                                        string += " "
+                                string += ')'
+                        elif symbolp(object) or integerp(object) or floatp(object):
+                                string += str(object)
+                        elif object in obj2lisp_xform:
+                                string += obj2lisp_xform[object]
+                        elif type(object).__name__ == 'builtin_function_or_method':
+                                string += '"#<builtin %s 0x%x>"' % (object.__name__, id(object))
+                        elif stringp(object):
+                                string += r'"%s"' % re.sub(r'(["\\])', r'\\\\1', object)
+                        else:
+                                error("Can't write object %s", object)
+                        return string
+                return write_to_string_loop(object)
+        ret = do_write_to_string(object)
+        # debug_printf("===> %s", ret)
+        return ret
 
 def prin1_to_string(object):
         return write_to_string(object, escape = t)
