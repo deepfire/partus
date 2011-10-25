@@ -1097,7 +1097,7 @@ class dynamic_scope(object):
 __dynamic_scope__ = dynamic_scope()
 env = __dynamic_scope__             # shortcut..
 
-class progv():
+def progv(vars = None, vals = None, body = None, **cluster):
         """Two usage modes:
 progv(['foovar', 'barvar'],
       [3.14, 2.71],
@@ -1108,13 +1108,12 @@ with progv(foovar = 3.14,
       body()
 
 ..with the latter being lighter on the stack frame usage."""
-        def __init__(vars = None, vals = None, body = None, **cluster):
-                if body:
-                        with env_cluster(_map_into_hash(lambda vv: (_coerce_to_symbol_name(vv[0]), vv[1]),
-                                                        zip(vars, vals))):
-                                return body()
-                else:
-                        return env_cluster(_coerce_cluster_keys_to_symbol_names(cluster))
+        if body:
+                with env_cluster(_map_into_hash(lambda vv: (_coerce_to_symbol_name(vv[0]), vv[1]),
+                                                zip(vars, vals))):
+                        return body()
+        else:
+                return env_cluster(_coerce_cluster_keys_to_symbol_names(cluster))
 
 def _init_package_system_1():
         setq("_package_", package("CL_USER", use = ["CL"]))
