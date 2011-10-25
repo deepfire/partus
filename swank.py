@@ -440,9 +440,9 @@ def handle_requests(connection, timeout = None):
 @block
 def process_requests(timeout):
         def body():
-                event, timeoutp = wait_for_event(find_symbol0("or"),
-                                                 [keyword("emacs-rex"), ],        # XXX: (:emacs-rex . _)
-                                                 [keyword("emacs-channel-send")]) # XXX: (:emacs-channel-send . _)
+                event, timeoutp = wait_for_event([find_symbol0("or"),
+                                                  [keyword("emacs-rex"), ],        # XXX: (:emacs-rex . _)
+                                                  [keyword("emacs-channel-send")]]) # XXX: (:emacs-channel-send . _)
                 if timeoutp:
                         return_from(process_requests, None)
                 destructure_case(
@@ -643,7 +643,7 @@ def send_to_emacs(event):
         else:
                 dispatch_event (event)
 
-def wait_for_event(pattern, timeout = None):
+def wait_for_event(pattern, timeout = nil):
         log_event("wait_for_event: %s %s\n", pattern, timeout)
         without_slime_interrupts(
                 lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)[0] # WARNING: multiple values!
@@ -652,7 +652,8 @@ def wait_for_event(pattern, timeout = None):
 
 @block
 def wait_for_event_event_loop(pattern, timeout):
-        assert((not timeout) or timeout is t)
+        if timeout and timeout is not t:
+                error(simple_type_error, "WAIT-FOR-EVENT-LOOP: timeout must be NIL or T, was: %s.", timeout)
         def body():
                 check_slime_interrupts()
                 event = poll_for_event(pattern)
@@ -1472,8 +1473,7 @@ def sldb_loop(level):
                                 send_to_emacs([keyword(debug-activate), current_thread_id(), level, None])
                                 while True:
                                         def handler_case_body():
-                                                evt = wait_for_event(symbol_value("_emacs_connection_"),
-                                                                     ["or",
+                                                evt = wait_for_event(["or",
                                                                       [keyword("emacs-rex")],
                                                                       [keyword("sldb-return", level + 1)]])
                                                 if evt[0] is keyword("emacs-rex"):
@@ -1489,9 +1489,9 @@ def sldb_loop(level):
                                current_thread_id(),
                                level,
                                env._sldb_stepping_p_])
-                wait_for_event(symbol_value("_emacs_connection_"),
-                               [keyword("sldb-return"), level + 1],
-                               True)                   # clean event-queue
+                # clean event-queue
+                wait_for_event([keyword("sldb-return"), level + 1],
+                               t)
                 if level > 1:
                         send_event(symbol_value("_emacs_connection_"),
                                    current_thread(), [keyword("sldb-return"), level])
