@@ -5,7 +5,7 @@ import threading
 
 import cl
 
-from cl import env, identity, setq, symbol_value, boundp, t, nil, format, find, member_if, constantly, loop, ldiff, rest, first
+from cl import env, identity, setq, symbol_value, progv, boundp, t, nil, format, find, member_if, remove_if_not, constantly, loop, ldiff, rest, first
 from cl import block, return_from, handler_bind, signal, make_condition
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword
@@ -23,7 +23,7 @@ def create_socket(address, port):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((address, port))
-        socket_ = sock.makefile()
+        socket_ = sock.makefile(mode = "r")
         socket_.sock = sock
         return socket_
 
@@ -36,11 +36,11 @@ def close_socket(socket):
         socket.sock.close()
 
 @defimplementation
-def accept_connection(socket, external_format = "utf-8", buffering = "full", timeout = None):
+def accept_connection(socket, external_format = "utf-8", buffering = "full", timeout = nil):
         # XXX: socket buffering ought to be honored
         socket.sock.listen(0)
         client_sock, _ = socket.sock.accept()
-        client_socket = client_sock.makefile(encoding = external_format)
+        client_socket = client_sock.makefile(mode = "rw", encoding = external_format)
         client_socket.sock = client_sock
         return client_socket
 
@@ -99,15 +99,15 @@ def set_default_directory(slime_connection, sldb_state, directory):
 # def default_readtable_alist():			pass
 # def call_with_compilation_hooks(func):		pass
 # def swank_compile_string(string,
-#                          buffer = None,
-#                          position = None,
-#                          filename = None,
-#                          policy = None):		pass
+#                          buffer = nil,
+#                          position = nil,
+#                          filename = nil,
+#                          policy = nil):		pass
 # def swank_compile_file(input_file,
 #                        output_file,
 #                        load_p,
 #                        external_format,
-#                        policy = None):		pass
+#                        policy = nil):		pass
 
 @defimplementation
 def find_external_format(coding_system):
@@ -126,8 +126,8 @@ def function_name(function):
 
 # def valid_function_name_p(form):			pass
 # def macroexpand_all(form):				pass
-# def compiler_macroexpand_1(form, env = None):		pass
-# def compiler_macroexpand(form, env = None):		pass
+# def compiler_macroexpand_1(form, env = nil):		pass
+# def compiler_macroexpand(form, env = nil):		pass
 # def format_string_expand(control_string):		pass
 # def describe_symbol_for_emacs(symbol):		pass
 # def describe_definition(name, type):			pass
@@ -140,7 +140,7 @@ def call_with_debugging_environment(debugger_loop_fn):
         with env.let(_sldb_stack_top_ = (_top_frame()
                                          if symbol_value("_debug_swank_backend_") or not boundp("_stack_top_hint_") else
                                          env._stack_top_hint_),
-                     _stack_top_hint_ = None):
+                     _stack_top_hint_ = nil):
                 handler_bind(lambda: debugger_loop_fn(),
                              debug_condition = lambda condition: signal((make_condition(sldb_condition,
                                                                                         original_condition = condition))))
@@ -314,7 +314,7 @@ def thread_status(thread):
 # def thread_attributes(thread):			pass
 
 @defimplementation
-def make_lock(name = None):
+def make_lock(name = nil):
         return threading.Lock()
 
 setq("_thread_id_counter_lock_", make_lock(name = "thread id counter lock"))
@@ -395,53 +395,132 @@ def condition_timed_wait(waitqueue, mutex, timeout):
         waitqueue.wait(timeout)
 
 @defimplementation
-def receive(timeout = None):
+def receive(timeout = nil):
         return receive_if(constantly(t), timeout)
 
 @defimplementation
-@block
-def receive_if(test, timeout = None):
+def receive_if(test, timeout = nil):
         mbox = mailbox(current_thread())
         mutex, waitq = mbox.mutex, mbox.waitqueue
         assert(not timeout or timeout is t)
-        def body():
-                check_slime_interrupts()
-                def lockbody():
-                        q = mbox.queue
-                        tail = member_if(test, q)
-                        if tail:
-                                mbox.queue = ldiff(q, tail) + rest(tail)
-                                return_from(receive_if,
-                                            (first(tail), None))
-                        if timeout is t:
-                                return_from(receive_if,
-                                            (None, True))
-                        condition_timed_wait(waitq, mutex, 0.2)
-                call_with_lock_held(mutex, lockbody)
-        loop(body)
+        @block
+        def _receive_if():
+                def body():
+                        check_slime_interrupts()
+                        def lockbody():
+                                q = mbox.queue
+                                tail = member_if(test, q)
+                                if tail:
+                                        mbox.queue = ldiff(q, tail) + rest(tail)
+                                        return_from(_receive_if,
+                                                    (first(tail), None))
+                                if timeout is t:
+                                        return_from(_receive_if,
+                                                    (None, True))
+                                condition_timed_wait(waitq, mutex, 0.2)
+                        call_with_lock_held(mutex, lockbody)
+                loop(body)
+        return _receive_if()
 
 # def set_default_initial_binding(var, form):		pass
 
 #### defvar *wait-for-input-called* <unbound>
 @defimplementation
-@block
-def wait_for_input(streams, timeout = None):
-        assert(timeout is nil or timeout is t)
+def wait_for_input(streams, timeout = nil):
+        if timeout and timeout is not t:
+                error(simple_type_error, "WAIT-FOR-INPUT: timeout must be NIL or T, was: %s.", timeout)
         if boundp("_wait_for_input_called_"):
                  setq("_wait_for_input_called_", t)
-        with progv(_wait_for_input_called_ = nil):
-                def body():
-                        ready = remove_if_not(input_ready_p, streams)
-                        if ready:
-                                return_from(wait_for_input, read)
-                        if timeout:
-                                return_from(wait_for_input, nil)
-                        if check_slime_interrupts():
-                                return_from(wait_for_input, keyword("interrupt"))
-                        if symbol_value("_wait_for_input_called_"):
-                                return_from(wait_for_input, keyword("interrupt"))
-                        sleep(0.2)
-                loop(body)
+        @block
+        def _wait_for_input():
+                with progv(_wait_for_input_called_ = nil):
+                        def body():
+                                ready = remove_if_not(input_ready_p, streams)
+                                if ready:
+                                        return_from(_wait_for_input, ready)
+                                if timeout:
+                                        return_from(_wait_for_input, nil)
+                                if check_slime_interrupts():
+                                        return_from(_wait_for_input, keyword("interrupt"))
+                                if symbol_value("_wait_for_input_called_"):
+                                        return_from(_wait_for_input, keyword("interrupt"))
+                                sleep(0.2)
+                        loop(body)
+        return _wait_for_input()
+
+def input_ready_p(stream):
+        return cl._coerce_to_stream(stream).readable() # XXX!
+# #-win32
+# (defun input-ready-p (stream)
+#   (let ((c (read-char-no-hang stream nil :eof)))
+#     (etypecase c
+#       (character (unread-char c stream) t)
+#       (null nil)
+#       ((member :eof) t))))
+
+# #+win32
+# (progn
+#   (defun input-ready-p (stream)
+#     (or (has-buffered-input-p stream)
+#         (handle-listen (sockint::fd->handle 
+#                         (sb-impl::fd-stream-fd stream)))))
+#
+#   (defun has-buffered-input-p (stream)
+#     (let ((ibuf (sb-impl::fd-stream-ibuf stream)))
+#       (/= (sb-impl::buffer-head ibuf)
+#           (sb-impl::buffer-tail ibuf))))
+#
+#   (sb-alien:define-alien-routine ("WSACreateEvent" wsa-create-event)
+#       sb-win32:handle)
+# 
+#   (sb-alien:define-alien-routine ("WSACloseEvent" wsa-close-event)
+#       sb-alien:int 
+#     (event sb-win32:handle))
+#  
+#   (defconstant +fd-read+ #.(ash 1 0))
+#   (defconstant +fd-close+ #.(ash 1 5))
+#  
+#   (sb-alien:define-alien-routine ("WSAEventSelect" wsa-event-select)
+#       sb-alien:int 
+#     (fd sb-alien:int) 
+#     (handle sb-win32:handle)
+#     (mask sb-alien:long))
+#
+#   (sb-alien:load-shared-object "kernel32.dll")
+#   (sb-alien:define-alien-routine ("WaitForSingleObjectEx" 
+#                                   wait-for-single-object-ex)
+#       sb-alien:int
+#     (event sb-win32:handle)
+#     (milliseconds sb-alien:long)
+#     (alertable sb-alien:int))
+#
+#   ;; see SB-WIN32:HANDLE-LISTEN
+#   (defun handle-listen (handle)
+#     (sb-alien:with-alien ((avail sb-win32:dword)
+#                           (buf (array char #.sb-win32::input-record-size)))
+#       (unless (zerop (sb-win32:peek-named-pipe handle nil 0 nil 
+#                                                (sb-alien:alien-sap
+#                                                 (sb-alien:addr avail))
+#                                                nil))
+#         (return-from handle-listen (plusp avail)))
+#
+#       (unless (zerop (sb-win32:peek-console-input handle
+#                                                   (sb-alien:alien-sap buf)
+#                                                   sb-win32::input-record-size 
+#                                                   (sb-alien:alien-sap 
+#                                                    (sb-alien:addr avail))))
+#         (return-from handle-listen (plusp avail))))
+#
+#     (let ((event (wsa-create-event)))
+#       (wsa-event-select handle event (logior +fd-read+ +fd-close+))
+#       (let ((val (wait-for-single-object-ex event 0 0)))
+#         (wsa-close-event event)
+#         (unless (= val -1)
+#           (return-from handle-listen (zerop val)))))
+#
+#     nil)
+#
+#   )
 
 # def toggle_trace(spec):				pass
 # def make_weak_key_hash_table(*args, **keys):		pass
@@ -459,4 +538,4 @@ def wait_for_input(streams, timeout = None):
 def codepoint_length(string):
         return len(string)
 
-# def call_with_io_timeout(function, seconds = None):	pass
+# def call_with_io_timeout(function, seconds = nil):	pass
