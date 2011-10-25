@@ -962,8 +962,7 @@ def eval_for_emacs(form, buffer_package, id):
                         run_hook(boundp("_pre_reply_hook_") and symbol_value(env._pre_reply_hook_))
                         ok = True
         finally:
-                send_to_emacs(symbol_value("_emacs_connection_"),
-                              [keyword('return'),
+                send_to_emacs([keyword('return'),
                                current_thread(),
                                ([keyword('ok'), result]
                                 if ok else
@@ -1120,14 +1119,6 @@ setq("_swank_pprint_bindings_", [(intern0("_print_pretty_"),   t),
 #### swank-pprint
 #### pprint-eval
 #### set-package
-
-def send_to_emacs(slime_connection, obj):
-        file = slime_connection.file
-        payload = write_sexp_to_string(obj)
-        write_string("%06x" % len(payload), file)
-        write_string(payload, file)
-        format(sys.stderr, "-> %06x %s", len(payload), payload)
-        file.flush()
 
 # `swank:connection-info` <- function (slimeConnection, sldbState) {
 #   list(quote(`:pid`), Sys.getpid(),
@@ -1415,10 +1406,8 @@ def listener_eval(slime_connection, sldb_state, string):
 def send_repl_results_to_emacs(values):
         finish_output()
         if not values:
-                send_to_emacs(symbol_value("_emacs_connection_"),
-                              [keyword("write-string"), "; No value", keyword("repl-result"),])
+                send_to_emacs([keyword("write-string"), "; No value", keyword("repl-result"),])
                 mapc(lambda v: send_to_emacs(
-                                symbol_value("_emacs_connection_"),
                                 [keyword("write-string"), prin1_to_string(v) + "\n", keyword("repl-result")]),
                      values)
 
@@ -1443,8 +1432,7 @@ def track_package(fn):
                 return fn()
         finally:
                 if p is not _package_():
-                        send_to_emacs(symbol_value("_emacs_connection_"),
-                                      [keyword("new-package"), package_name(_package_()),
+                        send_to_emacs([keyword("new-package"), package_name(_package_()),
                                        package_string_for_prompt(_package_())])
 
 #### cat
@@ -1542,12 +1530,10 @@ def sldb_loop(level):
         try:
                 while True:
                         def with_simple_restart_body():
-                                send_to_emacs(symbol_value("_emacs_connection_"),
-                                              [keyword("debug"), current_thread_id(), level] +
+                                send_to_emacs([keyword("debug"), current_thread_id(), level] +
                                               # was wrapped into (with-bindings *sldb-printer-bindings*)
                                               debugger_info_for_emacs(0, env._sldb_initial_frames_))
-                                send_to_emacs(symbol_value("_emacs_connection_"),
-                                              [keyword(debug-activate), current_thread_id(), level, None])
+                                send_to_emacs([keyword(debug-activate), current_thread_id(), level, None])
                                 while True:
                                         def handler_case_body():
                                                 evt = wait_for_event(symbol_value("_emacs_connection_"),
@@ -1563,11 +1549,10 @@ def sldb_loop(level):
                         with_simple_restart("ABORT", "Return to sldb level %d." % level,
                                             with_simple_restart_body)
         finally:
-                send_to_emacs(symbol_value("_emacs_connection_"),
-                              [keyword("debug-return"),
+                send_to_emacs([keyword("debug-return"),
                                current_thread_id(),
                                level,
-                               env._sldb_stepping_p])
+                               env._sldb_stepping_p_])
                 wait_for_event(symbol_value("_emacs_connection_"),
                                [keyword("sldb-return"), level + 1],
                                True)                   # clean event-queue
