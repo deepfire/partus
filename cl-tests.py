@@ -50,7 +50,7 @@ class X2(X):        pass
 
 def e(mesg, expr): fprintf(sys.stderr, "-%s: %s\n" % (mesg, expr)); return expr
 
-enable_pytracer()
+cl._init_condition_system()
 
 @block
 def f():

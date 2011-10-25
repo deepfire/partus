@@ -723,7 +723,7 @@ def catch(ball, body):
                 # format(t, "catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
                 if ct.ball is ball:
                         if ct.reenable_pytracer:
-                                enable_pytracer()
+                                _enable_pytracer()
                         return ct.value
                 else:
                         raise
@@ -994,7 +994,17 @@ def _pythonise_lisp_name(x):
         return ret
 
 def _init_condition_system():
-        enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
+        _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
+
+def _without_condition_system(body):
+        if _pytracer_enabled_p():
+                try:
+                        _disable_pytracer()
+                        return body()
+                finally:
+                        _enable_pytracer()
+        else:
+                return body()
 
 def _init_package_system_0():
         # debug_printf("   --  -- [ package system init..")
@@ -1411,8 +1421,8 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
 def probe_file(pathname):
         "No, no real pathnames, just namestrings.."
         assert(stringp(pathname))
-        return handler_case(lambda: os.path.exists(pathname),
-                            error = lambda _: False)
+        return _without_condition_system(
+                lambda: os.path.exists(pathname))
 
 ##
 ## Streams
@@ -1509,21 +1519,21 @@ def force_output(*args, **keys):
 ## Pythonese execution tracing: for HANDLER-BIND.
 ##
 __tracer_hooks__   = dict() # allowed keys: 'call', 'line', 'return', 'exception', 'c_call', 'c_return', 'c_exception'
-def set_tracer_hook(type, fn): __tracer_hooks__[type] = fn
-def     tracer_hook(type):     return __tracer_hooks__.get(type)
+def _set_tracer_hook(type, fn):        __tracer_hooks__[type] = fn
+def     _tracer_hook(type):     return __tracer_hooks__.get(type)
 
-def pytracer(frame, event, arg):
-        method = tracer_hook(event)
+def _pytracer(frame, event, arg):
+        method = _tracer_hook(event)
         if method:
                 method(arg, frame)
-        return pytracer
+        return _pytracer
 
-def pytracer_enabled_p(): return sys.gettrace() is pytracer
-def enable_pytracer():    sys.settrace(pytracer); return True
-def disable_pytracer():   sys.settrace(None);     return True
+def _pytracer_enabled_p(): return sys.gettrace() is _pytracer
+def _enable_pytracer():    sys.settrace(_pytracer); return True
+def _disable_pytracer():   sys.settrace(None);      return True
 
-def set_condition_handler(fn):
-        set_tracer_hook('exception', fn)
+def _set_condition_handler(fn):
+        _set_tracer_hook('exception', fn)
         return True
 
 ##
@@ -1582,7 +1592,7 @@ def invoke_debugger(condition):
 
 def _report_condition(condition, stream = None):
         stream = _defaulting(stream, "_debug_io_")
-        format(t, "Condition: %s\n", condition)
+        format(t, "Condition of type %s: %s\n", type(condition), condition)
         _backtrace(-1, )
 
 def _maybe_reporting_conditions_on_hook(p, hook, body):
@@ -1612,6 +1622,7 @@ def __cl_condition_handler__(cond, frame):
                 if debugger_hook:
                         with env.let(_debugger_hook_ = nil):
                                 debugger_hook(cond, debugger_hook)
+                                _report_condition(cond)
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
         #
@@ -1619,7 +1630,7 @@ def __cl_condition_handler__(cond, frame):
         # condition handlers.
         # If we've hit any HANDLER-CASE-bound handlers, then we won't
         # even reach this point, as the stack is already unwound.
-set_condition_handler(__cl_condition_handler__)
+_set_condition_handler(__cl_condition_handler__)
 
 def handler_bind(fn, no_error = identity, **handlers):
         "Works like real HANDLER-BIND, when the conditions are right.  Ha."
@@ -1628,7 +1639,7 @@ def handler_bind(fn, no_error = identity, **handlers):
         # this is:
         #     pytracer_enabled_p() and condition_handler_active_p()
         # ..inlined for speed.
-        if pytracer_enabled_p() and __tracer_hooks__.get('exception') is __cl_condition_handler__:
+        if _pytracer_enabled_p() and __tracer_hooks__.get('exception') is __cl_condition_handler__:
                 ### XXX: This is a temporary shitty workaround for broken FIND-CLASS (oh, yes, Python, thank you again!)
                 # resolved = dict()
                 # for type, handler in handlers.items():
@@ -1639,7 +1650,7 @@ def handler_bind(fn, no_error = identity, **handlers):
         else:
                 # old world case..
                 # format(t, "crap FAIL: pep %s, exhook is cch: %s",
-                #        pytracer_enabled_p(), __tracer_hooks__.get('exception') is __cl_condition_handler__)
+                #        _pytracer_enabled_p(), __tracer_hooks__.get('exception') is __cl_condition_handler__)
                 if len(handlers) > 1:
                         error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
                               len(handlers))
