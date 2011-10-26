@@ -1667,21 +1667,21 @@ def _maybe_reporting_conditions_on_hook(p, hook, body):
         else:
                 return body()
 
-def __cl_condition_handler__(cond, frame):
-        type, cond, traceback = cond
+def __cl_condition_handler__(condspec, frame):
+        type, condition, traceback = condspec
         # print_frames(frames_upward_from(frame))
-        with env.let(_traceback_ = traceback,
-                     _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
-                presignal_hook = symbol_value("_presignal_hook_")
-                if presignal_hook:
-                        with env.let(_presignal_hook_ = nil):
-                                presignal_hook(cond, presignal_hook)
-                signal(cond)
-                debugger_hook = symbol_value("_debugger_hook_")
-                if debugger_hook:
-                        with env.let(_debugger_hook_ = nil):
-                                debugger_hook(cond, debugger_hook)
-                                _report_condition(cond)
+        if not typep(condition, __catcher_throw__): # no need to delay the inevitable
+                with env.let(_traceback_ = traceback,
+                             _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
+                        presignal_hook = symbol_value("_presignal_hook_")
+                        if presignal_hook:
+                                with env.let(_presignal_hook_ = nil):
+                                        presignal_hook(condition, presignal_hook)
+                        signal(condition)
+                        debugger_hook = symbol_value("_debugger_hook_")
+                        if debugger_hook:
+                                with env.let(_debugger_hook_ = nil):
+                                        debugger_hook(condition, debugger_hook)
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
         #
