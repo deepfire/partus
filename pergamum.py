@@ -2,7 +2,7 @@
 ### Some utilities, in the spirit of Common Lisp.
 ###
 from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref, t
-from cl           import write_string
+from cl           import write_string, write_line
 from functools    import reduce, partial
 from cl           import _tuplep as tuplep, _dictp as dictp
 from cl           import _letf   as letf, _if_let as if_let, _when_let as when_let, _lret as lret
@@ -12,6 +12,8 @@ from cl           import _curry as curry, _compose as compose
 from cl           import _mapset as mapset, _mapsetn as mapsetn
 from cl           import _slotting as slotting
 from cl           import _ensure_list as ensure_list
+from cl           import _caller_name as caller_name
+from cl           import _coerce_to_stream as coerce_to_stream
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]
@@ -20,6 +22,7 @@ import stat               # S_ISREG
 import time               # clock()
 import sys                # sys.stdout
 import traceback
+import threading
 
 from neutrality   import file_content
 
@@ -577,3 +580,17 @@ def syncprintf(format_control, *format_args):
 
 def debug_printf(format_control, *format_args):
         fprintf(sys.stderr, format_control + "\n", *format_args)
+
+def here(note = None, callers = 4):
+        names = []
+        for i in reversed(range(callers)):
+                names.append(caller_name(i))
+        names = "..".join(mapcar(string_upcase, names))
+        return write_line("%s: '%s'%s" % (names, threading.current_thread().name, "" if note is None else (" - %s" % note)),
+                          sys.stderr)
+
+def describe(x, stream = t):
+        stream = coerce_to_stream(stream)
+        write_line("Object '%s' of type %s:" % (x, type_of(x)))
+        for attr, val in x.__dict__.items():
+                write_line("%25s: %s" % (attr, str(val)))
