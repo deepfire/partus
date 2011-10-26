@@ -167,8 +167,8 @@ def slime_secret():
                 with open(secret_path, "r") as f:
                         return f and read_line(f, nil, "")
 
-def serve_requests(connection):
-        connection.serve_requests(connection)
+def serve_requests(conn):
+        conn.serve_requests(conn)
 
 def announce_server_port(file, port):
         with open(file, "w") as s:
@@ -180,28 +180,28 @@ def simple_announce_function(port):
                 format(symbol_value("_log_output_"), "\n;; Swank started at port: %d.\n", port)
                 force_output(symbol_value("_log_output_"))
 
-def open_streams(connection):
+def open_streams(conn):
         """Return the 5 streams for IO redirection:
 DEDICATED-OUTPUT INPUT OUTPUT IO REPL-RESULTS"""
-        input_fn = lambda: with_connection(connection,
+        input_fn = lambda: with_connection(conn,
                                            lambda: with_simple_restart("ABORT-READ", "Abort reading input from Emacs.",
                                                                        read_user_input_from_emacs))
         dedicated_output = when(symbol_value("_swank_debug_p_"),
-                                lambda: open_dedicated_output_stream(connection.socket_io))
+                                lambda: open_dedicated_output_stream(conn.socket_io))
         in_ = make_input_stream(input_fn)
-        out = dedicated_output or make_output_stream(make_output_function(connection))
+        out = dedicated_output or make_output_stream(make_output_function(conn))
         io = make_two_way_stream(in_, out)
-        repl_results = make_output_stream_for_target(connection, keyword("repl-result"))
-        if connection.communication_style is keyword("spawn"):
-                connection.set_auto_flush_thread(spawn(lambda: auto_flush_loop(out),
-                                                       name = "auto-flush-thread"))
+        repl_results = make_output_stream_for_target(conn, keyword("repl-result"))
+        if conn.communication_style is keyword("spawn"):
+                conn.set_auto_flush_thread(spawn(lambda: auto_flush_loop(out),
+                                                 name = "auto-flush-thread"))
         return dedicated_output, in_, out, io, repl_results
 
-def make_output_function(connection):
+def make_output_function(conn):
         i, tag, l = 0, 0, 0
         def set_i_tag_l(x): nonlocal i, tag, l; i, tag, l = x
         return (lambda string:
-                        with_connection(connection,
+                        with_connection(conn,
                                         set_i_tag_l(send_user_output(string, i, tag, l))))
 
 setq("_maximum_pipelined_output_chunks_", 50)
@@ -218,15 +218,15 @@ def send_user_output(string, pcount, tag, plength):
         send_to_emacs([keyword("write-string"), string])
         return pcount + 1, tag, plength + len(string)
 
-def make_output_function_for_target(connection, target):
+def make_output_function_for_target(conn, target):
         "Create a function to send user output to a specific TARGET in Emacs."
         return (lambda string:
-                        with_connection(connection,
+                        with_connection(conn,
                                         lambda: with_simple_restart("ABORT", "Abort sending output to Emacs.",
                                                                     lambda: send_to_emacs([keyword("write-string", string, target)]))))
 
-def make_output_stream_for_target(connection, target):
-        return make_output_stream(make_output_function_for_target(connection, target))
+def make_output_stream_for_target(conn, target):
+        return make_output_stream(make_output_function_for_target(conn, target))
 
 def open_dedicated_output_stream(socket_io):
         """Open a dedicated output connection to the Emacs on SOCKET-IO.
@@ -248,21 +248,3 @@ This is an optimized way for Lisp to deliver output to Emacs."""
         finally:
                 if socket:
                         close_socket(socket)
-
-def main_loop(sock, file):
-        with env.let(slime_connection = SlimeConnection(sock = sock, file = file, io = sock),
-                     python_user      = load_code_object_as_module("python_user",
-                                                                   compile("import swank; import cl;" + ("from swank import *" if swank.debug else ""),
-                                                                           "PY-USER", "exec")),
-                     partus_path      = default_directory()):
-                while True:
-                        def with_restarts_body():
-                                try:
-                                        with env.let(sldb_state = None):
-                                                swank.dispatch_event(env.slime_connection, swank.read_packet(sock, file), sldb_state = env.sldb_state)
-                                except Exception as x: # FIXME
-                                        # print_backtrace()
-                                        not_implemented("Unhandled exception at main loop.")
-                                        swank_top_level = lambda c: None
-                        with_simple_restart("ABORT", "Return to SLIME's toplevel.",
-                                            with_restarts_body)

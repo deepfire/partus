@@ -180,9 +180,9 @@ def make_connection(socket, stream, style, coding_system):
         symbol_value("_connections_").append(conn)
         return conn
 
-def connection_external_format(connection):
+def connection_external_format(conn):
         return ignore_errors(lambda:
-                                     stream_external_format(connection.socket_io))
+                                     stream_external_format(conn.socket_io))
 
 def ping(tag):
         return tag
@@ -204,7 +204,7 @@ def make_swank_error(condition, backtrace = safe_backtrace()):
 
 setq("_debug_on_swank_protocol_error_", None)
 
-def with_swank_error_handler(connection, body):
+def with_swank_error_handler(conn, body):
         def handler_case_body():
                 return handler_bind(
                         body,
@@ -213,18 +213,18 @@ def with_swank_error_handler(connection, body):
                                        invoke_default_debugger(condition)))
         return handler_case(handler_case_body,
                             swank_error = (lambda condition:
-                                                   close_connection(connection,
+                                                   close_connection(conn,
                                                                     condition.condition,
                                                                     condition.backtrace)))
 
-def with_panic_handler(connection, body):
+def with_panic_handler(conn, body):
         return handler_bind(body,
                             Exception = (lambda condition:
-                                                 close_connection(connection,
+                                                 close_connection(conn,
                                                                   condition,
                                                                   safe_backtrace())))
 
-def notify_backend_of_connection(connection):
+def notify_backend_of_connection(conn):
         return emacs_connected()
 
 add_hook("_new_connection_hook_", notify_backend_of_connection)
@@ -351,20 +351,21 @@ def without_slime_interrupts(body):
 
 #### invoke-or-queue-interrupt
 
-def with_io_redirection(connection, body):
-        return with_bindings(connection.env, body)
+def with_io_redirection(conn, body):
+        return with_bindings(conn.env, body)
 
-def with_connection(connection, body):
-        if symbol_value("_emacs_connection_") is connection:
+def with_connection(conn, body):
+        assert(typep(conn, connection))
+        if symbol_value("_emacs_connection_") is conn:
                 return body()
         else:
-                with env.let(_emacs_connection_ = connection,
+                with env.let(_emacs_connection_ = conn,
                          _pending_slime_interrupts_ = []):
                         without_slime_interrupts(
                                 lambda: with_swank_error_handler(
-                                        connection,
+                                        conn,
                                         lambda: with_io_redirection(
-                                                connection,
+                                                conn,
                                                 lambda:
                                                         call_with_debugger_hook(
                                                         swank_debugger_hook,
@@ -415,25 +416,25 @@ def encode_message(message, stream):
 ### Event Processing: swank.lisp:1028
 setq("_sldb_quit_restart_", None)
 
-def with_top_level_restart(connection, k, body):
+def with_top_level_restart(conn, k, body):
         def restart_case_body():
                 with env.let(_sldb_quit_restart_ = find_restart("ABORT")):
                         return body()
         return with_connection(
-                connection,
+                conn,
                 lambda: restart_case(restart_case_body,
                                      abort = ((lambda v = None:
                                                        force_user_output() and k()),
                                               dict(report = "Return to SLIME's top level."))))
 
-def handle_requests(connection, timeout = None):
+def handle_requests(conn, timeout = None):
         def tag_body():
                 start
-                with_top_level_restart(connection,
+                with_top_level_restart(conn,
                                        lambda: go(start),
                                        lambda: process_requests(timeout))
         with_connection(
-                connection,
+                conn,
                 lambda: (process_requests(timeout) if symbol_value("_sldb_quit_restart_") else
                          tag_body()))
 
@@ -462,15 +463,15 @@ def current_socket_io():
 ### Thread based communication: swank.lisp:1107
 setq("_active_threads_", [])
 
-def read_loop(connection):
-        input_stream, control_thread = connection.socket_io, connection.control_thread
-        with_swank_error_handler(connection,
+def read_loop(conn):
+        input_stream, control_thread = conn.socket_io, conn.control_thread
+        with_swank_error_handler(conn,
                                  lambda:
                                          loop(lambda: send(control_thread, decode_message(input_stream))))
 
-def dispatch_loop(connection):
-        with env.let(_emacs_connection_ = connection):
-                with_panic_handler(connection,
+def dispatch_loop(conn):
+        with env.let(_emacs_connection_ = conn):
+                with_panic_handler(conn,
                                    lambda:
                                            loop(lambda: dispatch_event(receive()[0]))) # WARNING: multiple values!
 
@@ -487,18 +488,18 @@ def auto_flush_loop(stream):
                 sleep(symbol_value("_auto_flush_interval_"))
         loop(body)
 
-def find_repl_thread(connection):
+def find_repl_thread(conn):
         if not use_threads_p():
                 return current_thread()
         else:
-                thread = connection_repl_thread
+                thread = conn.repl_thread
                 if not thread:
                         pass
                 elif thread_alive_p(thread):
                         return thread
                 else:
-                        connection.repl_thread = spawn_repl_thread(connection, "new-repl-thread")
-                        return connection.repl_thread
+                        conn.repl_thread = spawn_repl_thread(conn, "new-repl-thread")
+                        return conn.repl_thread
 
 def find_worker_thread(id):
         if id is t:
@@ -537,23 +538,23 @@ def thread_for_evaluation(id):
         else:
                 error(TypeError, "THREAD-FOR-EVALUATION: id must be one of: T, :REPL-THREAD or a fixnum, was: %s" % id)
 
-def spawn_worker_thread(connection):
+def spawn_worker_thread(conn):
         return spawn(lambda:
                              with_bindings(
                         symbol_value("_default_worker_thread_bindings_"),
                         lambda:
                                 with_top_level_restart(
-                                connection, nil,
+                                conn, nil,
                                 lambda:
                                         eval_for_emacs(*wait_for_event([keyword("emacs_rex"),
                                                                         # XXX: was: :emacs-rex . _
                                                                         ])[1:]))),
                      name = "worker")
 
-def spawn_repl_thread(connection, name):
+def spawn_repl_thread(conn, name):
         return spawn(lambda:
                              with_bindings(symbol_value("_default_worker_thread_bindings_"),
-                                           lambda: repl_loop(connection)),
+                                           lambda: repl_loop(conn)),
                      name = name)
 
 def dispatch_event(event):
@@ -699,30 +700,30 @@ def event_match_p(event, pattern):
         else:
                 error("Invalid pattern: %s.", pattern)
 
-def spawn_threads_for_connection(connection):
-        connection.control_thread = spawn(lambda: control_thread(connection),
-                                          name = "control-thread")
-        return connection
+def spawn_threads_for_connection(conn):
+        conn.control_thread = spawn(lambda: control_thread(conn),
+                                    name = "control-thread")
+        return conn
 
-def control_thread(connection):
-        connection.control_thread = current_thread()
-        connection.reader_thread  = spawn(lambda: read_loop(connection),
-                                          name = "reader-thread")
-        dispatch_loop(connection)
+def control_thread(conn):
+        conn.control_thread = current_thread()
+        conn.reader_thread  = spawn(lambda: read_loop(conn),
+                                    name = "reader-thread")
+        dispatch_loop(conn)
 
-def cleanup_connection_threads(connection):
-        threads = [connection.repl_thread,
-                   connection.reader_thread,
-                   connection.control_thread,
-                   connection.auto_flush_thread]
+def cleanup_connection_threads(conn):
+        threads = [conn.repl_thread,
+                   conn.reader_thread,
+                   conn.control_thread,
+                   conn.auto_flush_thread]
         for thread in threads:
                 if (thread and
                     thread_alive_p(thread) and
                     thread is not current_thread()):
                         kill_thread(thread)
 
-def repl_loop(connection):
-        handle_requests(connection)
+def repl_loop(conn):
+        handle_requests(conn)
 
 ### Signal driven IO: swank.lisp:1333
 ### SERVE-EVENT based IO: swank.lisp:1354
@@ -1006,7 +1007,6 @@ def writeurn_output(output):
         close(output)
         if len(string):
                 send_to_emacs(symbol_value("_emacs_connection_"), [keyword('write-string'), string])
-                # send_to_emacs(env.slime_connection, [keyword('write-string'), "\n"])
         return string
 
 def error_handler(c, sldb_state, output = None):
@@ -1089,35 +1089,6 @@ def swank_require(slime_connection, sldb_state, contribs):
                 if probe_file(filename):
                         load_file(filename)
         return []
-
-# `swank:create-repl` <- function(slimeConnection, sldbState, env, ...) {
-#   list("R", "R")
-# }
-def create_repl(slime_connection, sldb_state, env, *args):
-        return ["python", "python"]
-
-# `swank:autodoc` <- function(slimeConnection, sldbState, rawForm, ...) {
-#   "No Arglist Information"
-# }
-def autodoc(slime_connection, sldb_state, raw_form, *args):
-        return "No Arglist Information"
-
-# `swank:operator-arglist` <- function(slimeConnection, sldbState, op, package) {
-#   list()
-# }
-def operator_arglist(slime_connection, sldb_state, op, package):
-        return []
-
-# `swank:throw-to-toplevel` <- function(slimeConnection, sldbState) {
-#   condition <- simpleCondition("Throw to toplevel")
-#   class(condition) <- c("swankTopLevel", class(condition))
-#   signalCondition(condition)
-# }
-class SwankTopLevel(Exception):
-        pass
-def throw_to_toplevel(slime_connection, sldb_state):
-        condition = SwankTopLevel("Throw to toplevel")
-        raise condition
 
 # `swank:backtrace` <- function(slimeConnection, sldbState, from=0, to=NULL) {
 #   calls <- sldbState$calls
@@ -1399,8 +1370,8 @@ after Emacs causes a restart to be invoked."""
         without_slime_interrupts(
                 lambda: (debug_in_emacs(condition) if symbol_value("_emacs_connection_") else
                          when_let(default_connection(),
-                                  lambda connection:
-                                          with_connection(connection,
+                                  lambda conn:
+                                          with_connection(conn,
                                                           lambda: debug_in_emacs(condition)))))
 
 class invoke_default_debugger_condition(BaseException):
@@ -1417,7 +1388,7 @@ def invoke_default_debugger(condition):
 
 setq("_global_debugger_", t)
 
-def install_debugger(connection):
+def install_debugger(conn):
         if symbol_value("_global_debugger_"):
                 install_debugger_globally(swank_debugger_hook)
 
