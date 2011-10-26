@@ -1655,9 +1655,14 @@ def invoke_debugger(condition):
                         debugger_hook(cond, debugger_hook)
         error(BaseError, "INVOKE-DEBUGGER fell through.")
 
+__main_thread__ = threading.current_thread()
 def _report_condition(condition, stream = None):
         stream = _defaulting(stream, "_debug_io_")
-        format(t, "Condition of type %s: %s\n", type(condition), condition)
+        format(t, "%sondition of type %s: %s\n",
+               (("In thread '%s': c" % threading.current_thread().name)
+                if threading.current_thread() is not __main_thread__ else 
+                "C"),
+               type(condition), condition)
         _backtrace(-1, )
 
 def _maybe_reporting_conditions_on_hook(p, hook, body):
