@@ -523,40 +523,22 @@ def mapc(f, *xs):
         return xs[0]
 
 def remove_if(f, xs, key = identity):
-        if listp(xs):              return [ x for x in xs if not f(key(x)) ]
-        elif typep(xs, set):       return set (x for x in xs if not f(key(x)))
-        elif typep(xs, frozenset): return frozenset(x for x in xs if not f(key(x)))
-        elif typep(xs, dict):
-                acc = dict()
-                for x in xs:
-                        if not f(key(x)):
-                                acc[x] = xs[x]
-                return acc
-        else:                      return [ x for x in xs if not f(key(x)) ]
+        if isinstance(xs, dict):
+                return       { k:x for k, x in xs.items() if not f(k, key(x))}
+        else:
+                return type(xs) (x for x    in xs         if not f(key(x)))
 
 def remove_if_not(f, xs, key = identity):
-        if listp(xs):              return [ x for x in xs if f(key(x)) ]
-        elif typep(xs, set):       return set(x for x in xs if f(key(x)))
-        elif typep(xs, frozenset): return frozenset(x for x in xs if f(key(x)))
-        elif typep(xs, dict):
-                acc = dict()
-                for x in xs:
-                        if f(key(x)):
-                                acc[x] = xs[x]
-                return acc
-        else:                      return [ x for x in xs if f(key(x)) ]
+        if isinstance(xs, dict):
+                return       { k:x for k, x in xs.items() if f(k, key(x))}
+        else:
+                return type(xs) (x for x    in xs         if f(key(x)))
 
 def remove(elt, xs, test = eq, key = identity):
-        if listp(xs):              return [ x for x in xs if not test(elt, key(x)) ]
-        elif typep(xs, set):       return set(x for x in xs if not test(elt, key(x)))
-        elif typep(xs, frozenset): return frozenset(x for x in xs if not test(elt, key(x)))
-        elif typep(xs, dict):
-                acc = dict()
-                for x in xs:
-                        if not test(elt, key(x)):
-                                acc[x] = xs[x]
-                return acc
-        else:                      return [ x for x in xs if not test(elt, key(x)) ]
+        if isinstance(xs, dict):
+                return       { k:x for k, x in xs.items() if test(elt, key(x))}
+        else:
+                return type(xs) (x for x    in xs         if test(elt, key(x)))
 
 def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
         end = end or len(xs)
