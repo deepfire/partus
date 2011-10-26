@@ -1809,11 +1809,12 @@ def restart_bind(body, **restart_specs):
 
 def _restart_case(body, **restarts_args):
         nonce            = gensym("RESTART-CASE")
-        wrapped_restarts_args = { restart_name: _letf(restart_args['function'],
-                                                      lambda function:
-                                                              _updated_dict(restart_args,
-                                                                       dict(function =
-                                                                            lambda *args, **keys: return_from(nonce, function(*args, **keys)))))
+        wrapped_restarts_args = {
+                restart_name: _letf(restart_args['function'],
+                                    lambda function:
+                                            _updated_dict(restart_args,
+                                                          dict(function =
+                                                               lambda *args, **keys: return_from(nonce, function(*args, **keys)))))
                              for restart_name, restart_args in restarts_args.items () }
         return catch(nonce,
                      lambda: _restart_bind(body, wrapped_restarts_args))
@@ -1850,8 +1851,8 @@ condition is not an element. If condition is NIL, all restarts are
 considered.
 """
         return (not condition or
-                "associated_conditions" not in restart or
-                condition in restart["associated_conditions"])
+                "associated_conditions" not in restart.__dict__ or
+                condition in restart.associated_conditions)
 
 def find_restart(identifier, condition = None):
         """
