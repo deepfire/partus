@@ -89,6 +89,20 @@ print("HANDLER-CASE-AROUND-HANDLER-BIND: passed")
 
 @block
 def f():
+        def raiser():
+                raise X1("PREHANDLER-HOOK: Ugh.")
+        with progv(_prehandler_hook_ = lambda cond, frame, _:
+                           return_from(f, str([cond, frame]))):
+                return handler_case(
+                        lambda: handler_bind(raiser,
+                                             X1 = lambda cond:
+                                                     return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_))),
+                        X1 = lambda cond: "HANDLER-CASE won!")
+assert("[X1('PREHANDLER-HOOK: Ugh.',), <frame object at" in f())
+print("PREHANDLER-HOOK: passed")
+
+@block
+def f():
         return format(nil, "%s",
                       with_simple_restart(
                         "fooage", ("Yay: %s!", 3.14),

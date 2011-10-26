@@ -1619,6 +1619,10 @@ at all.
         # format(t, "    %s\n", cond)
         return cond
 
+setq("_presignal_hook_", nil)
+setq("_prehandler_hook_", nil)
+setq("_debugger_hook_",  nil)
+
 def signal(condition):
         "XXX: this is crippled by inheritance-ignorant exact matching of the condition name."
         # format(t, "Signalling %s", condition)
@@ -1626,6 +1630,10 @@ def signal(condition):
         for cluster in reversed(env.__handler_clusters__):
                 # format(t, "Analysing cluster %s for '%s'.", cluster, name)
                 if name in cluster:
+                        hook = symbol_value("_prehandler_hook_")
+                        if hook:
+                                frame = cluster['__frame__']
+                                hook(condition, frame, hook)
                         cluster[name](condition)
         return nil
 
@@ -1639,10 +1647,8 @@ def warn(datum, *args, **keys):
         format(symbol_value("_error_output_"), "%s", condition)
         return nil
 
-setq("_presignal_hook_", nil)
-setq("_debugger_hook_",  nil)
-
 def invoke_debugger(condition):
+        "XXX: non-compliant: doesn't actually invoke the debugger."
         debugger_hook = symbol_value("_debugger_hook_")
         if debugger_hook:
                 with env.let(_debugger_hook_ = nil):
