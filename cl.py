@@ -1703,6 +1703,7 @@ def handler_bind(fn, no_error = identity, **handlers):
                 # resolved = dict()
                 # for type, handler in handlers.items():
                 #         resolved[resolve_exception_type(type)] = handler
+                handlers['__frame__'] = _this_frame()
                 with env.let(__handler_clusters__ = env.__handler_clusters__ + [handlers]):
                         # format(t, "crap ok, going on, new __handler_clusters__ = %s", env.__handler_clusters__)
                         return no_error(fn())
