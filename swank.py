@@ -661,7 +661,7 @@ def wait_for_event_event_loop(pattern, timeout):
                 if event:
                         return_from(wait_for_event_event_loop, first(event))
                 events_enqueued = symbol_value("_events_enqueued_")
-                ready = wait_for_input([current_socket_io(), timeout])
+                ready = wait_for_input([current_socket_io()], timeout)
                 if timeout and not ready:
                         return_from(wait_for_event_event_loop, (nil, t))
                 elif (events_enqueued != symbol_value("_events_enqueued_") or
