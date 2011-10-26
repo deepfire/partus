@@ -525,23 +525,28 @@ def mapc(f, *xs):
                 f(*x)
         return xs[0]
 
+__allowed__ = frozenset([set, frozenset, tuple, list, bytes, bytearray, str])
+def _maprestype(x):
+        type = type_of(x)
+        return type if type in __allowed__ else list
+
 def remove_if(f, xs, key = identity):
         if isinstance(xs, dict):
-                return       { k:x for k, x in xs.items() if not f(k, key(x))}
+                return              { k:x for k, x in xs.items() if not f(k, key(x))}
         else:
-                return type(xs) (x for x    in xs         if not f(key(x)))
+                return _maprestype(xs) (x for x    in xs         if not f(key(x)))
 
 def remove_if_not(f, xs, key = identity):
         if isinstance(xs, dict):
-                return       { k:x for k, x in xs.items() if f(k, key(x))}
+                return              { k:x for k, x in xs.items() if f(k, key(x))}
         else:
-                return type(xs) (x for x    in xs         if f(key(x)))
+                return _maprestype(xs) (x for x    in xs         if f(key(x)))
 
 def remove(elt, xs, test = eq, key = identity):
         if isinstance(xs, dict):
-                return       { k:x for k, x in xs.items() if test(elt, key(x))}
+                return              { k:x for k, x in xs.items() if test(elt, key(x))}
         else:
-                return type(xs) (x for x    in xs         if test(elt, key(x)))
+                return _maprestype(xs) (x for x    in xs         if test(elt, key(x)))
 
 def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
         end = end or len(xs)
