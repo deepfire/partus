@@ -1658,12 +1658,12 @@ def invoke_debugger(condition):
 __main_thread__ = threading.current_thread()
 def _report_condition(condition, stream = None):
         stream = _defaulting(stream, "_debug_io_")
-        format(t, "%sondition of type %s: %s\n",
+        format(stream, "%sondition of type %s: %s\n",
                (("In thread '%s': c" % threading.current_thread().name)
                 if threading.current_thread() is not __main_thread__ else 
                 "C"),
                type(condition), condition)
-        _backtrace(-1, )
+        _backtrace(-1, stream)
 
 def _maybe_reporting_conditions_on_hook(p, hook, body):
         if p:
