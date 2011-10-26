@@ -6,6 +6,8 @@ import select
 
 from collections import defaultdict, UserDict
 
+import cl
+
 from cl import *
 from pergamum import *
 from more_ast import *
@@ -58,7 +60,7 @@ setq("_sldb_bitvector_length_", nil)
 
 setq("_sldb_pprint_dispatch_table_",
      # XXX: ???
-     None)
+     nil)
 
 setq("_sldb_printer_bindings_",
      [(intern0("_print_pretty_"),          t),
@@ -79,7 +81,7 @@ setq("_sldb_printer_bindings_",
 
 setq("_backtrace_pprint_dispatch_table_",
      # XXX: ???
-     None)
+     nil)
 
 setq("_backtrace_printer_bindings_",
      [(intern0("_print_pretty_"),          t),
@@ -138,6 +140,7 @@ class connection():
                 self.serve_requests             = serve_requests
                 self.cleanup                    = cleanup
                 #
+                here("style: " + str (self.communication_style))
                 self.dedicated_output           = nil
                 self.user_input                 = nil
                 self.user_output                = nil
@@ -160,7 +163,7 @@ def print_connection(conn, stream, depth):
         return print_unreadable_object(conn, stream, type = t, identity = t)
 
 setq("_connections_",      [])
-setq("_emacs_connection_", None)
+setq("_emacs_connection_", nil)
 
 def default_connection():
         return env._connections_[0]
@@ -169,7 +172,8 @@ def make_connection(socket, stream, style, coding_system):
         serve, cleanup = ((spawn_threads_for_connection, cleanup_connection_threads) if style is keyword("spawn") else
                           (install_sigio_handler, deinstall_sigio_handler) if style is keyword("sigio") else
                           (install_fd_handler, deinstall_fd_handler) if style is keyword("fd-handler") else
-                          (simple_serve_requests, None))
+                          (simple_serve_requests, nil))
+        here("style: " + str (style))
         conn = connection(socket = socket,
                           socket_io = stream,
                           communication_style = style,
@@ -202,7 +206,7 @@ class swank_error(Exception):
 def make_swank_error(condition, backtrace = safe_backtrace()):
         return swank_error(condition = condition, backtrace = backtrace)
 
-setq("_debug_on_swank_protocol_error_", None)
+setq("_debug_on_swank_protocol_error_", nil)
 
 def with_swank_error_handler(conn, body):
         def handler_case_body():
@@ -340,13 +344,14 @@ def check_slime_interrupts():
 
 def with_slime_interrupts(body):
         check_slime_interrupts()
-        with env.let(_slime_interrupts_enabled_ = True):
+        with env.let(_slime_interrupts_enabled_ = t):
                 ret = body()
         check_slime_interrupts()
         return ret
 
 def without_slime_interrupts(body):
-        with env.let(_slime_interrupts_enabled_ = False):
+        with env.let(_slime_interrupts_enabled_ = nil):
+                here ("HEAR!!!")
                 return body()
 
 #### invoke-or-queue-interrupt
@@ -414,7 +419,7 @@ def encode_message(message, stream):
                                      Exception = lambda c: error(make_swank_error(c))))
 
 ### Event Processing: swank.lisp:1028
-setq("_sldb_quit_restart_", None)
+setq("_sldb_quit_restart_", nil)
 
 def with_top_level_restart(conn, k, body):
         def restart_case_body():
@@ -427,7 +432,7 @@ def with_top_level_restart(conn, k, body):
                                                        force_user_output() and k()),
                                               dict(report = "Return to SLIME's top level."))))
 
-def handle_requests(conn, timeout = None):
+def handle_requests(conn, timeout = nil):
         def tag_body():
                 start
                 with_top_level_restart(conn,
@@ -445,7 +450,7 @@ def process_requests(timeout):
                                                   [keyword("emacs-rex"), ],        # XXX: (:emacs-rex . _)
                                                   [keyword("emacs-channel-send")]]) # XXX: (:emacs-channel-send . _)
                 if timeoutp:
-                        return_from(process_requests, None)
+                        return_from(process_requests, nil)
                 destructure_case(
                         event,
                         ([keyword("emacs-rex"),
@@ -546,6 +551,7 @@ def spawn_worker_thread(conn):
                                 with_top_level_restart(
                                 conn, nil,
                                 lambda:
+                                        describe(conn) and
                                         eval_for_emacs(*wait_for_event([keyword("emacs_rex"),
                                                                         # XXX: was: :emacs-rex . _
                                                                         ])[1:]))),
@@ -631,7 +637,7 @@ setq("_events_enqueued_", 0)
 def send_event(thread, event):
         log_event("send-event: %s %s\n", thread, event)
         if use_threads_p:
-                send (thread, event)
+                send(thread, event)
         else:
                 symbol_value("_event_queue_").append(event)
                 setq("_events_enqueued_",
@@ -645,17 +651,21 @@ def send_to_emacs(event):
                 dispatch_event (event)
 
 def wait_for_event(pattern, timeout = nil):
+        here("entry: use_threads_p: %s" % (use_threads_p(),))
         log_event("wait_for_event: %s %s\n", pattern, timeout)
-        without_slime_interrupts(
-                lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)[0] # WARNING: multiple values!
-                         if use_threads_p() else
-                         wait_for_event_event_loop(pattern, timeout)))
+        return without_slime_interrupts(
+                lambda: here("within without-slime-interruptes") and
+                ((lambda: here("about to call RECEIVE-IF") and
+                  receive_if(lambda e: event_match_p(e, pattern), timeout)[0]) # WARNING: multiple values!
+                 if use_threads_p() else
+                 wait_for_event_event_loop(pattern, timeout)))
 
 @block
 def wait_for_event_event_loop(pattern, timeout):
         if timeout and timeout is not t:
                 error(simple_type_error, "WAIT-FOR-EVENT-LOOP: timeout must be NIL or T, was: %s.", timeout)
         def body():
+                cl._backtrace()
                 check_slime_interrupts()
                 event = poll_for_event(pattern)
                 if event:
