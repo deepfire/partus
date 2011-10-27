@@ -1065,13 +1065,6 @@ setq("_swank_pprint_bindings_", [(intern0("_print_pretty_"),   t),
 #### pprint-eval
 #### set-package
 
-# `swank:connection-info` <- function (slimeConnection, sldbState) {
-#   list(quote(`:pid`), Sys.getpid(),
-#        quote(`:package`), list(quote(`:name`), "R", quote(`:prompt`), "R> "),
-#        quote(`:lisp-implementation`), list(quote(`:type`), "R",
-#                                            quote(`:name`), "R",
-#                                            quote(`:version`), paste(R.version$major, R.version$minor, sep=".")))
-# }
 def connection_info(slime_connection, sldb_state):
         return [keyword("pid"),                 getpid(),
                 ## TODO: current package
@@ -1082,15 +1075,6 @@ def connection_info(slime_connection, sldb_state):
                                                   keyword("name"), "python",
                                                   keyword("version"), "%d.%d.%d" % sys.version_info[:3]]]
 
-# `swank:swank-require` <- function (slimeConnection, sldbState, contribs) {
-#   for(contrib in contribs) {
-#     filename <- sprintf("%s/%s.R", swankrPath, as.character(contrib))
-#     if(file.exists(filename)) {
-#       source(filename)
-#     }
-#   }
-#   list()
-# }
 def swank_require(slime_connection, sldb_state, contribs):
         for contrib in contribs:
                 filename = "%s/%s.py" % (env.partus_path, str(contrib))
@@ -1098,66 +1082,14 @@ def swank_require(slime_connection, sldb_state, contribs):
                         load_file(filename)
         return []
 
-# `swank:backtrace` <- function(slimeConnection, sldbState, from=0, to=NULL) {
-#   calls <- sldbState$calls
-#   if(is.null(to)) to <- length(calls)
-#   from <- from+1
-#   calls <- lapply(calls[from:to],
-#                   { frameNumber <- from-1;
-#                     function (x) {
-#                       ret <- list(frameNumber, paste(format(x), sep="", collapse=" "))
-#                       frameNumber <<- 1+frameNumber
-#                       ret
-#                     }
-#                   })
-# }
-def backtrace(slime_connection, sldb_state, from_ = 0, to = None):
-        frames = sldb_state.frames
-        longest = max(mapcar(lambda f: len(fun_filename(frame_fun(f))), frames))
-        return list(enumerate(map(pp_frame,
-                                  frames[from_:to or len(frames)]), # XXX: was [from_ + 1:to or len(frames)]
-                              from_))
-
-def debugger_condition_for_emacs():
-        condition = symbol_value("_swank_debugger_condition_")
-        return [safe_condition_message(condition),
-                format(nil, "   [Condition of type %s]", type_of(condition).__name__),
-                condition_extras(condition)]
-
-def format_restarts_for_emacs():
-        # let ((*print-right-margin* most-positive-fixnum))
-        return mapcar(lambda restart:
-                              [("*" if restart is env._sldb_quit_restart_ else
-                                "") + restart_name(restart),
-                               with_output_to_string(
-                                without_printing_errors(restart, stream,
-                                                        lambda: princ(restart, stream),
-                                                        msg = "<<error printing restart>>"))],
-                      env._sldb_restarts_)
-
-# `swank:invoke-nth-restart-for-emacs` <- function(slimeConnection, sldbState, level, n) {
-#   if(sldbState$level == level) {
-#     invokeRestart(sldbState$restarts[[n+1]])
-#   }
-# }
 def invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
         if sldb_state.level == level:
                 return invoke_restart(sldb_state.restarts[n+1])
 
-# prin1ToString <- function(val) {
-#   paste(deparse(val, backtick=TRUE, control=c("delayPromises", "keepNA")),
-#         sep="", collapse="\n")
-# }
 def prin1_to_string(val):
         return "\n".join(deparse(val)) # FIXME
 
 
-# `swank:eval-string-in-frame` <- function(slimeConnection, sldbState, string, index) {
-#   frame <- sldbState$frames[[1+index]]
-#   withRetryRestart("retry SLIME interactive evaluation request",
-#                    value <- eval(parse(text=string), envir=frame))
-#   printToString(value)
-# }
 def eval_string_in_frame(slime_connection, sldb_state, string, index):
         frame = sldb_state.frames[index] # XXX: was [index + 1]
         value = None
@@ -1348,21 +1280,192 @@ def track_package(fn):
                         send_to_emacs([keyword("new-package"), package_name(_package_()),
                                        package_string_for_prompt(_package_())])
 
-#### cat
-#### truncate-string
-#### call/truncated-output-to-string
-#### with-string-stream
-#### to-line
-#### escape-string
-#### package-string-for-prompt
-#### canonical-package-nickname
-#### auto-abbreviated-package-name
-#### shortest-package-nickname
-#### ed-in-emacs
-#### inspect-in-emacs
-#### value-for-editing
-#### commit-edited-value
-#### background-message
+
+def cat(*strings):
+        "Concatenate all arguments and make the result a string."
+        return with_output_to_string(
+                lambda out:
+                        mapc(lambda s: (write_string(s, out) if stringp(s) or charp(s) else
+                                        error(simple_type_error, "CAT accepts only strings and characters.")),
+                             strings))
+
+def truncate_string(string, width, ellipsis = nil):
+        len = len(string)
+        if len < width:
+                return string
+        elif ellipsis:
+                return cat(string[0:width], ellipsis)
+        else:
+                return string[0:width]
+
+@block
+def call__truncated_output_to_string(length, function, ellipsis = ".."):
+        """Call FUNCTION with a new stream, return the output written to the stream.
+If FUNCTION tries to write more than LENGTH characters, it will be
+aborted and return immediately with the output written so far."""
+        ###
+        ### XXX: this will bomb out outside ASCII.
+        ###
+        buffer = bytearray([0]) * (length + len(ellipsis))
+        fill_pointer = 0
+        def write_output(string):
+                free = length - fill_pointer
+                count = min(free, len(string))
+                replace(buffer, string.encode('ascii'), start1 = fill_pointer, end2 = count)
+                fill_pointer += count
+                if len(string) > free:
+                        replace(buffer, ellipsis.encode('ascii'), start1 = fill_pointer)
+                        return_from(call__truncated_output_to_string, buffer.decode('ascii'))
+        stream = make_output_stream(write_output)
+        function(stream)
+        finish_output(stream)
+        return subseq(buffer, 0, fill_pointer).decode('ascii')
+
+def with_string_stream(body, length = nil, bindings = nil):
+        if not (length or bindings):
+                return with_output_to_string(body)
+        elif not bindings:
+                return call__truncated_output_to_string(length, body)
+        else:
+                return with_bindings(bindings,
+                                     lambda: call__truncated_output_to_string(length, body))
+
+def to_line(object, width = 75):
+        "Print OBJECT to a single line. Return the string."
+        # Ought to be a lot simpler, no?
+        return without_printing_errors(lambda: with_string_stream(lambda stream:
+                                                                          write(object, stream = stream, right_margin = width, lines = 1),
+                                                                  length = width),
+                                       object = object, stream = nil)
+
+# (defun escape-string (string stream &key length (map '((#\" . "\\\"")
+#                                                        (#\\ . "\\\\"))))
+#   "Write STRING to STREAM surronded by double-quotes.
+# LENGTH -- if non-nil truncate output after LENGTH chars.
+# MAP -- rewrite the chars in STRING according to this alist."
+#   (let ((limit (or length array-dimension-limit)))
+#     (write-char #\" stream)
+#     (loop for c across string 
+#           for i from 0 do
+#           (when (= i limit)
+#             (write-string "..." stream)
+#             (return))
+#           (let ((probe (assoc c map)))
+#             (cond (probe (write-string (cdr probe) stream))
+#                   (t (write-char c stream)))))
+#     (write-char #\" stream)))
+
+# (defun package-string-for-prompt (package)
+#   "Return the shortest nickname (or canonical name) of PACKAGE."
+#   (unparse-name
+#    (or (canonical-package-nickname package)
+#        (auto-abbreviated-package-name package)
+#        (shortest-package-nickname package))))
+
+# (defun canonical-package-nickname (package)
+#   "Return the canonical package nickname, if any, of PACKAGE."
+#   (let ((name (cdr (assoc (package-name package) *canonical-package-nicknames* 
+#                           :test #'string=))))
+#     (and name (string name))))
+
+# (defun auto-abbreviated-package-name (package)
+#   "Return an abbreviated 'name' for PACKAGE. 
+
+# N.B. this is not an actual package name or nickname."
+#   (when *auto-abbreviate-dotted-packages*
+#     (loop with package-name = (package-name package)
+#           with offset = nil
+#           do (let ((last-dot-pos (position #\. package-name :end offset :from-end t)))
+#                (unless last-dot-pos
+#                  (return nil))
+#                ;; If a dot chunk contains only numbers, that chunk most
+#                ;; likely represents a version number; so we collect the
+#                ;; next chunks, too, until we find one with meat.
+#                (let ((name (subseq package-name (1+ last-dot-pos) offset)))
+#                  (if (notevery #'digit-char-p name)
+#                      (return (subseq package-name (1+ last-dot-pos)))
+#                      (setq offset last-dot-pos)))))))
+
+# (defun shortest-package-nickname (package)
+#   "Return the shortest nickname of PACKAGE."
+#   (loop for name in (cons (package-name package) (package-nicknames package))
+#         for shortest = name then (if (< (length name) (length shortest))
+#                                    name
+#                                    shortest)
+#               finally (return shortest)))
+
+# (defslimefun ed-in-emacs (&optional what)
+#   "Edit WHAT in Emacs.
+
+# WHAT can be:
+#   A pathname or a string,
+#   A list (PATHNAME-OR-STRING &key LINE COLUMN POSITION),
+#   A function name (symbol or cons),
+#   NIL. "
+#   (flet ((canonicalize-filename (filename)
+#            (pathname-to-filename (or (probe-file filename) filename))))
+#     (let ((target 
+#            (etypecase what
+#              (null nil)
+#              ((or string pathname) 
+#               `(:filename ,(canonicalize-filename what)))
+#              ((cons (or string pathname) *)
+#               `(:filename ,(canonicalize-filename (car what)) ,@(cdr what)))
+#              ((or symbol cons)
+#               `(:function-name ,(prin1-to-string what))))))
+#       (cond (*emacs-connection* (send-oob-to-emacs `(:ed ,target)))
+#             ((default-connection)
+#              (with-connection ((default-connection))
+#                (send-oob-to-emacs `(:ed ,target))))
+#             (t (error "No connection"))))))
+
+# (defslimefun inspect-in-emacs (what &key wait)
+#   "Inspect WHAT in Emacs. If WAIT is true (default NIL) blocks until the
+# inspector has been closed in Emacs."
+#   (flet ((send-it ()
+#            (let ((tag (when wait (make-tag)))
+#                  (thread (when wait (current-thread-id))))
+#              (with-buffer-syntax ()
+#                (reset-inspector)
+#                (send-oob-to-emacs `(:inspect ,(inspect-object what)
+#                                              ,thread
+#                                              ,tag)))
+#              (when wait
+#                (wait-for-event `(:emacs-return ,tag result))))))
+#     (cond
+#       (*emacs-connection*
+#        (send-it))
+#       ((default-connection)
+#        (with-connection ((default-connection))
+#          (send-it))))
+#     what))
+
+# (defslimefun value-for-editing (form)
+#   "Return a readable value of FORM for editing in Emacs.
+# FORM is expected, but not required, to be SETF'able."
+#   ;; FIXME: Can we check FORM for setfability? -luke (12/Mar/2005)
+#   (with-buffer-syntax ()
+#     (let* ((value (eval (read-from-string form)))
+#            (*print-length* nil))
+#       (prin1-to-string value))))
+
+# (defslimefun commit-edited-value (form value)
+#   "Set the value of a setf'able FORM to VALUE.
+# FORM and VALUE are both strings from Emacs."
+#   (with-buffer-syntax ()
+#     (eval `(setf ,(read-from-string form) 
+#             ,(read-from-string (concatenate 'string "`" value))))
+#     t))
+
+# (defun background-message  (format-string &rest args)
+#   "Display a message in Emacs' echo area.
+
+# Use this function for informative messages only.  The message may even
+# be dropped, if we are too busy with other things."
+#   (when *emacs-connection*
+#     (send-to-emacs `(:background-message 
+#                      ,(apply #'format nil format-string args)))))
+
 # UNUSABLE: sleep-for
 
 ### Debugger: swank.lisp:2474
@@ -1495,23 +1598,20 @@ def safe_condition_message(condition):
 def debugger_condition_for_emacs():
         condition = symbol_value("_swank_debugger_condition_")
         return [safe_condition_message(condition),
-                format(nil, "   [Condition of type %s]", type_of(condition)),
+                format(nil, "   [Condition of type %s]", type_of(condition).__name__),
                 condition_extras(condition)]
 
 def format_restarts_for_emacs():
         with progv(_print_right_margin = most_positive_fixnum):
-                acc = []
-                for restart in symbol_value("_sldb_restarts_"):
-                        acc.append(format(nil, "%s%s",
-                                          ("*" if restart is symbol_value("_sldb_quit_restart_") else
-                                           ""),
-                                          restart.name))
-                        acc.append(with_output_to_string(
+                return mapcar(lambda restart:
+                                      [("*" if restart is env._sldb_quit_restart_ else
+                                        "") + restart_name(restart),
+                                       with_output_to_string(
                                         lambda stream:
                                                 without_printing_errors(restart, stream,
                                                                         lambda: princ(restart, stream),
-                                                                        msg = "<<error printing restart>>")))
-                return acc
+                                                                        msg = "<<error printing restart>>"))],
+                              env._sldb_restarts_)
 
 ### SLDB entry points: swank.lisp:2614
 def sldb_break_with_default_debugger(dont_unwind):
@@ -1578,7 +1678,7 @@ def frame_to_string(frame):
 #         *pending-continuations*))
 def debugger_info_for_emacs(start = 0, end = None):
         return [debugger_condition_for_emacs(),
-                format_restart_for_emacs(),
+                format_restarts_for_emacs(),
                 backtrace(start, end),
                 symbol_value("_pending_continuations_")]
 

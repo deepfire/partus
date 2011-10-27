@@ -95,6 +95,9 @@ def _all_threads_frames():
 def _this_frame():
         return sys._getframe(1)
 
+def _next_frame(f):
+        return f.f_back
+
 def _caller_frame(n = 0):
         return sys._getframe(n + 2)
 
@@ -506,7 +509,7 @@ def rest(xs):         return xs[1:]  # !!!
 def nth_value(n, xs): return xs[n]
 
 def subseq(xs, start, end = None):
-        return xs[start:end] if end else  xs[start:]
+        return xs[start:end]
 
 def make_list(size, initial_element = None):
         # horribly inefficient, but that's what we have..
@@ -616,6 +619,20 @@ def count_if(p, xs, key = identity, start = 0):
         return c
 
 sort = sorted
+
+def replace(sequence_1, sequence_2, start1 = 0, start2 = 0, end1 = None, end2 = None):
+        """Destructively modifies sequence-1 by replacing the elements
+of subsequence-1 bounded by start1 and end1 with the elements of
+subsequence-2 bounded by start2 and end2. """
+        # XXX: this will bomb out when designated subsequence of sequence_2 is
+        #      shorter than that of sequence_1, which is quite fine by CL:REPLACE:
+        # 
+        # "If these subsequences are not of the same length, then the
+        #  shorter length determines how many elements are copied; the
+        #  extra elements near the end of the longer subsequence are not
+        #  involved in the operation."
+        sequence_1[start1:end1] = sequence2[start2:end2]
+        return sequence_1
 
 # XXX: This is geared at cons-style lists, and so is fucking costly
 # for imperative lists.
@@ -1245,18 +1262,34 @@ def write_to_string(object,
                         elif stringp(object):
                                 string += '"%s"' % re.sub(r'(["\\])', r'\\\\1', object)
                         else:
-                                error("Can't write object %s", object)
+                                string += "<%s>" % (object,)
+                                # error("Can't write object %s", object)
                         return string
                 return write_to_string_loop(object)
         ret = do_write_to_string(object)
         # debug_printf("===> %s", ret)
         return ret
 
-def prin1_to_string(object):
-        return write_to_string(object, escape = t)
+def prin1_to_string(object): return write_to_string(object, escape = t)
+def princ_to_string(object): return write_to_string(object, escape = nil, readably = nil)
 
-def princ_to_string(object):
-        return write_to_string(object, escape = nil, readably = nil)
+def write(object, stream = t, **args):
+        write_string(write_to_string(object, **args), stream)
+        return object
+
+def prin1(object, stream = t): return write(object, stream = stream, escape = t)
+def princ(object, stream = t): return write(object, stream = stream, escape = nil, readably = nil)
+
+def print_(object, stream = t):
+        terpri(stream)
+        prin1(object, stream)
+        write_char(" ", stream)
+        return object
+
+def pprint(object, stream = t):
+        terpri(stream)
+        write(object, stream = stream, escape = t, pretty = t)
+        return object
 
 def format(stream, format_control, *format_arguments):
         string = format_control % format_arguments
@@ -1535,7 +1568,14 @@ def _coerce_to_stream(x):
 class stream_type_error(simple_condition, io.UnsupportedOperation):
         pass
 
-def write_string(string, stream = symbol_value("_standard_output_")):
+def write_char(c, stream = t):
+        write_string(c, stream)
+        return c
+
+def terpri(stream = t):
+        write_string("\n", stream)
+
+def write_string(string, stream = t):
         if stream is not nil:
                 def handler():
                         try:
@@ -1548,7 +1588,7 @@ def write_string(string, stream = symbol_value("_standard_output_")):
                 _without_condition_system(handler)
         return string
 
-def write_line(string, stream = symbol_value("_standard_output_")):
+def write_line(string, stream = t):
         return write_string(string + "\n", stream)
 
 def make_string_output_stream():
@@ -1560,7 +1600,7 @@ def get_output_stream_string(x):
 def close(x):
         x.close()
 
-def finish_output(stream = symbol_value("_standard_output_")):
+def finish_output(stream = t):
         stream is not nil and _coerce_to_stream(stream).flush()
 
 def force_output(*args, **keys):

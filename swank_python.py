@@ -6,7 +6,7 @@ import threading
 import cl
 
 from cl import env, identity, setq, symbol_value, progv, boundp, t, nil, format, find, member_if, remove_if_not, constantly, loop, ldiff, rest, first
-from cl import block, return_from, handler_bind, signal, make_condition, write_line, princ_to_string
+from cl import block, return_from, handler_bind, signal, make_condition, write_line, princ_to_string, stream
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword
 
@@ -116,8 +116,19 @@ def find_external_format(coding_system):
                 None)
 
 # def guess_external_format(pathname):			pass
-# def make_output_stream(write_string):			pass
-# def make_input_stream(read_string):			pass
+
+# def swank_gray:make_output_stream(write_string):	pass
+# def swank_gray:make_input_stream(read_string):	pass
+
+class gray_output_stream(stream):
+        def __init__(self, write):
+                self.write = lambda _, string: write(string)
+
+@defimplementation
+def make_output_stream(write_string):
+        "XXX: ORLY?"
+        return gray_output_stream(write_string)
+
 # def arglist(name):					pass
 
 @defimplementation
@@ -146,7 +157,24 @@ def call_with_debugging_environment(debugger_loop_fn):
                                                                                         original_condition = condition))))
 
 # def call_with_debugger_hook(hook, fun):		pass
-# def compute_backtrace(start, end):			pass
+
+def nth_frame(index):
+        frame = symbol_value("_sldb_stack_top_")
+        i = index
+        while i:
+                frame = cl._next_frame(frame)
+                i -= 1
+        return frame
+
+@defimplementation
+def compute_backtrace(start, end = nil):
+        """Return a list of frames starting with frame number START and
+continuing to frame number END or, if END is nil, the last frame on the
+stack."""
+        nth_f = nth_frame(start)
+        return [nth_f] + cl._frames_upward_from(nth_f)[:(end - start - 1) if end else None]
+                
+
 # def print_frame(frame, stream):			pass
 # def frame_restartable_p(frame):			pass
 
