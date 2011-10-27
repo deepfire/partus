@@ -1201,21 +1201,23 @@ def write_to_string(object,
         radix           = radix           if radix           is not None else symbol_value("_print_radix_")
         readably        = readably        if readably        is not None else symbol_value("_print_readably_")
         right_margin    = right_margin    if right_margin    is not None else symbol_value("_print_right_margin_")
-        assert(array is t and
-               base is 10 and
-               # case is
-               circle is nil and
-               # escape is !
-               # gensym is
-               length is nil and
-               level is nil and
-               lines is nil and
-               miser_width is nil and
-               pretty is nil and
-               pprint_dispatch is __standard_pprint_dispatch__ and
-               radix is nil and
-               readably is nil and
-               right_margin is nil)
+        # assert(True
+        #        and array is t
+        #        and base is 10
+        #        # case is keyword("upcase")
+        #        and circle is nil
+        #        # and escape is t !
+        #        # and gensym is t
+        #        and length is nil
+        #        and level is nil
+        #        and lines is nil
+        #        and miser_width is nil
+        #        and pretty is nil
+        #        and pprint_dispatch is __standard_pprint_dispatch__
+        #        and radix is nil
+        #        # and readably is nil !
+        #        # and right_margin is nil !
+        #        )
         obj2lisp_xform = {
                 False : "nil",
                 None  : "nil",

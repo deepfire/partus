@@ -140,7 +140,6 @@ class connection():
                 self.serve_requests             = serve_requests
                 self.cleanup                    = cleanup
                 #
-                here("style: " + str (self.communication_style))
                 self.dedicated_output           = nil
                 self.user_input                 = nil
                 self.user_output                = nil
@@ -155,7 +154,7 @@ class connection():
                 self.cleanup                    = nil
                 self.indentation_cache          = dict()
                 self.indentation_cache_packages = []
-                self.communication_style        = None
+                self.communication_style        = communication_style
                 self.coding_system              = None
                 self.saved_sigint_handler       = None
 
@@ -173,7 +172,6 @@ def make_connection(socket, stream, style, coding_system):
                           (install_sigio_handler, deinstall_sigio_handler) if style is keyword("sigio") else
                           (install_fd_handler, deinstall_fd_handler) if style is keyword("fd-handler") else
                           (simple_serve_requests, nil))
-        here("style: " + str (style))
         conn = connection(socket = socket,
                           socket_io = stream,
                           communication_style = style,
@@ -351,7 +349,6 @@ def with_slime_interrupts(body):
 
 def without_slime_interrupts(body):
         with env.let(_slime_interrupts_enabled_ = nil):
-                here ("HEAR!!!")
                 return body()
 
 #### invoke-or-queue-interrupt
@@ -551,8 +548,7 @@ def spawn_worker_thread(conn):
                                 with_top_level_restart(
                                 conn, nil,
                                 lambda:
-                                        describe(conn) and
-                                        eval_for_emacs(*wait_for_event([keyword("emacs_rex"),
+                                        eval_for_emacs(*wait_for_event([keyword("emacs-rex"),
                                                                         # XXX: was: :emacs-rex . _
                                                                         ])[1:]))),
                      name = "worker")
@@ -651,14 +647,11 @@ def send_to_emacs(event):
                 dispatch_event (event)
 
 def wait_for_event(pattern, timeout = nil):
-        here("entry: use_threads_p: %s" % (use_threads_p(),))
         log_event("wait_for_event: %s %s\n", pattern, timeout)
         return without_slime_interrupts(
-                lambda: here("within without-slime-interruptes") and
-                ((lambda: here("about to call RECEIVE-IF") and
-                  receive_if(lambda e: event_match_p(e, pattern), timeout)[0]) # WARNING: multiple values!
-                 if use_threads_p() else
-                 wait_for_event_event_loop(pattern, timeout)))
+                lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)[0] # WARNING: multiple values!
+                         if use_threads_p() else
+                         wait_for_event_event_loop(pattern, timeout)))
 
 @block
 def wait_for_event_event_loop(pattern, timeout):
@@ -696,17 +689,22 @@ or_, some_ = _find_symbol0("or", "CL"), _find_symbol0("some", "CL")
 def event_match_p(event, pattern):
         if (keywordp(pattern) or numberp(pattern) or stringp(pattern) or
             pattern is t or pattern is nil):
+                # here("matching ev %s against pat %s: %s" % (event, pattern, event == pattern))
                 return event == pattern
         elif symbolp(pattern):
-                return t
+                # here("matching ev %s against pat %s" % (event, pattern))
+                return t # Ostensibly suspicious, but it's the original logic..
         elif listp(pattern):
+                # here("matching ev %s against pat %s" % (event, pattern))
                 f = pattern[0] # XXX: symbols or strings?
                 if f is or_:
                         return some(lambda p: event_match_p(event, p), rest(pattern))
                 else:
                         return (listp(event) and
                                 event_match_p(first(event), first(pattern)) and
-                                event_match_p(rest(event), rest(pattern)))
+                                True # XXX: priority override!
+                                # event_match_p(rest(event), rest(pattern))
+                                )
         else:
                 error("Invalid pattern: %s.", pattern)
 
@@ -1120,16 +1118,11 @@ def backtrace(slime_connection, sldb_state, from_ = 0, to = None):
                                   frames[from_:to or len(frames)]), # XXX: was [from_ + 1:to or len(frames)]
                               from_))
 
-# (defun debugger-condition-for-emacs ()
-#   (list (safe-condition-message *swank-debugger-condition*)
-#         (format nil "   [Condition of type ~S]"
-#                 (type-of *swank-debugger-condition*))
-#         (condition-extras *swank-debugger-condition*)))
 def debugger_condition_for_emacs():
-        return [safe_condition_message(env._swank_debugger_condition_),
-                format(nil, "   [Condition of type %s]",
-                       type_of(env._swank_debugger_condition_).__name__),
-                condition_extras(env._swank_debugger_condition_)]
+        condition = symbol_value("_swank_debugger_condition_")
+        return [safe_condition_message(condition),
+                format(nil, "   [Condition of type %s]", type_of(condition).__name__),
+                condition_extras(condition)]
 
 def format_restarts_for_emacs():
         # let ((*print-right-margin* most-positive-fixnum))
@@ -1479,11 +1472,46 @@ def sldb_loop(level):
                         send_event(symbol_value("_emacs_connection_"),
                                    current_thread(), [keyword("sldb-return"), level])
 
-#### handle-sldb-condition
-#### defvar *sldb-condition-printer*
-#### safe-condition-message
-#### debugger-condition-for-emacs
-#### format-restarts-for-emacs
+def handle_sldb_condition(condition):
+        """Handle an internal debugger condition.
+Rather than recursively debug the debugger (a dangerous idea!), these
+conditions are simply reported."""
+        real_condition = condition.original_condition
+        send_to_emacs([keyword("debug-condition"), current_thread_id(),
+                       princ_to_string(real_condition)])
+
+setq("_sldb_condition_printer_", format_sldb_condition)
+
+def safe_condition_message(condition):
+        with progv(_print_pretty_ = t,
+                   _print_right_margin_ = 65):
+                return handler_case(lambda: symbol_value("_sldb_condition_printer_")(condition),
+                                    # Beware of recursive errors in printing, so only use the condition
+                                    # if it is printable itself:
+                                    Exception = lambda cond:
+                                            format(nil, "Unable to display error condition: %s.",
+                                                   ignore_errors(lambda: princ_to_string(cond))))
+
+def debugger_condition_for_emacs():
+        condition = symbol_value("_swank_debugger_condition_")
+        return [safe_condition_message(condition),
+                format(nil, "   [Condition of type %s]", type_of(condition)),
+                condition_extras(condition)]
+
+def format_restarts_for_emacs():
+        with progv(_print_right_margin = most_positive_fixnum):
+                acc = []
+                for restart in symbol_value("_sldb_restarts_"):
+                        acc.append(format(nil, "%s%s",
+                                          ("*" if restart is symbol_value("_sldb_quit_restart_") else
+                                           ""),
+                                          restart.name))
+                        acc.append(with_output_to_string(
+                                        lambda stream:
+                                                without_printing_errors(restart, stream,
+                                                                        lambda: princ(restart, stream),
+                                                                        msg = "<<error printing restart>>")))
+                return acc
 
 ### SLDB entry points: swank.lisp:2614
 def sldb_break_with_default_debugger(dont_unwind):
@@ -1548,11 +1576,11 @@ def frame_to_string(frame):
 #         (format-restarts-for-emacs)
 #         (backtrace start end)
 #         *pending-continuations*))
-def debugger_info_for_emacs(slime_connection, sldb_state, from_ = 0, to = None):
+def debugger_info_for_emacs(start = 0, end = None):
         return [debugger_condition_for_emacs(),
                 format_restart_for_emacs(),
-                backtrace(from_, to),
-                env._pending_continuations_]
+                backtrace(start, end),
+                symbol_value("_pending_continuations_")]
 
 #### nth-restart
 #### invoke-nth-restart

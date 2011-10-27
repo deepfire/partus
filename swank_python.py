@@ -6,7 +6,7 @@ import threading
 import cl
 
 from cl import env, identity, setq, symbol_value, progv, boundp, t, nil, format, find, member_if, remove_if_not, constantly, loop, ldiff, rest, first
-from cl import block, return_from, handler_bind, signal, make_condition, write_line
+from cl import block, return_from, handler_bind, signal, make_condition, write_line, princ_to_string
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword
 
@@ -170,7 +170,10 @@ def frame_source_location(n):
 # def frame_call(frame_number):				pass
 # def return_from_frame(frame_number, form):		pass
 # def restart_frame(frame_number):			pass
-# def format_sldb_condition(condition):			pass
+
+@defimplementation
+def format_sldb_condition(condition):
+        return princ_to_string(condition)
 
 # (defimplementation condition-extras (condition)
 #   (cond #+#.(swank-backend::sbcl-with-new-stepper-p)
@@ -373,7 +376,7 @@ def send(thread, message):
         mbox = mailbox(thread)
         def body():
                 mbox.queue.append(message)
-                write_line("SEND -> %s: %s, waking bustahdz!" % (thread, message,))
+                write_line("SEND %s -> %x %s" % (message, id(mbox), mbox.queue,))
                 mbox.waitqueue.notify_all()
         return call_with_lock_held(mbox.mutex,
                                    body)
@@ -402,7 +405,6 @@ def receive(timeout = nil):
 
 @defimplementation
 def receive_if(test, timeout = nil):
-        here("entry")
         mbox = mailbox(current_thread())
         mutex, waitq = mbox.mutex, mbox.waitqueue
         assert(not timeout or timeout is t)
@@ -411,7 +413,6 @@ def receive_if(test, timeout = nil):
                 def body():
                         check_slime_interrupts()
                         def lockbody():
-                                here("got lock")
                                 q = mbox.queue
                                 tail = member_if(test, q)
                                 if tail:
@@ -421,13 +422,12 @@ def receive_if(test, timeout = nil):
                                 if timeout is t:
                                         return_from(_receive_if,
                                                     (None, True))
-                                here("sleeping")
                                 condition_timed_wait(waitq, mutex, 0.2)
                         call_with_lock_held(mutex, lockbody)
                 loop(body)
         ret = _receive_if()
         here("returning " + str(ret))
-        cl._backtrace()
+        # cl._backtrace()
         return ret
 
 # def set_default_initial_binding(var, form):		pass
