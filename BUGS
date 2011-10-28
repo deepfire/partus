@@ -4,3 +4,139 @@ If OBJECT was saved previously return the old id.\"" ("let" (("object" ("if" ("n
 
 Issue MUST-PATCH-IMPLEMENTATION-TO-DISABLE-CONDITION-HANDLING-AROUND-NON-BOSLY-CLEAN-CODE:
       file.exists(), builtins.dict.get(), re.match()..
+
+Issue LAMBDA-WHERE-IS-NONE-MYSTERY:
+
+Exception in thread control-thread:
+Traceback (most recent call last):
+  File "/usr/lib64/python3.2/threading.py", line 736, in _bootstrap_inner
+    self.run()
+  File "swank_python.py", line 258, in <lambda>
+    thread.run = lambda: cl._enable_pytracer() and fn()
+  File "swank.py", line 712, in <lambda>
+    conn.control_thread = spawn(lambda: control_thread(conn),
+  File "swank.py", line 720, in control_thread
+    dispatch_loop(conn)
+  File "swank.py", line 477, in dispatch_loop
+    lambda:
+  File "swank.py", line 224, in with_panic_handler
+    Exception = (lambda condition:
+  File "cl.py", line 1752, in handler_bind
+    return no_error(fn())
+  File "swank.py", line 478, in <lambda>
+    loop(lambda: dispatch_event(receive()[0]))) # WARNING: multiple values!
+  File "cl.py", line 355, in loop
+    body()
+  File "swank.py", line 478, in <lambda>
+    loop(lambda: dispatch_event(receive()[0]))) # WARNING: multiple values!
+  File "swank.py", line 625, in dispatch_event
+    lambda packet, condition:
+  File "swank.py", line 329, in destructure_case
+    return action(*body)
+  File "swank.py", line 578, in return_
+    encode_message([keyword("return")] + args, current_socket_io())
+  File "cl.py", line 1619, in _pytracer
+    method(arg, frame)
+  File "cl.py", line 1727, in __cl_condition_handler__
+    debugger_hook(condition, debugger_hook)
+  File "swank.py", line 1489, in swank_debugger_hook
+    invoke_default_debugger_condition = lambda _: invoke_slime_debugger(condition))
+  File "cl.py", line 1774, in handler_case
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 736, in catch
+    return body()
+  File "cl.py", line 1774, in <lambda>
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 1752, in handler_bind
+    return no_error(fn())
+  File "swank.py", line 1488, in <lambda>
+    lambda: invoke_slime_debugger(condition)),
+  File "swank_backend.py", line 204, in call_with_debugger_hook
+    return body()
+  File "swank.py", line 1488, in <lambda>
+    lambda: invoke_slime_debugger(condition)),
+  File "swank.py", line 1477, in invoke_slime_debugger
+    lambda: (debug_in_emacs(condition) if symbol_value("_emacs_connection_") else
+  File "swank.py", line 352, in without_slime_interrupts
+    return body()
+  File "swank.py", line 1477, in <lambda>
+    lambda: (debug_in_emacs(condition) if symbol_value("_emacs_connection_") else
+  File "swank.py", line 1541, in debug_in_emacs
+    call_with_debugging_environment(lambda: sldb_loop(env._sldb_level_))
+  File "swank_python.py", line 156, in call_with_debugging_environment
+    debug_condition = lambda condition: signal((make_condition(sldb_condition,
+  File "cl.py", line 1752, in handler_bind
+    return no_error(fn())
+  File "swank_python.py", line 155, in <lambda>
+    handler_bind(lambda: debugger_loop_fn(),
+  File "swank.py", line 1541, in <lambda>
+    call_with_debugging_environment(lambda: sldb_loop(env._sldb_level_))
+  File "cl.py", line 758, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "cl.py", line 736, in catch
+    return body()
+  File "cl.py", line 758, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "swank.py", line 1565, in sldb_loop
+    with_simple_restart_body)
+  File "cl.py", line 1886, in with_simple_restart
+    report_function = lambda stream: format(stream, "%s", description)) })
+  File "cl.py", line 1867, in restart_case
+    return _restart_case(body, **_specs_restarts_args(restart_specs))
+  File "cl.py", line 1864, in _restart_case
+    lambda: _restart_bind(body, wrapped_restarts_args))
+  File "cl.py", line 736, in catch
+    return body()
+  File "cl.py", line 1864, in <lambda>
+    lambda: _restart_bind(body, wrapped_restarts_args))
+  File "cl.py", line 1849, in _restart_bind
+    return body()
+  File "swank.py", line 1551, in with_simple_restart_body
+    debugger_info_for_emacs(0, env._sldb_initial_frames_))
+  File "swank.py", line 1682, in debugger_info_for_emacs
+    backtrace(start, end),
+  File "swank.py", line 1632, in backtrace
+    *zip(*enumerate(compute_backtrace(start, end), start)))
+  File "cl.py", line 521, in mapcar
+    return [ f(*x) for x in zip(*xs) ]
+  File "cl.py", line 521, in <listcomp>
+    return [ f(*x) for x in zip(*xs) ]
+  File "swank.py", line 1629, in <lambda>
+    return mapcar(lambda i, frame: [i, frame_to_string(frame)] + ([keyword("restartable"), True]
+  File "swank.py", line 1640, in frame_to_string
+    bindings = symbol_value("_print_right_margin_"))
+  File "swank.py", line 1328, in with_string_stream
+    return call__truncated_output_to_string(length, body)
+  File "cl.py", line 758, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "cl.py", line 736, in catch
+    return body()
+  File "cl.py", line 758, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "swank.py", line 1320, in call__truncated_output_to_string
+    function(stream)
+  File "swank.py", line 1637, in <lambda>
+    Error = lambda _: format(stream, "[error printing frame]")),
+  File "cl.py", line 1774, in handler_case
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 736, in catch
+    return body()
+  File "cl.py", line 1774, in <lambda>
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 1752, in handler_bind
+    return no_error(fn())
+  File "swank.py", line 1636, in <lambda>
+    handler_case(lambda: print_frame(frame, stream),
+  File "swank_python.py", line 180, in print_frame
+    cl._print_frame(frame, stream)
+  File "cl.py", line 163, in _print_frame
+    write_string(_pp_frame(f), _defaulting(stream, "_debug_io_"))
+  File "cl.py", line 1588, in write_string
+    _without_condition_system(handler)
+  File "cl.py", line 1026, in _without_condition_system
+    return body()
+  File "cl.py", line 1582, in handler
+    return _write_string(string, _coerce_to_stream(stream))
+  File "neutrality_py3.py", line 8, in _write_string
+    print(string, file = stream, end = '')
+TypeError: <lambda>() takes exactly 2 arguments (1 given)
