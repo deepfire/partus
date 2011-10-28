@@ -170,6 +170,14 @@ def _backtrace(x = -1, stream = None):
         _print_frames(_frames_upward_from(_this_frame())[1:x],
                       _defaulting(stream, "_debug_io_"))
 
+def _here(note = None, callers = 4):
+        names = []
+        for i in reversed(range(callers)):
+                names.append(_caller_name(i))
+        names = "..".join(mapcar(string_upcase, names))
+        return write_line("%s: '%s'%s" % (names, threading.current_thread().name, "" if note is None else (" - %s" % note)),
+                          sys.stderr)
+
 # Study was done by the means of:
 # print("\n".join(map(lambda f:
 #                             "== def %s\n%s\n" %

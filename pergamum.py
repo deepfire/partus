@@ -14,6 +14,7 @@ from cl           import _slotting as slotting
 from cl           import _ensure_list as ensure_list
 from cl           import _caller_name as caller_name
 from cl           import _coerce_to_stream as coerce_to_stream
+from cl           import _here as here
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]
@@ -580,14 +581,6 @@ def syncprintf(format_control, *format_args):
 
 def debug_printf(format_control, *format_args):
         fprintf(sys.stderr, format_control + "\n", *format_args)
-
-def here(note = None, callers = 4):
-        names = []
-        for i in reversed(range(callers)):
-                names.append(caller_name(i))
-        names = "..".join(mapcar(string_upcase, names))
-        return write_line("%s: '%s'%s" % (names, threading.current_thread().name, "" if note is None else (" - %s" % note)),
-                          sys.stderr)
 
 def describe(x, stream = t):
         stream = coerce_to_stream(stream)
