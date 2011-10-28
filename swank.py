@@ -575,7 +575,7 @@ def dispatch_event(event):
                 setq("_active_threads_",
                      ldiff(symbol_value("_active_threads_"), tail) +
                      rest(tail))
-                encode_message([keyword("return")] + args, current_socket_io())
+                encode_message([keyword("return")] + list(args), current_socket_io())
         destructure_case(
                 event,
                 ([keyword("emacs-rex")],
@@ -862,16 +862,39 @@ def without_printing_errors(object, stream, body, msg = "<<error printing object
 #### find-symbol-with-status
 #### parse-symbol
 #### parse-symbol-or-lose
-#### parse-package
-#### unparse-name
-#### guess-package
+
+def parse_package(string):
+        """Find the package named STRING.
+Return the package or nil."""
+        # STRING comes usually from a (in-package STRING) form.
+        def body():
+                with progv(_package_ = symbol_value("_swank_io_package_")):
+                        return read_from_string(string)
+        return ignore_errors(body)
+
+def unparse_name(string):
+        "Print the name STRING according to the current printer settings."
+        # this is intended for package or symbol names
+        return subseq(prin1_to_string(make_symbol(string)), 2)
+
+def guess_package(string):
+        if string:
+                return (find_package(string) or
+                        parse_package(string) or
+                        nil)
+                        ## Was:
+                        # (if (find #\! string)           ; for SBCL
+                        #     (guess-package (substitute #\- #\! string))
+
 # UNUSABLE: *readtable-alist*
 # UNUSABLE: guess-buffer-readtable
 
 ### Evaluation: swank.lisp:2106
 setq("_pending_continuations_", [])
 
-#### guess-buffer-package
+def guess_buffer_package(string):
+        return ((string and guess_package(string)) or
+                symbol_value("_package_"))
 
 # (defun eval-for-emacs (form buffer-package id)
 #   "Bind *BUFFER-PACKAGE* to BUFFER-PACKAGE and evaluate FORM.
@@ -898,7 +921,7 @@ def eval_for_emacs(form, buffer_package, id):
         def set_result(x):    nonlocal result;    result = x
         def set_condition(x): nonlocal condition; condition = x
         try:
-                with env.let(_buffer_package_ = guess_buffer_package(),
+                with env.let(_buffer_package_ = guess_buffer_package(buffer_package),
                              _pending_continuations_ = [id] + env._pending_continuations_):
                         check_type(_buffer_package_, package)
                         def with_slime_interrupts_body():
