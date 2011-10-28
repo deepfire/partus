@@ -175,8 +175,13 @@ stack."""
         return [nth_f] + cl._frames_upward_from(nth_f)[:(end - start - 1) if end else None]
                 
 
-# def print_frame(frame, stream):			pass
-# def frame_restartable_p(frame):			pass
+@defimplementation
+def print_frame(frame, stream):
+        cl._print_frame(frame, stream)
+
+@defimplementation
+def frame_restartable_p(frame):
+        return nil
 
 @defimplementation
 def frame_source_location(n):
