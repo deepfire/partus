@@ -1432,10 +1432,10 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 nonlocal pos
                 token = ""
                 while True:
-                        char = string[pos]
-                        if char == "":
+                        if pos >= end:
                                 break
-                        elif char in set([" ", "\t", "\n", "(", ")", "\"", "'"]):
+                        char = string[pos]
+                        if char in set([" ", "\t", "\n", "(", ")", "\"", "'"]):
                                 break
                         else:
                                 token += char
