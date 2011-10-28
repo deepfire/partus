@@ -172,3 +172,5 @@ In thread 'control-thread': condition of type <class 'str'>: can only concatenat
 16: /usr/lib64/python3.2/threading.py:736: _bootstrap_inner(self)
 
 ..and it keeps happening.
+
+Issue READ-FROM-STRING-FAILS-OBSCURELY
