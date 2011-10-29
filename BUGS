@@ -173,4 +173,3 @@ In thread 'control-thread': condition of type <class 'str'>: can only concatenat
 
 ..and it keeps happening.
 
-Issue READ-FROM-STRING-FAILS-OBSCURELY
