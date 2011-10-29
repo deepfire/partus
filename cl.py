@@ -1146,7 +1146,7 @@ with progv(foovar = 3.14,
                 return env_cluster(_coerce_cluster_keys_to_symbol_names(cluster))
 
 def _init_package_system_1():
-        setq("_package_", package("CL_USER", use = ["CL"]))
+        setq("_package_", package("COMMON_LISP_USER", use = ["CL"]))
 
 _init_package_system_1()
 
@@ -1652,21 +1652,25 @@ def invoke_debugger(condition):
         error(BaseError, "INVOKE-DEBUGGER fell through.")
 
 __main_thread__ = threading.current_thread()
-def _report_condition(condition, stream = None):
+def _report_condition(condition, stream = None, backtrace = None):
         stream = _defaulting(stream, "_debug_io_")
         format(stream, "%sondition of type %s: %s\n",
                (("In thread '%s': c" % threading.current_thread().name)
                 if threading.current_thread() is not __main_thread__ else 
                 "C"),
                type(condition), condition)
-        _backtrace(-1, stream)
+        if backtrace:
+                _backtrace(-1, stream)
+        return t
 
-def _maybe_reporting_conditions_on_hook(p, hook, body):
+def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
         if p:
                 old_hook_value = symbol_value(hook)
                 def wrapped_hook(condition, hook_value):
                         "Let's honor the old hook."
-                        _report_condition(condition)
+                        _report_condition(condition,
+                                          stream = symbol_value("_debug_io_"),
+                                          backtrace = backtrace)
                         if old_hook_value:
                                 old_hook_value(condition, old_hook_value)
                 with env.maybe_let(p, **{_coerce_to_symbol_name(hook): wrapped_hook}):

@@ -2,7 +2,7 @@ import sys
 import more_ast
 import inspect
 
-from cl import setq, nil, t, boundp, symbol_value, mapcar, remove, warn, _not_implemented, env, _keyword, functionp, error#, format
+from cl import setq, nil, t, boundp, symbol_value, mapcar, remove, warn, _not_implemented, env, _keyword, functionp, error, write_line, _report_condition#, format
 
 setq("_debug_swank_backend_",      nil)
 """If this is true, backends should not catch errors but enter the
@@ -200,7 +200,10 @@ def call_with_debugging_environment():  pass
 
 @definterface
 def call_with_debugger_hook(function, body):
-        with env.let(_debugger_hook_ = function):
+        with env.let(_debugger_hook_ = lambda cond, hook:
+                             (write_line("Debugger hook caught:") and
+                              _report_condition(cond, backtrace = t) and
+                              function(cond, hook))):
                 return body()
 
 #### define-condition sldb-condition

@@ -923,7 +923,7 @@ def eval_for_emacs(form, buffer_package, id):
         try:
                 with env.let(_buffer_package_ = guess_buffer_package(buffer_package),
                              _pending_continuations_ = [id] + env._pending_continuations_):
-                        check_type(_buffer_package_, package)
+                        check_type(symbol_value("_buffer_package_"), package)
                         def with_slime_interrupts_body():
                                 return eval(form)
                         handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
