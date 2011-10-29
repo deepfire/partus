@@ -173,3 +173,4 @@ In thread 'control-thread': condition of type <class 'str'>: can only concatenat
 
 ..and it keeps happening.
 
+Issue SWANK-BUG-PARSE-PACKAGE-VALUE-CONFLICTS-WITH-EVAL-FOR-EMACS-ASSERT
