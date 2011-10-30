@@ -122,7 +122,9 @@ def find_external_format(coding_system):
 
 class gray_output_stream(stream):
         def __init__(self, write):
-                self.write = lambda _, string: write(string)
+                def gray_output_stream_write(string):
+                        return write(string)
+                self.write = gray_output_stream_write
 
 @defimplementation
 def make_output_stream(write_string):
