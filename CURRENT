@@ -1,15 +1,4 @@
-1. Our MAKE-OUTPUT-STREAM is, quite honestly, unlikely to be proper.
-2. EVAL is not quite proper
-HANDLER_BIND..<LAMBDA>..WITH_SLIME_INTERRUPTS..WITH_SLIME_INTERRUPTS_BODY: 'worker' - EVAL <[SWANK::CONNECTION-INFO]>
-In thread 'worker': condition of type <class 'AttributeError'>: Unbound variable: PYTHON_USER.
-Debugger hook caught:
-In thread 'worker': condition of type <class 'AttributeError'>: Unbound variable: PYTHON_USER.
- 0: cl.py:1659: _report_condition(condition, stream, backtrace)
- 1: swank_backend.py:205: <lambda>(cond, hook)
- 2: cl.py:1691: __cl_condition_handler__(condspec, frame)
- 3: cl.py:1579: _pytracer(frame, event, arg)
- 4: cl.py:1634: error(datum)
- 5: cl.py:1084: _symbol_value(name)
- 6: cl.py:1093: symbol_value(symbol)
- 7: cl.py:1119: __getattr__(self, name)
- 8: cl.py:2060: eval_(form)
+<== [:NEW-FEATURES, []]
+<-- 000012, '(:NEW-FEATURES ())'
+
+...confuses slime.

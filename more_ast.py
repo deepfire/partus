@@ -12,6 +12,9 @@ import sys
 
 from cl         import typep, null, listp, integerp, floatp, boolp, sequencep, stringp, mapcar, mapc,\
                        remove_if, sort, car, identity, every, find, with_output_to_string, error, reduce
+from cl         import _ast_rw as ast_rw, _ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
+from cl         import _ast_funcall as ast_funcall, _ast_maybe_normalise_string as ast_maybe_normalise_string
+from cl         import _ast_Expr as ast_Expr
 from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, tuplep, fprintf
 from neutrality import py3p
 
@@ -92,14 +95,8 @@ def ast_def(name, args, *body):
 
 
 ## expressions
-def ast_rw(writep):                 return (ast.Store() if writep else ast.Load())
-
 def ast_bytes(bs):                  return ast.Bytes(s = the(bytes, bs))
-def ast_name(name, writep = False): return ast.Name(id = the(str, name), ctx = ast_rw(writep))
-def ast_string(s):                  return ast.Str(s = the(str, s))
-def ast_num(n):                     return ast.Num(n = the(int, n))
 def ast_arg(name):                  return ast.Name(arg = the(str, name), ctx = ast.Param())
-def ast_alias(name):                return ast.alias(name = the(str, name), asname = None)
 
 def ast_list(xs):
     assert listp(xs) and all(mapcar(astp, xs))
@@ -112,24 +109,6 @@ def ast_tuple(xs, writep=False):
 def ast_dict(keys, values):
     return ast.Dict(keys = keys, values = values)
 
-def ast_attribute(x, name, writep=False):
-    return ast.Attribute(attr=name, value=x, ctx=ast_rw(writep))
-
-def ast_index(of, index, writep=False):
-    return ast.Subscript(value=of, slice=ast.Index(value=index), ctx=(ast.Store() if writep else ast.Load()))
-
-def ast_maybe_normalise_string(x):
-    return (ast_string(x) if stringp(x) else x)
-
-def ast_funcall(name, *args):
-        if not all(mapcar(lambda x: stringp(x) or astp(x) or x is None, args)):
-                error('AST-FUNCALL: %s: improper arglist %s', name, str(args))
-        return ast.Call(func = (ast_name(name) if stringp(name) else name),
-                        args = mapcar(ast_maybe_normalise_string, args),
-                        keywords = [],
-                        starargs = None,
-                        kwargs = None)
-
 def ast_func_name(x):
     if typep(x, ast.Name):
         return x.id
@@ -140,13 +119,11 @@ def ast_func_name(x):
     else:
         return '<unhandled>'
 
-
 ## statements
 def astlist_prog(*body):
     "WARNING: not an actual node, returns a list!"
     return remove_if(null, body) or [ast.Pass()]
 
-def ast_Expr(node):       return ast.Expr(value = the(ast.expr, node))
 def ast_return(node):     return ast.Return(value = the(ast.AST, node))
 def ast_expression(node): return ast.Expression(body = the(ast.AST, node))
 
@@ -156,11 +133,6 @@ def ast_import(*names):
 
 def ast_import_all_from(name):
     return ast.ImportFrom(module = the(str, name), names=[ast.alias(name='*', asname=None)], level=0)
-
-def ast_import_from(module_name, names):
-    assert stringp(module_name)
-    assert listp(names) and all(mapcar(stringp, names))
-    return ast.ImportFrom(module = module_name, names = mapcar(ast_alias, names), level = 0)
 
 def ast_assign(to, value):
     assert listp(to) and all(mapcar(astp, to)) and astp(value)
@@ -288,10 +260,10 @@ def pp_ast_as_code(x):
         def pp_keyword(x):
                 return "%s = %s" % (x.arg, pp_ast_as_code(x.value))
         def pp_subscript(x):
-                return "%s[%s]" % (pp_ast_as_code(x.expr),
+                return "%s[%s]" % (pp_ast_as_code(x.value),
                                    pp_ast_as_code(x.slice))
         def pp_index(x):
-                return "%s" % pp_ast_as_code(x.expr)
+                return "%s" % pp_ast_as_code(x.value)
         def pp_slice(x):
                 l, u, s = x.lower or "", x.upper or "", x.step
                 if x.step:

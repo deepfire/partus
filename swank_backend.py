@@ -3,6 +3,7 @@ import more_ast
 import inspect
 
 from cl import setq, nil, t, boundp, symbol_value, mapcar, remove, warn, _not_implemented, env, _keyword, functionp, error, write_line, _report_condition#, format
+from cl import lisp_implementation_type, probe_file
 
 setq("_debug_swank_backend_",      nil)
 """If this is true, backends should not catch errors but enter the
@@ -123,10 +124,19 @@ def install_sigint_handler():		pass
 def call_with_user_break_handler():	pass
 @definterface
 def quit_lisp():                        pass
+
 @definterface
-def lisp_implementation_type_name():	pass
+def lisp_implementation_type_name():
+        "Return a short name for the Lisp implementation."
+        return lisp_implementation_type()
+
 @definterface
-def lisp_implementation_program():	pass
+def lisp_implementation_program():
+        "Return the argv[0] of the running Lisp process, or NIL."
+        file = sys.argv[0]
+        if file and probe_file(file):
+                return file # XXX: was: (namestring (truename file))
+
 @definterface
 def socket_fd():			pass
 @definterface

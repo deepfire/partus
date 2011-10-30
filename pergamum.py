@@ -581,9 +581,3 @@ def syncprintf(format_control, *format_args):
 
 def debug_printf(format_control, *format_args):
         fprintf(sys.stderr, format_control + "\n", *format_args)
-
-def describe(x, stream = t):
-        stream = coerce_to_stream(stream)
-        write_line("Object '%s' of type %s:" % (x, type_of(x)))
-        for attr, val in x.__dict__.items():
-                write_line("%25s: %s" % (attr, str(val)))

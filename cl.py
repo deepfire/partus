@@ -6,9 +6,11 @@ import os
 import io
 import _io
 import ast
+import imp
 import sys
 import time
 import types
+import socket
 import inspect
 import builtins
 import functools
@@ -50,9 +52,64 @@ def _coerce_to_symbol_name(x):
         return (x.name if symbolp(x) else
                 _read_case_xformed(x))
 
+def _astp(x):                                return typep(x, ast.AST)
+def _ast_num(n):                             return ast.Num(n = the(int, n))
+def _ast_alias(name):                        return ast.alias(name = the(str, name), asname = None)
+def _ast_Expr(node):                         return ast.Expr(value = the(ast.expr, node))
+def _ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
+def _ast_string(s):                          return ast.Str(s = the(str, s))
+def _ast_name(name, writep = False):         return ast.Name(id = the(str, name), ctx = _ast_rw(writep))
+def _ast_attribute(x, name, writep = False): return ast.Attribute(attr = name, value = x, ctx = _ast_rw(writep))
+def _ast_index(of, index, writep = False):   return ast.Subscript(value = of, slice = ast.Index(value = index), ctx = _ast_rw(writep))
+def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x) else x)
+def _ast_funcall(name, *args):
+        if not every(lambda x: stringp(x) or _astp(x) or x is None, args):
+                error('AST-FUNCALL: %s: improper arglist %s', name, str(args))
+        return ast.Call(func = (_ast_name(name) if stringp(name) else name),
+                        args = mapcar(_ast_maybe_normalise_string, args),
+                        keywords = [],
+                        starargs = None,
+                        kwargs = None)
+def _ast_import_from(module_name, names):
+        assert every(stringp, the(list, names))
+        return ast.ImportFrom(module = the(str, module_name), names = mapcar(_ast_alias, names), level = 0)
+def _ast_module(body):
+        assert every(_astp, the(list, body))
+        return ast.Module(body = body, lineno = 0)
+
 ###
 ### Basis
 ###
+##
+## modules/packages
+##
+def _load_code_object_as_module(name, x, filename = '', builtins = None):
+        check_type(x, type(_load_code_object_as_module.__code__))
+        mod = imp.new_module(name)
+        mod.__filename__ = filename
+        if builtins:
+                mod.__dict__['__builtins__'] = builtins
+        sys.modules[name] = mod
+        exec(x, mod.__dict__, mod.__dict__)
+        return mod
+
+def _load_text_as_module(name, text, filename = '', builtins = None):
+        return _load_code_object_as_module(name, compile(text, filename, 'exec'),
+                                           filename = filename, builtins = builtins)
+
+def _reregister_module_as_package(mod, parent_package = None):
+        # this line might need to be performed before exec()
+        mod.__path__ = (parent_package.__path__ if parent_package else []) + [ mod.name.split(".")[-1] ]
+        if parent_package:
+                dotpos = mod.name.rindex('.')
+                assert (dotpos)
+                postdot_name = mod.name[dotpos + 1:]
+                setattr(parent_package, postdot_name, mod)
+                parent_package.__children__.add(mod)
+                mod.__parent__ = parent_package
+        if packagep:
+                mod.__children__ = set([])
+
 ##
 ## frames
 ##
@@ -412,10 +469,12 @@ def subtypep(sub, super):
         return issubclass(sub, super)
 
 def the(type, x):
-        if not typep(x, type):
+        return (x if isinstance(x, type) else
                 error(TypeError, "The value %s is not of type %s." %
-                      (x, type.__name__))
-        return x
+                                 (x, type.__name__)))
+
+def check_type(x, type):
+        the(type, x)
 
 def typecase(val, *clauses):
         for (ctype, result) in clauses:
@@ -429,11 +488,6 @@ def etypecase(val, *clauses):
         else:
                 error(TypeError, "%s fell through ETYPECASE expression. Wanted one of (%s)." %
                       (val, ", ".join(mapcar(lambda c: c[0].__name__, clauses))))
-
-def check_type(x, type):
-        if not typep(x, type):
-                error(TypeError, "The value %s is not of type %s." %
-                      (x, type.__name__))
 
 def coerce(x, type):
         if type(x) is type:
@@ -793,6 +847,7 @@ def return_from(nonce, value):
 ##
 __packages__        = dict()
 __keyword_package__ = None
+__modular_noise__   = None
 
 class package_error(Exception):
         pass
@@ -838,6 +893,33 @@ def package_used_by_list(package):
         package = coerce_to_package(package)
         return package.packages_using
 
+def _lisp_symbol_name_python_name(x):
+        def _sub(cs):
+                acc = ""
+                for c in cs:
+                        acc += "_" if c in "-*" else c
+                return acc
+        ret = _sub(x).lower()
+        # debug_printf("==> Python(Lisp %s) == %s", x, ret)
+        return ret
+
+def _lisp_symbol_ast(sym, current_package):
+        symname, packname = (_lisp_symbol_name_python_name(sym.name),
+                             _lisp_symbol_name_python_name(sym.package.name))
+        return (_ast_name(symname)
+                if (sym.name in current_package.accessible and
+                    current_package.accessible[sym.name] is sym) else
+                _ast_index(_ast_attribute(_ast_index(_ast_attribute(_ast_name("sys"), "modules"), _ast_string(packname)),
+                                                     "__dict__"),
+                           _ast_string(symname)))
+
+def _lisp_package_name_module(x, if_does_not_exist = "create"):
+        name = _lisp_symbol_name_python_name(x)
+        return (sys.modules[name]                                                                if name in sys.modules else
+                error(simple_package_error, "The name %s does not designate any package.", name) if if_does_not_exist == "error" else
+                None                                                                             if if_does_not_exist == "continue" else
+                error("LISP-PACKAGE-NAME-MODULE: :IF-DOES-NOT-EXIST must be either 'error' or 'continue', not '%s'.", if_does_not_exist))
+
 class package(collections.UserDict):
         def __str__ (self):
                 return '#<PACKAGE "%s">' % self.name
@@ -845,7 +927,7 @@ class package(collections.UserDict):
                 return True
         def __hash__(self):
                 return hash(id(self))
-        def __init__(self, name, use = [],
+        def __init__(self, name, use = [], filename = "",
                      ignore_python = False, python_exports = True):
                 self.name = string(name)
 
@@ -857,31 +939,30 @@ class package(collections.UserDict):
                 self.external    = set()                        # sym             ## subset of accessible
               # self.internal    = accessible - external
 
-                modname = name.lower() ## XXX: deal away with this mangling
-                self.module = (sys.modules.get(modname) if modname in sys.modules else
-                               None)
-                self.used_packages  = set(mapcar(lambda x: coerce_to_package(x, if_null = 'error'), use))
+                modname = _lisp_symbol_name_python_name(name)
+                self.module = (_lisp_package_name_module(modname, if_does_not_exist = "continue") or
+                               _load_text_as_module(modname, "", filename = filename))
+                self.used_packages  = set(mapcar(lambda x: coerce_to_package(x, if_null = "error"), use))
                 self.packages_using = set()
                 mapc(_curry(use_package, self), self.used_packages)
 
                 ## Import the corresponding python dictionary.  Intern depends on
                 if not ignore_python:
-                        moddict = self.module and dict(self.module.__dict__)
-                        if moddict:
-                                explicit_exports = set(moddict["__all__"] if "__all__" in moddict else
-                                                       [])
-                                for (key, value) in moddict.items():
-                                        ## intern the python symbol, when it is known not to be inherited
-                                        if key not in self.accessible:
-                                                s = _intern0(key, self)
-                                                s.value = value
-                                                if functionp(value):
-                                                        s.function = value
-                                        ## export symbols, according to the python model
-                                        if (python_exports and key[0] != '_' and
-                                            ((not explicit_exports) or
-                                             key in explicit_exports)):
-                                                self.external.add(self.accessible[key])
+                        moddict = dict(self.module.__dict__)
+                        explicit_exports = set(moddict["__all__"] if "__all__" in moddict else
+                                               [])
+                        for (key, value) in moddict.items():
+                                ## intern the python symbol, when it is known not to be inherited
+                                if key not in self.accessible:
+                                        s = _intern0(key, self)
+                                        s.value = value
+                                        if functionp(value):
+                                                s.function = value
+                                ## export symbols, according to the python model
+                                if (python_exports and key[0] != '_' and
+                                    ((not explicit_exports) or
+                                     key in explicit_exports)):
+                                        self.external.add(self.accessible[key])
                 ## Hit the street.
                 self.data          = self.accessible
                 __packages__[name] = self
@@ -932,6 +1013,9 @@ def symbol_name(x):                  return x.name.lower()
 def symbol_package(x):               return x.package
 def coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, coerce_to_package(package))
+
+def make_symbol(name):
+        return symbol(name)
 
 def _keyword(s, upcase = True):
         return _intern((s.upper() if upcase else s), __keyword_package__)[0]
@@ -1015,10 +1099,7 @@ def export(symbols, package = None):
 def string(x):
         return (x              if stringp(x) else
                 symbol_name(x) if symbolp(x) else
-                error(TypeError, "%s cannot be coerced to string." % x))
-
-def in_package(name):
-        return setq("_package_", find_package(string(name)))
+                error(TypeError, "%s cannot be coerced to string." % (x,)))
 
 def _init_condition_system():
         _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
@@ -1037,9 +1118,11 @@ def _init_package_system_0():
         # debug_printf("   --  -- [ package system init..")
         global __packages__
         global __keyword_package__
+        global __modular_noise__
         global t, nil
         __packages__ = dict()
         __keyword_package__ = package("KEYWORD", ignore_python = True)
+        __modular_noise__ = frozenset(_load_text_as_module("", "").__dict__)
         cl = package("CL")
         intern(".", cl)
 
@@ -1049,6 +1132,7 @@ def _init_package_system_0():
         export([t, nil] + mapcar(lambda n: _intern0(n, cl),
                                  ["QUOTE", "OR", "SOME"]),
                cl)
+        package("COMMON-LISP-USER", use = ["CL"])
 _init_package_system_0()
 
 ##
@@ -1142,7 +1226,10 @@ with progv(foovar = 3.14,
                 return env_cluster(_coerce_cluster_keys_to_symbol_names(cluster))
 
 def _init_package_system_1():
-        setq("_package_", package("COMMON-LISP-USER", use = ["CL"]))
+        # Ought to declare it all on the top level.
+        setq("_package_",  package("COMMON-LISP-USER", use = ["CL"]))
+        setq("_features_", [])
+        setq("_modules_",  [])
 
 _init_package_system_1()
 
@@ -1519,6 +1606,9 @@ def synonym_stream_symbol(stream): return stream.symbol
 
 def streamp(x):
         return typep(x, stream)
+
+def stream_external_format(stream):
+        return _keyword(stream.encoding)
 
 def _coerce_to_stream(x):
         return (x                                 if streamp(x) else
@@ -1956,6 +2046,16 @@ executes the following:
         return invoke_restart(*restart.interactive_function())
 
 ##
+## Interactivity
+##
+def describe(x, stream = t):
+        stream = _coerce_to_stream(stream)
+        write_line("Object '%s' of type %s:" % (x, type_of(x)))
+        for attr, val in (x.__dict__ if hasattr(x, "__dict__") else
+                          { k: getattr(x, k) for k in dir(x)}).items():
+                write_line("%25s: %s" % (attr, str(val)))
+
+##
 ## Environment
 ##
 def sleep(x):
@@ -1963,6 +2063,13 @@ def sleep(x):
 
 def user_homedir_pathname():
         return os.path.expanduser("~")
+
+def lisp_implementation_type():    return "CPython"
+def lisp_implementation_version(): return sys.version
+
+def machine_instance():            return socket.gethostname()
+def machine_type():                return "Unknown"
+def machine_version():             return "Unknown"
 
 ##
 ## The EVAL
@@ -1977,67 +2084,28 @@ def _make_eval_context():
         return get, set
 __evget__, __evset__ = _make_eval_context()
 
-def _pythonise_lisp_name(x):
-        def _sub(cs):
-                acc = ""
-                for c in cs:
-                        acc += "_" if c in "-*" else c
-                return acc
-        ret = _sub(x).lower()
-        # debug_printf("==> Python(Lisp %s) == %s", x, ret)
-        return ret
-
 def eval_(form):
         ### XXX: ast_*: loopbreak
-        def astp(x):                                return typep(x, ast.AST)
-        def ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
-        def ast_num(n):                             return ast.Num(n = the(int, n))
-        def ast_string(s):                          return ast.Str(s = the(str, s))
-        def ast_name(name, writep = False):         return ast.Name(id = the(str, name), ctx = ast_rw(writep))
-        def ast_attribute(x, name, writep = False): return ast.Attribute(attr = name, value = x, ctx = ast_rw(writep))
-        def ast_alias(name):                        return ast.alias(name = the(str, name), asname = None)
-        def ast_maybe_normalise_string(x):          return (ast_string(x) if stringp(x) else x)
-        def ast_Expr(node):                         return ast.Expr(value = the(ast.expr, node))
-        def ast_import_from(module_name, names):
-                assert stringp(module_name)
-                assert listp(names) and all(mapcar(stringp, names))
-                return ast.ImportFrom(module = module_name, names = mapcar(ast_alias, names), level = 0)
-        def ast_module(body):
-                assert listp(body) and all(mapcar(astp, body))
-                return ast.Module(body = body, lineno = 0)
-        def ast_funcall(name, *args):
-                if not all(mapcar(lambda x: stringp(x) or astp(x) or x is None, args)):
-                        error('AST-FUNCALL: %s: improper arglist %s', name, str(args))
-                return ast.Call(func = (ast_name(name) if stringp(name) else name),
-                                args = mapcar(ast_maybe_normalise_string, args),
-                                keywords = [],
-                                starargs = None,
-                                kwargs = None)
-        def lisp_name_ast(x):
-                def rec(x):
-                        return (ast_name(x[0])
-                                if len(x) == 1 else
-                                ast_attribute(rec(x[:-1]), x[-1]))
-                return rec(remove_if_not(identity, _pythonise_lisp_name(x).split(":")))
         obj2ast_xform = {
-                False : ast_name("False"),
-                None  : ast_name("None"),
-                True  : ast_name("True"),
-                str   : ast_string,
-                int   : ast_num,
+                False : _ast_name("False"),
+                None  : _ast_name("None"),
+                True  : _ast_name("True"),
+                str   : _ast_string,
+                int   : _ast_num,
                 }
+        package = symbol_value("_package_")
         def callify(form, quoted = False):
                 if listp(form):
                         if quoted or (form[0] is _find_symbol0('quote')):
-                                return (ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
+                                return (_ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
                                         if listp(form[1]) else
                                         callify(form[1], quoted = True))
                         else:
-                                return ast_funcall(lisp_name_ast(symbol_name(form[0])),
-                                                   *list(map(callify, form[1:])))
+                                return _ast_funcall(_lisp_symbol_ast(form[0], package),
+                                                    *list(map(callify, form[1:])))
                 elif symbolp(form):
-                        return (ast_funcall(swank_ast_name("read_symbol"), str(form)) if quoted or keywordp(form) else
-                                ast_name(symbol_name(form)))
+                        return (_ast_funcall(swank_ast_name("read_symbol"), str(form)) if quoted or keywordp(form) else
+                                _ast_name(symbol_name(form)))
                 elif constantp(form):
                         return obj2ast_xform[type(form)](form)
                 elif form in obj2ast_xform:
@@ -2046,18 +2114,20 @@ def eval_(form):
                         error("Unable to convert form %s", form)
         try:
                 expr = callify(form)
-                call = ast.fix_missing_locations(ast_module(
-                                [ast_import_from("cl", ["__evset__"]),
-                                 ast_Expr(ast_funcall(ast_name("__evset__"), expr)),
+                call = ast.fix_missing_locations(_ast_module(
+                                [_ast_import_from("cl", ["__evset__"]),
+                                 _ast_Expr(_ast_funcall(_ast_name("__evset__"), expr)),
                                  ]))
         except Exception as cond:
                 error("EVAL: error while trying to callify <%s>: %s", form, cond)
         try:
                 code = compile(call, '', 'exec')
         except Exception as cond:
-                error("EVAL: error while trying to compile <%s>: %s", pp_ast_as_code(expr), cond)
-        # XXX: package
-        exec(code, env.python_user.__dict__)
+                import more_ast
+                error("EVAL: error while trying to compile <%s>: %s", more_ast.pp_ast_as_code(expr), cond)
+        import more_ast
+        _here("> %s -> in %s: %s" % (form, package, more_ast.pp_ast_as_code(expr)))
+        exec(code, _lisp_package_name_module(package_name(package)).__dict__)
         return __evget__()
 
 ###

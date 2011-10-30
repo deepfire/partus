@@ -494,38 +494,6 @@ def close_connection(c, condition, backtrace):
                        symbol_value("_use_dedicated_output_stream_"))
                 finish_output(symbol_value("_log_output_"))
         log_event("close-connection %s ... done.\n", condition)
-# (defun close-connection (c condition backtrace)
-#   (let ((*debugger-hook* nil))
-#     (log-event "close-connection: ~a ...~%" condition)
-#   (format *log-output* "~&;; swank:close-connection: ~A~%" condition)
-#   (let ((cleanup (connection.cleanup c)))
-#     (when cleanup
-#       (funcall cleanup c)))
-#   (close (connection.socket-io c))
-#   (when (connection.dedicated-output c)
-#     (close (connection.dedicated-output c)))
-#   (setf *connections* (remove c *connections*))
-#   (run-hook *connection-closed-hook* c)
-#   (when (and condition (not (typep condition 'end-of-file)))
-#     (finish-output *log-output*)
-#     (format *log-output* "~&;; Event history start:~%")
-#     (dump-event-history *log-output*)
-#     (format *log-output* ";; Event history end.~%~
-#                         ;; Backtrace:~%~{~A~%~}~
-#                         ;; Connection to Emacs lost. [~%~
-#                         ;;  condition: ~A~%~
-#                         ;;  type: ~S~%~
-#                         ;;  encoding: ~A vs. ~A~%~
-#                         ;;  style: ~S dedicated: ~S]~%"
-#             backtrace
-#             (escape-non-ascii (safe-condition-message condition) )
-#             (type-of condition)
-#             (connection.coding-system c)
-#             (connection.external-format c)
-#             (connection.communication-style c)
-#             *use-dedicated-output-stream*)
-#     (finish-output *log-output*))
-#   (log-event "close-connection ~a ... done.~%" condition)))
 
 ### Thread based communication: swank.lisp:1107
 setq("_active_threads_", [])
@@ -847,7 +815,7 @@ setq("_channel_counter_", 0)
 #### make-listener-input-stream
 #### input_available_p
 
-setq("_slime_features_", nil)
+setq("_slime_features_", [])
 
 def send_oob_to_emacs(object):
         send_to_emacs(object)
@@ -874,7 +842,29 @@ def make_tag():
 
 setq("_swank_wire_protocol_version_", nil)
 
-#### defslimefun connection-info
+def connection_info():
+        c = symbol_value("_emacs_connection_")
+        setq("_slime_features_", symbol_value("_features_"))
+        p = symbol_value("_package_")
+        r = [keyword("pid"),                 getpid(),
+             keyword("style"),               c.communication_style,
+             keyword("encoding"),            [keyword("coding-system"),   c.coding_system,
+                                              keyword("external-format"), princ_to_string(connection_external_format(c))],
+             keyword("lisp-implementation"), [keyword("type"),    lisp_implementation_type(),
+                                              keyword("name"),    lisp_implementation_type_name(),
+                                              keyword("version"), lisp_implementation_version(),
+                                              keyword("program"), lisp_implementation_program()],
+             keyword("machine"),             [keyword("instance"), machine_instance(),
+                                              keyword("type"),     machine_type(),
+                                              keyword("version"),  machine_version()],
+             keyword("features"),            features_for_emacs(),
+             keyword("modules"),             symbol_value("_modules_"),
+             keyword("package"),             [keyword("name"),     package_name(p),
+                                              keyword("prompt"),   package_string_for_prompt(p)],
+             keyword("version"),             symbol_value("_swank_wire_protocol_version_"),
+             ]
+        return r
+
 #### defslimefun io-speed-test
 #### debug-on-swank-error
 #### (setf debug-on-swank-error)
@@ -997,7 +987,7 @@ def eval_for_emacs(form, buffer_package, id):
                                 return eval_(form)
                         handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
                                      Exception = set_condition)
-                        run_hook(boundp("_pre_reply_hook_") and symbol_value(env._pre_reply_hook_))
+                        run_hook(boundp("_pre_reply_hook_") and symbol_value("_pre_reply_hook_"))
                         ok = True
         finally:
                 send_to_emacs([keyword('return'),
@@ -1049,16 +1039,6 @@ setq("_swank_pprint_bindings_", [(intern0("_print_pretty_"),   t),
 #### pprint-eval
 #### set-package
 
-def connection_info(slime_connection, sldb_state):
-        return [keyword("pid"),                 getpid(),
-                ## TODO: current package
-                keyword("package"),             [keyword("name"), "python",
-                                                  keyword("prompt"), "python>"],
-                keyword("version"),             partus_version,
-                keyword("lisp-implementation"), [keyword("type"), "python",
-                                                  keyword("name"), "python",
-                                                  keyword("version"), "%d.%d.%d" % sys.version_info[:3]]]
-
 def swank_require(slime_connection, sldb_state, contribs):
         for contrib in contribs:
                 filename = "%s/%s.py" % (env.partus_path, str(contrib))
@@ -1069,9 +1049,6 @@ def swank_require(slime_connection, sldb_state, contribs):
 def invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
         if sldb_state.level == level:
                 return invoke_restart(sldb_state.restarts[n+1])
-
-def prin1_to_string(val):
-        return "\n".join(deparse(val)) # FIXME
 
 
 def eval_string_in_frame(slime_connection, sldb_state, string, index):
@@ -1339,19 +1316,21 @@ def to_line(object, width = 75):
 #                   (t (write-char c stream)))))
 #     (write-char #\" stream)))
 
-# (defun package-string-for-prompt (package)
-#   "Return the shortest nickname (or canonical name) of PACKAGE."
-#   (unparse-name
-#    (or (canonical-package-nickname package)
-#        (auto-abbreviated-package-name package)
-#        (shortest-package-nickname package))))
+def package_string_for_prompt(package):
+        "Return the shortest nickname (or canonical name) of PACKAGE."
+        return unparse_name(canonical_package_nickname(package) or
+                            auto_abbreviated_package_name(package) or
+                            shortest_package_nickname(package))
 
-# (defun canonical-package-nickname (package)
-#   "Return the canonical package nickname, if any, of PACKAGE."
-#   (let ((name (cdr (assoc (package-name package) *canonical-package-nicknames* 
-#                           :test #'string=))))
-#     (and name (string name))))
+def canonical_package_nickname(package):
+        "Return the canonical package nickname, if any, of PACKAGE."
+        name = gethash(package_name(package), symbol_value("_canonical_package_nicknames_"))[0]
+        if name:
+                return string(name)
 
+def auto_abbreviated_package_name(package):
+        "XXX: stub"
+        return package.name
 # (defun auto-abbreviated-package-name (package)
 #   "Return an abbreviated 'name' for PACKAGE. 
 
@@ -1370,6 +1349,9 @@ def to_line(object, width = 75):
 #                      (return (subseq package-name (1+ last-dot-pos)))
 #                      (setq offset last-dot-pos)))))))
 
+def shortest_package_nickname(package):
+        "XXX: stub"
+        return package.name
 # (defun shortest-package-nickname (package)
 #   "Return the shortest nickname of PACKAGE."
 #   (loop for name in (cons (package-name package) (package-nicknames package))
@@ -1819,6 +1801,24 @@ def inspect_frame_var(slime_connection, sldb_state, frame, var):
 ### Thread listing: swank.lisp:3771
 ### Class browser: swank.lisp:3825
 ### Automatically synchronized state: swank.lisp:3847
+##
+## Here we add hooks to push updates of relevant information to
+## Emacs.
+
+## *FEATURES*
+def sync_features_to_emacs():
+        "Update Emacs if any relevant Lisp state has changed."
+        # FIXME: *slime-features* should be connection-local
+        if symbol_value("_features_") != symbol_value("_slime_features_"):
+                setq("_slime_features_", symbol_value("_features_"))
+                send_to_emacs([keyword("new-features"), features_for_emacs()])
+
+def features_for_emacs():
+        "Return `*slime-features*' in a format suitable to send it to Emacs."
+        return symbol_value("_slime_features_")
+
+add_hook("_pre_reply_hook_", sync_features_to_emacs)
+
 ### Indentation of macros: swank.lisp:3868
 #### clean-arglist
 #### well-formed-list-p

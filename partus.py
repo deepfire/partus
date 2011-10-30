@@ -22,29 +22,6 @@ from swank_backend import *
 # 'inspect' unable to get source of funtions entered through REPL:
 #   def foo(): pass; getsource(foo)... IOError: source code not available
 
-import imp
-def load_code_object_as_module(name, x, parent_package = None, built_ins = None, packagep = None, filename = 'garbage'):
-        if not code_object_p(x):
-                error('In %s: while loading module "%s", argument is a "%s", not a code object.', 'load_code_object_as_module', name, type(x).__name__)
-        mod = imp.new_module(name)
-        mod.__filename__ = filename
-        if packagep:
-                mod.__path__ = (parent_package.__path__ if parent_package else []) + [ names.parse_namestring(name)[-1] ]
-        sys.modules[name] = mod
-        if built_ins:
-                mod.__dict__['__builtins__'] = built_ins
-        exec(x, mod.__dict__, mod.__dict__)
-        if parent_package:
-                dotpos = name.rindex('.')
-                assert (dotpos)
-                postdot_name = name[dotpos + 1:]
-                setattr(parent_package, postdot_name, mod)
-                parent_package.__children__.add(mod)
-                mod.__parent__ = parent_package
-        if packagep:
-                mod.__children__ = set([])
-        return mod
-
 def _init_swank_packages():
         "Hooked."
         global __swank_package__
