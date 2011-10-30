@@ -3,7 +3,7 @@ import socket
 import sys
 
 from cl import *
-from cl import _keyword as keyword
+from cl import _keyword as keyword, _here as here
 
 from swank_backend import codepoint_length
 

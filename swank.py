@@ -840,7 +840,7 @@ def make_tag():
 #### process-form-for-emacs
 #### eval-in-emacs
 
-setq("_swank_wire_protocol_version_", nil)
+setq("_swank_wire_protocol_version_", "2011-09-28")
 
 def connection_info():
         c = symbol_value("_emacs_connection_")
@@ -948,9 +948,6 @@ def guess_package(string):
 setq("_pending_continuations_", [])
 
 def guess_buffer_package(string):
-        here("'%s' -> '%s', '%s'" % (string,
-                                     (string and guess_package(string)),
-                                     symbol_value("_package_")))
         return ((string and guess_package(string)) or
                 symbol_value("_package_"))
 
@@ -983,7 +980,6 @@ def eval_for_emacs(form, buffer_package, id):
                              _pending_continuations_ = [id] + env._pending_continuations_):
                         check_type(symbol_value("_buffer_package_"), package)
                         def with_slime_interrupts_body():
-                                here("EVAL <%s>" % (form,))
                                 return eval_(form)
                         handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
                                      Exception = set_condition)

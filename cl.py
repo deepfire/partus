@@ -62,6 +62,9 @@ def _ast_name(name, writep = False):         return ast.Name(id = the(str, name)
 def _ast_attribute(x, name, writep = False): return ast.Attribute(attr = name, value = x, ctx = _ast_rw(writep))
 def _ast_index(of, index, writep = False):   return ast.Subscript(value = of, slice = ast.Index(value = index), ctx = _ast_rw(writep))
 def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x) else x)
+def _ast_list(xs):
+        assert every(_astp, the(list, xs))
+        return ast.List(elts = xs, ctx = ast.Load())
 def _ast_funcall(name, *args):
         if not every(lambda x: stringp(x) or _astp(x) or x is None, args):
                 error('AST-FUNCALL: %s: improper arglist %s', name, str(args))
@@ -228,13 +231,13 @@ def _backtrace(x = -1, stream = None):
         _print_frames(_frames_upward_from(_this_frame())[1:x],
                       _defaulting(stream, "_debug_io_"))
 
-def _here(note = None, callers = 4):
+def _here(note = None, callers = 4, stream = None):
         names = []
         for i in reversed(range(callers)):
                 names.append(_caller_name(i))
         names = "..".join(mapcar(string_upcase, names))
         return write_line("%s: '%s'%s" % (names, threading.current_thread().name, "" if note is None else (" - %s" % note)),
-                          sys.stderr)
+                          _defaulting(stream, "_debug_io_"))
 
 # Study was done by the means of:
 # print("\n".join(map(lambda f:
@@ -993,12 +996,10 @@ def in_package(name):
 def _print_symbol2(x, package = None): return _letf(coerce_to_package(package),
                                                     lambda p: (x.name if x.package and p.accessible[x.name] is x else
                                                                str(x)))
-def print_keyword(s):
-        return ":%s" % s.name
 
 class symbol():
         def __str__(self):
-                return (print_keyword if self.package is __keyword_package__ else _print_symbol)(self)
+                return (_print_keyword if self.package is __keyword_package__ else _print_symbol)(self)
         def __repr__(self):
                 return str(self)
         def __init__(self, name):
@@ -1273,6 +1274,9 @@ def _print_symbol(s, gensym = True, case = None):
                            "::",
                            _case_xform(_defaulting(case, "_print_case_"), s.name))
 
+def _print_keyword(s):
+        return ":%s" % _case_xform(symbol_value("_print_case_"), s.name)
+
 def with_standard_io_syntax(body):
         # XXX: is this true?
         return body()
@@ -1351,7 +1355,8 @@ def write_to_string(object,
                         elif type(object).__name__ == 'builtin_function_or_method':
                                 string += '"#<builtin %s 0x%x>"' % (object.__name__, id(object))
                         elif stringp(object):
-                                string += '"%s"' % re.sub(r'(["\\])', r'\\\\1', object)
+                                string += '"%s"' % _without_condition_system(
+                                        lambda: re.sub(r'(["\\])', r'\\\\1', object))
                         else:
                                 string += "<%s>" % (object,)
                                 # error("Can't write object %s", object)
@@ -2084,8 +2089,8 @@ def _make_eval_context():
         return get, set
 __evget__, __evset__ = _make_eval_context()
 
-def eval_(form):
-        ### XXX: ast_*: loopbreak
+def _callify(form, package = None, quoted = False):
+        package = _defaulting(package, "_package_")
         obj2ast_xform = {
                 False : _ast_name("False"),
                 None  : _ast_name("None"),
@@ -2093,27 +2098,30 @@ def eval_(form):
                 str   : _ast_string,
                 int   : _ast_num,
                 }
-        package = symbol_value("_package_")
-        def callify(form, quoted = False):
-                if listp(form):
-                        if quoted or (form[0] is _find_symbol0('quote')):
-                                return (_ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
-                                        if listp(form[1]) else
-                                        callify(form[1], quoted = True))
-                        else:
-                                return _ast_funcall(_lisp_symbol_ast(form[0], package),
-                                                    *list(map(callify, form[1:])))
-                elif symbolp(form):
-                        return (_ast_funcall(swank_ast_name("read_symbol"), str(form)) if quoted or keywordp(form) else
-                                _ast_name(symbol_name(form)))
-                elif constantp(form):
-                        return obj2ast_xform[type(form)](form)
-                elif form in obj2ast_xform:
-                        return obj2ast_xform[form]
+        if listp(form):
+                if quoted or (form[0] is _find_symbol0("QUOTE")):
+                        return (_ast_list(mapcar(lambda x: _callify(x, package, True), form[1]))
+                                if listp(form[1]) else
+                                _callify(form[1], package, True))
                 else:
-                        error("Unable to convert form %s", form)
+                        return _ast_funcall(_lisp_symbol_ast(form[0], package),
+                                            *list(map(lambda x: _callify(x, package), form[1:])))
+        elif symbolp(form):
+                return (_ast_funcall("_read_symbol",
+                                     _ast_string(form.name), _ast_string(form.package.name))
+                        if quoted or keywordp(form) else
+                        _lisp_symbol_ast(form, package))
+        elif constantp(form):
+                return obj2ast_xform[type(form)](form)
+        elif form in obj2ast_xform:
+                return obj2ast_xform[form]
+        else:
+                error("Unable to convert form %s", form)
+
+def eval_(form):
+        package = symbol_value("_package_")
         try:
-                expr = callify(form)
+                expr = _callify(form, package)
                 call = ast.fix_missing_locations(_ast_module(
                                 [_ast_import_from("cl", ["__evset__"]),
                                  _ast_Expr(_ast_funcall(_ast_name("__evset__"), expr)),
@@ -2126,7 +2134,7 @@ def eval_(form):
                 import more_ast
                 error("EVAL: error while trying to compile <%s>: %s", more_ast.pp_ast_as_code(expr), cond)
         import more_ast
-        _here("> %s -> in %s: %s" % (form, package, more_ast.pp_ast_as_code(expr)))
+        write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         exec(code, _lisp_package_name_module(package_name(package)).__dict__)
         return __evget__()
 
