@@ -460,7 +460,72 @@ def process_requests(timeout):
 def current_socket_io():
         return symbol_value("_emacs_connection_").socket_io
 
-#### close-connection
+def close_connection(c, condition, backtrace):
+        with progv(_debugger_hook_ = nil):
+                log_event("close-connection %s ...\n", condition)
+        format("_log_output_", "\n;; swank:close_connection: %s\n", condition)
+        cleanup = c.cleanup
+        if cleanup:
+                cleanup(c)
+        close(c.socket_io)
+        if c.dedicated_output:
+                close(c.dedicated_output)
+        setq("_connections_", remove(c, symbol_value("_connections_")))
+        run_hook(symbol_value("_connection_closed_hook_"), c)
+        if condition and True: # XXX: was (not (typep condition 'end-of-file))
+                finish_output(symbol_value("_log_output_"))
+                format(symbol_value("_log_output_"), "\n;; Event history start:\n")
+                dump_event_history("_log_output_")
+                format(symbol_value("_log_output_"),
+                       """;; Event history end.
+;; Backtrace:
+%s
+;; Connection to Emacs lost. [
+;;  condition: %s
+;;  type: %s
+;;  encoding: %s vs. %s
+;;  style: %s dedicated: %s]""",
+                       backtrace,
+                       escape_non_ascii(safe_condition_message(condition)),
+                       type_of(condition),
+                       c.coding_system,
+                       c.external_format,
+                       c.communication_style,
+                       symbol_value("_use_dedicated_output_stream_"))
+                finish_output(symbol_value("_log_output_"))
+        log_event("close-connection %s ... done.\n", condition)
+# (defun close-connection (c condition backtrace)
+#   (let ((*debugger-hook* nil))
+#     (log-event "close-connection: ~a ...~%" condition)
+#   (format *log-output* "~&;; swank:close-connection: ~A~%" condition)
+#   (let ((cleanup (connection.cleanup c)))
+#     (when cleanup
+#       (funcall cleanup c)))
+#   (close (connection.socket-io c))
+#   (when (connection.dedicated-output c)
+#     (close (connection.dedicated-output c)))
+#   (setf *connections* (remove c *connections*))
+#   (run-hook *connection-closed-hook* c)
+#   (when (and condition (not (typep condition 'end-of-file)))
+#     (finish-output *log-output*)
+#     (format *log-output* "~&;; Event history start:~%")
+#     (dump-event-history *log-output*)
+#     (format *log-output* ";; Event history end.~%~
+#                         ;; Backtrace:~%~{~A~%~}~
+#                         ;; Connection to Emacs lost. [~%~
+#                         ;;  condition: ~A~%~
+#                         ;;  type: ~S~%~
+#                         ;;  encoding: ~A vs. ~A~%~
+#                         ;;  style: ~S dedicated: ~S]~%"
+#             backtrace
+#             (escape-non-ascii (safe-condition-message condition) )
+#             (type-of condition)
+#             (connection.coding-system c)
+#             (connection.external-format c)
+#             (connection.communication-style c)
+#             *use-dedicated-output-stream*)
+#     (finish-output *log-output*))
+#   (log-event "close-connection ~a ... done.~%" condition)))
 
 ### Thread based communication: swank.lisp:1107
 setq("_active_threads_", [])
@@ -893,6 +958,9 @@ def guess_package(string):
 setq("_pending_continuations_", [])
 
 def guess_buffer_package(string):
+        here("'%s' -> '%s', '%s'" % (string,
+                                     (string and guess_package(string)),
+                                     symbol_value("_package_")))
         return ((string and guess_package(string)) or
                 symbol_value("_package_"))
 
@@ -925,7 +993,8 @@ def eval_for_emacs(form, buffer_package, id):
                              _pending_continuations_ = [id] + env._pending_continuations_):
                         check_type(symbol_value("_buffer_package_"), package)
                         def with_slime_interrupts_body():
-                                return eval(form)
+                                here("EVAL <%s>" % (form,))
+                                return eval_(form)
                         handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
                                      Exception = set_condition)
                         run_hook(boundp("_pre_reply_hook_") and symbol_value(env._pre_reply_hook_))
@@ -938,121 +1007,12 @@ def eval_for_emacs(form, buffer_package, id):
                                 [keyword('abort'), condition]),
                                id])
 
-# XXX: :emacs-rex processing (EVAL-FOR-EMACS)  was done by this one
-def _eval_for_emacs(slime_connection, sldb_state, form, pkg, thread, id, level = 0):
-        ok = False
-        value = nil
-        condition = nil
-        output = make_string_output_stream()
-        try:
-                def send_abort(cond, mesg, *args):
-                        nonlocal condition
-                        writeurn_output(output)
-                        condition = cond
-                        # debug_printf("ERROR:" + mesg, *args)
-                        raise cond
-                def with_calling_handlers_body():
-                        nonlocal ok, value
-                        try:
-                                expr = callify(form)
-                                call = ast.fix_missing_locations(ast_module(
-                                                [# ast_import_from("partus", ["*"]),
-                                                 ast_assign_var("", ast_funcall(swank_ast_name("set_value"), expr)),
-                                                 ]))
-                        except Exception as cond:
-                                send_abort(cond, "failed to callify: %s", cond)
-                        # debug_printf("==========( COMPILE-AST\n%s\n", pp_ast_as_code(expr))
-                        try:
-                                code = compile(call, '', 'exec')
-                        except Exception as cond:
-                                send_abort(cond, "failed to compile: %s", cond)
-                        # debug_printf("executing..")
-                        with_output_redirection(lambda: exec(code, env.python_user.__dict__), file = output)
-                        value = get_value()
-                        string = writeurn_output(output)
-                        # debug_printf("return value: %s", value)
-                        # debug_printf("output:\n%s\n===== EOF =====\n", string)
-                        ok = True
-                with env.let(id = id):
-                        handler_bind(with_calling_handlers_body,
-                                     error = lambda cond: error_handler(cond, sldb_state, output = output))
-        finally:
-                send_to_emacs(slime_connection, [keyword('return'),
-                                                 ([keyword('ok'), value]
-                                                  if ok else
-                                                  [keyword('abort'), condition]),
-                                                 id])
-def lisp_name_ast(x):
-        def rec(x):
-                return (ast_name(x[0])
-                        if len(x) == 1 else
-                        ast_attribute(rec(x[:-1]), x[-1]))
-        return rec(remove_if_not(identity, pythonise_lisp_name(x).split(":")))
-
-def constantp(x):
-        return type(x) in set([str, int])
-obj2ast_xform = {
-        False : ast_name("False"),
-        None  : ast_name("None"),
-        True  : ast_name("True"),
-        str   : ast_string,
-        int   : ast_num,
-        }
-
-def callify(form, quoted = False):
-        # debug_printf("CALLIFY %s", form)
-        if listp(form):
-                if quoted or (form[0] is _find_symbol0('quote')):
-                        return (ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
-                                if listp(form[1]) else
-                                callify(form[1], quoted = True))
-                else:
-                        return ast_funcall(lisp_name_ast(symbol_name(form[0])),
-                                           *list(map(callify, form[1:])))
-        elif symbolp(form):
-                return (ast_funcall(swank_ast_name("read_symbol"), str(form)) if quoted or keywordp(form) else
-                        ast_name(symbol_name(form)))
-        elif constantp(form):
-                return obj2ast_xform[type(form)](form)
-        elif form in obj2ast_xform:
-                return obj2ast_xform[form]
-        else:
-                error("Unable to convert form %s", form)
-# <<< eval-for-emacs
-
 setq("_echo_area_prefix_", "=> ")
+
 #### format-values-for-echo-area
 #### macro values-to-string
 #### interactive-eval
 #### eval-and-grab-output
-# >>> eval-region
-___expr___ = None
-def set_value(value):
-        global ___expr___
-        ___expr___ = value
-def get_value():
-        return ___expr___
-
-def writeurn_output(output):
-        string = get_output_stream_string(output)
-        close(output)
-        if len(string):
-                send_to_emacs(symbol_value("_emacs_connection_"), [keyword('write-string'), string])
-        return string
-
-def error_handler(c, sldb_state, output = None):
-        global condition
-        condition = c
-        format(sys.stderr, "EE %s, sldb_state: %s", c, sldb_state)
-        if output:
-                writeurn_output(output)
-        new_sldb_state = make_sldb_state(c, 0 if not sldb_state else sldb_state.level + 1, env.id)
-        with env.let(sldb_state = new_sldb_state):
-                # debug_printf("===( e-ha %s, new_sldb_state: %s", c, new_sldb_state)
-                def with_restarts_body():
-                        return sldb_loop(symbol_value("_emacs_connection_"), new_sldb_state, env.id)
-                with_restarts(with_restarts_body,
-                              abort = "return to sldb level %s" % str(new_sldb_state.level))
 
 def eval_region(string):
         # string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"(lookup-presented-object \\1))", string)
@@ -1074,6 +1034,7 @@ def eval_region(string):
                 return [keyword("values")] + [str(___expr___)] if (ast_.body and exprp) else []
         else:
                 return [keyword("values")]
+
 #### interactive-eval-region
 #### re-evaluate-defvar
 
@@ -1303,7 +1264,6 @@ def track_package(fn):
                         send_to_emacs([keyword("new-package"), package_name(_package_()),
                                        package_string_for_prompt(_package_())])
 
-
 def cat(*strings):
         "Concatenate all arguments and make the result a string."
         return with_output_to_string(
@@ -1332,6 +1292,7 @@ aborted and return immediately with the output written so far."""
         buffer = bytearray([0]) * (length + len(ellipsis))
         fill_pointer = 0
         def write_output(string):
+                nonlocal fill_pointer
                 free = length - fill_pointer
                 count = min(free, len(string))
                 replace(buffer, string.encode('ascii'), start1 = fill_pointer, end2 = count)
@@ -1572,7 +1533,7 @@ def sldb_loop(level):
                                 send_to_emacs([keyword("debug"), current_thread_id(), level] +
                                               # was wrapped into (with-bindings *sldb-printer-bindings*)
                                               debugger_info_for_emacs(0, env._sldb_initial_frames_))
-                                send_to_emacs([keyword(debug-activate), current_thread_id(), level, None])
+                                send_to_emacs([keyword("debug-activate"), current_thread_id(), level, None])
                                 while True:
                                         def handler_case_body():
                                                 evt = wait_for_event(["or",

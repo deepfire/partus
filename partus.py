@@ -49,8 +49,8 @@ def _init_swank_packages():
         "Hooked."
         global __swank_package__
         package("PERGAMUM",      use = ["CL"])
-        package("MORE_AST",      use = ["CL", "PERGAMUM"])
-        defpackage("SWANK",      use = ["CL", "PERGAMUM", "MORE_AST"])
+        package("MORE-AST",      use = ["CL", "PERGAMUM"])
+        defpackage("SWANK",      use = ["CL", "PERGAMUM", "MORE-AST"])
         __swank_package__ = find_package("SWANK")
 
         import inspector

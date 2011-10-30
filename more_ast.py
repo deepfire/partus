@@ -92,36 +92,14 @@ def ast_def(name, args, *body):
 
 
 ## expressions
-def ast_bytes(bs):
-    if not bytesp(bs):
-        mesg('ast_bytes(), not an immutable byte vector: %s', str(bs))
-    assert bytesp(bs)
-    return ast.Bytes(s=bs)
+def ast_rw(writep):                 return (ast.Store() if writep else ast.Load())
 
-def ast_string(s):
-    if not stringp(s):
-        mesg('ast_string(), not a string: %s', str(s))
-    assert stringp(s)
-    return ast.Str(s=s)
-
-def ast_num(n):
-    assert integerp(n)
-    return ast.Num(n=n)
-
-def ast_rw(writep):
-    return (ast.Store() if writep else ast.Load())
-
-def ast_name(name, writep=False):
-    assert stringp(name)
-    return ast.Name(id=name, ctx=ast_rw(writep))
-
-def ast_arg(name):
-    assert stringp(name)
-    return ast.Name(arg=name, ctx=ast.Param())
-
-def ast_alias(name):
-    assert stringp(name)
-    return ast.alias(name=name, asname=None)
+def ast_bytes(bs):                  return ast.Bytes(s = the(bytes, bs))
+def ast_name(name, writep = False): return ast.Name(id = the(str, name), ctx = ast_rw(writep))
+def ast_string(s):                  return ast.Str(s = the(str, s))
+def ast_num(n):                     return ast.Num(n = the(int, n))
+def ast_arg(name):                  return ast.Name(arg = the(str, name), ctx = ast.Param())
+def ast_alias(name):                return ast.alias(name = the(str, name), asname = None)
 
 def ast_list(xs):
     assert listp(xs) and all(mapcar(astp, xs))
@@ -132,7 +110,7 @@ def ast_tuple(xs, writep=False):
     return ast.Tuple(elts=xs, ctx=ast_rw(writep))
 
 def ast_dict(keys, values):
-    return ast.Dict(keys=keys, values=values)
+    return ast.Dict(keys = keys, values = values)
 
 def ast_attribute(x, name, writep=False):
     return ast.Attribute(attr=name, value=x, ctx=ast_rw(writep))
@@ -144,13 +122,13 @@ def ast_maybe_normalise_string(x):
     return (ast_string(x) if stringp(x) else x)
 
 def ast_funcall(name, *args):
-    if not all(mapcar(lambda x: stringp(x) or astp(x) or x is None, args)):
-        err('In call to %s: improper arglist %s', name, str(args))
-    return ast.Call(func=(ast_name(name) if stringp(name) else name),
-                    args=mapcar(ast_maybe_normalise_string, args),
-                    keywords=[],
-                    starargs=None,
-                    kwargs=None)
+        if not all(mapcar(lambda x: stringp(x) or astp(x) or x is None, args)):
+                error('AST-FUNCALL: %s: improper arglist %s', name, str(args))
+        return ast.Call(func = (ast_name(name) if stringp(name) else name),
+                        args = mapcar(ast_maybe_normalise_string, args),
+                        keywords = [],
+                        starargs = None,
+                        kwargs = None)
 
 def ast_func_name(x):
     if typep(x, ast.Name):
@@ -165,33 +143,24 @@ def ast_func_name(x):
 
 ## statements
 def astlist_prog(*body):
-    """WARNING: not an actual node, returns a list!"""
+    "WARNING: not an actual node, returns a list!"
     return remove_if(null, body) or [ast.Pass()]
 
-def ast_return(node):
-    assert astp(node)
-    return ast.Return(value=node)
-
-def ast_Expr(node):
-    assert ast_expr_p(node)
-    return ast.Expr(value = node)
-
-def ast_expression(node):
-    assert astp(node)
-    return ast.Expression(body=node)
+def ast_Expr(node):       return ast.Expr(value = the(ast.expr, node))
+def ast_return(node):     return ast.Return(value = the(ast.AST, node))
+def ast_expression(node): return ast.Expression(body = the(ast.AST, node))
 
 def ast_import(*names):
     assert all(mapcar(stringp, names))
     return ast.Import(names=mapcar(ast_alias, names))
 
 def ast_import_all_from(name):
-    assert stringp(name)
-    return ast.ImportFrom(module=name, names=[ast.alias(name='*', asname=None)], level=0)
+    return ast.ImportFrom(module = the(str, name), names=[ast.alias(name='*', asname=None)], level=0)
 
 def ast_import_from(module_name, names):
     assert stringp(module_name)
     assert listp(names) and all(mapcar(stringp, names))
-    return ast.ImportFrom(module=module_name, names=mapcar(ast_alias, names), level=0)
+    return ast.ImportFrom(module = module_name, names = mapcar(ast_alias, names), level = 0)
 
 def ast_assign(to, value):
     assert listp(to) and all(mapcar(astp, to)) and astp(value)

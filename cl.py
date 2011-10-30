@@ -5,6 +5,7 @@ import re
 import os
 import io
 import _io
+import ast
 import sys
 import time
 import types
@@ -358,6 +359,9 @@ def iff(val, consequent, antecedent):
         "This restores sanity."
         return __iff__[not not val](consequent, antecedent)()
 
+def constantp(x):
+        return type(x) in set([str, int])
+
 def loop(body):
         while True:
                 body()
@@ -408,7 +412,9 @@ def subtypep(sub, super):
         return issubclass(sub, super)
 
 def the(type, x):
-        assert(typep(x, type))
+        if not typep(x, type):
+                error(TypeError, "The value %s is not of type %s." %
+                      (x, type.__name__))
         return x
 
 def typecase(val, *clauses):
@@ -639,7 +645,7 @@ subsequence-2 bounded by start2 and end2. """
         #  shorter length determines how many elements are copied; the
         #  extra elements near the end of the longer subsequence are not
         #  involved in the operation."
-        sequence_1[start1:end1] = sequence2[start2:end2]
+        sequence_1[start1:end1] = sequence_2[start2:end2]
         return sequence_1
 
 # XXX: This is geared at cons-style lists, and so is fucking costly
@@ -1014,16 +1020,6 @@ def string(x):
 def in_package(name):
         return setq("_package_", find_package(string(name)))
 
-def _pythonise_lisp_name(x):
-        def _sub(cs):
-                acc = ""
-                for c in cs:
-                        acc += "_" if c in "-*" else c
-                return acc
-        ret = _sub(x).lower()
-        # debug_printf("==> Python(Lisp %s) == %s", x, ret)
-        return ret
-
 def _init_condition_system():
         _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
 
@@ -1146,7 +1142,7 @@ with progv(foovar = 3.14,
                 return env_cluster(_coerce_cluster_keys_to_symbol_names(cluster))
 
 def _init_package_system_1():
-        setq("_package_", package("COMMON_LISP_USER", use = ["CL"]))
+        setq("_package_", package("COMMON-LISP-USER", use = ["CL"]))
 
 _init_package_system_1()
 
@@ -1967,6 +1963,102 @@ def sleep(x):
 
 def user_homedir_pathname():
         return os.path.expanduser("~")
+
+##
+## The EVAL
+##
+def _make_eval_context():
+        val = None
+        def set(x):
+                nonlocal val
+                val = x
+        def get():
+                return val
+        return get, set
+__evget__, __evset__ = _make_eval_context()
+
+def _pythonise_lisp_name(x):
+        def _sub(cs):
+                acc = ""
+                for c in cs:
+                        acc += "_" if c in "-*" else c
+                return acc
+        ret = _sub(x).lower()
+        # debug_printf("==> Python(Lisp %s) == %s", x, ret)
+        return ret
+
+def eval_(form):
+        ### XXX: ast_*: loopbreak
+        def astp(x):                                return typep(x, ast.AST)
+        def ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
+        def ast_num(n):                             return ast.Num(n = the(int, n))
+        def ast_string(s):                          return ast.Str(s = the(str, s))
+        def ast_name(name, writep = False):         return ast.Name(id = the(str, name), ctx = ast_rw(writep))
+        def ast_attribute(x, name, writep = False): return ast.Attribute(attr = name, value = x, ctx = ast_rw(writep))
+        def ast_alias(name):                        return ast.alias(name = the(str, name), asname = None)
+        def ast_maybe_normalise_string(x):          return (ast_string(x) if stringp(x) else x)
+        def ast_Expr(node):                         return ast.Expr(value = the(ast.expr, node))
+        def ast_import_from(module_name, names):
+                assert stringp(module_name)
+                assert listp(names) and all(mapcar(stringp, names))
+                return ast.ImportFrom(module = module_name, names = mapcar(ast_alias, names), level = 0)
+        def ast_module(body):
+                assert listp(body) and all(mapcar(astp, body))
+                return ast.Module(body = body, lineno = 0)
+        def ast_funcall(name, *args):
+                if not all(mapcar(lambda x: stringp(x) or astp(x) or x is None, args)):
+                        error('AST-FUNCALL: %s: improper arglist %s', name, str(args))
+                return ast.Call(func = (ast_name(name) if stringp(name) else name),
+                                args = mapcar(ast_maybe_normalise_string, args),
+                                keywords = [],
+                                starargs = None,
+                                kwargs = None)
+        def lisp_name_ast(x):
+                def rec(x):
+                        return (ast_name(x[0])
+                                if len(x) == 1 else
+                                ast_attribute(rec(x[:-1]), x[-1]))
+                return rec(remove_if_not(identity, _pythonise_lisp_name(x).split(":")))
+        obj2ast_xform = {
+                False : ast_name("False"),
+                None  : ast_name("None"),
+                True  : ast_name("True"),
+                str   : ast_string,
+                int   : ast_num,
+                }
+        def callify(form, quoted = False):
+                if listp(form):
+                        if quoted or (form[0] is _find_symbol0('quote')):
+                                return (ast_list(mapcar(lambda x: callify(x, quoted = True), form[1]))
+                                        if listp(form[1]) else
+                                        callify(form[1], quoted = True))
+                        else:
+                                return ast_funcall(lisp_name_ast(symbol_name(form[0])),
+                                                   *list(map(callify, form[1:])))
+                elif symbolp(form):
+                        return (ast_funcall(swank_ast_name("read_symbol"), str(form)) if quoted or keywordp(form) else
+                                ast_name(symbol_name(form)))
+                elif constantp(form):
+                        return obj2ast_xform[type(form)](form)
+                elif form in obj2ast_xform:
+                        return obj2ast_xform[form]
+                else:
+                        error("Unable to convert form %s", form)
+        try:
+                expr = callify(form)
+                call = ast.fix_missing_locations(ast_module(
+                                [ast_import_from("cl", ["__evset__"]),
+                                 ast_Expr(ast_funcall(ast_name("__evset__"), expr)),
+                                 ]))
+        except Exception as cond:
+                error("EVAL: error while trying to callify <%s>: %s", form, cond)
+        try:
+                code = compile(call, '', 'exec')
+        except Exception as cond:
+                error("EVAL: error while trying to compile <%s>: %s", pp_ast_as_code(expr), cond)
+        # XXX: package
+        exec(code, env.python_user.__dict__)
+        return __evget__()
 
 ###
 ### Missing stuff
