@@ -12,7 +12,7 @@ from cl import *
 from pergamum import *
 from more_ast import *
 
-from cl import _servile as servile, _keyword as keyword, _import, _find_symbol0, _find_symbol_or_fail, _intern0 as intern0
+from cl import _servile as servile, _keyword as keyword, import_, _find_symbol0, _find_symbol_or_fail, _intern0 as intern0
 
 import swank_backend
 import swank_python  # the thing patches swank_backend, to avoid indirection
@@ -233,10 +233,11 @@ add_hook("_new_connection_hook_", notify_backend_of_connection)
 
 ### Utilities: swank.lisp:406
 ### Logging: swank.lisp:409
-setq("_swank_io_package_", lret(make_package("SWANK_IO_PACKAGE"),
-                                # curry(_import, mapcar(_find_symbol_or_fail, ["t", "nil", "quote"]))
-                                lambda package: _import(mapcar(_find_symbol_or_fail, ["T", "NIL", "QUOTE"]),
+setq("_swank_io_package_", lret(make_package("SWANK-IO-PACKAGE"), # MAKE-PACKAGE is due to ignore_python = True
+                                # curry(import_, mapcar(_find_symbol_or_fail, ["t", "nil", "quote"]))
+                                lambda package: import_(mapcar(_find_symbol_or_fail, ["T", "NIL", "QUOTE"]),
                                                         package)))
+
 setq("_log_events_",       nil)
 setq("_log_output_",       nil)
 
@@ -387,8 +388,103 @@ def current_thread_id():
 
 ####   ensure-list
 ### Symbols: swank.lisp:637
+#### symbol-status
+#### symbol-external-p
+#### classify-symbol
+#### symbol-classification-string
 ### TCP Server: swank.lisp:769
-# implementation in partus.py
+#### defvar *use-dedicated-output-stream*         # implementation in partus.py
+#### defvar *dedicated-output-stream-port*        # implementation in partus.py
+#### defvar *communication-style*                 # implementation in partus.py
+#### defvar *dont-close*                          # implementation in partus.py
+#### defvar *dedicated-output-stream-buffering*   # implementation in partus.py
+#### defvar *coding-system*                       # implementation in partus.py
+#### defvar *listener-sockets*                    # implementation in partus.py
+#### start-server                                 # implementation in partus.py
+#### create-server                                # implementation in partus.py
+#### find-external-format-or-lose                 # implementation in partus.py
+#### defparameter *loopback-interface*            # implementation in partus.py
+#### setup-server                                 # implementation in partus.py
+#### stop-server                                  # implementation in partus.py
+#### restart-server                               # implementation in partus.py
+#### accept-connections                           # implementation in partus.py
+#### authenticate-client                          # implementation in partus.py     
+#### slime-secret                                 # implementation in partus.py
+#### serve-requests                               # implementation in partus.py
+#### announce-server-port                         # implementation in partus.py
+#### simple-announce-function                     # implementation in partus.py
+def open_streams(conn):
+        """Return the 5 streams for IO redirection:
+DEDICATED-OUTPUT INPUT OUTPUT IO REPL-RESULTS"""
+        input_fn = lambda: with_connection(conn,
+                                           lambda: with_simple_restart("ABORT-READ", "Abort reading input from Emacs.",
+                                                                       read_user_input_from_emacs))
+        dedicated_output = when(symbol_value("_swank_debug_p_"),
+                                lambda: open_dedicated_output_stream(conn.socket_io))
+        in_ = make_input_stream(input_fn)
+        out = dedicated_output or make_output_stream(make_output_function(conn))
+        io = make_two_way_stream(in_, out)
+        repl_results = make_output_stream_for_target(conn, keyword("repl-result"))
+        if conn.communication_style is keyword("spawn"):
+                conn.auto_flush_thread = spawn(lambda: auto_flush_loop(out),
+                                               name = "auto-flush-thread")
+        write_line("OPEN_STREAMS: do %s, in %s, out %s, io, %s, rere %s" %
+                   (dedicated_output, in_, out, io, repl_results),
+                   stream = sys.stderr)
+        return dedicated_output, in_, out, io, repl_results
+
+def make_output_function(conn):
+        i, tag, l = 0, 0, 0
+        def set_i_tag_l(x): nonlocal i, tag, l; i, tag, l = x
+        return (lambda string:
+                        with_connection(conn,
+                                        set_i_tag_l(send_user_output(string, i, tag, l))))
+
+setq("_maximum_pipelined_output_chunks_", 50)
+setq("_maximum_pipelined_output_length_", 80 * 20 * 5)
+
+def send_user_output(string, pcount, tag, plength):
+        if (pcount  > symbol_value("_maximum_pipelined_output_chunks_") or
+            plength > symbol_value("_maximum_pipelined_output_length_")):
+                tag = (tag + 1) % 1000
+                send_to_emacs([keyword("ping"), current_thread_id(), tag])
+                with_simple_restart("ABORT", "Abort sending output to Emacs.")
+                wait_for_event([keyword("emacs-pong", tag)])
+                pcount, plength = 0
+        send_to_emacs([keyword("write-string"), string])
+        return pcount + 1, tag, plength + len(string)
+
+def make_output_function_for_target(conn, target):
+        "Create a function to send user output to a specific TARGET in Emacs."
+        return (lambda string:
+                        with_connection(conn,
+                                        lambda: with_simple_restart("ABORT", "Abort sending output to Emacs.",
+                                                                    lambda: send_to_emacs([keyword("write-string", string, target)]))))
+
+def make_output_stream_for_target(conn, target):
+        return make_output_stream(make_output_function_for_target(conn, target))
+
+def open_dedicated_output_stream(socket_io):
+        """Open a dedicated output connection to the Emacs on SOCKET-IO.
+Return an output stream suitable for writing program output.
+
+This is an optimized way for Lisp to deliver output to Emacs."""
+        socket = create_socket(symbol_value('_loopback_interface_'),
+                               symbol_value('_dedicated_output_stream_port_'))
+        try:
+                port = local_port(socket)
+                encode_message([keyword("open-dedicated-output-stream"), port], socket_io)
+                dedicated = accept_connection(socket,
+                                              external_format = ignore_errors(stream_external_format(socket_io)) or "default", # was: keyword("default")
+                                              buffering = symbol_value('_dedicated_output_stream_buffering_'),
+                                              timeout = 30)
+                close_socket(socket)
+                socket = None
+                return dedicated
+        finally:
+                if socket:
+                        close_socket(socket)
+
 ### Event Decoding/Encoding: swank.lisp:1008
 
 def decode_message(stream):
@@ -796,6 +892,29 @@ def repl_loop(conn):
 ### Global redirection setup: swank.lisp:1474
 ### Global redirection hooks: swank.lisp:1570
 ### Redirection during requests: swank.lisp:1596
+def create_repl(target):
+        assert(target is nil)
+        conn = symbol_value("_emacs_connection_")
+        initialize_streams_for_connection(conn)
+        conn.env = [(find_symbol0("_standard_output_"), conn.user_output),
+                    (find_symbol0("_standard_input_"),  conn.user_input),
+                    (find_symbol0("_trace_output_"),    conn.trace_output or conn.user_output),
+                    (find_symbol0("_error_output_"),    conn.user_output),
+                    (find_symbol0("_debug_io_"),        conn.user_io),
+                    (find_symbol0("_query_io_"),        conn.user_io),
+                    (find_symbol0("_terminal_io_"),     conn.user_io),
+                    ]
+        maybe_redirect_global_io(conn)
+        if use_threads_p():
+                conn.repl_thread = spawn_repl_thread(conn, "repl-thread")
+        return [package_name(symbol_value("_package_")),
+                package_string_for_prompt(symbol_value("_package_"))]
+
+def initialize_streams_for_connection(connection):
+        c = connection
+        c.dedicated_output, c.user_input, c.user_output, c.user_io, c.repl_results = open_streams(connection)
+        return c
+
 ### Channels: swank.lisp:1631
 setq("_channels_",      [])
 setq("_channel_counter_", 0)
@@ -1034,13 +1153,6 @@ setq("_swank_pprint_bindings_", [(intern0("_print_pretty_"),   t),
 #### swank-pprint
 #### pprint-eval
 #### set-package
-
-def swank_require(slime_connection, sldb_state, contribs):
-        for contrib in contribs:
-                filename = "%s/%s.py" % (env.partus_path, str(contrib))
-                if probe_file(filename):
-                        load_file(filename)
-        return []
 
 def invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
         if sldb_state.level == level:
@@ -1698,12 +1810,47 @@ setq("_fasl_pathname_function_", None)
 #### requires-compile-p
 #### compile-file-if-needed
 ### Loading: swank.lisp:2925
-def load_file(slime_connection, sldb_state, filename):
-        "XXX: not in compliance"
-        exec(compile(file_as_string(filename), filename, 'exec'))
-        return True
+def load_file(filename):
+        return to_string(load(filename_to_pathname(filename)))
+
 ### swank-require: swank.lisp:2931
+def swank_require(modules, filename = None):
+        for module in ensure_list(modules):
+                pass
+                # Issue SWANK-REQUIRE-NOT-IMPLEMENTED
+                # if not member(str(module), symbol_value("_modules_")):
+                #         require(module, (filename_to_pathname(filename) if filename else
+                #                          module_filename(module)))
+        return symbol_value("_modules_")
+
+# setq("_find_module_", find_module) # See just a little below.
+
+def module_filename(module):
+        "Return the filename for the module MODULE."
+        return (symbol_value("_find_module_")(module) or
+                error("Can't locate module: %s", module))
+
 ### Simple *find-module* function: swank.lisp:2952
+def merged_directory(dirname, defaults):
+        return os.path.join(defaults, dirname)
+
+setq("_load_path_", [])
+"A list of directories to search for modules."
+
+def module_canditates(name, dir):
+        return [compile_file_pathname(os.path.join(dir, name)),
+                os.path.join(dir, name) + ".py"]
+
+def find_module(module):
+        name = string_downcase(string(module))
+        return some(lambda dir: some(probe_file, module_candidates(name, dir)),
+                    symbol_value("_load_path_"))
+
+setq("_find_module_", find_module)
+"""Pluggable function to locate modules.
+The function receives a module name as argument and should return
+the filename of the module (or nil if the file doesn't exist)."""
+
 ### Macroexpansion: swank.lisp:2973
 ### Simple completion: swank.lisp:3034
 ### Simple arglist display: swank.lisp:3090

@@ -1069,10 +1069,10 @@ def intern(x, package = None):
         return s, symbol_relation(s, found_in_package) if found_in_package else None
 def _intern0(x, package = None): return intern(x, package)[0]
 
-def _import(symbols, package = None):
+def import_(symbols, package = None, populate_module = True):
         p = coerce_to_package(package)
         symbols = _ensure_list(symbols)
-        format(t, "importing %s into %s\n", symbols, p)
+        module = _lisp_package_name_module(package_name(p), if_does_not_exist = "continue")
         for s in symbols:
                 ps = p.get(s.name) if s.name in p else None
                 if ps is not None: # conflict
@@ -1080,6 +1080,10 @@ def _import(symbols, package = None):
                 else:
                         p.imported.add(s)
                         p.accessible[s.name] = s
+                        if module:
+                                # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
+                                python_name = _lisp_symbol_name_python_name(s.name)
+                                module.__dict__[python_name] = s.value
         return True
 
 def export(symbols, package = None):
@@ -1656,6 +1660,7 @@ def close(x):
         x.close()
 
 def finish_output(stream = t):
+        stream and _here("finish_output: %s -> %s" % (stream, _coerce_to_stream(stream)))
         stream is not nil and _coerce_to_stream(stream).flush()
 
 def force_output(*args, **keys):
@@ -2061,6 +2066,33 @@ def describe(x, stream = t):
                 write_line("%25s: %s" % (attr, str(val)))
 
 ##
+## Modules
+##
+setq("_module_provider_functions_", [])
+
+def _module_filename(module):
+        return "%s/%s.py" % (env.partus_path, _coerce_to_symbol_name(module))
+
+def load(pathspec, verbose = None, print = None,
+         if_does_not_exist = t,
+         external_format = "default"):
+        "XXX: not in compliance"
+        verbose = _defaulting(verbose, "_load_verbose_")
+        print   = _defaulting(verbose, "_load_print_")
+        filename = pathspec
+        exec(compile(file_as_string(filename), filename, 'exec'))
+        return True
+
+def require(name, pathnames = None):
+        "XXX: not terribly compliant either"
+        name = _coerce_to_symbol_name(name)
+        filename = pathnames[0] if pathnames else _module_filename(name)
+        if probe_file(filename):
+                _not_implemented()
+        else:
+                error("Don't know how to REQUIRE %s.", name.upcase())
+
+##
 ## Environment
 ##
 def sleep(x):
@@ -2123,7 +2155,7 @@ def eval_(form):
         try:
                 expr = _callify(form, package)
                 call = ast.fix_missing_locations(_ast_module(
-                                [_ast_import_from("cl", ["__evset__"]),
+                                [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
                                  _ast_Expr(_ast_funcall(_ast_name("__evset__"), expr)),
                                  ]))
         except Exception as cond:

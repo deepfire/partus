@@ -40,3 +40,5 @@ In thread 'control-thread': condition of type <class 'str'>: can only concatenat
 Issue SWANK-BUG-PARSE-PACKAGE-VALUE-CONFLICTS-WITH-EVAL-FOR-EMACS-ASSERT
 
 Issue SPECIAL-BINDINGS-ARE-PACKAGE-LESS
+
+Issue SWANK-REQUIRE-NOT-IMPLEMENTED

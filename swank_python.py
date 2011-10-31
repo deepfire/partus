@@ -117,19 +117,28 @@ def find_external_format(coding_system):
 
 # def guess_external_format(pathname):			pass
 
-# def swank_gray:make_output_stream(write_string):	pass
-# def swank_gray:make_input_stream(read_string):	pass
-
-class gray_output_stream(stream):
+class gray_stream(stream):
+        pass
+class gray_input_stream(gray_stream):
+        def __init__(self, read):
+                def gray_input_stream_read(n):
+                        return read(n)
+                self.read = gray_input_stream_read
+class gray_output_stream(gray_stream):
         def __init__(self, write):
                 def gray_output_stream_write(string):
                         return write(string)
                 self.write = gray_output_stream_write
 
+# def swank_gray:make_output_stream(write_string):	pass
 @defimplementation
 def make_output_stream(write_string):
-        "XXX: ORLY?"
         return gray_output_stream(write_string)
+
+# def swank_gray:make_input_stream(read_string):	pass
+@defimplementation
+def make_input_stream(read_string):
+        return gray_input_stream(read_string)
 
 # def arglist(name):					pass
 
