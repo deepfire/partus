@@ -899,94 +899,95 @@ setq("_saved_global_streams_", [])
 E.g. the value for '_standard_output_ holds the stream object
 for _standard_output_ before we install our redirection."""
 
-(def setup_stream_indirection(stream_var, stream = None)
-  """Setup redirection scaffolding for a global stream variable.
-Supposing (for example) STREAM_VAR is _STANDARD_INPUT_, this macro:
+def setup_stream_indirection(stream_var, stream = None):
+        """Setup redirection scaffolding for a global stream variable.
+Supposing (for example) STREAM-VAR is *STANDARD-INPUT*, this macro:
 
-1. Saves the value of _STANDARD_INPUT_ in `_SAVED_GLOBAL_STREAMS_'.
+1. Saves the value of *STANDARD-INPUT* in `*SAVED-GLOBAL-STREAMS*'.
 
-2. Creates _CURRENT_STANDARD_INPUT_, initially with the same value as
-_STANDARD_INPUT_.
+2. Creates *CURRENT-STANDAR-INPUT*, initially with the same value as
+*STANDARD-INPUT*.
 
-3. Assigns _STANDARD_INPUT_ to a synonym stream pointing to
-_CURRENT_STANDARD_INPUT_.
+3. Assigns *STANDARD-INPUT* to a synonym stream pointing to
+*CURRENT-STANDARD-INPUT*.
 
-This has the effect of making _CURRENT_STANDARD_INPUT_ contain the
-effective global value for _STANDARD_INPUT_. This way we can assign
-the effective global value even when _STANDARD_INPUT_ is shadowed by a
+This has the effect of making *CURRENT-STANDARD-INPUT* contain the
+effective global value for *STANDARD-INPUT*. This way we can assign
+the effective global value even when *STANDARD-INPUT* is shadowed by a
 dynamic binding."""
-  (let ((current_stream_var (prefixed_var '#:current stream_var))
-(stream (or stream (symbol_value stream_var))))
-;; Save the real stream value for the future.
-(setf (getf _saved_global_streams_ stream_var) stream)
-;; Define a new variable for the effective stream.
-;; This can be reassigned.
-(proclaim `(special ,current_stream_var)
-    (set current_stream_var stream)
-    ;; Assign the real binding as a synonym for the current one.
-    (let ((stream (make_synonym_stream current_stream_var)))
-      (set stream_var stream)
-      (set_default_initial_binding stream_var `(quote ,stream)))))
+        current_stream_var = prefixed_var("#:current", stream_var)
+        stream = stream or symbol_value(stream_var)
+        # Save the real stream value for the future.
+        symbol_value("_saved_global_streams_")[stream_var] = stream
+        # Define a new variable for the effective stream.
+        # This can be reassigned.
+        # XXX: proclaim `(special ,current_stream_var)
+        setq(current_stream_var, stream)
+        # Assign the real binding as a synonym for the current one.
+        stream = make_synonym_stream(current_stream_var)
+        setq(stream_var, stream)
+        set_default_initial_binding(stream_var, [find_symbol0("quote"), stream])
 
 def prefixed_var(prefix, variable_symbol):
-"(PREFIXED_VAR \"FOO\" '_BAR_) => SWANK::_FOO_BAR_"
-(let ((basename (subseq (symbol_name variable_symbol) 1)))
- (intern (format nil "_~A_~A" (string prefix) basename) :swank))
+        "(PREFIXED_VAR \"FOO\" '*BAR*) => SWANK::*FOO-BAR*"
+        basename = subseq(symbol_name(variable_symbol), 1)
+        return intern_(format(nil, "_%s_%s", string(prefix), basename), # "*~A-~A"
+                       keyword("swank"))
 
-(setq _standard_output_streams_
-  '(_standard_output_ _error_output_ _trace_output_)
-  "The symbols naming standard output streams.")
+setq("_standard_output_streams_",
+     mapcar(find_symbol0, ["_standard_output_", "_error_output_", "_trace_output_"]))
+"The symbols naming standard output streams."
 
-(setq _standard_input_streams_
-  '(_standard_input_)
-  "The symbols naming standard input streams.")
+setq("_standard_input_streams_",
+     [find_symbol0("_standard_input_")])
+"The symbols naming standard input streams."
 
-(setq _standard_io_streams_
-  '(_debug_io_ _query_io_ _terminal_io_)
-  "The symbols naming standard io streams.")
+setq("_standard_io_streams_",
+     mapcar(find_symbol0, ["_debug_io_", "_query_io_", "_terminal_io_"]))
+"The symbols naming standard io streams."
 
-(defun init_global_stream_redirection ()
-  (when _globally_redirect_io_
-    (cond (_saved_global_streams_
-           (warn "Streams already redirected."))
-          (t
-           (mapc #'setup_stream_indirection
-                 (append _standard_output_streams_
-                         _standard_input_streams_
-                         _standard_io_streams_))))))
+def init_global_stream_redirection():
+        if symbol_value("_globally_redirect_io_"):
+                if symbol_value("_saved_global_streams_"):
+                        warn("Streams already redirected.")
+                else:
+                        mapc(setup_stream_indirection,
+                             append(symbol_value("_standard_output_streams_"),
+                                    symbol_value("_standard_input_streams_"),
+                                    symbol_value("_standard_io_streams_")))
 
-(add_hook _after_init_hook_ 'init_global_stream_redirection)
+add_hook("_after_init_hook_", init_global_stream_redirection)
 
-(defun globally_redirect_io_to_connection (connection)
-  "Set the standard I/O streams to redirect to CONNECTION.
-Assigns _CURRENT_<STREAM>_ for all standard streams."
-  (dolist (o _standard_output_streams_)
-    (set (prefixed_var '#:current o)
-         (connection.user_output connection)))
-  ;; FIXME: If we redirect standard input to Emacs then we get the
-  ;; regular Lisp top_level trying to read from our REPL.
-  ;;
-  ;; Perhaps the ideal would be for the real top_level to run in a
-  ;; thread with local bindings for all the standard streams. Failing
-  ;; that we probably would like to inhibit it from reading while
-  ;; Emacs is connected.
-  ;;
-  ;; Meanwhile we just leave _standard_input_ alone.
-  #+NIL
-  (dolist (i _standard_input_streams_)
-    (set (prefixed_var '#:current i)
-         (connection.user_input connection)))
-  (dolist (io _standard_io_streams_)
-    (set (prefixed_var '#:current io)
-         (connection.user_io connection))))
+def globally_redirect_io_to_connection(connection):
+        """Set the standard I/O streams to redirect to CONNECTION.
+Assigns _CURRENT_<STREAM>_ for all standard streams."""
+        for o in symbol_value("_standard_output_streams_"):
+                setq(prefixed_var("#:current", o),
+                     connection.user_output)
+        # FIXME: If we redirect standard input to Emacs then we get the
+        # regular Lisp top_level trying to read from our REPL.
+        #
+        # Perhaps the ideal would be for the real top_level to run in a
+        # thread with local bindings for all the standard streams. Failing
+        # that we probably would like to inhibit it from reading while
+        # Emacs is connected.
+        #
+        # Meanwhile we just leave _standard_input_ alone.
+        #+NIL
+        #(dolist (i _standard_input_streams_)
+        #  (set (prefixed_var '#:current i)
+        #       (connection.user_input connection)))
+        for io in symbol_value("_standard_io_streams_"):
+                setq(prefixed_var("#:current", io),
+                     connection.user_io)
 
-(defun revert_global_io_redirection ()
-  "Set _CURRENT_<STREAM>_ to _REAL_<STREAM>_ for all standard streams."
-  (dolist (stream_var (append _standard_output_streams_
-                              _standard_input_streams_
-                              _standard_io_streams_))
-    (set (prefixed_var '#:current stream_var)
-         (getf _saved_global_streams_ stream_var))))
+def revert_global_io_redirection():
+        "Set *CURRENT-<STREAM>* to *REAL-<STREAM>* for all standard streams."
+        for stream_var in append(symbol_value("_standard_output_streams_"),
+                                 symbol_value("_standard_input_streams_"),
+                                 symbol_value("_standard_io_streams_")):
+                setq(prefixed_var("#:current", stream_var),
+                     symbol_value("_saved_global_streams_")[stream_var])
 
 ### Global redirection hooks: swank.lisp:1570
 setq("_global_stdio_connection_", nil)
