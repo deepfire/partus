@@ -12,7 +12,7 @@ from cl import *
 from pergamum import *
 from more_ast import *
 
-from cl import _servile as servile, _keyword as keyword, import_, _find_symbol0, _find_symbol_or_fail, _intern0 as intern0
+from cl import _servile as servile, _keyword as keyword, import_, _find_symbol0 as find_symbol0, _find_symbol_or_fail as find_symbol_or_fail, _intern0 as intern0
 
 import swank_backend
 import swank_python  # the thing patches swank_backend, to avoid indirection
@@ -234,8 +234,8 @@ add_hook("_new_connection_hook_", notify_backend_of_connection)
 ### Utilities: swank.lisp:406
 ### Logging: swank.lisp:409
 setq("_swank_io_package_", lret(make_package("SWANK-IO-PACKAGE"), # MAKE-PACKAGE is due to ignore_python = True
-                                # curry(import_, mapcar(_find_symbol_or_fail, ["t", "nil", "quote"]))
-                                lambda package: import_(mapcar(_find_symbol_or_fail, ["T", "NIL", "QUOTE"]),
+                                # curry(import_, mapcar(find_symbol_or_fail, ["t", "nil", "quote"]))
+                                lambda package: import_(mapcar(find_symbol_or_fail, ["T", "NIL", "QUOTE"]),
                                                         package)))
 
 setq("_log_events_",       nil)
@@ -813,7 +813,7 @@ def poll_for_event(pattern):
                      rest(tail))
                 return tail
 
-or_, some_ = _find_symbol0("or", "CL"), _find_symbol0("some", "CL")
+or_, some_ = find_symbol0("or", "CL"), find_symbol0("some", "CL")
 def event_match_p(event, pattern):
         if (keywordp(pattern) or numberp(pattern) or stringp(pattern) or
             pattern is t or pattern is nil):
@@ -888,8 +888,133 @@ def repl_loop(conn):
 ## variables, so they can always be assigned to affect a global
 ## change.
 ##
+
+setq("_globally_redirect_io_", nil)
+"When non-nil globally redirect all standard streams to Emacs."
+
 ### Global redirection setup: swank.lisp:1474
+
+setq("_saved_global_streams_", [])
+"""A plist to save and restore redirected stream objects.
+E.g. the value for '_standard_output_ holds the stream object
+for _standard_output_ before we install our redirection."""
+
+(def setup_stream_indirection(stream_var, stream = None)
+  """Setup redirection scaffolding for a global stream variable.
+Supposing (for example) STREAM_VAR is _STANDARD_INPUT_, this macro:
+
+1. Saves the value of _STANDARD_INPUT_ in `_SAVED_GLOBAL_STREAMS_'.
+
+2. Creates _CURRENT_STANDARD_INPUT_, initially with the same value as
+_STANDARD_INPUT_.
+
+3. Assigns _STANDARD_INPUT_ to a synonym stream pointing to
+_CURRENT_STANDARD_INPUT_.
+
+This has the effect of making _CURRENT_STANDARD_INPUT_ contain the
+effective global value for _STANDARD_INPUT_. This way we can assign
+the effective global value even when _STANDARD_INPUT_ is shadowed by a
+dynamic binding."""
+  (let ((current_stream_var (prefixed_var '#:current stream_var))
+(stream (or stream (symbol_value stream_var))))
+;; Save the real stream value for the future.
+(setf (getf _saved_global_streams_ stream_var) stream)
+;; Define a new variable for the effective stream.
+;; This can be reassigned.
+(proclaim `(special ,current_stream_var)
+    (set current_stream_var stream)
+    ;; Assign the real binding as a synonym for the current one.
+    (let ((stream (make_synonym_stream current_stream_var)))
+      (set stream_var stream)
+      (set_default_initial_binding stream_var `(quote ,stream)))))
+
+def prefixed_var(prefix, variable_symbol):
+"(PREFIXED_VAR \"FOO\" '_BAR_) => SWANK::_FOO_BAR_"
+(let ((basename (subseq (symbol_name variable_symbol) 1)))
+ (intern (format nil "_~A_~A" (string prefix) basename) :swank))
+
+(setq _standard_output_streams_
+  '(_standard_output_ _error_output_ _trace_output_)
+  "The symbols naming standard output streams.")
+
+(setq _standard_input_streams_
+  '(_standard_input_)
+  "The symbols naming standard input streams.")
+
+(setq _standard_io_streams_
+  '(_debug_io_ _query_io_ _terminal_io_)
+  "The symbols naming standard io streams.")
+
+(defun init_global_stream_redirection ()
+  (when _globally_redirect_io_
+    (cond (_saved_global_streams_
+           (warn "Streams already redirected."))
+          (t
+           (mapc #'setup_stream_indirection
+                 (append _standard_output_streams_
+                         _standard_input_streams_
+                         _standard_io_streams_))))))
+
+(add_hook _after_init_hook_ 'init_global_stream_redirection)
+
+(defun globally_redirect_io_to_connection (connection)
+  "Set the standard I/O streams to redirect to CONNECTION.
+Assigns _CURRENT_<STREAM>_ for all standard streams."
+  (dolist (o _standard_output_streams_)
+    (set (prefixed_var '#:current o)
+         (connection.user_output connection)))
+  ;; FIXME: If we redirect standard input to Emacs then we get the
+  ;; regular Lisp top_level trying to read from our REPL.
+  ;;
+  ;; Perhaps the ideal would be for the real top_level to run in a
+  ;; thread with local bindings for all the standard streams. Failing
+  ;; that we probably would like to inhibit it from reading while
+  ;; Emacs is connected.
+  ;;
+  ;; Meanwhile we just leave _standard_input_ alone.
+  #+NIL
+  (dolist (i _standard_input_streams_)
+    (set (prefixed_var '#:current i)
+         (connection.user_input connection)))
+  (dolist (io _standard_io_streams_)
+    (set (prefixed_var '#:current io)
+         (connection.user_io connection))))
+
+(defun revert_global_io_redirection ()
+  "Set _CURRENT_<STREAM>_ to _REAL_<STREAM>_ for all standard streams."
+  (dolist (stream_var (append _standard_output_streams_
+                              _standard_input_streams_
+                              _standard_io_streams_))
+    (set (prefixed_var '#:current stream_var)
+         (getf _saved_global_streams_ stream_var))))
+
 ### Global redirection hooks: swank.lisp:1570
+setq("_global_stdio_connection_", nil)
+"""The connection to which standard I/O streams are globally redirected.
+NIL if streams are not globally redirected."""
+
+def maybe_redirect_global_io(connection):
+        "Consider globally redirecting to CONNECTION."
+        if (symbol_value("_globally_redirect_io_") and
+            null(symbol_value("_global_stdio_connection_")) and
+            connection.user_io):
+                setq("_global_stdio_connection_", connection)
+                globally_redirect_io_to_connection(connection)
+
+def update_redirection_after_close(closed_connection):
+        "Update redirection after a connection closes."
+        check_type(closed_connection, connection)
+        if symbol_value("_global_stdio_connection_") is closed_connection:
+                if default_connection() and symbol_value("_global_stdio_connection_"):
+                        # Redirect to another connection.
+                        globally_redirect_io_to_connection(default_connection())
+                else:
+                        # No more connections, revert to the real streams.
+                        revert_global_io_redirection()
+                        setq("global_stdio_connection", nil)
+
+add_hook("_connection_closed_hook_", update_redirection_after_close) # XXX: was late-bound
+
 ### Redirection during requests: swank.lisp:1596
 def create_repl(target):
         assert(target is nil)

@@ -1557,6 +1557,9 @@ def probe_file(pathname):
 ##
 ## Streams
 ##
+def open_stream_p(x):
+        return not the(stream, x).closed
+
 class two_way_stream(stream):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
