@@ -49,8 +49,9 @@ def _read_case_xformed(x):
         return _case_xform(_symbol_value("_READ_CASE_"), x)
 
 def _coerce_to_symbol_name(x):
-        return (x.name if symbolp(x) else
-                _read_case_xformed(x))
+        return (x.name                if symbolp(x) else
+                _read_case_xformed(x) if stringp(x) else
+                error(TypeError, "%s cannot be coerced to string." % (x,)))
 
 def _astp(x):                                return typep(x, ast.AST)
 def _ast_num(n):                             return ast.Num(n = the(int, n))
