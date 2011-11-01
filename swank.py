@@ -475,7 +475,9 @@ This is an optimized way for Lisp to deliver output to Emacs."""
                 port = local_port(socket)
                 encode_message([keyword("open-dedicated-output-stream"), port], socket_io)
                 dedicated = accept_connection(socket,
-                                              external_format = ignore_errors(stream_external_format(socket_io)) or "default", # was: keyword("default")
+                                              external_format = ignore_errors(
+                                lambda:
+                                        stream_external_format(socket_io)) or "default", # was: keyword("default")
                                               buffering = symbol_value('_dedicated_output_stream_buffering_'),
                                               timeout = 30)
                 close_socket(socket)
@@ -913,6 +915,8 @@ def create_repl(target):
 def initialize_streams_for_connection(connection):
         c = connection
         c.dedicated_output, c.user_input, c.user_output, c.user_io, c.repl_results = open_streams(connection)
+        write_line("do %s, ui %s, uo %s, uio %s, rere %s" %
+                   (c.dedicated_output, c.user_input, c.user_output, c.user_io, c.repl_results))
         return c
 
 ### Channels: swank.lisp:1631

@@ -435,17 +435,17 @@ def equal(x, y):
 def destructuring_bind(val, body):
         return body(*tuple(val))
 
-def when(test, clause):
-        if test() if functionp(test) else test:
-                return clause
+def when(test, body):
+        if test:
+                return body() if functionp(body) else body
 def cond(*clauses):
-        for (test, result) in clauses:
+        for (test, body) in clauses:
                 if test() if functionp(test) else test:
-                        return result
+                        return body() if functionp(body) else body
 def case(val, *clauses):
-        for (cval, result) in clauses:
+        for (cval, body) in clauses:
                 if val == cval or (cval is True):
-                        return result
+                        return body() if functionp(body) else body
 
 ##
 ## Types
@@ -480,14 +480,14 @@ def check_type(x, type):
         the(type, x)
 
 def typecase(val, *clauses):
-        for (ctype, result) in clauses:
+        for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return result() if functionp(result) else result
+                        return body() if functionp(body) else body
 
 def etypecase(val, *clauses):
-        for (ctype, result) in clauses:
+        for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return result() if functionp(result) else result
+                        return body() if functionp(body) else body
         else:
                 error(TypeError, "%s fell through ETYPECASE expression. Wanted one of (%s)." %
                       (val, ", ".join(mapcar(lambda c: c[0].__name__, clauses))))
@@ -1812,7 +1812,7 @@ def handler_bind(fn, no_error = identity, **handlers):
                 #         resolved[resolve_exception_type(type)] = handler
                 handlers['__frame__'] = _this_frame()
                 with env.let(__handler_clusters__ = env.__handler_clusters__ + [handlers]):
-                        # format(t, "crap ok, going on, new __handler_clusters__ = %s", env.__handler_clusters__)
+                        _here("fn: %s, no_error: %s" % (fn, no_error))
                         return no_error(fn())
         else:
                 # old world case..
@@ -2169,6 +2169,14 @@ def eval_(form):
         write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         exec(code, _lisp_package_name_module(package_name(package)).__dict__)
         return __evget__()
+
+###
+### Init
+###
+def _init():
+        "Initialise the Common Lisp compatibility layer."
+        _init_condition_system()
+        return t
 
 ###
 ### Missing stuff
