@@ -188,7 +188,7 @@ stack."""
 
 @defimplementation
 def print_frame(frame, stream):
-        cl._print_frame(frame, stream)
+        return cl._print_frame(frame, stream)
 
 @defimplementation
 def frame_restartable_p(frame):
@@ -299,8 +299,8 @@ def thread_id(thread):
                 id = next_thread_id()
                 symbol_value("_thread_id_map_")[id] = make_weak_pointer(thread)
                 return id
-        call_with_lock_held(symbol_value("_thread_id_map_lock_"),
-                            body)
+        return call_with_lock_held(symbol_value("_thread_id_map_lock_"),
+                                   body)
 #   (defimplementation thread-id (thread)
 #     (block thread-id
 #       (sb-thread:with-mutex (*thread-id-map-lock*)
@@ -324,7 +324,7 @@ def find_thread(id):
         idmap = symbol_value("_thread_id_map_")
         def purge():
                 del idmap[id]
-        call_with_lock_held(
+        return call_with_lock_held(
                 symbol_value("_thread_id_map_lock_"),
                 lambda:
                         when_let(idmap[id] if id in idmap else None,
