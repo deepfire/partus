@@ -428,9 +428,6 @@ DEDICATED-OUTPUT INPUT OUTPUT IO REPL-RESULTS"""
         if conn.communication_style is keyword("spawn"):
                 conn.auto_flush_thread = spawn(lambda: auto_flush_loop(out),
                                                name = "auto-flush-thread")
-        write_line("OPEN_STREAMS: do %s, in %s, out %s, io, %s, rere %s" %
-                   (dedicated_output, in_, out, io, repl_results),
-                   stream = sys.stderr)
         return dedicated_output, in_, out, io, repl_results
 
 def make_output_function(conn):
@@ -561,7 +558,7 @@ def current_socket_io():
 def close_connection(c, condition, backtrace):
         with progv(_debugger_hook_ = nil):
                 log_event("close-connection %s ...\n", condition)
-        format("_log_output_", "\n;; swank:close_connection: %s\n", condition)
+        format(symbol_value("_log_output_"), "\n;; swank:close_connection: %s\n", condition)
         cleanup = c.cleanup
         if cleanup:
                 cleanup(c)
