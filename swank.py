@@ -474,6 +474,7 @@ This is an optimized way for Lisp to deliver output to Emacs."""
         try:
                 port = local_port(socket)
                 encode_message([keyword("open-dedicated-output-stream"), port], socket_io)
+                # Issue OPEN-DEDICATED-OUTPUT-STREAM-RACE
                 dedicated = accept_connection(socket,
                                               external_format = ignore_errors(
                                 lambda:
