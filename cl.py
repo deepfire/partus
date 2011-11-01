@@ -305,7 +305,10 @@ def _here(note = None, callers = 4, stream = None):
 ##
 ## Condition: not_implemented
 ##
-class simple_condition(BaseException):
+condition = BaseException
+error_    = Exception
+
+class simple_condition(condition):
         def __init__(self, format_control, *format_arguments):
                 self.format_control, self.format_arguments = format_control, format_arguments
         def __str__(self):
@@ -313,11 +316,11 @@ class simple_condition(BaseException):
         def __repr__(self):
                 return self.__str__()
 
-class warning(BaseException): pass
+class warning(condition): pass
 
 class simple_warning(simple_condition, warning): pass
 
-class _not_implemented_error(Exception):
+class _not_implemented_error(error_):
         def __init__(*args):
                 self, name = args[0], args[1]
                 self.name = name
@@ -338,12 +341,12 @@ def _letf(*values_and_body):
         values, body = values_and_body[:-1], values_and_body[-1]
         return body(*values)
 
-def _if_let(condition, consequent, antecedent = lambda: None):
-        x = condition() if functionp(condition) else condition
+def _if_let(cond, consequent, antecedent = lambda: None):
+        x = cond() if functionp(cond) else cond
         return consequent(x) if x else antecedent()
 
-def _when_let(condition, consequent):
-        x = condition() if functionp(condition) else condition
+def _when_let(cond, consequent):
+        x = cond() if functionp(cond) else cond
         return consequent(x) if x else None
 
 def _lret(value, body):
@@ -450,7 +453,7 @@ def case(val, *clauses):
 ##
 ## Types
 ##
-class type_error(Exception):
+class type_error(error_):
         pass
 
 class simple_type_error(simple_condition, type_error):
@@ -794,7 +797,7 @@ def unwind_protect(form, fn):
                 fn()
 
 # WARNING: non-specific try/except clauses and BaseException handlers break this!
-class __catcher_throw__(BaseException):
+class __catcher_throw__(condition):
         def __str__(self):
                 return "The ball escaped!"
         def __init__(self, ball, value, reenable_pytracer = False):
@@ -852,7 +855,7 @@ __packages__        = dict()
 __keyword_package__ = None
 __modular_noise__   = None
 
-class package_error(Exception):
+class package_error(error_):
         pass
 
 class simple_package_error(simple_condition, package_error):
@@ -1537,8 +1540,6 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                                 pos += 1
                 # _here("< %s" % token)
                 return token
-        # return read()
-        ## XXX: Issue PROBABLE-LIMIT-EXCEEDED -- mystery -- this:
         ret = handler_case(read,
                            IndexError = lambda c: handle_short_read_if(True))
         # _here("lastly %s" % (ret,))
@@ -1660,7 +1661,6 @@ def close(x):
         x.close()
 
 def finish_output(stream = t):
-        stream and _here("finish_output: %s -> %s" % (stream, _coerce_to_stream(stream)))
         stream is not nil and _coerce_to_stream(stream).flush()
 
 def force_output(*args, **keys):
@@ -1692,7 +1692,7 @@ def _set_condition_handler(fn):
 ##
 setq("__handler_clusters__", [])
 
-def make_condition(datum, *args, default_type = Exception, **keys):
+def make_condition(datum, *args, default_type = error_, **keys):
         """
 It's a slightly weird interpretation of MAKE-CONDITION, as the latter
 only accepts symbols as DATUM, while this one doesn't accept symbols
@@ -1700,11 +1700,11 @@ at all.
 """
         # format(t, "stringp: %s\nclassp: %s\nBaseException-p: %s\n",
         #        stringp(datum),
-        #        typep(datum, type_of(BaseException)),
-        #        typep(datum, BaseException))
+        #        typep(datum, type_of(condition)),
+        #        typep(datum, condition))
         cond = (default_type(datum % args) if stringp(datum) else
-                datum(*args, **keys)       if typep(datum, type_of(BaseException)) else
-                datum                      if typep(datum, BaseException) else
+                datum(*args, **keys)       if typep(datum, type_of(condition)) else
+                datum                      if typep(datum, condition) else
                 error(TypeError, "The first argument to MAKE-CONDITION must either a string, a condition type or a condition, was: %s, of type %s.",
                       datum, type_of(datum)))
         # format(t, "made %s %s %s\n", datum, args, keys)
@@ -1715,18 +1715,17 @@ setq("_presignal_hook_", nil)
 setq("_prehandler_hook_", nil)
 setq("_debugger_hook_",  nil)
 
-def signal(condition):
+def signal(cond):
         "XXX: this is crippled by inheritance-ignorant exact matching of the condition name."
-        # format(t, "Signalling %s", condition)
-        name = type_of(condition).__name__
+        name = type_of(cond).__name__
         for cluster in reversed(env.__handler_clusters__):
                 # format(t, "Analysing cluster %s for '%s'.", cluster, name)
                 if name in cluster:
                         hook = symbol_value("_prehandler_hook_")
                         if hook:
                                 frame = cluster['__frame__']
-                                hook(condition, frame, hook)
-                        cluster[name](condition)
+                                hook(cond, frame, hook)
+                        cluster[name](cond)
         return nil
 
 def error(datum, *args, **keys):
@@ -1734,12 +1733,12 @@ def error(datum, *args, **keys):
         raise make_condition(datum, *args, **keys)
 
 def warn(datum, *args, **keys):
-        condition = make_condition(datum, *args, default_type = simple_warning, **keys)
-        signal(condition)
-        format(symbol_value("_error_output_"), "%s", condition)
+        cond = make_condition(datum, *args, default_type = simple_warning, **keys)
+        signal(cond)
+        format(symbol_value("_error_output_"), "%s", cond)
         return nil
 
-def invoke_debugger(condition):
+def invoke_debugger(cond):
         "XXX: non-compliant: doesn't actually invoke the debugger."
         debugger_hook = symbol_value("_debugger_hook_")
         if debugger_hook:
@@ -1748,13 +1747,13 @@ def invoke_debugger(condition):
         error(BaseError, "INVOKE-DEBUGGER fell through.")
 
 __main_thread__ = threading.current_thread()
-def _report_condition(condition, stream = None, backtrace = None):
+def _report_condition(cond, stream = None, backtrace = None):
         stream = _defaulting(stream, "_debug_io_")
         format(stream, "%sondition of type %s: %s\n",
                (("In thread '%s': c" % threading.current_thread().name)
                 if threading.current_thread() is not __main_thread__ else 
                 "C"),
-               type(condition), condition)
+               type(cond), cond)
         if backtrace:
                 _backtrace(-1, stream)
         return t
@@ -1762,33 +1761,39 @@ def _report_condition(condition, stream = None, backtrace = None):
 def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
         if p:
                 old_hook_value = symbol_value(hook)
-                def wrapped_hook(condition, hook_value):
+                def wrapped_hook(cond, hook_value):
                         "Let's honor the old hook."
-                        _report_condition(condition,
+                        _report_condition(cond,
                                           stream = symbol_value("_debug_io_"),
                                           backtrace = backtrace)
                         if old_hook_value:
-                                old_hook_value(condition, old_hook_value)
+                                old_hook_value(cond, old_hook_value)
                 with env.maybe_let(p, **{_coerce_to_symbol_name(hook): wrapped_hook}):
                         return body()
         else:
                 return body()
 
 def __cl_condition_handler__(condspec, frame):
-        type, condition, traceback = condspec
+        def _maybe_upgrade_condition(cond):
+                "Fix up the shit routinely being passed around."
+                return etypecase(cond,
+                                 (BaseException, lambda: cond),
+                                 (str,       lambda: error_(cond)))
+        type, cond, traceback = condspec
+        cond = _maybe_upgrade_condition(cond)
         # print_frames(frames_upward_from(frame))
-        if not typep(condition, __catcher_throw__): # no need to delay the inevitable
+        if not typep(cond, __catcher_throw__): # no need to delay the inevitable
                 with env.let(_traceback_ = traceback,
                              _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
                         presignal_hook = symbol_value("_presignal_hook_")
                         if presignal_hook:
                                 with env.let(_presignal_hook_ = nil):
-                                        presignal_hook(condition, presignal_hook)
-                        signal(condition)
+                                        presignal_hook(cond, presignal_hook)
+                        signal(cond)
                         debugger_hook = symbol_value("_debugger_hook_")
                         if debugger_hook:
                                 with env.let(_debugger_hook_ = nil):
-                                        debugger_hook(condition, debugger_hook)
+                                        debugger_hook(cond, debugger_hook)
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
         #
@@ -1812,7 +1817,6 @@ def handler_bind(fn, no_error = identity, **handlers):
                 #         resolved[resolve_exception_type(type)] = handler
                 handlers['__frame__'] = _this_frame()
                 with env.let(__handler_clusters__ = env.__handler_clusters__ + [handlers]):
-                        _here("fn: %s, no_error: %s" % (fn, no_error))
                         return no_error(fn())
         else:
                 # old world case..
@@ -1886,7 +1890,7 @@ class restart(_servile):
 #              name = ((lambda *args: 1),
 #                      dict(interactive_function = lambda: compute_invoke_restart_interactively_args(),
 #                           report_function      = lambda stream: print_restart_summary(stream),
-#                           test_function        = lambda condition: visible_p(condition))))
+#                           test_function        = lambda cond: visible_p(cond))))
 setq("__restart_clusters__", [])
 
 def restartp(x):
@@ -1949,7 +1953,7 @@ The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
                                                  function        = lambda: None,
                                                  report_function = lambda stream: format(stream, "%s", description)) })
 
-def restart_condition_association_check(condition, restart):
+def restart_condition_association_check(cond, restart):
         """
 When CONDITION is non-NIL, only those restarts are considered that are
 either explicitly associated with that condition, or not associated
@@ -1958,9 +1962,9 @@ associated with a non-empty set of conditions of which the given
 condition is not an element. If condition is NIL, all restarts are
 considered.
 """
-        return (not condition or
+        return (not cond or
                 "associated_conditions" not in restart.__dict__ or
-                condition in restart.associated_conditions)
+                cond in restart.associated_conditions)
 
 def find_restart(identifier, condition = None):
         """
@@ -2158,11 +2162,11 @@ def eval_(form):
                                 [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
                                  _ast_Expr(_ast_funcall(_ast_name("__evset__"), expr)),
                                  ]))
-        except Exception as cond:
+        except error_ as cond:
                 error("EVAL: error while trying to callify <%s>: %s", form, cond)
         try:
                 code = compile(call, '', 'exec')
-        except Exception as cond:
+        except error_ as cond:
                 import more_ast
                 error("EVAL: error while trying to compile <%s>: %s", more_ast.pp_ast_as_code(expr), cond)
         import more_ast
