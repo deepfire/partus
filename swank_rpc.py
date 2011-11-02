@@ -39,6 +39,7 @@ def read_chunk(stream, length):
         # count = read_sequence(buffer, stream)
         buffer = stream.read(length)
         if len(buffer) != length:
+                # Issue SWANK-RPC-SHORT-READS-NOT-HANDLED
                 error("Short read: length=%d, count=%d", length, len(buffer))
         return buffer
 
