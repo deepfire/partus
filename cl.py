@@ -1195,7 +1195,7 @@ def setq(name, value):
         dict[_coerce_to_symbol_name(name)] = value
         return value
 
-class env_cluster(object):
+class _env_cluster(object):
         def __init__(self, cluster):
                 self.cluster = cluster
         def __enter__(self):
@@ -1203,18 +1203,18 @@ class env_cluster(object):
         def __exit__(self, t, v, tb):
                 __tls__.dynamic_scope.pop()
 
-class dynamic_scope(object):
+class _dynamic_scope(object):
         "Courtesy of Jason Orendorff."
         def let(self, **keys):
-                return env_cluster(keys)
+                return _env_cluster(keys)
         def maybe_let(self, p, **keys):
-                return env_cluster(keys) if p else None
+                return _env_cluster(keys) if p else None
         def __getattr__(self, name):
                 return symbol_value(name)
         def __setattr__(self, name, value):
                 error(AttributeError, "Use SETQ to set special globals.")
 
-__dynamic_scope__ = dynamic_scope()
+__dynamic_scope__ = _dynamic_scope()
 env = __dynamic_scope__             # shortcut..
 
 def progv(vars = None, vals = None, body = None, **cluster):
@@ -1229,11 +1229,11 @@ with progv(foovar = 3.14,
 
 ..with the latter being lighter on the stack frame usage."""
         if body:
-                with env_cluster(_map_into_hash(lambda vv: (_coerce_to_symbol_name(vv[0]), vv[1]),
-                                                zip(vars, vals))):
+                with _env_cluster(_map_into_hash(lambda vv: (_coerce_to_symbol_name(vv[0]), vv[1]),
+                                                 zip(vars, vals))):
                         return body()
         else:
-                return env_cluster(_coerce_cluster_keys_to_symbol_names(cluster))
+                return _env_cluster(_coerce_cluster_keys_to_symbol_names(cluster))
 
 def _init_package_system_1():
         # Ought to declare it all on the top level.

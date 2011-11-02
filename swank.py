@@ -104,9 +104,9 @@ def call_with_bindings(alist, fun):
                 #   (progv vars vals
                 #    (funcall fun)))
                 alist.reverse()
-                vars = mapcar(first, alist)
-                vals = mapcar(rest, alist)
-                progv(vars, vals, fun)
+                vars = mapcar(lambda x: x[0], alist)
+                vals = mapcar(lambda x: x[1], alist)
+                return progv(vars, vals, fun)
 
 with_bindings = call_with_bindings            #### Note: was: defmacro with-bindings
 
@@ -369,8 +369,7 @@ def with_connection(conn, body):
                                         conn,
                                         lambda: with_io_redirection(
                                                 conn,
-                                                lambda:
-                                                        call_with_debugger_hook(
+                                                lambda: call_with_debugger_hook(
                                                         swank_debugger_hook,
                                                         body))))
 
@@ -525,11 +524,21 @@ def with_top_level_restart(conn, k, body):
                                               dict(report = "Return to SLIME's top level."))))
 
 def handle_requests(conn, timeout = nil):
+        @block
         def tag_body():
-                start
-                with_top_level_restart(conn,
-                                       lambda: go(start),
-                                       lambda: process_requests(timeout))
+                # was:
+                # (tagbody
+                #   start
+                #   (with-top-level-restart (connection (go start))
+                #     (process-requests timeout)))
+                @block
+                def inner():
+                        return_from(tag_body,
+                                    with_top_level_restart(conn,
+                                                           lambda: return_from(inner, nil),
+                                                           lambda: process_requests(timeout)))
+                while True:
+                        inner()
         with_connection(
                 conn,
                 lambda: (process_requests(timeout) if symbol_value("_sldb_quit_restart_") else
@@ -934,16 +943,19 @@ def prefixed_var(prefix, variable_symbol):
         return intern_(format(nil, "_%s_%s", string(prefix), basename), # "*~A-~A"
                        keyword("swank"))
 
+# Issue SPECIAL-BINDINGS-ARE-PACKAGE-LESS
 setq("_standard_output_streams_",
-     mapcar(find_symbol0, ["_standard_output_", "_error_output_", "_trace_output_"]))
+     ["_standard_output_", "_error_output_", "_trace_output_"])
 "The symbols naming standard output streams."
 
+# Issue SPECIAL-BINDINGS-ARE-PACKAGE-LESS
 setq("_standard_input_streams_",
-     [find_symbol0("_standard_input_")])
+     ["_standard_input_"])
 "The symbols naming standard input streams."
 
+# Issue SPECIAL-BINDINGS-ARE-PACKAGE-LESS
 setq("_standard_io_streams_",
-     mapcar(find_symbol0, ["_debug_io_", "_query_io_", "_terminal_io_"]))
+     ["_debug_io_", "_query_io_", "_terminal_io_"])
 "The symbols naming standard io streams."
 
 def init_global_stream_redirection():
@@ -1021,13 +1033,16 @@ def create_repl(target):
         assert(target is nil)
         conn = symbol_value("_emacs_connection_")
         initialize_streams_for_connection(conn)
-        conn.env = [(find_symbol0("_standard_output_"), conn.user_output),
-                    (find_symbol0("_standard_input_"),  conn.user_input),
-                    (find_symbol0("_trace_output_"),    conn.trace_output or conn.user_output),
-                    (find_symbol0("_error_output_"),    conn.user_output),
-                    (find_symbol0("_debug_io_"),        conn.user_io),
-                    (find_symbol0("_query_io_"),        conn.user_io),
-                    (find_symbol0("_terminal_io_"),     conn.user_io),
+        # cl = find_package("CL")
+        # def sym(x): return find_symbol_or_fail(x, cl)
+        # Issue SPECIAL-BINDINGS-ARE-PACKAGE-LESS
+        conn.env = [("_standard_output_", conn.user_output),
+                    ("_standard_input_",  conn.user_input),
+                    ("_trace_output_",    conn.trace_output or conn.user_output),
+                    ("_error_output_",    conn.user_output),
+                    ("_debug_io_",        conn.user_io),
+                    ("_query_io_",        conn.user_io),
+                    ("_terminal_io_",     conn.user_io),
                     ]
         maybe_redirect_global_io(conn)
         if use_threads_p():
@@ -1038,8 +1053,6 @@ def create_repl(target):
 def initialize_streams_for_connection(connection):
         c = connection
         c.dedicated_output, c.user_input, c.user_output, c.user_io, c.repl_results = open_streams(connection)
-        write_line("do %s, ui %s, uo %s, uio %s, rere %s" %
-                   (c.dedicated_output, c.user_input, c.user_output, c.user_io, c.repl_results))
         return c
 
 ### Channels: swank.lisp:1631
