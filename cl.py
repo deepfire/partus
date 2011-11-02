@@ -382,7 +382,8 @@ def _slotting(x):             return lambda y: getattr(y, x, None)
 def _map_into_hash(f, xs, key = identity):
         acc = dict()
         for x in xs:
-                acc[key(x)] = f(x)
+                k, v = f(key(x))
+                acc[k] = v
         return acc
 
 def _updated_dict(to, from_):
@@ -891,7 +892,7 @@ def _use_package_symbols(dest, src, syms):
 def use_package(dest, src):
         "Warning: we're doing a circular package use."
         dest, src = coerce_to_package(dest), coerce_to_package(src)
-        symhash = _map_into_hash(identity, src.external, key = _slotting("name"))
+        symhash = _map_into_hash(lambda x: (x.name, x), src.external)
         _use_package_symbols(dest, src, symhash)
         src.packages_using.add(dest)
         dest.used_packages.add(src)
@@ -1093,7 +1094,7 @@ def import_(symbols, package = None, populate_module = True):
 def export(symbols, package = None):
         symbols, package = _ensure_list(symbols), coerce_to_package(package)
         assert(every(symbolp, symbols))
-        symdict = _map_into_hash(identity, symbols, key = _slotting("name"))
+        symdict = _map_into_hash(lambda x: (x.name, x), symbols)
         for user in package.packages_using:
                 _use_package_symbols(user, package, symdict)
         # No conflicts?  Alright, we can proceed..
