@@ -394,5 +394,8 @@ def save_image():			pass
 def background_save_image():		pass
 @definterface
 def codepoint_length():			pass
+
 @definterface
-def call_with_io_timeout():		pass
+def call_with_io_timeout(function, seconds):
+        return function()
+        

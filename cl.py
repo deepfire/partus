@@ -2201,3 +2201,6 @@ def _init():
 #
 # def read_sequence(sequence, stream, start = 0, end = None):
 #         return 0
+#
+# class _deadline_timeout(condition)
+# def _with_deadline(timeout, body)

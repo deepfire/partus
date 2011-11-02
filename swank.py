@@ -364,7 +364,7 @@ def with_connection(conn, body):
         else:
                 with env.let(_emacs_connection_ = conn,
                          _pending_slime_interrupts_ = []):
-                        without_slime_interrupts(
+                        return without_slime_interrupts(
                                 lambda: with_swank_error_handler(
                                         conn,
                                         lambda: with_io_redirection(
@@ -579,7 +579,7 @@ def close_connection(c, condition, backtrace):
         if condition and True: # XXX: was (not (typep condition 'end-of-file))
                 finish_output(symbol_value("_log_output_"))
                 format(symbol_value("_log_output_"), "\n;; Event history start:\n")
-                dump_event_history("_log_output_")
+                dump_event_history(symbol_value("_log_output_"))
                 format(symbol_value("_log_output_"),
                        """;; Event history end.
 ;; Backtrace:
@@ -1293,22 +1293,8 @@ setq("_swank_pprint_bindings_", [(intern0("_print_pretty_"),   t),
 #### swank-pprint
 #### pprint-eval
 #### set-package
-
-def invoke_nth_restart_for_emacs(slime_connection, sldb_state, level, n):
-        if sldb_state.level == level:
-                return invoke_restart(sldb_state.restarts[n+1])
-
-
-def eval_string_in_frame(slime_connection, sldb_state, string, index):
-        frame = sldb_state.frames[index] # XXX: was [index + 1]
-        value = None
-        def with_retry_restart_body():
-                nonlocal value
-                value = eval_in_frame(parse(string),
-                                      env = frame)
-        with_retry_restart(with_retry_restart_body,
-                           msg = "retry SLIME interactive evaluation request")
-        return print_to_string(value)
+#### invoke-nth-restart-for-emacs
+#### eval-string-in-frame
 
 def frame_locals_and_catch_tags(index):
         return [frame_locals_for_emacs(index),
@@ -1331,23 +1317,6 @@ def frame_locals_for_emacs(index):
                       frame_locals(index))
         
 
-# `swank:simple-completions` <- function(slimeConnection, sldbState, prefix, package) {
-#   literal2rx <- function(string) {
-#     ## list of ERE metacharacters from ?regexp
-#     gsub("([.\\|()[{^$*+?])", "\\\\\\1", string)
-#   }
-#   matches <- apropos(sprintf("^%s", literal2rx(prefix)), ignore.case=FALSE)
-#   nmatches <- length(matches)
-#   if(nmatches == 0) {
-#     list(list(), "")
-#   } else {
-#     longest <- matches[order(nchar(matches))][1]
-#     while(length(grep(sprintf("^%s", literal2rx(longest)), matches)) < nmatches) {
-#       longest <- substr(longest, 1, nchar(longest)-1)
-#     }
-#     list(as.list(matches), longest)
-#   }
-# }
 def simple_completions(slime_connection, sldb_state, prefix, package):
         def literal2rx(string):
                 return re.sub("([.\\|()[{^$*+?])", "\\\\\\1", string)
@@ -1366,44 +1335,6 @@ def simple_completions(slime_connection, sldb_state, prefix, package):
                         longest = longest[:-1]
                 return [matches, longest]
 
-# `swank:compile-string-for-emacs` <- function(slimeConnection, sldbState, string, buffer, position, filename, policy) {
-#   lineOffset <- charOffset <- colOffset <- NULL
-#   for(pos in position) {
-#     switch(as.character(pos[[1]]),
-#            `:position` = {charOffset <- pos[[2]]},
-#            `:line` = {lineOffset <- pos[[2]]; colOffset <- pos[[3]]},
-#            warning("unknown content in pos", pos))
-#   }
-#   frob <- function(refs) {
-#     lapply(refs,
-#            function(x)
-#            srcref(attr(x,"srcfile"),
-#                   c(x[1]+lineOffset-1, ifelse(x[1]==1, x[2]+colOffset-1, x[2]),
-#                     x[3]+lineOffset-1, ifelse(x[3]==1, x[4]+colOffset-1, x[4]),
-#                     ifelse(x[1]==1, x[5]+colOffset-1, x[5]),
-#                     ifelse(x[3]==1, x[6]+colOffset-1, x[6]))))
-#   }
-#   transformSrcrefs <- function(s) {
-#     srcrefs <- attr(s, "srcref")
-#     attribs <- attributes(s)
-#     new <- 
-#       switch(mode(s),
-#              "call"=as.call(lapply(s, transformSrcrefs)),
-#              "expression"=as.expression(lapply(s, transformSrcrefs)),
-#              s)
-#     attributes(new) <- attribs
-#     if(!is.null(attr(s, "srcref"))) {
-#       attr(new, "srcref") <- frob(srcrefs)
-#     }
-#     new
-#   }
-#   withRestarts({
-#     times <- system.time({
-#       exprs <- parse(text=string, srcfile=srcfile(filename))
-#       eval(transformSrcrefs(exprs), envir = globalenv()) })},
-#                abort="abort compilation")
-#   list(quote(`:compilation-result`), list(), TRUE, times[3], FALSE, FALSE)
-# }
 def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
         line_offset = char_offset = col_offset = None
         for pos in position:
@@ -1432,16 +1363,6 @@ def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, posit
         with_restarts(with_restarts_body)
         return [keyword('compilation-result'), [], True, time, False, False]
 
-# withRetryRestart <- function(description, expr) {
-#   call <- substitute(expr)
-#   retry <- TRUE
-#   while(retry) {
-#     retry <- FALSE
-#     withRestarts(eval.parent(call),
-#                  retry=list(description=description,
-#                    handler=function() retry <<- TRUE))
-#   }
-# }
 def with_retry_restart(fn, msg = "Retry"):
         retry = True
         while retry:
@@ -1816,7 +1737,7 @@ def debugger_condition_for_emacs():
                 condition_extras(condition)]
 
 def format_restarts_for_emacs():
-        with progv(_print_right_margin = most_positive_fixnum):
+        with progv(_print_right_margin_ = most_positive_fixnum):
                 return mapcar(lambda restart:
                                       [("*" if restart is env._sldb_quit_restart_ else
                                         "") + restart_name(restart),
@@ -1846,12 +1767,12 @@ frame."""
                       *zip(*enumerate(compute_backtrace(start, end), start)))
 
 def frame_to_string(frame):
-        with_string_stream(lambda stream:
-                                   handler_case(lambda: print_frame(frame, stream),
-                                                Error = lambda _: format(stream, "[error printing frame]")),
-                           length = ((symbol_value("_print_lines_")        or 1) *
-                                     (symbol_value("_print_right_margin_") or 100)),
-                           bindings = symbol_value("_print_right_margin_"))
+        return with_string_stream(lambda stream:
+                                          handler_case(lambda: print_frame(frame, stream),
+                                                       Error = lambda _: format(stream, "[error printing frame]")),
+                                  length = ((symbol_value("_print_lines_")        or 1) *
+                                            (symbol_value("_print_right_margin_") or 100)),
+                                  bindings = symbol_value("_print_right_margin_"))
 
 # (defslimefun debugger-info-for-emacs (start end)
 #   "Return debugger state, with stack frames from START to END.

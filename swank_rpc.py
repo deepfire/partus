@@ -39,7 +39,7 @@ def read_chunk(stream, length):
         # count = read_sequence(buffer, stream)
         buffer = stream.read(length)
         if len(buffer) != length:
-                error("Short read: length=%d, count=%d", length, count)
+                error("Short read: length=%d, count=%d", length, len(buffer))
         return buffer
 
 # FIXME: no one ever tested this and will probably not work.

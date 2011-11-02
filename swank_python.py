@@ -73,7 +73,7 @@ def getpid():
 # def call_with_user_break_handler(handler, function):	pass
 
 @defimplementation
-def quit_lisp(slime_connection, sldb_state):
+def quit_lisp():
         exit()
 
 # def lisp_implementation_type_name():			pass
@@ -87,13 +87,13 @@ def quit_lisp(slime_connection, sldb_state):
 # def pathname_to_filename(pathname):			pass
 
 @defimplementation
-def default_directory(slime_connection, sldb_state):
+def default_directory():
         return os.getcwd()
 
 @defimplementation
-def set_default_directory(slime_connection, sldb_state, directory):
+def set_default_directory(directory):
         os.chdir(directory)
-        return default_directory(slime_connection, sldb_state)
+        return default_directory()
 
 # def call_with_syntax_hooks(fn):			pass
 # def default_readtable_alist():			pass
@@ -590,4 +590,11 @@ def input_ready_p(stream):
 def codepoint_length(string):
         return len(string)
 
-# def call_with_io_timeout(function, seconds = nil):	pass
+# def call_with_io_timeout(function, seconds = nil):
+#         pass
+#
+# (handler-case
+#       (sb-sys:with-deadline (:seconds seconds)
+#         (funcall function))
+#     (sb-sys:deadline-timeout ()
+#       nil))
