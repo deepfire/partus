@@ -1562,6 +1562,12 @@ def probe_file(pathname):
 def open_stream_p(x):
         return not the(stream, x).closed
 
+def input_stream_p(x):
+        return open_stream_p(x) and x.readable()
+
+def output_stream_p(x):
+        return open_stream_p(x) and x.writable()
+
 class two_way_stream(stream):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
