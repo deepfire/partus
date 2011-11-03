@@ -232,14 +232,14 @@ def _backtrace(x = -1, stream = None):
         _print_frames(_frames_upward_from(_this_frame())[1:x],
                       _defaulting(stream, "_debug_io_"))
 
-def _here(note = None, callers = 4, stream = None):
+def _here(note = None, callers = 5, stream = None, default_stream = sys.stderr):
         names = []
         for i in reversed(range(callers)):
                 names.append(_caller_name(i))
         names = "..".join(mapcar(string_upcase, names))
-        return write_line("(%s)   %s:\n    %s" % (threading.current_thread().name.upper(),
+        return write_line("    (%s)  %s:\n      %s" % (threading.current_thread().name.upper(),
                                            names, "" if note is None else (" - %s" % note)),
-                          _defaulting(stream, "_debug_io_"))
+                          stream if stream is not None else default_stream)
 
 # Study was done by the means of:
 # print("\n".join(map(lambda f:

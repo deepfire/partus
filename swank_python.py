@@ -420,7 +420,8 @@ def send(thread, message):
         mbox = mailbox(thread)
         def body():
                 mbox.queue.append(message)
-                here("to thread '%s': %s -> %x %s" % (thread_name(thread), message, id(mbox), mbox.queue,))
+                here("to thread (%s): %s -> %x %s" % (thread_name(thread).upper(),
+                                                      message, id(mbox), mbox.queue,))
                 mbox.waitqueue.notify_all()
         return call_with_lock_held(mbox.mutex,
                                    body)
@@ -468,6 +469,7 @@ def receive_if(test, timeout = nil):
                                                     (None, True))
                                 condition_timed_wait(waitq, mutex, 0.2)
                         call_with_lock_held(mutex, lockbody)
+                here("waiting for events..")
                 loop(body)
         ret = _receive_if()
         here("returning " + str(ret))

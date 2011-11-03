@@ -512,7 +512,7 @@ def encode_message(message, stream):
 ### Event Processing: swank.lisp:1028
 setq("_sldb_quit_restart_", nil)
 
-def with_top_level_restart(conn, k, body):
+def with_top_level_restart(conn, restart_fn, body):
         def restart_case_body():
                 with env.let(_sldb_quit_restart_ = find_restart("ABORT")):
                         return body()
@@ -520,10 +520,13 @@ def with_top_level_restart(conn, k, body):
                 conn,
                 lambda: restart_case(restart_case_body,
                                      abort = ((lambda v = None:
-                                                       force_user_output() and k()),
+                                                       force_user_output() and restart_fn()),
                                               dict(report = "Return to SLIME's top level."))))
 
 def handle_requests(conn, timeout = nil):
+        "Aka REPL-LOOP.  Yeah, really."
+        # The point is that this dualism hurts.
+        # REPL-LOOP-HANDLE-REQUESTS would've been a better name.
         @block
         def tag_body():
                 # was:
@@ -542,14 +545,16 @@ def handle_requests(conn, timeout = nil):
         with_connection(
                 conn,
                 lambda: (process_requests(timeout) if symbol_value("_sldb_quit_restart_") else
-                         tag_body()))
+                         here("within connection!") and tag_body()))
 
 @block
 def process_requests(timeout):
         def body():
+                here("waiting for event..")
                 event, timeoutp = wait_for_event([find_symbol0("or"),
                                                   [keyword("emacs-rex"), ],        # XXX: (:emacs-rex . _)
                                                   [keyword("emacs-channel-send")]]) # XXX: (:emacs-channel-send . _)
+                here(("got event: %s" % (event,)) if not timeoutp else "event sleep timed out, breaking out..")
                 if timeoutp:
                         return_from(process_requests, nil)
                 destructure_case(
