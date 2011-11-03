@@ -18,3 +18,141 @@ Issue SWANK-RPC-SHORT-READS-NOT-HANDLED
 Issue SLDB-AUTOCLOSE-BADLY-NEEDED
 
 Issue SWANK-EVENT-LOGGING-DOESNT-SEEM-TO-WORK
+
+Issue REPL-LOOP-HANDLE-REQUESTS-PROCESS-REQUESTS-ILL-NAMING
+
+Issue SLIME-CONNECTION-CLOSED-ERROR-AFTER-SEVERAL-CONNECTION-FAILURES
+
+Maybe "Entering recursive edit.." messages have got something to do with the internal state accumulation?
+
+
+================= swank high level:
+==> [:EMACS-REX, [SWANK::SWANK-REQUIRE, [CL:QUOTE, [SWANK-IO-PACKAGE::SWANK-PACKAGE-FU, SWANK-IO-PACKAGE::SWANK-PRESENTATIONS, SWANK-IO-PACKAGE::SWANK-FUZZY, SWANK-IO-PACKAGE::SWANK-FANCY-INSPECTOR, SWANK-IO-PACKAGE::SWANK-C-P-C, SWANK-IO-PACKAGE::SWANK-ARGLISTS]]], 'COMMON-LISP-USER', CL:T, 4]
+    (READER-THREAD)  LOOP..<LAMBDA>..SEND..CALL_WITH_LOCK_HELD..BODY:
+       - to thread 'control-thread': [:EMACS-REX, [SWANK::SWANK-REQUIRE, [CL:QUOTE, [SWANK-IO-PACKAGE::SWANK-PACKAGE-FU, SWANK-IO-PACKAGE::SWANK-PRESENTATIONS, SWANK-IO-PACKAGE::SWANK-FUZZY, SWANK-IO-PACKAGE::SWANK-FANCY-INSPECTOR, SWANK-IO-PACKAGE::SWANK-C-P-C, SWANK-IO-PACKAGE::SWANK-ARGLISTS]]], 'COMMON-LISP-USER', CL:T, 4] -> 1c85290 [[:EMACS-REX, [SWANK::SWANK-REQUIRE, [CL:QUOTE, [SWANK-IO-PACKAGE::SWANK-PACKAGE-FU, SWANK-IO-PACKAGE::SWANK-PRESENTATIONS, SWANK-IO-PACKAGE::SWANK-FUZZY, SWANK-IO-PACKAGE::SWANK-FANCY-INSPECTOR, SWANK-IO-PACKAGE::SWANK-C-P-C, SWANK-IO-PACKAGE::SWANK-ARGLISTS]]], 'COMMON-LISP-USER', CL:T, 4]]
+    (CONTROL-THREAD)  <LAMBDA>..LOOP..<LAMBDA>..RECEIVE..RECEIVE_IF:
+       - returning ([:EMACS-REX, [SWANK::SWANK-REQUIRE, [CL:QUOTE, [SWANK-IO-PACKAGE::SWANK-PACKAGE-FU, SWANK-IO-PACKAGE::SWANK-PRESENTATIONS, SWANK-IO-PACKAGE::SWANK-FUZZY, SWANK-IO-PACKAGE::SWANK-FANCY-INSPECTOR, SWANK-IO-PACKAGE::SWANK-C-P-C, SWANK-IO-PACKAGE::SWANK-ARGLISTS]]], 'COMMON-LISP-USER', CL:T, 4], None)
+    (CONTROL-THREAD)  HANDLER_BIND..<LAMBDA>..LOOP..<LAMBDA>..DISPATCH_EVENT:
+       - [:EMACS-REX, [SWANK::SWANK-REQUIRE, [CL:QUOTE, [SWANK-IO-PACKAGE::SWANK-PACKAGE-FU, SWANK-IO-PACKAGE::SWANK-PRESENTATIONS, SWANK-IO-PACKAGE::SWANK-FUZZY, SWANK-IO-PACKAGE::SWANK-FANCY-INSPECTOR, SWANK-IO-PACKAGE::SWANK-C-P-C, SWANK-IO-PACKAGE::SWANK-ARGLISTS]]], 'COMMON-LISP-USER', CL:T, 4]
+    (CONTROL-THREAD)  EMACS_REX..SEND_EVENT..SEND..CALL_WITH_LOCK_HELD..BODY:
+       - to thread 'worker': [:EMACS-REX, [SWANK::SWANK-REQUIRE, [CL:QUOTE, [SWANK-IO-PACKAGE::SWANK-PACKAGE-FU, SWANK-IO-PACKAGE::SWANK-PRESENTATIONS, SWANK-IO-PACKAGE::SWANK-FUZZY, SWANK-IO-PACKAGE::SWANK-FANCY-INSPECTOR, SWANK-IO-PACKAGE::SWANK-C-P-C, SWANK-IO-PACKAGE::SWANK-ARGLISTS]]], 'COMMON-LISP-USER', 4] -> 1c8bed0 [[:EMACS-REX, [SWANK::SWANK-REQUIRE, [CL:QUOTE, [SWANK-IO-PACKAGE::SWANK-PACKAGE-FU, SWANK-IO-PACKAGE::SWANK-PRESENTATIONS, SWANK-IO-PACKAGE::SWANK-FUZZY, SWANK-IO-PACKAGE::SWANK-FANCY-INSPECTOR, SWANK-IO-PACKAGE::SWANK-C-P-C, SWANK-IO-PACKAGE::SWANK-ARGLISTS]]], 'COMMON-LISP-USER', 4]]
+    (CONTROL-THREAD)  <LAMBDA>..LOOP..<LAMBDA>..RECEIVE..RECEIVE_IF:
+       - returning ([:RETURN, <Thread(worker, started 140289623160576)>, [:OK, []], 4], None)
+    (CONTROL-THREAD)  HANDLER_BIND..<LAMBDA>..LOOP..<LAMBDA>..DISPATCH_EVENT:
+       - [:RETURN, <Thread(worker, started 140289623160576)>, [:OK, []], 4]
+<== [:RETURN, [:OK, []], 4]
+<-- 000014, '(:return (:ok ()) 4)'
+
+================= wire:
+10:50:35.226199 IP localhost.localdomain.50718 > localhost.localdomain.pxc-pin: Flags [P.], seq 67:239, ack 442, win 1059, options [nop,nop,TS val 284990697 ecr 284990688], length 172
+E...}x@.@..................G.#.S...#.......
+........0000a6(:emacs-rex (swank:swank-require (quote (swank-package-fu swank-presentations swank-fuzzy swank-fancy-inspector swank-c-p-c swank-arglists))) "COMMON-LISP-USER" t 2)
+
+10:50:35.226225 IP localhost.localdomain.pxc-pin > localhost.localdomain.50718: Flags [.], ack 239, win 1058, options [nop,nop,TS val 284990697 ecr 284990697], length 0
+E..42.@.@.	..............#.S.......".(.....
+........
+10:50:35.336932 IP localhost.localdomain.pxc-pin > localhost.localdomain.50718: Flags [P.], seq 442:468, ack 239, win 1058, options [nop,nop,TS val 284990807 ecr 284990697], length 26
+E..N2.@.@.	..............#.S.......".B.....
+...W....000014(:return (:ok ()) 2)
+10:50:35.340325 IP localhost.localdomain.50718 > localhost.localdomain.pxc-pin: Flags [P.], seq 239:305, ack 468, win 1059, options [nop,nop,TS val 284990811 ecr 284990807], length 66
+E..v}y@.@....................#.m...#.j.....
+...[...W00003c(:emacs-rex (swank:create-repl nil) "COMMON-LISP-USER" t 3)
+
+10:50:35.340361 IP localhost.localdomain.pxc-pin > localhost.localdomain.50718: Flags [.], ack 305, win 1058, options [nop,nop,TS val 284990811 ecr 284990811], length 0
+E..42.@.@.	..............#.m...5...".(.....
+...[...[
+10:50:35.400490 IP localhost.localdomain.pxc-pin > localhost.localdomain.50718: Flags [P.], seq 468:511, ack 305, win 1058, options [nop,nop,TS val 284990871 ecr 284990811], length 43
+E.._2.@.@.	..............#.m...5...".S.....
+.......[000025(:open-dedicated-output-stream 57017)
+10:50:35.402011 IP localhost.localdomain.56096 > localhost.localdomain.57017: Flags [S], seq 748502255, win 32792, options [mss 16396,sackOK,TS val 284990873 ecr 0,nop,wscale 5], length 0
+E..<.v@.@..C......... ..,.<..........0....@....
+............
+10:50:35.402043 IP localhost.localdomain.57017 > localhost.localdomain.56096: Flags [S.], seq 3345995957, ack 748502256, win 32768, options [mss 16396,sackOK,TS val 284990873 ecr 284990873,nop,wscale 5], length 0
+E..<..@.@.<............ .o..,.<......0....@....
+............
+10:50:35.402074 IP localhost.localdomain.56096 > localhost.localdomain.57017: Flags [.], ack 1, win 1025, options [nop,nop,TS val 284990873 ecr 284990873], length 0
+E..4.w@.@..J......... ..,.<..o.......(.....
+........
+10:50:35.439926 IP localhost.localdomain.50718 > localhost.localdomain.pxc-pin: Flags [.], ack 511, win 1059, options [nop,nop,TS val 284990911 ecr 284990871], length 0
+E..4}z@.@..G...............5.#.....#.(.....
+........
+10:50:35.441753 IP localhost.localdomain.pxc-pin > localhost.localdomain.50718: Flags [P.], seq 511:573, ack 305, win 1058, options [nop,nop,TS val 284990912 ecr 284990911], length 62
+E..r2.@.@.	..............#.....5...".f.....
+........000038(:return (:ok ("COMMON-LISP-USER" "OMMON-LISP-USER")) 3)
+10:50:35.441780 IP localhost.localdomain.50718 > localhost.localdomain.pxc-pin: Flags [.], ack 573, win 1059, options [nop,nop,TS val 284990912 ecr 284990912], length 0
+E..4}{@.@..F...............5.#.....#.(.....
+........
+10:50:35.448277 IP localhost.localdomain.50718 > localhost.localdomain.pxc-pin: Flags [P.], seq 305:477, ack 573, win 1059, options [nop,nop,TS val 284990919 ecr 284990912], length 172
+E...}|@.@..................5.#.....#.......
+........0000a6(:emacs-rex (swank:swank-require (quote (swank-package-fu swank-presentations swank-fuzzy swank-fancy-inspector swank-c-p-c swank-arglists))) "COMMON-LISP-USER" t 4)
+
+10:50:35.448304 IP localhost.localdomain.pxc-pin > localhost.localdomain.50718: Flags [.], ack 477, win 1091, options [nop,nop,TS val 284990919 ecr 284990919], length 0
+E..42.@.@.	..............#.........C.(.....
+........
+10:50:35.540561 IP localhost.localdomain.57017 > localhost.localdomain.56096: Flags [P.], seq 1:1057, ack 1, win 1024, options [nop,nop,TS val 284991011 ecr 284990873], length 1056
+E..TE/@.@..r........... .o..,.<......I.....
+...#....    (REPL-THREAD)  _RESTART_CASE..CATCH..<LAMBDA>.._RESTART_BIND..RESTART_CASE_BODY:
+      
+    (REPL-THREAD)  CATCH..<LAMBDA>..PROCESS_REQUESTS..LOOP..BODY:
+       - waiting for event..
+    (WORKER)  _RESTART_CASE..CATCH..<LAMBDA>.._RESTART_BIND..RESTART_CASE_BODY:
+      
+    (WORKER)  <LAMBDA>..WAIT_FOR_EVENT..WITHOUT_SLIME_INTERRUPTS..<LAMBDA>..RECEIVE_IF:
+       - returning ([:EMACS-REX, [SWANK::SWANK-REQUIRE, [CL:QUOTE, [SWANK-IO-PACKAGE::SWANK-PACKAGE-FU, SWANK-IO-PACKAGE::SWANK-PRESENTATIONS, SWANK-IO-PACKAGE::SWANK-FUZZY, SWANK-IO-PACKAGE::SWANK-FANCY-INSPECTOR, SWANK-IO-PACKAGE::SWANK-C-P-C, SWANK-IO-PACKAGE::SWANK-ARGLISTS]]], 'COMMON-LISP-USER', 4], None)
+>>> EVAL: sys.modules['swank'].__dict__['swank_require']([ _read_symbol('SWANK-PACKAGE-FU', 'SWANK-IO-PACKAGE'), _read_symbol('SWANK-PRESENTATIONS', 'SWANK-IO-PACKAGE'), _read_symbol('SWANK-FUZZY', 'SWANK-IO-PACKAGE'), _read_symbol('SWANK-FANCY-INSPECTOR', 'SWANK-IO-PACKAGE'), _read_symbol('SWANK-C-P-C', 'SWANK-IO-PACKAGE'), _read_symbol('SWANK-ARGLISTS', 'SWANK-IO-PACKAGE') ])
+
+10:50:35.540600 IP localhost.localdomain.56096 > localhost.localdomain.57017: Flags [.], ack 1057, win 1091, options [nop,nop,TS val 284991011 ecr 284991011], length 0
+E..4.x@.@..I......... ..,.<..o.....C.(.....
+...#...#
+10:50:35.558620 IP localhost.localdomain.pxc-pin > localhost.localdomain.50718: Flags [P.], seq 573:599, ack 477, win 1091, options [nop,nop,TS val 284991029 ecr 284990919], length 26
+E..N2.@.@.	..............#.........C.B.....
+...5....000014(:return (:ok ()) 4)
+10:50:35.598020 IP localhost.localdomain.50718 > localhost.localdomain.pxc-pin: Flags [.], ack 599, win 1059, options [nop,nop,TS val 284991069 ecr 284991029], length 0
+E..4}}@.@..D.................#.....#.(.....
+...]...5
+10:50:35.907232 IP localhost.localdomain.57017 > localhost.localdomain.56096: Flags [P.], seq 1057:1319, ack 1, win 1024, options [nop,nop,TS val 284991378 ecr 284991011], length 262
+E..:E0@.@.............. .o..,.<............
+.......#    (WORKER)  EVAL_FOR_EMACS..SEND_TO_EMACS..SEND..CALL_WITH_LOCK_HELD..BODY:
+       - to thread 'control-thread': [:RETURN, <Thread(worker, started 140289623160576)>, [:OK, []], 4] -> 1c85290 [[:RETURN, <Thread(worker, started 140289623160576)>, [:OK, []], 4]]
+
+10:50:35.907258 IP localhost.localdomain.56096 > localhost.localdomain.57017: Flags [.], ack 1319, win 1157, options [nop,nop,TS val 284991378 ecr 284991378], length 0
+E..4.y@.@..H......... ..,.<..o.......(.....
+........
+
+================= *messages*:
+Connecting to Swank on port 4005.. [2 times]
+Process bridge is installed
+Connected. May the source be with you!
+error in process filter: cond: Connection closed.
+error in process filter: Connection closed.
+Updating buffer list...done
+
+Issue REPL-THREAD-NOT-BEING-WOKEN-UP
+
+================= wire:
+11:13:13.808182 IP localhost.localdomain.50747 > localhost.localdomain.pxc-pin: Flags [P.], seq 1987160540:1987160605, ack 17420907, win 1092, options [nop,nop,TS val 286349279 ecr 286334780], length 65
+E..u..@.@............;..vq...	.k...D.i.....
+..W....<00003b(:emacs-rex (swank:backtrace 2 42) "COMMON-LISP-USER" 1 5)
+
+11:13:13.808218 IP localhost.localdomain.pxc-pin > localhost.localdomain.50747: Flags [.], ack 65, win 1091, options [nop,nop,TS val 286349279 ecr 286349279], length 0
+E..4..@.@.i............;.	.kvq.....C.(.....
+..W...W.
+================= swank high level:
+--> 00003b, '(:emacs-rex (swank:backtrace 2 42) "COMMON-LISP-USER" 1 5)
+'
+==> [:EMACS-REX, [SWANK::BACKTRACE, 2, 42], 'COMMON-LISP-USER', 1, 5]
+    (READER-THREAD)  LOOP..<LAMBDA>..SEND..CALL_WITH_LOCK_HELD..BODY:
+       - to thread (CONTROL-THREAD): [:EMACS-REX, [SWANK::BACKTRACE, 2, 42], 'COMMON-LISP-USER', 1, 5] -> e9bf10 [[:EMACS-REX, [SWANK::BACKTRACE, 2, 42], 'COMMON-LISP-USER', 1, 5]]
+    (CONTROL-THREAD)  <LAMBDA>..LOOP..<LAMBDA>..RECEIVE..RECEIVE_IF:
+       - returning ([:EMACS-REX, [SWANK::BACKTRACE, 2, 42], 'COMMON-LISP-USER', 1, 5], None)
+    (CONTROL-THREAD)  HANDLER_BIND..<LAMBDA>..LOOP..<LAMBDA>..DISPATCH_EVENT:
+       - [:EMACS-REX, [SWANK::BACKTRACE, 2, 42], 'COMMON-LISP-USER', 1, 5]
+    (CONTROL-THREAD)  EMACS_REX..SEND_EVENT..SEND..CALL_WITH_LOCK_HELD..BODY:
+       - to thread (REPL-THREAD): [:EMACS-REX, [SWANK::BACKTRACE, 2, 42], 'COMMON-LISP-USER', 5] -> dff910 [[:EMACS-REX, [SWANK::BACKTRACE, 2, 42], 'COMMON-LISP-USER', 5]]
+    (CONTROL-THREAD)  RECEIVE_IF..<LAMBDA>..CATCH..<LAMBDA>.._RECEIVE_IF:
+       - waiting for events..
+================= *Messages*:
+Connecting to Swank on port 4005.. [2 times]
+Process bridge is installed
+Entering recursive edit..
+Back to top level.
