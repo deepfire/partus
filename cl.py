@@ -237,7 +237,8 @@ def _here(note = None, callers = 4, stream = None):
         for i in reversed(range(callers)):
                 names.append(_caller_name(i))
         names = "..".join(mapcar(string_upcase, names))
-        return write_line("%s: '%s'%s" % (names, threading.current_thread().name, "" if note is None else (" - %s" % note)),
+        return write_line("(%s)   %s:\n    %s" % (threading.current_thread().name.upper(),
+                                           names, "" if note is None else (" - %s" % note)),
                           _defaulting(stream, "_debug_io_"))
 
 # Study was done by the means of:
