@@ -10,7 +10,7 @@ from cl import block, return_from, handler_bind, signal, make_condition, write_l
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword
 
-from pergamum import slotting, here
+from pergamum import slotting, here, when_let, if_let
 
 from swank_backend import defimplementation
 from swank_backend import check_slime_interrupts

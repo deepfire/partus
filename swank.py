@@ -584,16 +584,17 @@ def close_connection(c, condition, backtrace):
                        """;; Event history end.
 ;; Backtrace:
 %s
-;; Connection to Emacs lost. [
+;; Connection to Emacs lost.
 ;;  condition: %s
 ;;  type: %s
 ;;  encoding: %s vs. %s
-;;  style: %s dedicated: %s]""",
+;;  style: %s dedicated: %s
+""",
                        backtrace,
                        escape_non_ascii(safe_condition_message(condition)),
                        type_of(condition),
                        c.coding_system,
-                       c.external_format,
+                       connection_external_format(c),
                        c.communication_style,
                        symbol_value("_use_dedicated_output_stream_"))
                 finish_output(symbol_value("_log_output_"))
