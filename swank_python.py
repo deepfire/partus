@@ -186,7 +186,7 @@ continuing to frame number END or, if END is nil, the last frame on the
 stack."""
         here("%s - %s", start, end)
         nth_f = nth_frame(start)
-        return [nth_f] + cl._frames_upward_from(nth_f)[:(end - start - 1) if end else None]
+        return cl._frames_upward_from(nth_f)[:(end - start - 1) if end else None]
                 
 
 @defimplementation
