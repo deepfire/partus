@@ -714,6 +714,7 @@ def dispatch_event(event):
                      ldiff(symbol_value("_active_threads_"), tail) +
                      rest(tail))
                 encode_message([keyword("return")] + list(args), current_socket_io())
+        here(str(event))
         destructure_case(
                 event,
                 ([keyword("emacs-rex")],
@@ -1762,6 +1763,7 @@ def backtrace(start, end):
 I is an integer, and can be used to reference the corresponding frame
 from Emacs; FRAME is a string representation of an implementation's
 frame."""
+        here()
         return mapcar(lambda i, frame: [i, frame_to_string(frame)] + ([keyword("restartable"), True]
                                                                       if frame_restartable_p(frame) else
                                                                       []),
