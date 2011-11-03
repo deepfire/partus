@@ -42,8 +42,11 @@ def _case_xform(type, s):
 ###
 ### Ring 1.
 ###
-def _defaulting(x, variable):
-        return x if x is not None else symbol_value(variable)
+def _defaulted(x, value):
+        return x if x is not None else value
+
+def _defaulted_to_var(x, variable):
+        return _defaulted(x, symbol_value(variable))
 
 def _read_case_xformed(x):
         return _case_xform(_symbol_value("_READ_CASE_"), x)
@@ -158,7 +161,7 @@ def _this_frame():
         return sys._getframe(1)
 
 def _next_frame(f):
-        return f.f_back
+        return f.f_back if f.f_back else error("Frame '%s' is the last frame.", _pp_frame(f, lineno = True))
 
 def _caller_frame(n = 0):
         return sys._getframe(n + 2)
@@ -173,7 +176,7 @@ def _frames_upward_from(f):
         return [f] + (_frames_upward_from(f.f_back) if f.f_back else [])
 
 def _top_frame():
-        return _frames_upward_from(_this_frame())[-1]
+        return _caller_frame()
 
 def _frame_info(f):
         "Return frame (function, lineno, locals, globals, builtins)."
@@ -222,24 +225,27 @@ def _pp_frame(f, align = None, lineno = None):
                                   fun_name, ", ".join(fun_params))
 
 def _print_frame(f, stream = None):
-        write_string(_pp_frame(f), _defaulting(stream, "_debug_io_"))
+        write_string(_pp_frame(f), _defaulted_to_var(stream, "_debug_io_"))
 
 def _print_frames(fs, stream = None):
-        mapc(lambda i, f: format(_defaulting(stream, "_debug_io_"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
+        mapc(lambda i, f: format(_defaulted_to_var(stream, "_debug_io_"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
              *zip(*enumerate(fs)))
 
 def _backtrace(x = -1, stream = None):
         _print_frames(_frames_upward_from(_this_frame())[1:x],
-                      _defaulting(stream, "_debug_io_"))
+                      _defaulted_to_var(stream, "_debug_io_"))
 
-def _here(note = None, callers = 5, stream = None, default_stream = sys.stderr):
+def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr):
         names = []
         for i in reversed(range(callers)):
                 names.append(_caller_name(i))
         names = "..".join(mapcar(string_upcase, names))
+        string = (""           if not note else
+                  " - " + note if not args else
+                  (note % args))
         return write_line("    (%s)  %s:\n      %s" % (threading.current_thread().name.upper(),
-                                           names, "" if note is None else (" - %s" % note)),
-                          stream if stream is not None else default_stream)
+                                                       names, string),
+                          _defaulted(stream, default_stream))
 
 # Study was done by the means of:
 # print("\n".join(map(lambda f:
@@ -1282,7 +1288,7 @@ def _print_symbol(s, gensym = True, case = None):
                            ("#" if gensym else ""),
                            (":" if not gensym or s.package else "") if not s.package or (s in s.package.external) else
                            "::",
-                           _case_xform(_defaulting(case, "_print_case_"), s.name))
+                           _case_xform(_defaulted_to_var(case, "_print_case_"), s.name))
 
 def _print_keyword(s):
         return ":%s" % _case_xform(symbol_value("_print_case_"), s.name)
@@ -1760,7 +1766,7 @@ def invoke_debugger(cond):
 
 __main_thread__ = threading.current_thread()
 def _report_condition(cond, stream = None, backtrace = None):
-        stream = _defaulting(stream, "_debug_io_")
+        stream = _defaulted_to_var(stream, "_debug_io_")
         format(stream, "%sondition of type %s: %s\n",
                (("In thread '%s': c" % threading.current_thread().name)
                 if threading.current_thread() is not __main_thread__ else 
@@ -2093,8 +2099,8 @@ def load(pathspec, verbose = None, print = None,
          if_does_not_exist = t,
          external_format = "default"):
         "XXX: not in compliance"
-        verbose = _defaulting(verbose, "_load_verbose_")
-        print   = _defaulting(verbose, "_load_print_")
+        verbose = _defaulted_to_var(verbose, "_load_verbose_")
+        print   = _defaulted_to_var(verbose, "_load_print_")
         filename = pathspec
         exec(compile(file_as_string(filename), filename, 'exec'))
         return True
@@ -2138,7 +2144,7 @@ def _make_eval_context():
 __evget__, __evset__ = _make_eval_context()
 
 def _callify(form, package = None, quoted = False):
-        package = _defaulting(package, "_package_")
+        package = _defaulted_to_var(package, "_package_")
         obj2ast_xform = {
                 False : _ast_name("False"),
                 None  : _ast_name("None"),

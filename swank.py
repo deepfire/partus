@@ -233,10 +233,10 @@ add_hook("_new_connection_hook_", notify_backend_of_connection)
 
 ### Utilities: swank.lisp:406
 ### Logging: swank.lisp:409
+t_, nil_, or_, some_, quote_ = mapcar(lambda s: find_symbol_or_fail(s, "CL"),
+                                      ["T", "NIL", "OR", "SOME", "QUOTE"])
 setq("_swank_io_package_", lret(make_package("SWANK-IO-PACKAGE"), # MAKE-PACKAGE is due to ignore_python = True
-                                # curry(import_, mapcar(find_symbol_or_fail, ["t", "nil", "quote"]))
-                                lambda package: import_(mapcar(find_symbol_or_fail, ["T", "NIL", "QUOTE"]),
-                                                        package)))
+                                lambda package: import_([t_, nil_, quote_], package)))
 
 setq("_log_events_",       nil)
 setq("_log_output_",       nil)
@@ -445,7 +445,7 @@ def send_user_output(string, pcount, tag, plength):
                 tag = (tag + 1) % 1000
                 send_to_emacs([keyword("ping"), current_thread_id(), tag])
                 with_simple_restart("ABORT", "Abort sending output to Emacs.")
-                wait_for_event([keyword("emacs-pong", tag)])
+                wait_for_event([keyword("emacs-pong"), tag])
                 pcount, plength = 0
         send_to_emacs([keyword("write-string"), string])
         return pcount + 1, tag, plength + len(string)
@@ -551,7 +551,7 @@ def handle_requests(conn, timeout = nil):
 def process_requests(timeout):
         def body():
                 here("waiting for event..")
-                event, timeoutp = wait_for_event([find_symbol0("or"),
+                event, timeoutp = wait_for_event([or_,
                                                   [keyword("emacs-rex"), ],        # XXX: (:emacs-rex . _)
                                                   [keyword("emacs-channel-send")]]) # XXX: (:emacs-channel-send . _)
                 here(("got event: %s" % (event,)) if not timeoutp else "event sleep timed out, breaking out..")
@@ -829,7 +829,6 @@ def poll_for_event(pattern):
                      rest(tail))
                 return tail
 
-or_, some_ = find_symbol0("or", "CL"), find_symbol0("some", "CL")
 def event_match_p(event, pattern):
         if (keywordp(pattern) or numberp(pattern) or stringp(pattern) or
             pattern is t or pattern is nil):
@@ -841,7 +840,9 @@ def event_match_p(event, pattern):
         elif listp(pattern):
                 # here("matching ev %s against pat %s" % (event, pattern))
                 f = pattern[0] # XXX: symbols or strings?
+                here("hit LIST: %s vs. %s of type %s" % (pattern, event[0], type_of(event[0])))
                 if f is or_:
+                        here("hit OR")
                         return some(lambda p: event_match_p(event, p), rest(pattern))
                 else:
                         return (listp(event) and
@@ -942,7 +943,7 @@ dynamic binding."""
         # Assign the real binding as a synonym for the current one.
         stream = make_synonym_stream(current_stream_var)
         setq(stream_var, stream)
-        set_default_initial_binding(stream_var, [find_symbol0("quote"), stream])
+        set_default_initial_binding(stream_var, [quote_, stream])
 
 def prefixed_var(prefix, variable_symbol):
         "(PREFIXED_VAR \"FOO\" '*BAR*) => SWANK::*FOO-BAR*"
@@ -1694,7 +1695,7 @@ def sldb_loop(level):
                                 send_to_emacs([keyword("debug-activate"), current_thread_id(), level, None])
                                 while True:
                                         def handler_case_body():
-                                                evt = wait_for_event(["or",
+                                                evt = wait_for_event([or_,
                                                                       [keyword("emacs-rex")],
                                                                       [keyword("sldb-return", level + 1)]])
                                                 if evt[0] is keyword("emacs-rex"):
