@@ -26,6 +26,14 @@ from neutrality import stringp, _write_string
 def identity(x):
         return x
 
+def progn(*body):
+        for b in body[:-1]:
+                b()
+        return body[-1]()
+
+def _prognf(*body):
+        return lambda: progn(*body)
+
 most_positive_fixnum = 67108864
 
 def string_upcase(x):     return x.upper()
