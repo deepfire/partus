@@ -375,6 +375,17 @@ def with_connection(conn, body):
 
 #### call-with-retry-restart
 #### macro with-retry-restart
+def with_retry_restart(fn, msg = "Retry"):
+        "XXX: swankr"
+        retry = True
+        while retry:
+                retry = False
+                def handler_body():
+                        nonlocal retry
+                        retry = True
+                with_restarts(fn,
+                              retry = { 'description': msg,
+                                        'handler':     handler_body })
 #### with-struct*
 #### do-symbols*
 # UNUSABLE define-special
@@ -1174,9 +1185,30 @@ def without_printing_errors(object, stream, body, msg = "<<error printing object
         return handler_case(body,
                             Exception = handler)
 
-#### to-string
-#### from-string
-#### parse-string
+def to_string(object):
+        """Write OBJECT in the *BUFFER-PACKAGE*.
+The result may not be readable. Handles problems with PRINT-OBJECT methods
+gracefully."""
+        def body():
+                with progv(_print_readably_ = nil):
+                        return without_printing_errors(object, nil,
+                                                       lambda: prin1_to_string(object))
+        return with_buffer_syntax(body)
+
+def from_string(string):
+        "Read string in the *BUFFER-PACKAGE*"
+        def body():
+                with progv(_read_suppress_ = nil):
+                        return read_from_string(string) # XXX: was (values (read-from-string string))
+        return with_buffer_syntax(body)
+
+def parse_string(string, package):
+        "Read STRING in PACKAGE."
+        def body():
+                with progv(_read_suppress_ = nil):
+                        return read_from_string(string)
+        return with_buffer_syntax(body)
+
 #### tokenize-symbol
 #### tokenize-symbol-thoroughly
 #### untokenize-symbol
@@ -1301,87 +1333,6 @@ setq("_swank_pprint_bindings_", [(intern0("_print_pretty_"),   t),
 #### swank-pprint
 #### pprint-eval
 #### set-package
-#### invoke-nth-restart-for-emacs
-#### eval-string-in-frame
-
-def frame_locals_and_catch_tags(index):
-        return [frame_locals_for_emacs(index),
-                mapcar(to_string, frame_catch_tags(index))]
-        # frame = sldb_state.frames[index] # XXX: was [index + 1]
-        # return [mapcar(lambda local_name: [keyword('name'), local_name,
-        #                                    keyword('id'), 0,
-        #                                    keyword('value'), handler_bind(lambda: print_to_string(frame_local_value(frame, local_name)),
-        #                                                                    Exception = lambda c: "Error printing object: %s." % c)],
-        #                ordered_frame_locals(frame)),
-        #         []]
-
-def frame_locals_for_emacs(index):
-        # with-bindings *backtrace-printer-bindings*
-        return mapcar(lambda var: destructuring_bind(var,
-                                                     lambda name = "", id = "", value = "":
-                                                             [keyword("name"),  prin1_to_string(name),
-                                                              keyword("id"),    id,
-                                                              keyword("value"), to_line(value)]),
-                      frame_locals(index))
-        
-
-def simple_completions(slime_connection, sldb_state, prefix, package):
-        def literal2rx(string):
-                return re.sub("([.\\|()[{^$*+?])", "\\\\\\1", string)
-        def grep(regex, strings):
-                expr = re.compile(regex)
-                return [ x for x in strings if re.search(expr, x) ]
-        matches = apropos("^%s" % literal2rx(prefix))
-        nmatches = len(matches)
-        if not matches:
-                return [[], ""]
-        else:
-                longest = sorted(matches, key = len)[0]
-                while (cl._without_condition_system(
-                                lambda: len(grep("^%s" % literal2rx(longest), matches)))
-                       < nmatches):
-                        longest = longest[:-1]
-                return [matches, longest]
-
-def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
-        line_offset = char_offset = col_offset = None
-        for pos in position:
-                if pos[0] is keyword('position'):
-                        char_offset = pos[1]
-                elif pos[0] is keyword('line'):
-                        line_offset = pos[1]
-                        char_offset = pos[2]
-                else:
-                        warning("unknown content in pos %s" % pos)
-        def frob(refs):
-                not_implemented("frob")
-        def transform_srcrefs(s):
-                not_implemented("transform_srcrefs")
-        time = None
-        def with_restarts_body():
-                nonlocal time
-                exprs = None
-                def clocking_body():
-                        nonlocal exprs
-                        exprs = ast.parse(string)
-                        return eval(transform_srcrefs(exprs),
-                                    globals = ...)
-                val, time = clocking(clocking_body)
-                return val
-        with_restarts(with_restarts_body)
-        return [keyword('compilation-result'), [], True, time, False, False]
-
-def with_retry_restart(fn, msg = "Retry"):
-        retry = True
-        while retry:
-                retry = False
-                def handler_body():
-                        nonlocal retry
-                        retry = True
-                with_restarts(fn,
-                              retry = { 'description': msg,
-                                        'handler':     handler_body })
-
 ### Listener eval: swank.lisp:2241
 def listener_eval(slime_connection, sldb_state, string):
         return env._listener_eval_function_(string)
@@ -1471,10 +1422,10 @@ def with_string_stream(body, length = nil, bindings = nil):
 def to_line(object, width = 75):
         "Print OBJECT to a single line. Return the string."
         # Ought to be a lot simpler, no?
-        return without_printing_errors(lambda: with_string_stream(lambda stream:
+        return without_printing_errors(object, stream,
+                                       lambda: with_string_stream(lambda stream:
                                                                           write(object, stream = stream, right_margin = width, lines = 1),
-                                                                  length = width),
-                                       object = object, stream = nil)
+                                                                  length = width))
 
 # (defun escape-string (string stream &key length (map '((#\" . "\\\"")
 #                                                        (#\\ . "\\\\"))))
@@ -1783,44 +1734,39 @@ def frame_to_string(frame):
                                             (symbol_value("_print_right_margin_") or 100)),
                                   bindings = symbol_value("_print_right_margin_"))
 
-# (defslimefun debugger-info-for-emacs (start end)
-#   "Return debugger state, with stack frames from START to END.
-# The result is a list:
-#   (condition ({restart}*) ({stack-frame}*) (cont*))
-# where
-#   condition   ::= (description type [extra])
-#   restart     ::= (name description)
-#   stack-frame ::= (number description [plist])
-#   extra       ::= (:references and other random things)
-#   cont        ::= continutation
-#   plist       ::= (:restartable {nil | t | :unknown})
-#
-# condition---a pair of strings: message, and type.  If show-source is
-# not nil it is a frame number for which the source should be displayed.
-#
-# restart---a pair of strings: restart name, and description.
-#
-# stack-frame---a number from zero (the top), and a printed
-# representation of the frame's call.
-#
-# continutation---the id of a pending Emacs continuation.
-#
-# Below is an example return value. In this case the condition was a
-# division by zero (multi-line description), and only one frame is being
-# fetched (start=0, end=1).
-#
-#  ((\"Arithmetic error DIVISION-BY-ZERO signalled.
-# Operation was KERNEL::DIVISION, operands (1 0).\"
-#    \"[Condition of type DIVISION-BY-ZERO]\")
-#   ((\"ABORT\" \"Return to Slime toplevel.\")
-#    (\"ABORT\" \"Return to Top-Level.\"))
-#   ((0 \"(KERNEL::INTEGER-/-INTEGER 1 0)\" (:restartable nil)))
-#   (4))"
-#   (list (debugger-condition-for-emacs)
-#         (format-restarts-for-emacs)
-#         (backtrace start end)
-#         *pending-continuations*))
 def debugger_info_for_emacs(start = 0, end = None):
+        """Return debugger state, with stack frames from START to END.
+The result is a list:
+  (condition ({restart}*) ({stack-frame}*) (cont*))
+where
+  condition   ::= (description type [extra])
+  restart     ::= (name description)
+  stack-frame ::= (number description [plist])
+  extra       ::= (:references and other random things)
+  cont        ::= continutation
+  plist       ::= (:restartable {nil | t | :unknown})
+
+condition---a pair of strings: message, and type.  If show-source is
+not nil it is a frame number for which the source should be displayed.
+
+restart---a pair of strings: restart name, and description.
+
+stack-frame---a number from zero (the top), and a printed
+representation of the frame's call.
+
+continutation---the id of a pending Emacs continuation.
+
+Below is an example return value. In this case the condition was a
+division by zero (multi-line description), and only one frame is being
+fetched (start=0, end=1).
+
+ ((\"Arithmetic error DIVISION-BY-ZERO signalled.
+Operation was KERNEL::DIVISION, operands (1 0).\"
+   \"[Condition of type DIVISION-BY-ZERO]\")
+  ((\"ABORT\" \"Return to Slime toplevel.\")
+   (\"ABORT\" \"Return to Top-Level.\"))
+  ((0 \"(KERNEL::INTEGER-/-INTEGER 1 0)\" (:restartable nil)))
+  (4))"""
         return [debugger_condition_for_emacs(),
                 format_restarts_for_emacs(),
                 backtrace(start, end),
@@ -1837,8 +1783,27 @@ def debugger_info_for_emacs(start = 0, end = None):
 #### wrap-sldb-vars
 #### eval-string-in-frame
 #### pprint-eval-string-in-frame
-#### frame-locals-and-catch-tags
-#### frame-locals-for-emacs
+def frame_locals_and_catch_tags(index):
+        return [frame_locals_for_emacs(index),
+                mapcar(to_string, frame_catch_tags(index))]
+        # swankr:
+        # frame = sldb_state.frames[index] # XXX: was [index + 1]
+        # return [mapcar(lambda local_name: [keyword('name'), local_name,
+        #                                    keyword('id'), 0,
+        #                                    keyword('value'), handler_bind(lambda: print_to_string(frame_local_value(frame, local_name)),
+        #                                                                    Exception = lambda c: "Error printing object: %s." % c)],
+        #                ordered_frame_locals(frame)),
+        #         []]
+
+def frame_locals_for_emacs(index):
+        return with_bindings(symbol_value("_backtrace_printer_bindings_"),
+                             lambda: mapcar(lambda var: destructuring_bind(plist_hash_table(var),
+                                                                           lambda name = nil, id = nil, value = nil:
+                                                                                   [keyword("name"),  prin1_to_string(name),
+                                                                                    keyword("id"),    id,
+                                                                                    keyword("value"), to_line(value)]),
+                                            frame_locals(index)))
+
 #### sldb-disassemble
 #### sldb-return-from-frame
 #### sldb-break
@@ -1875,6 +1840,35 @@ setq("_fasl_pathname_function_", None)
 #### compile-file-output
 #### fasl-pathname
 #### compile-string-for-emacs
+def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
+        "XXX: swankr"
+        line_offset = char_offset = col_offset = None
+        for pos in position:
+                if pos[0] is keyword('position'):
+                        char_offset = pos[1]
+                elif pos[0] is keyword('line'):
+                        line_offset = pos[1]
+                        char_offset = pos[2]
+                else:
+                        warning("unknown content in pos %s" % pos)
+        def frob(refs):
+                not_implemented("frob")
+        def transform_srcrefs(s):
+                not_implemented("transform_srcrefs")
+        time = None
+        def with_restarts_body():
+                nonlocal time
+                exprs = None
+                def clocking_body():
+                        nonlocal exprs
+                        exprs = ast.parse(string)
+                        return eval(transform_srcrefs(exprs),
+                                    globals = ...)
+                val, time = clocking(clocking_body)
+                return val
+        with_restarts(with_restarts_body)
+        return [keyword('compilation-result'), [], True, time, False, False]
+
 #### compile-multiple-strings-for-emacs
 #### file-newer-p
 #### requires-compile-p
@@ -1923,6 +1917,73 @@ the filename of the module (or nil if the file doesn't exist)."""
 
 ### Macroexpansion: swank.lisp:2973
 ### Simple completion: swank.lisp:3034
+def simple_completions(prefix, package):
+        "Return a list of completions for the string PREFIX."
+        # def literal2rx(string):
+        #         return re.sub("([.\\|()[{^$*+?])", "\\\\\\1", string)
+        # def grep(regex, strings):
+        #         expr = re.compile(regex)
+        #         return [ x for x in strings if re.search(expr, x) ]
+        # matches = apropos("^%s" % literal2rx(prefix))
+        # nmatches = len(matches)
+        # if not matches:
+        #         return [[], ""]
+        # else:
+        #         longest = sorted(matches, key = len)[0]
+        #         while (cl._without_condition_system(
+        #                         lambda: len(grep("^%s" % literal2rx(longest), matches)))
+        #                < nmatches):
+        #                 longest = longest[:-1]
+        #         return [matches, longest]
+        strings = all_completions(prefix, package)
+        return [strings, longest_common_prefix(strings)]
+
+def all_completions(prefix, package):
+        name, pname, intern = tokenize_symbol(prefix)
+        extern = pname and not intern
+        pkg = (find_package("KEYWORD")       if pname == "" else
+               guess_buffer_package(package) if not pname else
+               guess_package(pname))
+        test = lambda sym: prefix_match_p(name, symbol_name(sym))
+        syms = pkg and matching_symbols(pkg, extern, test)
+        return format_completion_set(mapcar(unparse_symbol, syms), intern, pname)
+
+def matching_symbols(package, external, test):
+        test = (lambda s: symbol_external_p(s) and test(s)) if external else test
+        result = []
+        do_symbols(package,
+                   lambda s: test(s) and result.append(s))
+        return remove_duplicates(result)
+
+def unparse_symbol(symbol):
+        with progv(_print_case_ = case(readtable_case(symbol_value("_readtable_")),
+                                       (keyword("downcase"), keyword("upcase")),
+                                       (t,                   keyword("downcase")))):
+                return unparse_name(symbol_name(symbol))
+
+def prefix_match_p(prefix, string):
+        "Return true if PREFIX is a prefix of STRING."
+        return not mismatch(prefix, string,
+                            end2 = min(len(string), len(prefix)),
+                            test = char_equal)
+
+def longest_common_prefix(strings):
+        "Return the longest string that is a common prefix of STRINGS."
+        if not strings:
+                return ""
+        else:
+                def common_prefix(s1, s2):
+                        diff_pos = mismatch(s1, s2)
+                        return (subseq(s1, 0, diff_pos) if diff_pos else
+                                s1)
+                return reduce(common_prefix, strings)
+
+def format_completion_set():
+        """Format a set of completion strings.
+Returns a list of completions with package qualifiers if needed."""
+        return mapcar(lambda string: untokenize_symbol(package_name, internal_p, string),
+                      sort(strings, string_less))
+
 ### Simple arglist display: swank.lisp:3090
 ### Documentation: swank.lisp:3099
 ### Package Commands: swank.lisp:3224

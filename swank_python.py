@@ -6,9 +6,9 @@ import threading
 import cl
 
 from cl import env, identity, setq, symbol_value, progv, boundp, t, nil, format, find, member_if, remove_if_not, constantly, loop, ldiff, rest, first
-from cl import block, return_from, handler_bind, signal, make_condition, write_line, princ_to_string, stream
+from cl import block, return_from, handler_bind, signal, make_condition, write_line, princ_to_string, stream, mapcar
 from cl import _top_frame, _frame_fun, _fun_info
-from cl import _keyword
+from cl import _keyword as keyword
 
 from pergamum import slotting, here, when_let, if_let
 
@@ -51,7 +51,7 @@ def accept_connection(socket, external_format = "utf-8", buffering = "full", tim
 
 @defimplementation
 def preferred_communication_style():
-        return _keyword("spawn")
+        return keyword("spawn")
 
 # def set_stream_timeout(stream, timeout):		pass
 
@@ -202,16 +202,80 @@ def frame_source_location(n):
         fun = _frame_fun(sldb_state.frames[n]) # XXX: was [n + 1]
         name, _, srcfile, line, nlines = _fun_info(fun)[:5]
         if not srcfile:
-                return [_keyword('error'), "no srcfile"]
+                return [keyword('error'), "no srcfile"]
         else:
-                return [_keyword('location'),
-                        [_keyword('file'), srcfile],
-                        [_keyword('line'), line, line + nlines],
+                return [keyword('location'),
+                        [keyword('file'), srcfile],
+                        [keyword('line'), line, line + nlines],
                         find_symbol0('nil')]
 
 # def frame_catch_tags(frame_number):			pass
-# def frame_locals(frame_number):			pass
-# def frame_var_value(frame_number, var_id):		pass
+
+def frame_debug_vars(frame):
+        "Return a vector of debug-variables in frame."
+        return cl._frame_locals(frame)
+
+def debug_var_value(var, frame, location):
+        ## Was:
+        # (ecase (sb-di:debug-var-validity var location)
+        #   (:valid (sb-di:debug-var-value var frame))
+        #   ((:invalid :unknown) ':<not-available>))
+        ## However, lack of inlining and optimisations in Python make this a non-issue.
+        return cl._frame_locals(frame)[var]
+
+def debug_var_info(var):
+        "Introduced by SBCL 1.0.49.76."
+        # (let ((s (find-symbol "DEBUG-VAR-INFO" :sb-di)))
+        #   (when (and s (fboundp s))
+        #    (funcall s var)))
+        pass
+
+@defimplementation
+def frame_locals(index):
+        #     (let* ((frame (nth-frame index))
+        #      (loc (sb-di:frame-code-location frame))
+        #      (vars (frame-debug-vars frame))
+        #      ;; Since SBCL 1.0.49.76 PREPROCESS-FOR-EVAL understands SB-DEBUG::MORE
+        #      ;; specially.
+        #      (more-name (or (find-symbol "MORE" :sb-debug) 'more))
+        #      (more-context nil)
+        #      (more-count nil)
+        #      (more-id 0))
+        # (when vars
+        #   (let ((locals
+        #           (loop for v across vars
+        #                 do (when (eq (sb-di:debug-var-symbol v) more-name)
+        #                      (incf more-id))
+        #                    (case (debug-var-info v)
+        #                      (:more-context
+        #                       (setf more-context (debug-var-value v frame loc)))
+        #                      (:more-count
+        #                       (setf more-count (debug-var-value v frame loc))))
+        #                 collect
+        #                    (list :name (sb-di:debug-var-symbol v)
+        #                          :id (sb-di:debug-var-id v)
+        #                          :value (debug-var-value v frame loc)))))
+        #     (when (and more-context more-count)
+        #       (setf locals (append locals
+        #                            (list
+        #                             (list :name more-name
+        #                                   :id more-id
+        #                                   :value (multiple-value-list
+        #                                           (sb-c:%more-arg-values more-context
+        #                                                                  0 more-count)))))))
+        #     locals)))
+        frame = nth_frame(index)
+        loc = nil                                           # XXX: was (sb-di:frame-code-location frame)
+        vars = frame_debug_vars(frame)
+        return mapcar(lambda kv: ["name",  kv[0],
+                                  "id",    0,      # XXX: was (sb-di:debug-var-id v)
+                                  "value", kv[1]], # XXX: depended upon loc
+                      vars.items())
+
+# @defimplementation
+# def frame_var_value(frame_number, var_id):
+#         pass
+
 # def disassemble_frame(frame_number):			pass
 # def eval_in_frame(form, frame_number):		pass
 # def frame_call(frame_number):				pass
