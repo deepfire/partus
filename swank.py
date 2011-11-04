@@ -1,3 +1,13 @@
+##### :: swank.lisp
+###
+### This file defines the "Swank" TCP server for Emacs to talk to. The
+### code in this file is purely portable Common Lisp. We do require a
+### smattering of non-portable functions in order to write the server,
+### so we have defined them in `swank-backend.lisp' and implemented
+### them separately for each Lisp implementation. These extensions are
+### available to us here via the `SWANK-BACKEND' package.
+
+#### defpackage swank
 import os
 import sys
 import re
@@ -19,42 +29,32 @@ import swank_python  # the thing patches swank_backend, to avoid indirection
 from swank_backend import *
 
 from swank_rpc import *
-
-##*
-##* SLDB state.
-##*
-# makeSldbState <- function(condition, level, id) {
-#   calls <- rev(sys.calls())[-1]
-#   frames <- rev(sys.frames())[-1]
-#   restarts <- rev(computeRestarts(condition))[-1]
-#   ret <- list(condition=condition, level=level, id=id, restarts=restarts, calls=calls, frames=frames)
-#   class(ret) <- c("sldbState", class(ret))
-#   ret
-# }
-class SldbState(servile): pass
-
-def make_sldb_state(condition, level, id):
-        frames = frames_upward_from(this_frame())
-        # debug_printf("frames: %s", frames)
-        return SldbState(frames = frames,
-                         restarts = [],
-                         condition = condition,
-                         level = level,
-                         id = id)
+#### in-package swank
 
 ### Top-level variables, constants, macros: swank.lisp:74
 cl_package      = find_package("CL")
 keyword_package = find_package("KEYWORD")
 
-setq("_canonical_package_nicknames_", [keyword("common-lisp-user"), keyword("cl-user")])
+setq("_canonical_package_nicknames_",
+     [keyword("common-lisp-user"), keyword("cl-user")])
+"Canonical package names to use instead of shortest name/nickname."
 
 setq("_auto_abbreviate_dotted_packages_", t)
+"Abbreviate dotted package names to their last component if T."
 
 default_server_port = 4005
+"The default TCP port for the server (when started manually)."
 
 setq("_swank_debug_p_", t)
+"When true, print extra debugging information."
 
 ### SLDB customized pprint dispatch table: swank.lisp:95
+##
+## CLHS 22.1.3.4, and CLHS 22.1.3.6 do not specify *PRINT-LENGTH* to
+## affect the printing of strings and bit-vectors.
+##
+## We use a customized pprint dispatch table to do it for us.
+
 setq("_sldb_string_length_", nil)
 setq("_sldb_bitvector_length_", nil)
 
@@ -78,6 +78,7 @@ setq("_sldb_printer_bindings_",
       (intern0("_print_right_margin_"),    65),
       (intern0("_sldb_bitvector_length_"), 25),
       (intern0("_sldb_string_length_"),    50)])
+"A set of printer variables used in the debugger."
 
 setq("_backtrace_pprint_dispatch_table_",
      # XXX: ???
@@ -91,10 +92,16 @@ setq("_backtrace_printer_bindings_",
       (intern0("_print_lines_"),           1),
       (intern0("_print_right_margin_"),    200),
       (intern0("_print_pprint_dispatch_"), symbol_value("_backtrace_pprint_dispatch_table_"))])
+"Pretter settings for printing backtraces."
 
 setq("_default_worker_thread_bindings_", nil)
+"""An alist to initialize dynamic variables in worker threads.
+The list has the form ((VAR . VALUE) ...).  Each variable VAR will be
+bound to the corresponding VALUE."""
 
 def call_with_bindings(alist, fun):
+        """Call FUN with variables bound according to ALIST.
+ALIST is a list of the form ((VAR . VAL) ...)."""
         if not alist:
                 return fun()
         else:
@@ -108,63 +115,129 @@ def call_with_bindings(alist, fun):
                 vals = mapcar(lambda x: x[1], alist)
                 return progv(vars, vals, fun)
 
-with_bindings = call_with_bindings            #### Note: was: defmacro with-bindings
+with_bindings = call_with_bindings #### Note: was: defmacro with-bindings
 
+## The `DEFSLIMEFUN' macro defines a function that Emacs can call via
+## RPC.
 #### defmacro defslimefun
+##  see <http://www.franz.com/support/documentation/6.2/doc/pages/variables/compiler/s_cltl1-compile-file-toplevel-compatibility-p_s.htm>
+"A DEFUN for functions that Emacs can call by RPC."
 
 def missing_arg():
+        """A function that the compiler knows will never to return a value.
+You can use (MISSING-ARG) as the initform for defstruct slots that
+must always be supplied. This way the :TYPE slot option need not
+include some arbitrary initial value like NIL."""
         error("A required &KEY or &OPTIONAL argument was not supplied.")
 
 ### Hooks: swank.lisp:213
 def add_hook(name, function):
+        "Add FUNCTION to the list of values on PLACE."
         if not functionp(function):
                 error(TypeError, "ADD-HOOK: second argument must be a function, was %s.", function)
         symbol_value(name).append(function)
 
 def run_hook(funs, *args, **keys):
+        "Call each of FUNCTIONS with ARGUMENTS."
         for f in funs:
                 f(*args, **keys)
 
 setq("_new_connection_hook_",    [])
+"""This hook is run each time a connection is established.
+The connection structure is given as the argument.
+Backend code should treat the connection structure as opaque."""
+
 setq("_connection_closed_hook_", [])
+"""This hook is run when a connection is closed.
+The connection as passed as an argument.
+Backend code should treat the connection structure as opaque."""
+
 setq("_pre_reply_hook_",         [])
+"Hook run (without arguments) immediately before replying to an RPC."
+
+# Issue AFTER-INIT-HOOK-NEVER-ACTIVATED
 setq("_after_init_hook_",        [])
+"Hook run after user init files are loaded."
 
 ### Connections: swank.lisp:245
+##
+## Connection structures represent the network connections between
+## Emacs and Lisp. Each has a socket stream, a set of user I/O
+## streams that redirect to Emacs, and optionally a second socket
+## used solely to pipe user-output to Emacs (an optimization).  This
+## is also the place where we keep everything that needs to be
+## freed/closed/killed when we disconnect.
+
 class connection():
         def __init__(self, socket, socket_io, communication_style, coding_system, serve_requests, cleanup):
+                # The listening socket. (usually closed)
                 self.socket                     = socket
+                # Character I/O stream of socket connection.  Read-only to avoid
+                # race conditions during initialization.
                 self.socket_io                  = socket_io
-                self.communication_style        = communication_style
-                self.coding_system              = coding_system
-                self.serve_requests             = serve_requests
-                self.cleanup                    = cleanup
-                #
+                # Optional dedicated output socket (backending `user-output' slot).
+                # Has a slot so that it can be closed with the connection.
                 self.dedicated_output           = nil
+                # Streams that can be used for user interaction, with requests
+                # redirected to Emacs.
                 self.user_input                 = nil
                 self.user_output                = nil
                 self.user_io                    = nil
+                # Bindings used for this connection (usually streams)
                 self.env                        = None
+                # A stream that we use for *trace-output*; if nil, we user user-output.
                 self.trace_output               = nil
+                # A stream where we send REPL results.
                 self.repl_results               = nil
+                # In multithreaded systems we delegate certain tasks to specific
+                # threads. The `reader-thread' is responsible for reading network
+                # requests from Emacs and sending them to the `control-thread'; the
+                # `control-thread' is responsible for dispatching requests to the
+                # threads that should handle them; the `repl-thread' is the one
+                # that evaluates REPL expressions. The control thread dispatches
+                # all REPL evaluations to the REPL thread and for other requests it
+                # spawns new threads.
                 self.reader_thread              = None
                 self.control_thread             = None
                 self.repl_thread                = None
-                self.autoflush_thread           = None
-                self.cleanup                    = nil
+                self.auto_flush_thread          = None
+                # Callback functions:
+                # (SERVE-REQUESTS <this-connection>) serves all pending requests
+                # from Emacs.
+                self.serve_requests             = serve_requests
+                # (CLEANUP <this-connection>) is called when the connection is
+                # closed.
+                self.cleanup                    = cleanup
+                # Cache of macro-indentation information that has been sent to Emacs.
+                # This is used for preparing deltas to update Emacs's knowledge.
+                # Maps: symbol -> indentation-specification
                 self.indentation_cache          = dict()
+                # The list of packages represented in the cache:
                 self.indentation_cache_packages = []
+                # The communication style used.
                 self.communication_style        = communication_style
-                self.coding_system              = None
+                # The coding system for network streams.
+                self.coding_system              = coding_system
+                # The SIGINT handler we should restore when the connection is
+                # closed.
                 self.saved_sigint_handler       = None
 
 def print_connection(conn, stream, depth):
         return print_unreadable_object(conn, stream, type = t, identity = t)
 
 setq("_connections_",      [])
+"List of all active connections, with the most recent at the front."
+
 setq("_emacs_connection_", nil)
+"The connection to Emacs currently in use."
 
 def default_connection():
+        """Return the 'default' Emacs connection.
+This connection can be used to talk with Emacs when no specific
+connection is in use, i.e. *EMACS-CONNECTION* is NIL.
+
+The default connection is defined (quite arbitrarily) as the most
+recently established one."""
         return env._connections_[0]
 
 def make_connection(socket, stream, style, coding_system):
@@ -183,16 +256,19 @@ def make_connection(socket, stream, style, coding_system):
         return conn
 
 def connection_external_format(conn):
-        return ignore_errors(lambda:
-                                     stream_external_format(conn.socket_io))
+        return ignore_errors(
+                lambda:
+                        stream_external_format(conn.socket_io))
 
 def ping(tag):
         return tag
 
 def safe_backtrace():
-        return ignore_errors(lambda:
-                                     call_with_debugging_environment(lambda:
-                                                                             backtrace(0, nil)))
+        return ignore_errors(
+                lambda:
+                        call_with_debugging_environment(
+                        lambda:
+                                backtrace(0, nil)))
 
 class swank_error(Exception):
         "Condition which carries a backtrace."
@@ -205,8 +281,12 @@ def make_swank_error(condition, backtrace = safe_backtrace()):
         return swank_error(condition = condition, backtrace = backtrace)
 
 setq("_debug_on_swank_protocol_error_", nil)
+"""When non-nil invoke the system debugger on errors that were
+signalled during decoding/encoding the wire protocol.  Do not set this
+to T unless you want to debug swank internals."""
 
 def with_swank_error_handler(conn, body):
+        "Close the connection on internal `swank-error's."
         def handler_case_body():
                 return handler_bind(
                         body,
@@ -220,6 +300,7 @@ def with_swank_error_handler(conn, body):
                                                                     condition.backtrace)))
 
 def with_panic_handler(conn, body):
+        "Close the connection on unhandled `serious-condition's."
         return handler_bind(body,
                             Exception = (lambda condition:
                                                  close_connection(conn,
@@ -228,18 +309,19 @@ def with_panic_handler(conn, body):
 
 def notify_backend_of_connection(conn):
         return emacs_connected()
-
 add_hook("_new_connection_hook_", notify_backend_of_connection)
 
 ### Utilities: swank.lisp:406
 ### Logging: swank.lisp:409
+
 t_, nil_, or_, some_, quote_ = mapcar(lambda s: find_symbol_or_fail(s, "CL"),
                                       ["T", "NIL", "OR", "SOME", "QUOTE"])
+
 setq("_swank_io_package_", lret(make_package("SWANK-IO-PACKAGE"), # MAKE-PACKAGE is due to ignore_python = True
                                 lambda package: import_([t_, nil_, quote_], package)))
 
-setq("_log_events_",       nil)
-setq("_log_output_",       nil)
+setq("_log_events_", nil)
+setq("_log_output_", nil)
 
 def init_log_output():
         if not symbol_value("_log_output_"):
@@ -266,10 +348,13 @@ def real_output_stream(x):
                                  x))
 
 setq("_event_history_",        make_list(40))
+"A ring buffer to record events for better error messages."
 setq("_event_history_index_",  0)
 setq("_enable_event_history_", t)
 
 def log_event(format_string, *args):
+        """Write a message to *terminal-io* when *log-events* is non-nil.
+Useful for low level debugging."""
         def wsios_body():
                 with env.let(_print_readably_ = nil,
                              _print_pretty_   = nil,
@@ -285,6 +370,7 @@ def log_event(format_string, *args):
         with_standard_io_syntax(wsios_body)
 
 def event_history_to_list():
+        "Return the list of events (older events first)."
         arr, idx = symbol_value("_event_history_"), symbol_value("_event_history_index_")
         return arr[idx:] + arr[:idx]
 
@@ -304,6 +390,7 @@ def dump_event(event, stream):
                                           stream)
 
 def escape_non_ascii(string):
+        "Return a string like STRING but with non-ascii chars escaped."
         return (string if ascii_string_p(string) else
                 with_output_to_string(lambda out:
                                               mapc(lambda c: (write_string(c, out) if ascii_char_p(c) else
@@ -319,6 +406,13 @@ def ascii_char_p(o):
 ### Helper macros: swank.lisp:502
 
 def destructure_case(x, *clauses):
+        """Dispatch VALUE to one of PATTERNS.
+A cross between `case' and `destructuring-bind'.
+The pattern syntax is:
+  ((HEAD . ARGS) . BODY)
+The list of patterns is searched for a HEAD `eq' to the car of
+VALUE. If one is found, the BODY is executed with ARGS bound to the
+corresponding values in the CDR of VALUE."""
         # format(t, "D/C: %s\n", x)
         op, body = x[0], x[1:]
         # format(t, "clauses:\n")
@@ -334,12 +428,11 @@ def destructure_case(x, *clauses):
         else:
                 error("DESTRUCTURE-CASE failed: %s", x)
 
+## If true execute interrupts, otherwise queue them.
+## Note: `with-connection' binds *pending-slime-interrupts*.
 # setq("_slime_interrupts_enabled_", <unbound>) 
 
-def check_slime_interrupts():
-        if boundp("_pending_slime_interrupts_") and env._pending_slime_interrupts_:
-                _pending_slime_interrupts_.pop()()
-                return True
+#### defmacro with-interrupts-enabled% -- inlined into with/out_slime_interrupts
 
 def with_slime_interrupts(body):
         check_slime_interrupts()
@@ -373,9 +466,7 @@ def with_connection(conn, body):
                                                         swank_debugger_hook,
                                                         body))))
 
-#### call-with-retry-restart
-#### macro with-retry-restart
-def with_retry_restart(fn, msg = "Retry"):
+def call_with_retry_restart(fn, msg = "Retry"):
         "XXX: swankr"
         retry = True
         while retry:
@@ -386,9 +477,13 @@ def with_retry_restart(fn, msg = "Retry"):
                 with_restarts(fn,
                               retry = { 'description': msg,
                                         'handler':     handler_body })
+
+with_retry_restart = call_with_retry_restart # Was: defmacro
+
 #### with-struct*
 #### do-symbols*
 # UNUSABLE define-special
+
 ### Misc: swank.lisp:624
 def use_threads_p():
         return symbol_value("_emacs_connection_").communication_style is keyword("spawn")
@@ -396,12 +491,89 @@ def use_threads_p():
 def current_thread_id():
         return thread_id(current_thread())
 
-####   ensure-list
+#### ensure-list -- implemented in cl.py, proxied in pergamum.py
+
 ### Symbols: swank.lisp:637
 #### symbol-status
+"""Returns one of 
+
+  :INTERNAL  if the symbol is _present_ in PACKAGE as an _internal_ symbol,
+
+  :EXTERNAL  if the symbol is _present_ in PACKAGE as an _external_ symbol,
+
+  :INHERITED if the symbol is _inherited_ by PACKAGE through USE-PACKAGE,
+             but is not _present_ in PACKAGE,
+
+  or NIL     if SYMBOL is not _accessible_ in PACKAGE.
+
+
+Be aware not to get confused with :INTERNAL and how \"internal
+symbols\" are defined in the spec; there is a slight mismatch of
+definition with the Spec and what's commonly meant when talking
+about internal symbols most times. As the spec says:
+
+  In a package P, a symbol S is
+  
+     _accessible_  if S is either _present_ in P itself or was
+                   inherited from another package Q (which implies
+                   that S is _external_ in Q.)
+  
+        You can check that with: (AND (SYMBOL-STATUS S P) T)
+  
+  
+     _present_     if either P is the /home package/ of S or S has been
+                   imported into P or exported from P by IMPORT, or
+                   EXPORT respectively.
+  
+                   Or more simply, if S is not _inherited_.
+  
+        You can check that with: (LET ((STATUS (SYMBOL-STATUS S P)))
+                                   (AND STATUS 
+                                        (NOT (EQ STATUS :INHERITED))))
+  
+  
+     _external_    if S is going to be inherited into any package that
+                   /uses/ P by means of USE-PACKAGE, MAKE-PACKAGE, or
+                   DEFPACKAGE.
+  
+                   Note that _external_ implies _present_, since to
+                   make a symbol _external_, you'd have to use EXPORT
+                   which will automatically make the symbol _present_.
+  
+        You can check that with: (EQ (SYMBOL-STATUS S P) :EXTERNAL)
+  
+  
+     _internal_    if S is _accessible_ but not _external_.
+
+        You can check that with: (LET ((STATUS (SYMBOL-STATUS S P)))
+                                   (AND STATUS 
+                                        (NOT (EQ STATUS :EXTERNAL))))
+  
+
+        Notice that this is *different* to
+                                 (EQ (SYMBOL-STATUS S P) :INTERNAL)
+        because what the spec considers _internal_ is split up into two
+        explicit pieces: :INTERNAL, and :INHERITED; just as, for instance,
+        CL:FIND-SYMBOL does. 
+
+        The rationale is that most times when you speak about \"internal\"
+        symbols, you're actually not including the symbols inherited 
+        from other packages, but only about the symbols directly specific
+        to the package in question.
+"""
 #### symbol-external-p
+"""True if SYMBOL is external in PACKAGE.
+If PACKAGE is not specified, the home package of SYMBOL is used."""
 #### classify-symbol
+"""Returns a list of classifiers that classify SYMBOL according to its
+underneath objects (e.g. :BOUNDP if SYMBOL constitutes a special
+variable.) The list may contain the following classification
+keywords: :BOUNDP, :FBOUNDP, :CONSTANT, :GENERIC-FUNCTION,
+:TYPESPEC, :CLASS, :MACRO, :SPECIAL-OPERATOR, and/or :PACKAGE"""
 #### symbol-classification-string
+"""Return a string in the form -f-c---- where each letter stands for
+boundp fboundp generic-function class macro special-operator package"""
+
 ### TCP Server: swank.lisp:769
 #### defvar *use-dedicated-output-stream*         # implementation in partus.py
 #### defvar *dedicated-output-stream-port*        # implementation in partus.py
@@ -423,6 +595,7 @@ def current_thread_id():
 #### serve-requests                               # implementation in partus.py
 #### announce-server-port                         # implementation in partus.py
 #### simple-announce-function                     # implementation in partus.py
+
 def open_streams(conn):
         """Return the 5 streams for IO redirection:
 DEDICATED-OUTPUT INPUT OUTPUT IO REPL-RESULTS"""
@@ -441,6 +614,7 @@ DEDICATED-OUTPUT INPUT OUTPUT IO REPL-RESULTS"""
         return dedicated_output, in_, out, io, repl_results
 
 def make_output_function(conn):
+        "Create function to send user output to Emacs."
         i, tag, l = 0, 0, 0
         def set_i_tag_l(x): nonlocal i, tag, l; i, tag, l = x
         return (lambda string:
@@ -451,6 +625,7 @@ setq("_maximum_pipelined_output_chunks_", 50)
 setq("_maximum_pipelined_output_length_", 80 * 20 * 5)
 
 def send_user_output(string, pcount, tag, plength):
+        # send output with flow control
         if (pcount  > symbol_value("_maximum_pipelined_output_chunks_") or
             plength > symbol_value("_maximum_pipelined_output_length_")):
                 tag = (tag + 1) % 1000
@@ -469,6 +644,7 @@ def make_output_function_for_target(conn, target):
                                                                     lambda: send_to_emacs([keyword("write-string", string, target)]))))
 
 def make_output_stream_for_target(conn, target):
+        "Create a stream that sends output to a specific TARGET in Emacs."
         return make_output_stream(make_output_function_for_target(conn, target))
 
 def open_dedicated_output_stream(socket_io):
@@ -522,6 +698,7 @@ def encode_message(message, stream):
 
 ### Event Processing: swank.lisp:1028
 setq("_sldb_quit_restart_", nil)
+"The restart that will be invoked when the user calls sldb-quit."
 
 def with_top_level_restart(conn, restart_fn, body):
         def restart_case_body():
@@ -534,8 +711,10 @@ def with_top_level_restart(conn, restart_fn, body):
                                                        force_user_output() and restart_fn()),
                                               dict(report = "Return to SLIME's top level."))))
 
+## Aka REPL-LOOP.  Yeah, really.
 def handle_requests(conn, timeout = nil):
-        "Aka REPL-LOOP.  Yeah, really."
+        """Read and process :emacs-rex requests.
+The processing is done in the extent of the toplevel restart."""
         # The point is that this dualism hurts.
         # REPL-LOOP-HANDLE-REQUESTS would've been a better name.
         @block
@@ -560,6 +739,7 @@ def handle_requests(conn, timeout = nil):
 
 @block
 def process_requests(timeout):
+        "Read and process requests from Emacs."
         def body():
                 here("waiting for event..")
                 event, timeoutp = wait_for_event([or_,
@@ -570,11 +750,11 @@ def process_requests(timeout):
                         return_from(process_requests, nil)
                 destructure_case(
                         event,
-                        ([keyword("emacs-rex"),
-                          eval_for_emacs]),
-                        ([keyword("emacs-channel-send"),
+                        ([keyword("emacs-rex")],
+                          eval_for_emacs),
+                        ([keyword("emacs-channel-send")],
                           lambda channel, selector, *args:
-                                  channel_send(channel, selector, args)]))
+                                  channel_send(channel, selector, args)))
         return loop(body)
 
 def current_socket_io():
@@ -638,6 +818,8 @@ def auto_flush_loop(stream):
         def body():
                 if not (open_stream_p(stream) and output_stream_p(stream)):
                         return_from(auto_flush_loop, nil)
+                ## Use an IO timeout to avoid deadlocks
+                ## on the stream we're flushing.
                 call_with_io_timeout(
                         lambda: finish_output(stream),
                         seconds = 0.1)
@@ -670,7 +852,7 @@ def find_worker_thread(id):
 def interrupt_worker_thread(id):
         thread = (find_worker_thread(id) or
                   find_repl_thread(symbol_value("_emacs_connection_")) or
-                  ## FIXME: to something better here
+                  # FIXME: to something better here
                   spawn(lambda: None, name = "ephemeral"))
         log_event("interrupt_worker_thread: %s %s\n", id, thread)
         assert(thread)
@@ -683,6 +865,7 @@ def interrupt_worker_thread(id):
                 simple_break()
 
 def thread_for_evaluation(id):
+        "Find or create a thread to evaluate the next request."
         c = symbol_value("_emacs_connection_")
         if id is t:
                 return (spawn_worker_thread(c) if use_threads_p else
@@ -714,6 +897,7 @@ def spawn_repl_thread(conn, name):
                      name = name)
 
 def dispatch_event(event):
+        "Handle an event triggered either by Emacs or within Lisp."
         log_event("dispatch_event: %s\n", event)
         def emacs_rex(form, package, thread_id, id):
                 thread = thread_for_evaluation(thread_id)
@@ -795,6 +979,7 @@ def send_event(thread, event):
                      (symbol_value("_events_enqueued_") + 1) % most_positive_fixnum)
 
 def send_to_emacs(event):
+        "Send EVENT to Emacs."
         # log_event("send-to-emacs: %s %s\n", event)
         if use_threads_p():
                 send (symbol_value ("_emacs_connection_").control_thread, event)
@@ -802,6 +987,11 @@ def send_to_emacs(event):
                 dispatch_event (event)
 
 def wait_for_event(pattern, timeout = nil):
+        """Scan the event queue for PATTERN and return the event.
+If TIMEOUT is 'nil wait until a matching event is enqued.
+If TIMEOUT is 't only scan the queue without waiting.
+The second return value is t if the timeout expired before a matching
+event was found."""
         log_event("wait_for_event: %s %s\n", pattern, timeout)
         return without_slime_interrupts(
                 lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)[0] # WARNING: multiple values!
@@ -840,6 +1030,7 @@ def poll_for_event(pattern):
                      rest(tail))
                 return tail
 
+# FIXME: Make this use SWANK-MATCH.
 def event_match_p(event, pattern):
         if (keywordp(pattern) or numberp(pattern) or stringp(pattern) or
             pattern is t or pattern is nil):
@@ -890,8 +1081,26 @@ def repl_loop(conn):
         handle_requests(conn)
 
 ### Signal driven IO: swank.lisp:1333
+#### install-sigio-handler
+#### defvar *io-interupt-level*
+#### process-io-interrupt
+#### deinstall-sigio-handler
+
 ### SERVE-EVENT based IO: swank.lisp:1354
+#### install-fd-handler
+#### dispatch-interrupt-event
+#### deinstall-fd-handler
+
 ### Simple sequential IO: swank.lisp:1377
+#### simple-serve-requests
+## this is signalled when our custom stream thinks the end-of-file is reached.
+## (not when the end-of-file on the socket is reached)
+#### define-condition end-of-repl-input
+#### simple-repl
+#### make-repl-input-stream
+#### repl-input-stream-read
+#### read-non-blocking
+
 ### IO to Emacs: swank.lisp:1447
 ##
 ## This code handles redirection of the standard I/O streams
@@ -1021,6 +1230,7 @@ def revert_global_io_redirection():
                      symbol_value("_saved_global_streams_")[stream_var])
 
 ### Global redirection hooks: swank.lisp:1570
+
 setq("_global_stdio_connection_", nil)
 """The connection to which standard I/O streams are globally redirected.
 NIL if streams are not globally redirected."""
@@ -1048,6 +1258,10 @@ def update_redirection_after_close(closed_connection):
 add_hook("_connection_closed_hook_", update_redirection_after_close) # XXX: was late-bound
 
 ### Redirection during requests: swank.lisp:1596
+##
+## We always redirect the standard streams to Emacs while evaluating
+## an RPC. This is done with simple dynamic bindings.
+
 def create_repl(target):
         assert(target is nil)
         conn = symbol_value("_emacs_connection_")
@@ -1075,7 +1289,8 @@ def initialize_streams_for_connection(connection):
         return c
 
 ### Channels: swank.lisp:1631
-setq("_channels_",      [])
+
+setq("_channels_", [])
 setq("_channel_counter_", 0)
 
 #### class channel
@@ -1086,14 +1301,16 @@ setq("_channel_counter_", 0)
 #### defmacro define-channel-method
 #### send-to-remote-channel
 #### class listener-channel
+#### create-listener
 #### initial-channel-bindings
 #### spawn-listener-thread
 #### define-channel-method :eval listener-channel
 #### make-listener-output-stream
 #### make-listener-input-stream
-#### input_available_p
+#### input-available-p
 
 setq("_slime_features_", [])
+"The feature list that has been sent to Emacs."
 
 def send_oob_to_emacs(object):
         send_to_emacs(object)
@@ -1114,13 +1331,35 @@ def make_tag():
 
 #### read-user-input-from-emacs
 #### y-or-n-p-in-emacs
+"Like y-or-n-p, but ask in the Emacs minibuffer."
 #### read-from-minibuffer-in-emacs
+"""Ask user a question in Emacs' minibuffer. Returns \"\" when user
+entered nothing, returns NIL when user pressed C-g."""
 #### process-form-for-emacs
-#### eval-in-emacs
+"""Returns a string which emacs will read as equivalent to
+FORM. FORM can contain lists, strings, characters, symbols and
+numbers.
 
-setq("_swank_wire_protocol_version_", "2011-09-28")
+Characters are converted emacs' ?<char> notaion, strings are left
+as they are (except for espacing any nested \" chars, numbers are
+printed in base 10 and symbols are printed as their symbol-name
+converted to lower case."""
+#### eval-in-emacs
+"""Eval FORM in Emacs.
+`slime-enable-evaluate-in-emacs' should be set to T on the Emacs side."""
+
+setq("_swank_wire_protocol_version_", nil)
+"The version of the swank/slime communication protocol."
 
 def connection_info():
+        """Return a key-value list of the form: 
+\(&key PID STYLE LISP-IMPLEMENTATION MACHINE FEATURES PACKAGE VERSION)
+PID: is the process-id of Lisp process (or nil, depending on the STYLE)
+STYLE: the communication style
+LISP-IMPLEMENTATION: a list (&key TYPE NAME VERSION)
+FEATURES: a list of keywords
+PACKAGE: a list (&key NAME PROMPT)
+VERSION: the protocol version"""
         c = symbol_value("_emacs_connection_")
         setq("_slime_features_", symbol_value("_features_"))
         p = symbol_value("_package_")
@@ -1147,12 +1386,13 @@ def connection_info():
 #### debug-on-swank-error
 #### (setf debug-on-swank-error)
 #### defslimefun toggle-debug-on-swank-error
+
 ### Reading and printing: swank.lisp:1902
-# (define-special *buffer-package*     
-#     "Package corresponding to slime-buffer-package.  
-#
-# EVAL-FOR-EMACS binds *buffer-package*.  Strings originating from a slime
-# buffer are best read in this package.  See also FROM-STRING and TO-STRING.")
+#### define-special *buffer-package*
+"""Package corresponding to slime-buffer-package.  
+
+EVAL-FOR-EMACS binds *buffer-package*.  Strings originating from a slime
+buffer are best read in this package.  See also FROM-STRING and TO-STRING."""
 
 # (defun call-with-buffer-syntax (package fun)
 #   (let ((*package* (if package 
@@ -1164,11 +1404,26 @@ def connection_info():
 #         (call-with-syntax-hooks fun)
 #         (let ((*readtable* *buffer-readtable*))
 #           (call-with-syntax-hooks fun)))))
-def with_buffer_syntax(package, body):
-        with env.let(_package_ = guess_buffer_package(package) if package else env._buffer_package_):
-                return call_with_syntax_hooks(body)
+def call_with_buffer_syntax(package, body):
+        with progv(_package_ = (guess_buffer_package(package) if package else
+                                symbol_value("_buffer_package_"))):
+                # Don't shadow *readtable* unnecessarily because that prevents
+                # the user from assigning to it.
+                if symbol_value("_readtable_") is symbol_value("_buffer_readtable_"):
+                        return call_with_syntax_hooks(body)
+                else:
+                        with progv(_readtable_ = symbol_value("_buffer_readtable_")):
+                                return call_with_syntax_hooks(body)
+
+def with_buffer_syntax(body, package = nil):
+        """Execute BODY with appropriate *package* and *readtable* bindings.
+
+This should be used for code that is conceptionally executed in an
+Emacs buffer."""
+        return call_with_buffer_syntax(package, body)
 
 def without_printing_errors(object, stream, body, msg = "<<error printing object>>"):
+        "Catches errors during evaluation of BODY and prints MSG instead."
         def handler():
                 if stream and object:
                         return print_unreadable_object(object, stream, lambda: fprintf(stream, msg),
@@ -1210,11 +1465,28 @@ def parse_string(string, package):
         return with_buffer_syntax(body)
 
 #### tokenize-symbol
+"""STRING is interpreted as the string representation of a symbol
+and is tokenized accordingly. The result is returned in three
+values: The package identifier part, the actual symbol identifier
+part, and a flag if the STRING represents a symbol that is
+internal to the package identifier part. (Notice that the flag is
+also true with an empty package identifier part, as the STRING is
+considered to represent a symbol internal to some current package.)"""
 #### tokenize-symbol-thoroughly
+"This version of TOKENIZE-SYMBOL handles escape characters."
 #### untokenize-symbol
+"""The inverse of TOKENIZE-SYMBOL.
+
+  (untokenize-symbol \"quux\" nil \"foo\") ==> \"quux:foo\"
+  (untokenize-symbol \"quux\" t \"foo\")   ==> \"quux::foo\"
+  (untokenize-symbol nil nil \"foo\")    ==> \"foo\"
+"""
 #### casify-char
+"Convert CHAR accoring to readtable-case."
 #### find-symbol-with-status
 #### parse-symbol
+"""Find the symbol named STRING.
+Return the symbol and a flag indicating whether the symbols was found."""
 #### parse-symbol-or-lose
 
 def parse_package(string):
@@ -1232,6 +1504,8 @@ def unparse_name(string):
         return subseq(prin1_to_string(make_symbol(string)), 2)
 
 def guess_package(string):
+        """Guess which package corresponds to STRING.
+Return nil if no package matches."""
         if string:
                 return (find_package(string) or
                         parse_package(string) or
@@ -1240,37 +1514,46 @@ def guess_package(string):
                         # (if (find #\! string)           ; for SBCL
                         #     (guess-package (substitute #\- #\! string))
 
-# UNUSABLE: *readtable-alist*
-# UNUSABLE: guess-buffer-readtable
+setq("_readtable_alist_", default_readtable_alist())
+"An alist mapping package names to readtables."
+
+def guess_buffer_readtable(package_name):
+        package = guess_package(package_name)
+        return ((package and
+                 rest(assoc(package_name(package), symbol_value("_readtable_alist_"),
+                            test = string_equal))) or
+                symbol_value("_readtable_"))
 
 ### Evaluation: swank.lisp:2106
 setq("_pending_continuations_", [])
+"List of continuations for Emacs. (thread local)"
 
 def guess_buffer_package(string):
+        """Return a package for STRING. 
+Fall back to the the current if no such package exists."""
         return ((string and guess_package(string)) or
                 symbol_value("_package_"))
 
-# (defun eval-for-emacs (form buffer-package id)
-#   "Bind *BUFFER-PACKAGE* to BUFFER-PACKAGE and evaluate FORM.
-# Return the result to the continuation ID.
-# Errors are trapped and invoke our debugger."
-#   (let (ok result condition)
-#     (unwind-protect
-#          (let ((*buffer-package* (guess-buffer-package buffer-package))
-#                (*pending-continuations* (cons id *pending-continuations*)))
-#            (check-type *buffer-package* package)
-#            ;; APPLY would be cleaner than EVAL.
-#            ;; (setq result (apply (car form) (cdr form)))
-#            (handler-bind ((t (lambda (c) (setf condition c))))
-#              (setq result (with-slime-interrupts (eval form))))
-#            (run-hook *pre-reply-hook*)
-#            (setq ok t))
-#       (send-to-emacs `(:return ,(current-thread)
-#                                ,(if ok
-#                                     `(:ok ,result)
-#                                     `(:abort ,(prin1-to-string condition)))
-#                                ,id)))))
 def eval_for_emacs(form, buffer_package, id):
+        """Bind *BUFFER-PACKAGE* to BUFFER-PACKAGE and evaluate FORM.
+Return the result to the continuation ID.
+Errors are trapped and invoke our debugger."""
+        # (let (ok result condition)
+        #   (unwind-protect
+        #        (let ((*buffer-package* (guess-buffer-package buffer-package))
+        #              (*pending-continuations* (cons id *pending-continuations*)))
+        #          (check-type *buffer-package* package)
+        #          ;; APPLY would be cleaner than EVAL.
+        #          ;; (setq result (apply (car form) (cdr form)))
+        #          (handler-bind ((t (lambda (c) (setf condition c))))
+        #            (setq result (with-slime-interrupts (eval form))))
+        #          (run-hook *pre-reply-hook*)
+        #          (setq ok t))
+        #     (send-to-emacs `(:return ,(current-thread)
+        #                              ,(if ok
+        #                                   `(:ok ,result)
+        #                                   `(:abort ,(prin1-to-string condition)))
+        #                              ,id)))))
         ok, result, condition = None, None, None
         def set_result(x):    nonlocal result;    result = x
         def set_condition(x): nonlocal condition; condition = x
@@ -1293,6 +1576,7 @@ def eval_for_emacs(form, buffer_package, id):
                                id])
 
 setq("_echo_area_prefix_", "=> ")
+"A prefix that `format-values-for-echo-area' should use."
 
 #### format-values-for-echo-area
 #### macro values-to-string
@@ -1300,25 +1584,22 @@ setq("_echo_area_prefix_", "=> ")
 #### eval-and-grab-output
 
 def eval_region(string):
-        # string = re.sub(r"#\.\(swank:lookup-presented-object([^)]*)\)", r"(lookup-presented-object \\1))", string)
-        form = None
-        def eval_stage(name, fn):
-                try:
-                        return fn()
-                except Exception as cond:
-                        # debug_printf("===( LISTENER %s: %s, sldb state: %s", name, cond, sldb_state)
-                        error_handler(cond, env.sldb_state)
-                        return None
-        ast_ = eval_stage("PARSE", lambda: ast.parse(string))
-        if ast_ and ast_.body:
-                exprp = typep(ast_.body[0], ast.Expr)
-                if exprp:
-                        ast_.body[0] = ast_assign_var("", ast_funcall(swank_ast_name("set_value"), ast_.body[0].value))
-                co = eval_stage("COMPILE", lambda: compile(ast.fix_missing_locations(ast_), "", 'exec'))
-                eval_stage("EXEC", lambda: exec(co, env.python_user.__dict__))
-                return [keyword("values")] + [str(___expr___)] if (ast_.body and exprp) else []
-        else:
-                return [keyword("values")]
+        """Evaluate STRING.
+Return the results of the last form as a list and as secondary value the 
+last form."""
+        @block
+        def body(stream):
+                less, vals = nil, nil
+                def loop_body():
+                        form = read(stream, nil, stream)
+                        if form is stream:
+                                finish_output()
+                                return_from(body, values(vals, less))
+                        less = form
+                        vals = multiple_value_list(eval_(form))
+                        finish_output()
+                loop(loop_body)
+        return with_input_from_string(string, body)
 
 #### interactive-eval-region
 #### re-evaluate-defvar
@@ -1329,13 +1610,27 @@ setq("_swank_pprint_bindings_", [(intern0("_print_pretty_"),   t),
                                  (intern0("_print_circle_"),   t),
                                  (intern0("_print_gensym_"),   t),
                                  (intern0("_print_readably_"), nil)])
+"""A list of variables bindings during pretty printing.
+Used by pprint-eval."""
 
 #### swank-pprint
+"Bind some printer variables and pretty print each object in VALUES."
 #### pprint-eval
 #### set-package
+"""Set *package* to the package named NAME.
+Return the full package-name and the string to use in the prompt."""
+
 ### Listener eval: swank.lisp:2241
-def listener_eval(slime_connection, sldb_state, string):
-        return env._listener_eval_function_(string)
+
+# inversion: listener_eval, repl_eval are a bit lower..
+def track_package(fn):
+        p = _package_()
+        try:
+                return fn()
+        finally:
+                if p is not _package_():
+                        send_to_emacs([keyword("new-package"), package_name(_package_()),
+                                       package_string_for_prompt(_package_())])
 
 def send_repl_results_to_emacs(values):
         finish_output()
@@ -1354,20 +1649,15 @@ def repl_eval(string):
                 # (setq *** **  ** *  * (car values)
                 #       /// //  // /  / values
                 #       +++ ++  ++ +  + last-form)
-                env._send_repl_results_function_(values)
+                symbol_value("_send_repl_results_function_")(values)
         with_retry_restart(lambda: track_package(track_package_body),
                            msg = "Retry SLIME REPL evaluation request.")
 
 setq("_listener_eval_function_", repl_eval)
 
-def track_package(fn):
-        p = _package_()
-        try:
-                return fn()
-        finally:
-                if p is not _package_():
-                        send_to_emacs([keyword("new-package"), package_name(_package_()),
-                                       package_string_for_prompt(_package_())])
+def listener_eval(slime_connection, sldb_state, string):
+        return symbol_value("_listener_eval_function_")(string)
+# end-of-inversion
 
 def cat(*strings):
         "Concatenate all arguments and make the result a string."
@@ -1534,14 +1824,13 @@ def shortest_package_nickname(package):
 #          (send-it))))
 #     what))
 
-# (defslimefun value-for-editing (form)
-#   "Return a readable value of FORM for editing in Emacs.
-# FORM is expected, but not required, to be SETF'able."
-#   ;; FIXME: Can we check FORM for setfability? -luke (12/Mar/2005)
-#   (with-buffer-syntax ()
-#     (let* ((value (eval (read-from-string form)))
-#            (*print-length* nil))
-#       (prin1-to-string value))))
+def value_for_editing(form):
+        """Return a readable value of FORM for editing in Emacs.
+FORM is expected, but not required, to be SETF'able."""
+        # FIXME: Can we check FORM for setfability? -luke (12/Mar/2005)
+        value = eval_(read_from_string(form))
+        with progv(_print_length_ = nil):
+                return prin1_to_string(value)
 
 # (defslimefun commit-edited-value (form value)
 #   "Set the value of a setf'able FORM to VALUE.
@@ -1551,18 +1840,20 @@ def shortest_package_nickname(package):
 #             ,(read-from-string (concatenate 'string "`" value))))
 #     t))
 
-# (defun background-message  (format-string &rest args)
-#   "Display a message in Emacs' echo area.
+def background_message(format_string, *args):
+        """Display a message in Emacs' echo area.
 
-# Use this function for informative messages only.  The message may even
-# be dropped, if we are too busy with other things."
-#   (when *emacs-connection*
-#     (send-to-emacs `(:background-message 
-#                      ,(apply #'format nil format-string args)))))
+Use this function for informative messages only.  The message may even
+be dropped, if we are too busy with other things."""
+        if symbol_value("_emacs_connection_"):
+                send_to_emacs([keyword("background-message"),
+                               format(nil, format_string, *args)])
 
-# UNUSABLE: sleep-for
+## This is only used by the test suite.
+#### sleep-for
 
 ### Debugger: swank.lisp:2474
+
 def invoke_slime_debugger(condition):
         """Sends a message to Emacs declaring that the debugger has been entered,
 then waits to handle further requests from Emacs. Eventually returns
@@ -1578,6 +1869,7 @@ class invoke_default_debugger_condition(BaseException):
         pass
 
 def swank_debugger_hook(condition, hook):
+        "Debugger function for binding *DEBUGGER-HOOK*."
         handler_case(lambda: call_with_debugger_hook(swank_debugger_hook,
                                                      lambda: invoke_slime_debugger(condition)),
                      invoke_default_debugger_condition = lambda _: invoke_slime_debugger(condition))
@@ -1587,40 +1879,48 @@ def invoke_default_debugger(condition):
                                 lambda: invoke_debugger(condition))
 
 setq("_global_debugger_", t)
+"Non-nil means the Swank debugger hook will be installed globally."
 
 def install_debugger(conn):
         if symbol_value("_global_debugger_"):
                 install_debugger_globally(swank_debugger_hook)
-
 add_hook("_new_connection_hook_", install_debugger)
 
 ### Debugger loop: swank.lisp:2510
 ##
 ## These variables are dynamically bound during debugging.
 ##
-setq("_swank-debugger-condition_", None) # (defvar *swank-debugger-condition* nil "The condition being debugged.")                           
-setq("_sldb_level_",               0)    # (defvar *sldb-level*               0   "The current level of recursive debugging.")               
-setq("_sldb_initial_frames_",      20)   # (defvar *sldb-initial-frames*      20  "The initial number of backtrace frames to send to Emacs.")
-setq("_sldb_restarts_",            [])   # (defvar *sldb-restarts*            nil "The list of currenlty active restarts.")                  
-setq("_sldb_stepping_p_",          None) # (defvar *sldb-stepping-p*          nil "True during execution of a step command.")
+setq("_swank-debugger-condition_", nil)
+"The condition being debugged."
 
-# (defun debug-in-emacs (condition)
-#   (let ((*swank-debugger-condition* condition)
-#         (*sldb-restarts* (compute-restarts condition))
-#         (*sldb-quit-restart* (and *sldb-quit-restart*
-#                                   (find-restart *sldb-quit-restart*)))
-#         (*package* (or (and (boundp '*buffer-package*)
-#                             (symbol-value '*buffer-package*))
-#                        *package*))
-#         (*sldb-level* (1+ *sldb-level*))
-#         (*sldb-stepping-p* nil))
-#     (force-user-output)
-#     (call-with-debugging-environment
-#      (lambda ()
-#        ;; We used to have (WITH-BINDING *SLDB-PRINTER-BINDINGS* ...)
-#        ;; here, but that truncated the result of an eval-in-frame.
-#        (sldb-loop *sldb-level*)))))
+setq("_sldb_level_",               0)
+"The current level of recursive debugging."
+
+setq("_sldb_initial_frames_",      20)
+"The initial number of backtrace frames to send to Emacs."
+
+setq("_sldb_restarts_",            [])
+"The list of currenlty active restarts."
+
+setq("_sldb_stepping_p_",          nil)
+"True during execution of a step command."
+
 def debug_in_emacs(condition):
+        # (let ((*swank-debugger-condition* condition)
+        #       (*sldb-restarts* (compute-restarts condition))
+        #       (*sldb-quit-restart* (and *sldb-quit-restart*
+        #                                 (find-restart *sldb-quit-restart*)))
+        #       (*package* (or (and (boundp '*buffer-package*)
+        #                           (symbol-value '*buffer-package*))
+        #                      *package*))
+        #       (*sldb-level* (1+ *sldb-level*))
+        #       (*sldb-stepping-p* nil))
+        #   (force-user-output)
+        #   (call-with-debugging-environment
+        #    (lambda ()
+        #      ;; We used to have (WITH-BINDING *SLDB-PRINTER-BINDINGS* ...)
+        #      ;; here, but that truncated the result of an eval-in-frame.
+        #      (sldb-loop *sldb-level*)))))
         with env.let(_swank_debugger_condition_ = condition,
                      _sldb_restarts_            = compute_restarts(condition),
                      _sldb_quit_restart_        = env._sldb_quit_restart_ and find_restart(env._sldb_quit_restart_),
@@ -1636,7 +1936,6 @@ def debug_in_emacs(condition):
 
 @block
 def sldb_loop(level):
-        assert(symbol_value("_emacs_connection_"))
         try:
                 while True:
                         def with_simple_restart_body():
@@ -1678,6 +1977,7 @@ conditions are simply reported."""
                        princ_to_string(real_condition)])
 
 setq("_sldb_condition_printer_", format_sldb_condition)
+"Function called to print a condition to an SLDB buffer."
 
 def safe_condition_message(condition):
         with progv(_print_pretty_ = t,
@@ -1696,6 +1996,8 @@ def debugger_condition_for_emacs():
                 condition_extras(condition)]
 
 def format_restarts_for_emacs():
+        """Return a list of restarts for *swank-debugger-condition* in a
+format suitable for Emacs."""
         with progv(_print_right_margin_ = most_positive_fixnum):
                 return mapcar(lambda restart:
                                       [("*" if restart is env._sldb_quit_restart_ else
@@ -1708,7 +2010,9 @@ def format_restarts_for_emacs():
                               env._sldb_restarts_)
 
 ### SLDB entry points: swank.lisp:2614
+
 def sldb_break_with_default_debugger(dont_unwind):
+        "Invoke the default debugger."
         if dont_unwind:
                 invoke_default_debugger(env._swank_debugger_condition_)
         else:
@@ -1772,28 +2076,77 @@ Operation was KERNEL::DIVISION, operands (1 0).\"
                 backtrace(start, end),
                 symbol_value("_pending_continuations_")]
 
-#### nth-restart
-#### invoke-nth-restart
-#### sldb-abort
-#### sldb-continue
-#### coerce-to-condition
-#### simple-break
-#### throw-to-toplevel
-#### invoke-nth-restart-for-emacs
+def nth_restart(index):
+        return nth(index, symbol_value("_sldb_restarts_"))
+
+def invoke_nth_restart(index):
+        restart = nth_restart(index)
+        if restart:
+                return invoke_restart_interactively(restart)
+
+def sldb_abort():
+        return invoke_restart(find(find_symbol_or_fail("ABORT"),
+                                   symbol_value("_sldb_restarts_"),
+                                   key = restart_name))
+
+def sldb_continue():
+        return continue_()
+
+def coerce_to_condition(datum, args):
+        return etypecase(datum,
+                         (string, lambda: make_condition(find_symbol_or_fail("SIMPLE-ERROR"),
+                                                         format_control = datum,
+                                                         format_arguments = args)),
+                         (symbol, lambda: make_condition(datum, *args)))
+
+def simple_break(datum = "Interrupt from Emacs", *args):
+        return with_simple_restart("CONTINUE", "Continue from break.",
+                lambda: invoke_slime_debugger(coerce_to_condition(datum, args)))
+
+def throw_to_toplevel():
+        """Invoke the ABORT-REQUEST restart abort an RPC from Emacs.
+If we are not evaluating an RPC then ABORT instead."""
+        restart = (symbol_value("_sldb_quit_restart_") and
+                   find_restart(symbol_value("_sldb_quit_restart_")))
+        return (invoke_restart(restart) if restart else
+                format(nil, "Restart not active [%s]", symbol_value("_sldb_quit_restart_")))
+
+def invoke_nth_restart_for_emacs(sldb_level, n):
+        """Invoke the Nth available restart.
+SLDB-LEVEL is the debug level when the request was made. If this
+has changed, ignore the request."""
+        if sldb_level == symbol_value("_sldb_level_"):
+                return invoke_nth_restart(n)
+
 #### wrap-sldb-vars
-#### eval-string-in-frame
-#### pprint-eval-string-in-frame
+#   `(let ((*sldb-level* ,*sldb-level*))
+#     ,form)
+
+def eval_string_in_frame(string, index):
+        return values_to_string(
+                eval_in_frame(wrap_sldb_vars(from_string(string)),
+                              index))
+
+def pprint_eval_string_in_frame(string, index):
+        return swank_pprint(
+                multiple_value_list(
+                        eval_in_frame(
+                                wrap_sldb_vars(from_string(string)),
+                                index)))
+
 def frame_locals_and_catch_tags(index):
-        return [frame_locals_for_emacs(index),
-                mapcar(to_string, frame_catch_tags(index))]
-        # swankr:
-        # frame = sldb_state.frames[index] # XXX: was [index + 1]
+        """Return a list (LOCALS TAGS) for vars and catch tags in the frame INDEX.
+LOCALS is a list of the form ((&key NAME ID VALUE) ...).
+TAGS has is a list of strings."""
+        # Swankr:
         # return [mapcar(lambda local_name: [keyword('name'), local_name,
         #                                    keyword('id'), 0,
         #                                    keyword('value'), handler_bind(lambda: print_to_string(frame_local_value(frame, local_name)),
         #                                                                    Exception = lambda c: "Error printing object: %s." % c)],
         #                ordered_frame_locals(frame)),
         #         []]
+        return [frame_locals_for_emacs(index),
+                mapcar(to_string, frame_catch_tags(index))]
 
 def frame_locals_for_emacs(index):
         return with_bindings(symbol_value("_backtrace_printer_bindings_"),
@@ -1804,17 +2157,34 @@ def frame_locals_for_emacs(index):
                                                                                     keyword("value"), to_line(value)]),
                                             frame_locals(index)))
 
-#### sldb-disassemble
-#### sldb-return-from-frame
-#### sldb-break
+def sldb_disassemble(index):
+        def body(stream):
+                with progv(_standard_output_ = stream):
+                        disassemble_frame(index)
+        return with_output_to_string(body)
+
+def sldb_return_from_frame(index, string):
+        form = from_string(form)
+        return to_string(multiple_value_list(return_from_frame(index, form)))
+
+def sldb_break(name):
+        return with_buffer_syntax(
+                lambda: sldb_break_at_start(read_from_string(name)))
+
 #### macro define-stepper-function
 #### define-stepper-function sldb-step sldb-step-into
 #### define-stepper-function sldb-next sldb-step-next
 #### define-stepper-function sldb-out  sldb-step-out
-#### toggle-break-on-signals
-#### sdlb-print-condition
+
+def toggle_break_on_signals():
+        setq("_break_on_signals_", not symbol_value("_break_on_signals_"))
+        return format(nil, "*break-on-signals* = %s" % (symbol_value("_break_on_signals_"),))
+
+def sldb_print_condition():
+        return princ_to_string(symbol_value("_swank_debugger_condition_"))
 
 ### Compilation Commands: swank.lisp:2785
+
 class compilation_result(servile):
         """
 (defstruct (:compilation-result
@@ -1826,65 +2196,154 @@ class compilation_result(servile):
   (faslfile nil :type (or null string)))
 """
         pass
-#### measure-time-interval -- clocking
-#### make-compiler-note
-#### collect-notes
+
+measure_time_interval = clocking
+"""Call FUN and return the first return value and the elapsed time.
+The time is measured in seconds."""
+
+def make_compiler_note(condition):
+        "Make a compiler note data structure from a compiler-condition."
+        return [keyword("message"),    message(condition),
+                keyword("severity"),   severity(condition),
+                keyword("location"),   location(condition),
+                keyword("references"), references(condition)
+                ] + letf(source_context(condition),
+                         lambda s: ([keyword("source-context"), s] if s else
+                                    []))
+
+def collect_notes(function):
+        notes = []
+        result, seconds = handler_bind(
+                lambda: measure_time_interval(
+                        lambda:
+                                # To report location of error-signaling toplevel forms
+                                # for errors in EVAL-WHEN or during macroexpansion.
+                        restart_case(lambda: multiple_value_list(function()),
+                                     ABORT = (lambda: [nil],
+                                              dict(report = "Abort compilation.")))),
+                # XXX -- condition type matching
+                compiler_condition = lambda c:
+                        notes.append(make_compiler_note(c)))
+        def destructuring_bind_body(success, loadp = nil, faslfile = nil):
+                faslfile = (nil                            if faslfile is nil else
+                            pathname_to_filename(faslfile) if stringp(faslfile) else
+                            error(TypeError, "Bad compiler note: :FASLFILE ought to be either NIL or a pathname."))
+                return make_compilation_result(notes = reverse(notes),
+                                               duration = seconds,
+                                               successp = not not successp,
+                                               loadp = not not loadp,
+                                               faslfile = faslfile)
+        return destructuring_bind(result, destructuring_bind_body)
+
 def compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, *args):
         "XXX: not in compliance"
+        """Compile FILENAME and, when LOAD-P, load the result.
+Record compiler notes signalled as `compiler-condition's."""
         filename.co, time = clocking(lambda: compile(file_as_string(filename), filename, 'exec'))
         if loadp:
                 load_file(slime_connection, sldb_state, filename)
         return [keyword('compilation-result'), [], True, time, substitute(loadp), filename]
-setq("_fasl_pathname_function_", None)
-#### pathname-as-directory
-#### compile-file-output
-#### fasl-pathname
-#### compile-string-for-emacs
-def compile_string_for_emacs(slime_connection, sldb_state, string, buffer, position, filename, policy):
-        "XXX: swankr"
-        line_offset = char_offset = col_offset = None
-        for pos in position:
-                if pos[0] is keyword('position'):
-                        char_offset = pos[1]
-                elif pos[0] is keyword('line'):
-                        line_offset = pos[1]
-                        char_offset = pos[2]
-                else:
-                        warning("unknown content in pos %s" % pos)
-        def frob(refs):
-                not_implemented("frob")
-        def transform_srcrefs(s):
-                not_implemented("transform_srcrefs")
-        time = None
-        def with_restarts_body():
-                nonlocal time
-                exprs = None
-                def clocking_body():
-                        nonlocal exprs
-                        exprs = ast.parse(string)
-                        return eval(transform_srcrefs(exprs),
-                                    globals = ...)
-                val, time = clocking(clocking_body)
-                return val
-        with_restarts(with_restarts_body)
-        return [keyword('compilation-result'), [], True, time, False, False]
 
-#### compile-multiple-strings-for-emacs
-#### file-newer-p
-#### requires-compile-p
-#### compile-file-if-needed
+setq("_fasl_pathname_function_", nil)
+"In non-nil, use this function to compute the name for fasl-files."
+
+def pathname_as_directory(pathname):
+        return (pathname_directory(pathname) +
+                ([file_namestring(pathname)] if pathname_name(pathname) else []))
+
+def compile_file_output(file, directory):
+        return make_pathname(directory = pathname_as_directory(directory),
+                             defaults = compile_file_pathname(file))
+
+#### fasl-pathname
+
+def compile_string_for_emacs(string, buffer, position, filename, policy):
+        """Compile STRING (exerpted from BUFFER at POSITION).
+Record compiler notes signalled as `compiler-condition's."""
+        ## Swankr:
+        # line_offset = char_offset = col_offset = None
+        # for pos in position:
+        #         if pos[0] is keyword('position'):
+        #                 char_offset = pos[1]
+        #         elif pos[0] is keyword('line'):
+        #                 line_offset = pos[1]
+        #                 char_offset = pos[2]
+        #         else:
+        #                 warning("unknown content in pos %s" % pos)
+        # def frob(refs):
+        #         not_implemented("frob")
+        # def transform_srcrefs(s):
+        #         not_implemented("transform_srcrefs")
+        # time = None
+        # def with_restarts_body():
+        #         nonlocal time
+        #         exprs = None
+        #         def clocking_body():
+        #                 nonlocal exprs
+        #                 exprs = ast.parse(string)
+        #                 return eval(transform_srcrefs(exprs),
+        #                             globals = ...)
+        #         val, time = clocking(clocking_body)
+        #         return val
+        # with_restarts(with_restarts_body)
+        # return [keyword('compilation-result'), [], True, time, False, False]
+        offset = assoc(keyword("position"), position)[1]
+        def body():
+                with progv(_compile_print_ = t,
+                           _compile_verbose = nil):
+                        return swank_compile_string(string,
+                                                    buffer = buffer,
+                                                    position = offset,
+                                                    filename = filename,
+                                                    policy = policy)
+        return with_buffer_syntax(
+                lambda: collect_notes(body))
+
+def compile_multiple_strings_for_emacs(strings, policy):
+        """Compile STRINGS (exerpted from BUFFER at POSITION).
+Record compiler notes signalled as `compiler-condition's."""
+        def iter(string, buffer, package, position, filename):
+                def body():
+                        with progv(_compile_print_ = t,
+                                   _compile_verbose = nil):
+                                return swank_compile_string(string,
+                                                            buffer = buffer,
+                                                            position = position,
+                                                            filename = filename,
+                                                            policy = policy)
+                return collect_notes(lambda: with_buffer_syntax(package,
+                                                                body))
+        return [ iter(*strs) for strs in strings ]
+
+def file_newer_p(new_file, old_file):
+        "Returns true if NEW-FILE is newer than OLD-FILE."
+        return file_write_date(new_file) > file_write_date(old_file)
+
+def requires_compile_p(source_file):
+        fasl_file = probe_file(compile_file_pathname(source_file))
+        return ((not fasl_file) or
+                file_newer_p(source_file, fasl_file))
+
+def compile_file_if_needed(filename, loadp):
+        pathname = filename_to_pathname(filename)
+        return (compile_file_for_emacs(pathname, loadp) if requires_compile_p(pathname) else
+                collect_notes(
+                        lambda: ((not loadp) or
+                                 load(compile_file_pathname(pathname)))))
+
 ### Loading: swank.lisp:2925
 def load_file(filename):
         return to_string(load(filename_to_pathname(filename)))
 
 ### swank-require: swank.lisp:2931
 def swank_require(modules, filename = None):
+        "Load the module MODULE."
         for module in ensure_list(modules):
-                pass
-                # Issue SWANK-REQUIRE-NOT-IMPLEMENTED
-                # if not member(str(module), symbol_value("_modules_")):
-                #         require(module, (filename_to_pathname(filename) if filename else
-                #                          module_filename(module)))
+                if not member(str(module), symbol_value("_modules_")):
+                        # Issue REQUIRE-NOT-IMPLEMENTED
+                        # require(module, (filename_to_pathname(filename) if filename else
+                        #                  module_filename(module)))
+                        pass
         return symbol_value("_modules_")
 
 # setq("_find_module_", find_module) # See just a little below.
@@ -1895,6 +2354,7 @@ def module_filename(module):
                 error("Can't locate module: %s", module))
 
 ### Simple *find-module* function: swank.lisp:2952
+
 def merged_directory(dirname, defaults):
         return os.path.join(defaults, dirname)
 
@@ -1916,9 +2376,35 @@ The function receives a module name as argument and should return
 the filename of the module (or nil if the file doesn't exist)."""
 
 ### Macroexpansion: swank.lisp:2973
+#### defvar *macroexpand-printer-bindings*
+#### apply-macro-expander
+#### swank-macroexpand-1
+#### swank-macroexpand
+#### swank-macroexpand-all
+#### swank-compiler-macroexpand-1
+#### swank-compiler-macroexpand
+#### swank-expand-1
+#### swank-expand
+#### expand-1
+#### expand
+#### expand-repeatedly
+#### swank-format-string-expand
+
+def disassemble_form(form):
+        def body(stream):
+                with progv(_standard_output_ = stream,
+                           _print_readably_ = nil):
+                        # XXX: does it really do what it name suggests?
+                        # This EVAL thing is highly suspicious..
+                        disassemble(eval_(read_from_string(form)))
+        return with_buffer_syntax(
+                lambda: with_output_to_string(body))
+
 ### Simple completion: swank.lisp:3034
+
 def simple_completions(prefix, package):
         "Return a list of completions for the string PREFIX."
+        ## Swankr:
         # def literal2rx(string):
         #         return re.sub("([.\\|()[{^$*+?])", "\\\\\\1", string)
         # def grep(regex, strings):
@@ -1985,39 +2471,246 @@ Returns a list of completions with package qualifiers if needed."""
                       sort(strings, string_less))
 
 ### Simple arglist display: swank.lisp:3090
+def operator_arglist(name, package):
+        return ignore_errors(
+                lambda: letf(arglist(parse_symbol(name, guess_buffer_package(package))),
+                             lambda args:
+                                     (nil if args is keyword("not-available") else
+                                      princ_to_string([name] + args))))
+
 ### Documentation: swank.lisp:3099
+def apropos_list_for_emacs(name, external_only = nil, case_sensitive = nil, package = nil):
+        """Make an apropos search for Emacs.
+The result is a list of property lists."""
+        package = package and (parse_package(package) or
+                               error("No such package: %s", package))
+        # The MAPCAN will filter all uninteresting symbols, i.e. those
+        # who cannot be meaningfully described.
+        return mapcan(listify(briefly_describe_symbol_for_emacs),
+                      sort(remove_duplicates(apropos_symbols(name,
+                                                             external_only,
+                                                             case_sensitive,
+                                                             package)),
+                           present_symbols_before_p))
+
+def briefly_describe_symbol_for_emacs(symbol):
+        """Return a property list describing SYMBOL.
+Like `describe-symbol-for-emacs' but with at most one line per item."""
+        def first_line(string):
+                pos = position("\n", string)
+                return string if not pos else subseq(string, 0, pos)
+        desc = map_if(stringp, first_line,
+                      describe_symbol_for_emacs(symbol))
+        if desc:
+                return [ keyword("designator"), to_string(symbol) ] + desc
+
+def map_if(test, fn, *lists):
+        """Like (mapcar FN . LISTS) but only call FN on objects satisfying TEST.
+Example:
+\(map-if #'oddp #'- '(1 2 3 4 5)) => (-1 2 -3 4 -5)"""
+        return mapcar(lambda x: fn(x) if test(x) else x,
+                      *lists)
+
+def listify(f):
+        """Return a function like F, but which returns any non-null value
+wrapped in a list."""
+        # XXX: how is this supposed to deal with empty strings etc. ?
+        def body(x):
+                y = f(x)
+                return y and [y]
+        return body
+
+#### present-symbol-vefore-p
+"""Return true if X belongs before Y in a printed summary of symbols.
+Sorted alphabetically by package name and then symbol name, except
+that symbols accessible in the current package go first."""
+
+#### make-apropos-matcher
+#### apropos-symbols
+#### call-with-describe-settings
+#### defmacro with-describe-settings
+#### describe-to-string
+#### describe-symbol
+#### describe-function
+#### describe-definition-for-emacs
+#### documentation-symbol
+
 ### Package Commands: swank.lisp:3224
+def list_all_package_names(nicknames = nil):
+        return mapcar(unparse_name,
+                      mapcan(package_names, list_all_packages()) if nicknames else
+                      mapcar(package_name,  list_all_packages()))
+
 ### Tracing: swank.lisp:3235
+def tracedp(fspec):
+        return member(fspec, eval_([find_symbol_or_fail("TRACE")]))
+
+def swank_toggle_trace(spec_string):
+        spec = from_string(spec_string)
+        if consp(spec):
+                return toggle_trace(spec)
+        elif tracedp(spec):
+                eval_([find_symbol_or_fail("UNTRACE"), spec])
+                return format(nil, "%s is now untraced.", spec)
+        else:
+                eval_([find_symbol_or_fail("TRACE"), spec])
+                return format(nil, "%s is now traced.", spec)
+
+def untrace_all():
+        return untrace()
+
+def redirect_trace_output(target):
+        symbol_value("_emacs_connection_").trace_output = make_output_stream_for_target(
+                symbol_value("_emacs_connection_"), target)
+        return nil
+
 ### Undefing: swank.lisp:3261
+def undefine_function(fname_string):
+        fname = from_string(fname_string)
+        return format(nil, "%s", fmakunbound(fname))
+
+def unintern_symbol(name, package):
+        pkg = guess_package(package)
+        if not pkg:
+                return format(nil, "No such package: %s", package)
+        else:
+                sym, found = parse_symbol(name, pkg)
+                if not found:
+                        return format(nil, "%s not in package %s", name, package)
+                else:
+                        unintern(sym, pkg)
+                        return format(nil, "Uninterned symbol: %s", sym)
+
 ### Profiling: swank.lisp:3279
+def profiledp(fspec):
+        return member(fspec, profiled_functions)
+
+def toggle_profile_fdefinition(fname_string):
+        fname = from_string(fname_string)
+        if profiledp(fname):
+                unprofile(fname)
+                return format(nil, "%s is now unprofiled.", fname)
+        else:
+                profile(fname)
+                return format(nil, "%s is now profiled.", fname)
+
+def profile_by_substring(substring, package):
+        count = 0
+        def maybe_profile(symbol):
+                def body():
+                        nonlocal count
+                        profile(symbol)
+                        count += 1
+                if (fboundp(symbol) and
+                    not profiledp(symbol) and
+                    search(substring, symbol_name(symbol), test = string_equal)):
+                        handler_case(body,
+                                     error = lambda condition: warn("%s", condition))
+        if package:
+                do_symbols(maybe_profile, parse_package(package))
+        else:
+                do_all_symbols(maybe_profile, parse_package(package))
+        return format(nil, "%s functions now profiled", count)
+
 ### Source Locations: swank.lisp:3312
+def find_definition_for_thing(thing):
+        return find_source_location(thing)
+
+def find_source_location_for_emacs(spec):
+        return find_source_location(value_spec_ref(spec))
+
+def value_spec_ref(spec):
+        return destructure_case(
+                spec,
+                ([keyword("string")],
+                 lambda string, package:
+                         eval_(read_from_string(string))),
+                ([keyword("inspector")],
+                 inspector_nth_part),
+                ([keyword("sldb")],
+                 inspector_frame_var))
+
+def find_definitions_for_emacs(name):
+        """Return a list ((DSPEC LOCATION) ...) of definitions for NAME.
+DSPEC is a string and LOCATION a source location. NAME is a string."""
+        symbol, found = with_buffer_syntax(
+                lambda: parse_symbol(name))
+        if found:
+                return mapcar(xref_elisp, find_definitions(symbol))
+
+## Generic function so contribs can extend it.
+#### defgeneric xref-doit
+#### :method type thing
+#### macrolet define-xref-action
+#### define-xref-action :calls
+#### define-xref-action :calls-who
+#### define-xref-action :references
+#### define-xref-action :binds
+#### define-xref-action :macroexpands
+#### define-xref-action :specializes
+#### define-xref-action :callers
+#### define-xref-action :callees
+
+def xref(type, name):
+        sexp, error = ignore_errors(lambda: from_string(name))
+        if not error:
+                xrefs = xref_doit(type, sexp)
+                return (keyword("not-implemented") if xrefs is keyword("not-implemented") else
+                        mapcar(xref_elisp, xrefs))
+
+def xrefs(types, name):
+        acc = []
+        for type in types:
+                xrefs = xref(type, name)
+                if (xrefs is not keyword("not-implemented") and
+                    xrefs):
+                        acc.append([type] + xrefs)
+        return acc
+
+def xref_elisp(xref):
+        name, loc = xref
+        return [to_string(name), loc]
+
 ### Lazy lists: swank.lisp:3377
+#### defstruct lcons
+#### lcons
+#### lcons*
+#### lcons-cdr
+#### llist-range
+#### llist-skip
+#### llist-take
+#### iline
+
 ### Inspecting: swank.lisp:3423
-setq("_inspector_verbose_",                     None)
+
+setq("_inspector_verbose_",                     nil)
+
 # setq("_inspector_printer_bindings_",            [])
+
 # setq("_inspector_verbose_printer_bindings_",    [])
+
 #### defstruct inspector-state
 #### defstruct istate
-setq("_inspector_history_",                     None)
-# setq("_istate_",                         <unbound>)
-def reset_inspector(slime_connection):
-        slime_connection.istate = InspectorState(parts = [])
-        slime_connection.inspector_history = list()
-def init_inspector(slime_connection, sldb_state, string):
-        "XXX: diff?"
-        value = None
+
+setq("_istate_",                                 nil)
+# setq("_inspector_history_",              <unbound>)
+
+def reset_inspector():
+        setq("_istate_", nil)
+        setq("_inspector_history_", [nil] * 10)
+
+def init_inspector(string):
         def with_retry_restart_body():
-                nonlocal value
-                reset_inspector(slime_connection)
-                value = inspect_object(slime_connection,
-                                       eval(string)) # FIXME envir
-                pass
-        with_retry_restart(with_retry_restart_body,
-                           msg = "retry SLIME inspection request")
-        return value
+                reset_inspector()
+                return inspect_object(eval_(read_from_string(string)))
+        return with_buffer_syntax(
+                lambda: with_retry_restart(with_retry_restart_body,
+                                           msg = "retry SLIME inspection request"))
+
 #### ensure-istate-metadata
 #### inspect-object
 #### emacs-inspect/istate
+#### istate>elisp
 #### prepare-title
 #### prepare-range
 #### prepare-part
@@ -2026,27 +2719,44 @@ def init_inspector(slime_connection, sldb_state, string):
 #### assign-index
 #### print-part-to-string
 #### content-range
-def inspector_nth_part(slime_connection, sldb_state, index):
-        return slime_connection.istate.parts[index]
-def inspect_nth_part(slime_connection, sldb_state, index):
-        object = inspector_nth_part(slime_connection, sldb_state, index)
-        return inspect_object(slime_connection, object)
-#### inspector-range
-#### inspector-call-nth-action
-def inspector_pop(slime_connection, sldb_state):
-        "XXX: diff"
-        if slime_connection.istate.previous:
-                slime_connection.istate = slime_connection.istate.previous
-                return istate_to_elisp(slime_connection.istate)
+
+def inspector_nth_part(index):
+        return symbol_value("_istate_").parts[index]
+
+def inspect_nth_part(index):
+        return with_buffer_syntax(
+                lambda:
+                        inspect_object(inspector_nth_part(index)))
+
+def inspector_range(from_, to):
+        return prepare_range(symbol_value("_istate_"), from_, to)
+
+def inspector_call_nth_action(index, *args):
+        fun, refreshp = symbol_value("_istate_").actions[index]
+        fun(*args)
+        return (inspector_reinspect() if refreshp else
+                #tell emacs that we don't want to refresh the inspector buffer
+                nil)
+
+def inspector_pop():
+        """Inspect the previous object.
+Return nil if there's no previous object."""
+        if symbol_value("_istate_").previous:
+                setq("_istate_", symbol_value("_istate_").previous)
+                return istate_elisp(symbol_value("_istate_"))
         else:
-                return False
-def inspector_next(slime_connection, sldb_state):
-        "XXX: diff"
-        if slime_connection.istate.next:
-                slime_connection.istate = slime_connection.istate.next
-                return istate_to_elisp(slime_connection.istate)
+                return nil
+
+def inspector_next():
+        "Inspect the next element in the history of inspected objects.."
+        if symbol_value("_istate_").next:
+                setq("_istate_", symbol_value("_istate_").next)
+                return istate_elisp(symbol_value("_istate_"))
         else:
-                return False
+                return nil
+
+################################# implementation effort paused here...
+
 #### inspector-reinspect
 #### inspector-toggle-verbose
 #### inspector-eval

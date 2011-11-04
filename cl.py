@@ -379,7 +379,7 @@ def _tuplep(x): return type(x) is tuple
 def _dictp(o):  return type(o) is dict
 
 def _ensure_list(x):
-        return x if listp(x)   else [x]
+        return x if listp(x) else [x]
 
 def _mapset(f, xs):
         acc = set()
