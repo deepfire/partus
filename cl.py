@@ -13,6 +13,7 @@ import types
 import socket
 import inspect
 import builtins
+import platform
 import functools
 import threading
 import collections
@@ -2141,7 +2142,7 @@ def lisp_implementation_type():    return "CPython"
 def lisp_implementation_version(): return sys.version
 
 def machine_instance():            return socket.gethostname()
-def machine_type():                return "Unknown"
+def machine_type():                return _without_condition_system(lambda: platform.machine())
 def machine_version():             return "Unknown"
 
 ##
