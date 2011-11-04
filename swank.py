@@ -994,7 +994,7 @@ The second return value is t if the timeout expired before a matching
 event was found."""
         log_event("wait_for_event: %s %s\n", pattern, timeout)
         return without_slime_interrupts(
-                lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)[0] # WARNING: multiple values!
+                lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)
                          if use_threads_p() else
                          wait_for_event_event_loop(pattern, timeout)))
 
