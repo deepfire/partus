@@ -15,6 +15,7 @@ from cl           import _ensure_list as ensure_list
 from cl           import _caller_name as caller_name
 from cl           import _coerce_to_stream as coerce_to_stream
 from cl           import _here as here
+from cl           import _prognf as prognf
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]
