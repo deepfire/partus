@@ -156,3 +156,7 @@ Connecting to Swank on port 4005.. [2 times]
 Process bridge is installed
 Entering recursive edit..
 Back to top level.
+
+Issue DEINIT-LOG-OUPUT-NOT-DONE-PROBABLY-CRITICAL
+
+Issue THREAD-ALIVE-P-DEFAULT-IMPLEMENTATION-POSSIBLE-BUG
