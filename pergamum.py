@@ -295,6 +295,14 @@ def hash_table_alist(x):
                 acc.append((k, x[k]))
         return acc
 
+def plist_hash_table(xs):
+        assert(evenp(len(xs)))
+        acc, xs = dict(), list(xs)
+        while xs:
+                v, k = xs.pop(), xs.pop()
+                acc[k] = v
+        return acc
+
 ## sequences
 def emptyp(x):         return len(x) == 0
 def singlep(x):        return len(x) == 1
