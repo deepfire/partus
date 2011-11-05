@@ -1064,6 +1064,7 @@ class package(collections.UserDict):
                 modname = _lisp_symbol_name_python_name(name)
                 self.module = (_lisp_package_name_module(modname, if_does_not_exist = "continue") or
                                _load_text_as_module(modname, "", filename = filename))
+                # Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
                 coercer = (_ccoerce_to_package if boot else
                            _coerce_to_package)
                 self.used_packages  = set(mapcar(lambda x: coercer(x, if_null = "error"),
@@ -1104,6 +1105,7 @@ def _find_package(name):
 def find_package(name):
         return _find_package(_coerce_to_symbol_name(name))
 
+# Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
 def _ccoerce_to_package(x, **args):
         return (x                if packagep(x) else
                 _find_package(x) if stringp(x) else

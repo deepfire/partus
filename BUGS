@@ -169,3 +169,18 @@ Manual addition of
 
 ..loses its novelty after a while, and python's facilities are not
 terribly usable eiter.
+
+Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
+
+python neutrality: initialised for version 3
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "cl.py", line 1276, in <module>
+    _init_package_system_0() ########### _keyword() is now available
+  File "cl.py", line 1264, in _init_package_system_0
+    __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
+  File "cl.py", line 1068, in __init__
+    coercer = (__coerce_to_package if boot else
+NameError: global name '_package__coerce_to_package' is not defined
+
+..renaming __coerce_to_package function to _ccoerce_to_package solves the issue.
