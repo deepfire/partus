@@ -2150,7 +2150,7 @@ def require(name, pathnames = None):
         if probe_file(filename):
                 _not_implemented()
         else:
-                error("Don't know how to REQUIRE %s.", name.upcase())
+                error("Don't know how to REQUIRE %s.", name.upper())
 
 ##
 ## Environment
