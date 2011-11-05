@@ -11,8 +11,6 @@ Issue SPECIAL-BINDINGS-ARE-PACKAGE-LESS
 
 Issue REQUIRE-NOT-IMPLEMENTED
 
-Issue BUGS-REMOVED-NOT-CLOSED
-
 Issue SWANK-RPC-SHORT-READS-NOT-HANDLED
 
 Issue SLDB-AUTOCLOSE-BADLY-NEEDED
@@ -162,3 +160,12 @@ Issue DEINIT-LOG-OUPUT-NOT-DONE-PROBABLY-CRITICAL
 Issue THREAD-ALIVE-P-DEFAULT-IMPLEMENTATION-POSSIBLE-BUG
 
 Issue AFTER-INIT-HOOK-NEVER-ACTIVATED
+
+Issue TRACING-NEEDED
+
+Manual addition of
+
+       here("returning %s" % (ret,))
+
+..loses its novelty after a while, and python's facilities are not
+terribly usable eiter.
