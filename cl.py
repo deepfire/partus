@@ -873,301 +873,6 @@ def return_from(nonce, value):
         throw(nonce, value)
 
 ##
-## Package system
-##
-__packages__        = dict()
-__keyword_package__ = None
-__modular_noise__   = None
-
-class package_error(error_):
-        pass
-
-class simple_package_error(simple_condition, package_error):
-        pass
-
-def symbol_conflict_error(op, obj, pkg, x, y):
-        error(simple_package_error, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
-              (op, obj, pkg, x, y))
-
-def symbols_not_accessible_error(package, syms):
-        def pp_sym_or_string(x):
-                return "'%s'" % x if stringp(x) else _print_symbol(x)
-        error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
-              package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
-
-def _use_package_symbols(dest, src, syms):
-        assert(packagep(dest) and packagep(src) and _dictp(syms))
-        conflict_set = _mapset(_slotting('name'), syms.values()) & set(dest.accessible.keys())
-        for name in conflict_set:
-                if syms[name] is not dest.accessible[name]:
-                        symbol_conflict_error("USE-PACKAGE", src, dest, syms[name], dest.accessible[name])
-        ## no conflicts anymore? go on..
-        for name, sym in syms.items():
-                dest.inherited[sym].add(src)
-                if name not in dest.accessible: # Addition of this conditional is important for package use loops.
-                        dest.accessible[name] = sym
-                        # if dest.name == "SWANK" and src.name == "INSPECTOR":
-                        #         debug_printf("merging %s into %s: test: %s", s, dest, _read_symbol(_print_symbol(s)))
-                if dest.module and name not in dest.module.__dict__:
-                        dest.module.__dict__[name] = sym.value
-
-def use_package(dest, src):
-        "Warning: we're doing a circular package use."
-        dest, src = coerce_to_package(dest), coerce_to_package(src)
-        symhash = _map_into_hash(lambda x: (x.name, x), src.external)
-        _use_package_symbols(dest, src, symhash)
-        src.packages_using.add(dest)
-        dest.used_packages.add(src)
-
-def package_used_by_list(package):
-        package = coerce_to_package(package)
-        return package.packages_using
-
-def _lisp_symbol_name_python_name(x):
-        def _sub(cs):
-                acc = ""
-                for c in cs:
-                        acc += "_" if c in "-*" else c
-                return acc
-        ret = _sub(x).lower()
-        # debug_printf("==> Python(Lisp %s) == %s", x, ret)
-        return ret
-
-def _lisp_symbol_ast(sym, current_package):
-        symname, packname = (_lisp_symbol_name_python_name(sym.name),
-                             _lisp_symbol_name_python_name(sym.package.name))
-        return (_ast_name(symname)
-                if (sym.name in current_package.accessible and
-                    current_package.accessible[sym.name] is sym) else
-                _ast_index(_ast_attribute(_ast_index(_ast_attribute(_ast_name("sys"), "modules"), _ast_string(packname)),
-                                                     "__dict__"),
-                           _ast_string(symname)))
-
-def _lisp_package_name_module(x, if_does_not_exist = "create"):
-        name = _lisp_symbol_name_python_name(x)
-        return (sys.modules[name]                                                                if name in sys.modules else
-                error(simple_package_error, "The name %s does not designate any package.", name) if if_does_not_exist == "error" else
-                None                                                                             if if_does_not_exist == "continue" else
-                error("LISP-PACKAGE-NAME-MODULE: :IF-DOES-NOT-EXIST must be either 'error' or 'continue', not '%s'.", if_does_not_exist))
-
-class package(collections.UserDict):
-        def __str__ (self):
-                return '#<PACKAGE "%s">' % self.name
-        def __bool__(self):
-                return True
-        def __hash__(self):
-                return hash(id(self))
-        def __init__(self, name, use = [], filename = "",
-                     ignore_python = False, python_exports = True):
-                self.name = string(name)
-
-                self.own         = set()                        # sym
-                self.imported    = set()                        # sym
-              # self.present     = own + imported
-                self.inherited   = collections.defaultdict(set) # sym -> set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
-                self.accessible  = dict()                       # str -> sym      ## accessible = present + inherited
-                self.external    = set()                        # sym             ## subset of accessible
-              # self.internal    = accessible - external
-
-                modname = _lisp_symbol_name_python_name(name)
-                self.module = (_lisp_package_name_module(modname, if_does_not_exist = "continue") or
-                               _load_text_as_module(modname, "", filename = filename))
-                self.used_packages  = set(mapcar(lambda x: coerce_to_package(x, if_null = "error"), use))
-                self.packages_using = set()
-                mapc(_curry(use_package, self), self.used_packages)
-
-                ## Import the corresponding python dictionary.  Intern depends on
-                if not ignore_python:
-                        moddict = dict(self.module.__dict__)
-                        explicit_exports = set(moddict["__all__"] if "__all__" in moddict else
-                                               [])
-                        for (key, value) in moddict.items():
-                                ## intern the python symbol, when it is known not to be inherited
-                                if key not in self.accessible:
-                                        s = _intern0(key, self)
-                                        s.value = value
-                                        if functionp(value):
-                                                s.function = value
-                                ## export symbols, according to the python model
-                                if (python_exports and key[0] != '_' and
-                                    ((not explicit_exports) or
-                                     key in explicit_exports)):
-                                        self.external.add(self.accessible[key])
-                ## Hit the street.
-                self.data          = self.accessible
-                __packages__[name] = self
-def packagep(x):     return typep(x, package)
-def package_name(x): return x.name
-
-def make_package(name, nicknames = [], use = []):
-        "XXX: NICKNAMES are ignored."
-        return package(string(name), ignore_python = True, use = [])
-
-def find_package(x):
-        return __packages__.get(x) if x in __packages__ else None
-def coerce_to_package(x, if_null = 'current'):
-        return (x                         if packagep(x) else
-                find_package(x)           if stringp(x) else
-                symbol_value("_package_") if not x and if_null == 'current' else
-                error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
-
-def defpackage(name, use = [], export = []):
-        p = package(name, use = use)
-        for symname in export:
-                _not_implemented("DEFPACKAGE: :EXPORT keyword") # XXX: populate the for-INTERN-time-export set of names
-        return p
-
-def in_package(name):
-        setq("_package_", coerce_to_package(name))
-
-def _print_symbol2(x, package = None): return _letf(coerce_to_package(package),
-                                                    lambda p: (x.name if x.package and p.accessible[x.name] is x else
-                                                               str(x)))
-
-class symbol():
-        def __str__(self):
-                return (_print_keyword if self.package is __keyword_package__ else _print_symbol)(self)
-        def __repr__(self):
-                return str(self)
-        def __init__(self, name):
-                self.name, self.package, self.value, self.function = name, None, None, None
-        def __hash__(self):
-                return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
-        def __bool__(self):
-                return self is not nil
-def symbolp(x):                      return typep(x, symbol)
-def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
-def symbol_name(x):                  return x.name.lower()
-def symbol_package(x):               return x.package
-def coerce_to_symbol(s_or_n, package = None):
-        return intern(s_or_n, coerce_to_package(package))
-
-def make_symbol(name):
-        return symbol(name)
-
-def _keyword(s, upcase = True):
-        return _intern((s.upper() if upcase else s), __keyword_package__)[0]
-
-def symbol_relation(x, p):
-        "NOTE: here we trust that X belongs to P, when it's a symbol."
-        s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
-        if s is not None:
-                return (_keyword("inherited") if s.name in p.inherited else
-                        _keyword("external")  if s in p.external else
-                        _keyword("internal"))
-
-def find_symbol(x, package = None):
-        p = coerce_to_package(package)
-        s = p.get(x) if x in p else None
-        if s is not None:
-                # format(t, "FIND-SYMBOL:%s, %s -> %s, %s\n", 
-                #        x, package, s, symbol_relation(s, p))
-                return s, symbol_relation(s, p)
-        else:
-                return None, None
-def _find_symbol0(x, package = None): return find_symbol(x, package)[0]
-
-def _find_symbol_or_fail(x, package = None):
-        p = coerce_to_package(package)
-        sym, foundp = find_symbol(x, p)
-        return (sym if foundp else
-                symbols_not_accessible_error(p, [x]))
-
-def _intern(x, package = None):
-        p = coerce_to_package(package)
-        s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
-        if not (s is not None or stringp(x)):
-                error("Attempted to intern object >%s< of type %s into %s.", x, type(x), p)
-        if s:
-                # debug_printf("Found >%s< in %s.", s, p)
-                return s, p
-        else:
-                s = symbol(x)
-                p.own.add(s)
-                p.accessible[x], s.package = s, p
-                # debug_printf("Interned >%s< into %s.", s, p)
-                if p is __keyword_package__:
-                        # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
-                        p.external.add(s)
-                        s.value = s
-                return s, None
-def intern(x, package = None):
-        s, found_in_package = _intern(x, package)
-        return s, symbol_relation(s, found_in_package) if found_in_package else None
-def _intern0(x, package = None): return intern(x, package)[0]
-
-def import_(symbols, package = None, populate_module = True):
-        p = coerce_to_package(package)
-        symbols = _ensure_list(symbols)
-        module = _lisp_package_name_module(package_name(p), if_does_not_exist = "continue")
-        for s in symbols:
-                ps = p.get(s.name) if s.name in p else None
-                if ps is not None: # conflict
-                        symbol_conflict_error("IMPORT", s, p, s, ps)
-                else:
-                        p.imported.add(s)
-                        p.accessible[s.name] = s
-                        if module:
-                                # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
-                                python_name = _lisp_symbol_name_python_name(s.name)
-                                module.__dict__[python_name] = s.value
-        return True
-
-def export(symbols, package = None):
-        symbols, package = _ensure_list(symbols), coerce_to_package(package)
-        assert(every(symbolp, symbols))
-        symdict = _map_into_hash(lambda x: (x.name, x), symbols)
-        for user in package.packages_using:
-                _use_package_symbols(user, package, symdict)
-        # No conflicts?  Alright, we can proceed..
-        symset = set(symdict.values())
-        for_interning = symset & set(package.inherited)
-        for sym in for_interning:
-                del package.inherited[sym]
-                self.internal.add(sym)
-        package.external |= symset
-        return True
-
-def string(x):
-        return (x              if stringp(x) else
-                symbol_name(x) if symbolp(x) else
-                error(TypeError, "%s cannot be coerced to string." % (x,)))
-
-def _init_condition_system():
-        _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
-
-def _without_condition_system(body):
-        if _pytracer_enabled_p():
-                try:
-                        _disable_pytracer()
-                        return body()
-                finally:
-                        _enable_pytracer()
-        else:
-                return body()
-
-def _init_package_system_0():
-        # debug_printf("   --  -- [ package system init..")
-        global __packages__
-        global __keyword_package__
-        global __modular_noise__
-        global t, nil
-        __packages__ = dict()
-        __keyword_package__ = package("KEYWORD", ignore_python = True)
-        __modular_noise__ = frozenset(_load_text_as_module("", "").__dict__)
-        cl = package("CL")
-        intern(".", cl)
-
-        t                  = _intern0("T", cl)       # Nothing much works without these..
-        nil                = _intern0("NIL", cl)
-        t.value, nil.value = t, nil     # Self-evaluation.
-        export([t, nil] + mapcar(lambda n: _intern0(n, cl),
-                                 ["QUOTE", "OR", "SOME"]),
-               cl)
-        package("COMMON-LISP-USER", use = ["CL"])
-_init_package_system_0()
-
-##
 ## Dynamic scope
 ##
 __global_scope__ = dict()
@@ -1177,11 +882,6 @@ class thread_local_storage(threading.local):
                 self.dynamic_scope = []
 
 __tls__ = thread_local_storage()
-
-def _init_reader_0():
-        "SETQ, LET and BOUNDP all need this to mangle names."
-        __global_scope__["_READ_CASE_"] = _keyword("upcase", upcase = True)
-_init_reader_0()
 
 def _boundp(name):
         name = _coerce_to_symbol_name(name)
@@ -1256,6 +956,320 @@ with progv(foovar = 3.14,
                         return body()
         else:
                 return _env_cluster(_coerce_cluster_keys_to_symbol_names(cluster))
+
+##
+## Package system
+##
+__packages__        = dict()
+__keyword_package__ = None
+__modular_noise__   = None
+
+class package_error(error_):
+        pass
+
+class simple_package_error(simple_condition, package_error):
+        pass
+
+def symbol_conflict_error(op, obj, pkg, x, y):
+        error(simple_package_error, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
+              (op, obj, pkg, x, y))
+
+def symbols_not_accessible_error(package, syms):
+        def pp_sym_or_string(x):
+                return "'%s'" % x if stringp(x) else _print_symbol(x)
+        error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
+              package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
+
+def _use_package_symbols(dest, src, syms):
+        assert(packagep(dest) and packagep(src) and _dictp(syms))
+        conflict_set = _mapset(_slotting('name'), syms.values()) & set(dest.accessible.keys())
+        for name in conflict_set:
+                if syms[name] is not dest.accessible[name]:
+                        symbol_conflict_error("USE-PACKAGE", src, dest, syms[name], dest.accessible[name])
+        ## no conflicts anymore? go on..
+        for name, sym in syms.items():
+                dest.inherited[sym].add(src)
+                if name not in dest.accessible: # Addition of this conditional is important for package use loops.
+                        dest.accessible[name] = sym
+                        # if dest.name == "SWANK" and src.name == "INSPECTOR":
+                        #         debug_printf("merging %s into %s: test: %s", s, dest, _read_symbol(_print_symbol(s)))
+                if dest.module and name not in dest.module.__dict__:
+                        dest.module.__dict__[name] = sym.value
+
+def use_package(dest, src):
+        "Warning: we're doing a circular package use."
+        dest, src = _coerce_to_package(dest), _coerce_to_package(src)
+        symhash = _map_into_hash(lambda x: (x.name, x), src.external)
+        _use_package_symbols(dest, src, symhash)
+        src.packages_using.add(dest)
+        dest.used_packages.add(src)
+
+def package_used_by_list(package):
+        package = _coerce_to_package(package)
+        return package.packages_using
+
+def _lisp_symbol_name_python_name(x):
+        def _sub(cs):
+                acc = ""
+                for c in cs:
+                        acc += "_" if c in "-*" else c
+                return acc
+        ret = _sub(x).lower()
+        # debug_printf("==> Python(Lisp %s) == %s", x, ret)
+        return ret
+
+def _lisp_symbol_ast(sym, current_package):
+        symname, packname = (_lisp_symbol_name_python_name(sym.name),
+                             _lisp_symbol_name_python_name(sym.package.name))
+        return (_ast_name(symname)
+                if (sym.name in current_package.accessible and
+                    current_package.accessible[sym.name] is sym) else
+                _ast_index(_ast_attribute(_ast_index(_ast_attribute(_ast_name("sys"), "modules"), _ast_string(packname)),
+                                                     "__dict__"),
+                           _ast_string(symname)))
+
+def _lisp_package_name_module(x, if_does_not_exist = "create"):
+        name = _lisp_symbol_name_python_name(x)
+        return (sys.modules[name]                                                                if name in sys.modules else
+                error(simple_package_error, "The name %s does not designate any package.", name) if if_does_not_exist == "error" else
+                None                                                                             if if_does_not_exist == "continue" else
+                error("LISP-PACKAGE-NAME-MODULE: :IF-DOES-NOT-EXIST must be either 'error' or 'continue', not '%s'.", if_does_not_exist))
+
+class package(collections.UserDict):
+        def __str__ (self):
+                return '#<PACKAGE "%s">' % self.name
+        def __bool__(self):
+                return True
+        def __hash__(self):
+                return hash(id(self))
+        def __init__(self, name, use = [], filename = "",
+                     ignore_python = False, python_exports = True, boot = False):
+                self.name = string(name)
+
+                self.own         = set()                        # sym
+                self.imported    = set()                        # sym
+              # self.present     = own + imported
+                self.inherited   = collections.defaultdict(set) # sym -> set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
+                self.accessible  = dict()                       # str -> sym      ## accessible = present + inherited
+                self.external    = set()                        # sym             ## subset of accessible
+              # self.internal    = accessible - external
+
+                modname = _lisp_symbol_name_python_name(name)
+                self.module = (_lisp_package_name_module(modname, if_does_not_exist = "continue") or
+                               _load_text_as_module(modname, "", filename = filename))
+                coercer = (_ccoerce_to_package if boot else
+                           _coerce_to_package)
+                self.used_packages  = set(mapcar(lambda x: coercer(x, if_null = "error"),
+                                                 use))
+                self.packages_using = set()
+                mapc(_curry(use_package, self), self.used_packages)
+
+                ## Import the corresponding python dictionary.  Intern depends on
+                if not ignore_python:
+                        moddict = dict(self.module.__dict__)
+                        explicit_exports = set(moddict["__all__"] if "__all__" in moddict else
+                                               [])
+                        for (key, value) in moddict.items():
+                                ## intern the python symbol, when it is known not to be inherited
+                                if key not in self.accessible:
+                                        s = _intern0(key, self)
+                                        s.value = value
+                                        if functionp(value):
+                                                s.function = value
+                                ## export symbols, according to the python model
+                                if (python_exports and key[0] != '_' and
+                                    ((not explicit_exports) or
+                                     key in explicit_exports)):
+                                        self.external.add(self.accessible[key])
+                ## Hit the street.
+                self.data          = self.accessible
+                __packages__[name] = self
+def packagep(x):     return typep(x, package)
+def package_name(x): return x.name
+
+def make_package(name, nicknames = [], use = []):
+        "XXX: NICKNAMES are ignored."
+        return package(string(name), ignore_python = True, use = [])
+
+def _find_package(name):
+        return (__packages__.get(name) if name in __packages__ else
+                None)
+def find_package(name):
+        return _find_package(_coerce_to_symbol_name(name))
+
+def _ccoerce_to_package(x, **args):
+        return (x                if packagep(x) else
+                _find_package(x) if stringp(x) else
+                error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
+def _coerce_to_package(x, if_null = 'current'):
+        return (x                         if packagep(x) else
+                find_package(x)           if stringp(x) or symbolp(x) else
+                symbol_value("_package_") if not x and if_null == 'current' else
+                error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
+
+def defpackage(name, use = [], export = []):
+        p = package(name, use = use)
+        for symname in export:
+                _not_implemented("DEFPACKAGE: :EXPORT keyword") # XXX: populate the for-INTERN-time-export set of names
+        return p
+
+def in_package(name):
+        setq("_package_", _coerce_to_package(name))
+
+def _print_symbol2(x, package = None): return _letf(_coerce_to_package(package),
+                                                    lambda p: (x.name if x.package and p.accessible[x.name] is x else
+                                                               str(x)))
+
+class symbol():
+        def __str__(self):
+                return (_print_keyword if self.package is __keyword_package__ else _print_symbol)(self)
+        def __repr__(self):
+                return str(self)
+        def __init__(self, name):
+                self.name, self.package, self.value, self.function = name, None, None, None
+        def __hash__(self):
+                return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
+        def __bool__(self):
+                return self is not nil
+def symbolp(x):                      return typep(x, symbol)
+def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
+def symbol_name(x):                  return x.name.lower()
+def symbol_package(x):               return x.package
+def coerce_to_symbol(s_or_n, package = None):
+        return intern(s_or_n, _coerce_to_package(package))
+
+def make_symbol(name):
+        return symbol(name)
+
+def symbol_relation(x, p):
+        "NOTE: here we trust that X belongs to P, when it's a symbol."
+        s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
+        if s is not None:
+                return (_keyword("inherited") if s.name in p.inherited else
+                        _keyword("external")  if s in p.external else
+                        _keyword("internal"))
+
+def _find_symbol(x, package):
+        s = package.accessible.get(x) if x in package.accessible else None
+        if s is not None:
+                # format(t, "FIND-SYMBOL:%s, %s -> %s, %s\n", 
+                #        x, package, s, symbol_relation(s, p))
+                return s, symbol_relation(s, package)
+        else:
+                return None, None
+def find_symbol(x, package = None):
+        return _find_symbol(x, _coerce_to_package(package))
+def _find_symbol0(x, package = None): return find_symbol(x, package)[0]
+
+def _find_symbol_or_fail(x, package = None):
+        p = _coerce_to_package(package)
+        sym, foundp = find_symbol(x, p)
+        return (sym if foundp else
+                symbols_not_accessible_error(p, [x]))
+
+def _intern(x, package = None):
+        p = _coerce_to_package(package)
+        s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
+        if not (s is not None or stringp(x)):
+                error("Attempted to intern object >%s< of type %s into %s.", x, type(x), p)
+        if s:
+                # debug_printf("Found >%s< in %s.", s, p)
+                return s, p
+        else:
+                s = symbol(x)
+                p.own.add(s)
+                p.accessible[x], s.package = s, p
+                # debug_printf("Interned >%s< into %s.", s, p)
+                if p is __keyword_package__:
+                        # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
+                        p.external.add(s)
+                        s.value = s
+                return s, None
+def intern(x, package = None):
+        s, found_in_package = _intern(x, package)
+        return s, (symbol_relation(s, found_in_package) if found_in_package else
+                   None)
+def _intern0(x, package = None): return intern(x, package)[0]
+
+# requires that __keyword_package__ is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
+def _keyword(s, upcase = True):
+        return _intern((s.upper() if upcase else s), __keyword_package__)[0]
+
+def import_(symbols, package = None, populate_module = True):
+        p = _coerce_to_package(package)
+        symbols = _ensure_list(symbols)
+        module = _lisp_package_name_module(package_name(p), if_does_not_exist = "continue")
+        for s in symbols:
+                ps = p.get(s.name) if s.name in p else None
+                if ps is not None: # conflict
+                        symbol_conflict_error("IMPORT", s, p, s, ps)
+                else:
+                        p.imported.add(s)
+                        p.accessible[s.name] = s
+                        if module:
+                                # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
+                                python_name = _lisp_symbol_name_python_name(s.name)
+                                module.__dict__[python_name] = s.value
+        return True
+
+def export(symbols, package = None):
+        symbols, package = _ensure_list(symbols), _coerce_to_package(package)
+        assert(every(symbolp, symbols))
+        symdict = _map_into_hash(lambda x: (x.name, x), symbols)
+        for user in package.packages_using:
+                _use_package_symbols(user, package, symdict)
+        # No conflicts?  Alright, we can proceed..
+        symset = set(symdict.values())
+        for_interning = symset & set(package.inherited)
+        for sym in for_interning:
+                del package.inherited[sym]
+                self.internal.add(sym)
+        package.external |= symset
+        return True
+
+def string(x):
+        return (x              if stringp(x) else
+                symbol_name(x) if symbolp(x) else
+                error(TypeError, "%s cannot be coerced to string." % (x,)))
+
+def _init_condition_system():
+        _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
+
+def _without_condition_system(body):
+        if _pytracer_enabled_p():
+                try:
+                        _disable_pytracer()
+                        return body()
+                finally:
+                        _enable_pytracer()
+        else:
+                return body()
+
+def _init_package_system_0():
+        # debug_printf("   --  -- [ package system init..")
+        global __packages__
+        global __keyword_package__
+        global __modular_noise__
+        global t, nil
+        __packages__ = dict()
+        __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
+        __modular_noise__ = frozenset(_load_text_as_module("", "").__dict__)
+        cl = package("CL")
+        intern(".", cl)
+
+        t                  = _intern0("T", cl)       # Nothing much works without these..
+        nil                = _intern0("NIL", cl)
+        t.value, nil.value = t, nil     # Self-evaluation.
+        export([t, nil] + mapcar(lambda n: _intern0(n, cl),
+                                 ["QUOTE", "OR", "SOME"]),
+               cl)
+        package("COMMON-LISP-USER", use = ["CL"], boot = True)
+_init_package_system_0() ########### _keyword() is now available
+
+def _init_reader_0():
+        "SETQ, SYMBOL_VALUE, LET and BOUNDP (anything calling _COERCE_TO_SYMBOL_NAME) need this to mangle names."
+        __global_scope__["_READ_CASE_"] = _keyword("upcase", upcase = True)
+_init_reader_0()         ########### _coerce_to_symbol_name() is now available
 
 def _init_package_system_1():
         # Ought to declare it all on the top level.
@@ -1458,7 +1472,7 @@ def _read_symbol(x, package = None, case = _keyword("upcase")):
                                                   error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
                                                         x[0:index].upper(), x))
                                   if index != -1 else
-                                  (x, coerce_to_package(package)))))
+                                  (x, _coerce_to_package(package)))))
         return _intern0(_case_xform(case, name), p)
 
 @block
