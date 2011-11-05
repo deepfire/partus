@@ -652,8 +652,8 @@ def open_dedicated_output_stream(socket_io):
 Return an output stream suitable for writing program output.
 
 This is an optimized way for Lisp to deliver output to Emacs."""
-        socket = create_socket(symbol_value('_loopback_interface_'),
-                               symbol_value('_dedicated_output_stream_port_'))
+        socket = create_socket(symbol_value("_loopback_interface_"),
+                               symbol_value("_dedicated_output_stream_port_"))
         try:
                 port = local_port(socket)
                 encode_message([keyword("open-dedicated-output-stream"), port], socket_io)
@@ -661,7 +661,7 @@ This is an optimized way for Lisp to deliver output to Emacs."""
                                               external_format = ignore_errors(
                                 lambda:
                                         string(stream_external_format(socket_io))) or "default", # was: keyword("default")
-                                              buffering = symbol_value('_dedicated_output_stream_buffering_'),
+                                              buffering = symbol_value("_dedicated_output_stream_buffering_"),
                                               timeout = 30)
                 close_socket(socket)
                 socket = None
@@ -1133,7 +1133,7 @@ setq("_globally_redirect_io_", nil)
 
 setq("_saved_global_streams_", [])
 """A plist to save and restore redirected stream objects.
-E.g. the value for '_standard_output_ holds the stream object
+E.g. the value for '*STANDARD-OUTPUT* holds the stream object
 for _standard_output_ before we install our redirection."""
 
 def setup_stream_indirection(stream_var, stream = None):
@@ -1568,11 +1568,11 @@ Errors are trapped and invoke our debugger."""
                         run_hook(boundp("_pre_reply_hook_") and symbol_value("_pre_reply_hook_"))
                         ok = True
         finally:
-                send_to_emacs([keyword('return'),
+                send_to_emacs([keyword("return"),
                                current_thread(),
-                               ([keyword('ok'), result]
+                               ([keyword("ok"), result]
                                 if ok else
-                                [keyword('abort'), condition]),
+                                [keyword("abort"), condition]),
                                id])
 
 setq("_echo_area_prefix_", "=> ")
@@ -1690,15 +1690,15 @@ aborted and return immediately with the output written so far."""
                 nonlocal fill_pointer
                 free = length - fill_pointer
                 count = min(free, len(string))
-                replace(buffer, string.encode('ascii'), start1 = fill_pointer, end2 = count)
+                replace(buffer, string.encode("ascii"), start1 = fill_pointer, end2 = count)
                 fill_pointer += count
                 if len(string) > free:
-                        replace(buffer, ellipsis.encode('ascii'), start1 = fill_pointer)
-                        return_from(call__truncated_output_to_string, buffer.decode('ascii'))
+                        replace(buffer, ellipsis.encode("ascii"), start1 = fill_pointer)
+                        return_from(call__truncated_output_to_string, buffer.decode("ascii"))
         stream = make_output_stream(write_output)
         function(stream)
         finish_output(stream)
-        return subseq(buffer, 0, fill_pointer).decode('ascii')
+        return subseq(buffer, 0, fill_pointer).decode("ascii")
 
 def with_string_stream(body, length = nil, bindings = nil):
         if not (length or bindings):
@@ -2139,9 +2139,9 @@ def frame_locals_and_catch_tags(index):
 LOCALS is a list of the form ((&key NAME ID VALUE) ...).
 TAGS has is a list of strings."""
         # Swankr:
-        # return [mapcar(lambda local_name: [keyword('name'), local_name,
-        #                                    keyword('id'), 0,
-        #                                    keyword('value'), handler_bind(lambda: print_to_string(frame_local_value(frame, local_name)),
+        # return [mapcar(lambda local_name: [keyword("name"), local_name,
+        #                                    keyword("id"), 0,
+        #                                    keyword("value"), handler_bind(lambda: print_to_string(frame_local_value(frame, local_name)),
         #                                                                    Exception = lambda c: "Error printing object: %s." % c)],
         #                ordered_frame_locals(frame)),
         #         []]
@@ -2239,10 +2239,10 @@ def compile_file_for_emacs(slime_connection, sldb_state, filename, loadp, *args)
         "XXX: not in compliance"
         """Compile FILENAME and, when LOAD-P, load the result.
 Record compiler notes signalled as `compiler-condition's."""
-        filename.co, time = clocking(lambda: compile(file_as_string(filename), filename, 'exec'))
+        filename.co, time = clocking(lambda: compile(file_as_string(filename), filename, "exec"))
         if loadp:
                 load_file(slime_connection, sldb_state, filename)
-        return [keyword('compilation-result'), [], True, time, substitute(loadp), filename]
+        return [keyword("compilation-result"), [], True, time, substitute(loadp), filename]
 
 setq("_fasl_pathname_function_", nil)
 "In non-nil, use this function to compute the name for fasl-files."
@@ -2263,9 +2263,9 @@ Record compiler notes signalled as `compiler-condition's."""
         ## Swankr:
         # line_offset = char_offset = col_offset = None
         # for pos in position:
-        #         if pos[0] is keyword('position'):
+        #         if pos[0] is keyword("position"):
         #                 char_offset = pos[1]
-        #         elif pos[0] is keyword('line'):
+        #         elif pos[0] is keyword("line"):
         #                 line_offset = pos[1]
         #                 char_offset = pos[2]
         #         else:
@@ -2286,7 +2286,7 @@ Record compiler notes signalled as `compiler-condition's."""
         #         val, time = clocking(clocking_body)
         #         return val
         # with_restarts(with_restarts_body)
-        # return [keyword('compilation-result'), [], True, time, False, False]
+        # return [keyword("compilation-result"), [], True, time, False, False]
         offset = assoc(keyword("position"), position)[1]
         def body():
                 with progv(_compile_print_ = t,

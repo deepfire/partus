@@ -475,15 +475,19 @@ def print_frame(frame, stream):
 
 @defimplementation
 def frame_source_location(n):
-        fun = _frame_fun(sldb_state.frames[n]) # XXX: was [n + 1]
-        name, _, srcfile, line, nlines = _fun_info(fun)[:5]
-        if not srcfile:
-                return [keyword('error'), "no srcfile"]
-        else:
-                return [keyword('location'),
-                        [keyword('file'), srcfile],
-                        [keyword('line'), line, line + nlines],
-                        find_symbol0('nil')]
+        ## Swankr:
+        # fun = _frame_fun(sldb_state.frames[n]) # XXX: was [n + 1]
+        # name, _, srcfile, line, nlines = _fun_info(fun)[:5]
+        # if not srcfile:
+        #         return [keyword("error"), "no srcfile"]
+        # else:
+        #         return [keyword("location"),
+        #                 [keyword("file"), srcfile],
+        #                 [keyword("line"), line, line + nlines],
+        #                 find_symbol0("nil")]
+        return converting_errors_to_error_location(
+                lambda: code_location_source_location(
+                        frame_code_location(nth_frame(index))))
 
 def frame_debug_vars(frame):
         "Return a vector of debug-variables in frame."
@@ -729,7 +733,7 @@ class _mailbox():
 def mailbox(thread):
         def body():
                 mboxes = symbol_value("_mailboxes_")
-                mbox = find(thread, mboxes, key = slotting('thread'))
+                mbox = find(thread, mboxes, key = slotting("thread"))
                 if mbox:
                         return mbox
                 else:

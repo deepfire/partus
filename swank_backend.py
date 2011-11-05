@@ -48,7 +48,7 @@ Backends implement these functions using DEFIMPLEMENTATION."""
 
 def defimplementation(fn):
         setq("_unimplemented_interfaces_", remove(fn.__name__, symbol_value("_unimplemented_interfaces_")))
-        sys.modules['swank_backend'].__dict__[fn.__name__] = fn
+        sys.modules["swank_backend"].__dict__[fn.__name__] = fn
         return fn
 
 def warn_unimplemented_interfaces():
@@ -314,7 +314,7 @@ e.g. \"latin-1-unix\"."""
         #     :default
         #     nil)
         return (coding_system
-                if coding_system in ['utf-8'] else
+                if coding_system in ["utf-8"] else
                 None)
 
 @definterface

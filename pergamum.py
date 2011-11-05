@@ -386,7 +386,7 @@ def subset(set, subset_spec):
         return set if subset_spec is True else set & subset_spec
 
 def coerce_to_subset_spec(true_or_list):
-        "Return a subset specifier, given either a list or 'True'."
+        "Return a subset specifier, given either a list or True."
         return True if true_or_list is True else frozenset(true_or_list)
 
 def in_subsetp(x, subset_spec):
@@ -490,7 +490,7 @@ On errors, call ON-WALK-ERRORS, passing it the condition object."""
                                                 return
         except Exception as cond:
                 print_backtrace()
-                format(t, "Error %s, last processed: directory '%s', file '%s'.", cond, last_dir, last_file)
+                format(t, "Error %s, last processed: directory \"%s\", file \"%s\".", cond, last_dir, last_file)
 
 ## pretty-printing
 def eng_yesno(x):     return "yes" if x else "no"
@@ -504,14 +504,14 @@ def eng_nt(x):        return "n't" if not x else ""
 
 def pp_lisp_list(xs, quote = False, key = identity, separator = ", "):
         acc = [""],
-        quote = "'" if quote else ""
+        quote = "\"" if quote else ""
         def add(x):
                 acc[0] += x
         mapl(lambda x: add(quote + key(x) + quote + separator), xs)
         return acc[0][:-2] if acc[0] else "None"
 
 def pp_iterable(xs, quote = False, key = identity, separator = ", "):
-        quote = "'" if quote else ""
+        quote = "\"" if quote else ""
         return reduce(lambda x, y: x + quote + key(y) + quote + separator,
                       list(xs),
                       "")[:-len(separator)]
@@ -542,8 +542,8 @@ def string_to_complex(x_str, spec):
 
         Example:
 
-        string_to_complex("[('/usr/bin', -1), ('/bin/', -1)]", [(stringp, integerp)])
-        => [('/usr/bin', -1), ('/bin/', -1)]"""
+        string_to_complex("[(\"/usr/bin\", -1), (\"/bin/\", -1)]", [(stringp, integerp)])
+        => [(\"/usr/bin\", -1), (\"/bin/\", -1)]"""
         assert(stringp(x_str))
         x = ast.literal_eval(x_str)
         def rec(x, subspec):

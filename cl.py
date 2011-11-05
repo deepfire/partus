@@ -80,7 +80,7 @@ def _ast_list(xs):
         return ast.List(elts = xs, ctx = ast.Load())
 def _ast_funcall(name, *args):
         if not every(lambda x: stringp(x) or _astp(x) or x is None, args):
-                error('AST-FUNCALL: %s: improper arglist %s', name, str(args))
+                error("AST-FUNCALL: %s: improper arglist %s", name, str(args))
         return ast.Call(func = (_ast_name(name) if stringp(name) else name),
                         args = mapcar(_ast_maybe_normalise_string, args),
                         keywords = [],
@@ -99,25 +99,25 @@ def _ast_module(body):
 ##
 ## modules/packages
 ##
-def _load_code_object_as_module(name, x, filename = '', builtins = None):
+def _load_code_object_as_module(name, x, filename = "", builtins = None):
         check_type(x, type(_load_code_object_as_module.__code__))
         mod = imp.new_module(name)
         mod.__filename__ = filename
         if builtins:
-                mod.__dict__['__builtins__'] = builtins
+                mod.__dict__["__builtins__"] = builtins
         sys.modules[name] = mod
         exec(x, mod.__dict__, mod.__dict__)
         return mod
 
-def _load_text_as_module(name, text, filename = '', builtins = None):
-        return _load_code_object_as_module(name, compile(text, filename, 'exec'),
+def _load_text_as_module(name, text, filename = "", builtins = None):
+        return _load_code_object_as_module(name, compile(text, filename, "exec"),
                                            filename = filename, builtins = builtins)
 
 def _reregister_module_as_package(mod, parent_package = None):
         # this line might need to be performed before exec()
         mod.__path__ = (parent_package.__path__ if parent_package else []) + [ mod.name.split(".")[-1] ]
         if parent_package:
-                dotpos = mod.name.rindex('.')
+                dotpos = mod.name.rindex(".")
                 assert (dotpos)
                 postdot_name = mod.name[dotpos + 1:]
                 setattr(parent_package, postdot_name, mod)
@@ -130,21 +130,21 @@ def _reregister_module_as_package(mod, parent_package = None):
 ## frames
 ##
 # >>> dir(f)
-# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
-# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
-# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
-# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
-# '__subclasshook__', 'f_back', 'f_builtins', 'f_code', 'f_globals',
-# 'f_lasti', 'f_lineno', 'f_locals', 'f_trace']
+# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
+# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
+# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
+# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
+# "__subclasshook__", "f_back", "f_builtins", "f_code", "f_globals",
+# "f_lasti", "f_lineno", "f_locals", "f_trace"]
 # >>> dir(f.f_code)
-# ['__class__', '__delattr__', '__doc__', '__eq__', '__format__',
-# '__ge__', '__getattribute__', '__gt__', '__hash__', '__init__',
-# '__le__', '__lt__', '__ne__', '__new__', '__reduce__',
-# '__reduce_ex__', '__repr__', '__setattr__', '__sizeof__', '__str__',
-# '__subclasshook__', 'co_argcount', 'co_cellvars', 'co_code',
-# 'co_consts', 'co_filename', 'co_firstlineno', 'co_flags',
-# 'co_freevars', 'co_kwonlyargcount', 'co_lnotab', 'co_name',
-# 'co_names', 'co_nlocals', 'co_stacksize', 'co_varnames']
+# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
+# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
+# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
+# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
+# "__subclasshook__", "co_argcount", "co_cellvars", "co_code",
+# "co_consts", "co_filename", "co_firstlineno", "co_flags",
+# "co_freevars", "co_kwonlyargcount", "co_lnotab", "co_name",
+# "co_names", "co_nlocals", "co_stacksize", "co_varnames"]
 def _example_frame():
         "cellvars: closed over non-globals;  varnames: bound"
         def xceptor(xceptor_arg):
@@ -170,7 +170,7 @@ def _this_frame():
         return sys._getframe(1)
 
 def _next_frame(f):
-        return f.f_back if f.f_back else error("Frame '%s' is the last frame.", _pp_frame(f, lineno = True))
+        return f.f_back if f.f_back else error("Frame \"%s\" is the last frame.", _pp_frame(f, lineno = True))
 
 def _caller_frame(n = 0):
         return sys._getframe(n + 2)
@@ -261,19 +261,19 @@ def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.s
 #                             "== def %s\n%s\n" %
 #                     (fun_name(f),
 #                      "\n  ".join(map(lambda s: s + ": " + str(getattr(f, s)),
-#                                      ['co_argcount',
-#                                       'co_cellvars',
-#                                       'co_names',
-#                                       'co_varnames',
-#                                       'co_freevars',
-#                                       'co_nlocals']))),
+#                                      ["co_argcount",
+#                                       "co_cellvars",
+#                                       "co_names",
+#                                       "co_varnames",
+#                                       "co_freevars",
+#                                       "co_nlocals"]))),
 #                     ffuns)))
 
 # == def xceptor
 # co_argcount: 1
 #   co_cellvars: ()
-#   co_names: ('error', 'Exception', 'this_frame')
-#   co_varnames: ('xceptor_arg', 'cond')
+#   co_names: ("error", "Exception", "this_frame")
+#   co_varnames: ("xceptor_arg", "cond")
 #   co_freevars: ()
 #   co_nlocals: 2
 
@@ -281,30 +281,30 @@ def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.s
 # co_argcount: 1
 #   co_cellvars: ()
 #   co_names: ()
-#   co_varnames: ('midder_arg', 'midder_stack_var')
-#   co_freevars: ('xceptor',)
+#   co_varnames: ("midder_arg", "midder_stack_var")
+#   co_freevars: ("xceptor",)
 #   co_nlocals: 2
 
 # == def outer
 # co_argcount: 0
 #   co_cellvars: ()
 #   co_names: ()
-#   co_varnames: ('outer_stack_var',)
-#   co_freevars: ('midder',)
+#   co_varnames: ("outer_stack_var",)
+#   co_freevars: ("midder",)
 #   co_nlocals: 1
 
 # == def example_frame
 # co_argcount: 0
-#   co_cellvars: ('xceptor', 'midder')
+#   co_cellvars: ("xceptor", "midder")
 #   co_names: ()
-#   co_varnames: ('outer',)
+#   co_varnames: ("outer",)
 #   co_freevars: ()
 #   co_nlocals: 1
 
 # == def <module>
 # co_argcount: 0
 #   co_cellvars: ()
-#   co_names: ('example_frame', 'f')
+#   co_names: ("example_frame", "f")
 #   co_varnames: ()
 #   co_freevars: ()
 #   co_nlocals: 0
@@ -544,7 +544,7 @@ def complexp(o):      return type(o) is complex
 def numberp(o):       return type(o) in frozenset([float, int, complex])
 def listp(o):         return type(o) is list
 def boolp(o):         return type(o) is bool
-def sequencep(x):     return getattr(type(x), '__len__', None) is not None
+def sequencep(x):     return getattr(type(x), "__len__", None) is not None
 
 ##
 ## Predicates
@@ -850,7 +850,7 @@ def catch(ball, body):
 
 def throw(ball, value):
         "Stack this seeks, like mad, like the real one."
-        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp('_signalling_frame_'))
+        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp("_signalling_frame_"))
 
 def make_ball(name, nonce):
         return nonce + name + nonce # Shall we do something smarter?
@@ -948,7 +948,7 @@ env = __dynamic_scope__             # shortcut..
 
 def progv(vars = None, vals = None, body = None, **cluster):
         """Two usage modes:
-progv(['foovar', 'barvar'],
+progv([\"foovar\", \"barvar\"],
       [3.14, 2.71],
       lambda: body())
 
@@ -983,13 +983,13 @@ def symbol_conflict_error(op, obj, pkg, x, y):
 
 def symbols_not_accessible_error(package, syms):
         def pp_sym_or_string(x):
-                return "'%s'" % x if stringp(x) else _print_symbol(x)
+                return "\"%s\"" % x if stringp(x) else _print_symbol(x)
         error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
               package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
 
 def _use_package_symbols(dest, src, syms):
         assert(packagep(dest) and packagep(src) and _dictp(syms))
-        conflict_set = _mapset(_slotting('name'), syms.values()) & set(dest.accessible.keys())
+        conflict_set = _mapset(_slotting("name"), syms.values()) & set(dest.accessible.keys())
         for name in conflict_set:
                 if syms[name] is not dest.accessible[name]:
                         symbol_conflict_error("USE-PACKAGE", src, dest, syms[name], dest.accessible[name])
@@ -1040,11 +1040,11 @@ def _lisp_package_name_module(x, if_does_not_exist = "create"):
         return (sys.modules[name]                                                                if name in sys.modules else
                 error(simple_package_error, "The name %s does not designate any package.", name) if if_does_not_exist == "error" else
                 None                                                                             if if_does_not_exist == "continue" else
-                error("LISP-PACKAGE-NAME-MODULE: :IF-DOES-NOT-EXIST must be either 'error' or 'continue', not '%s'.", if_does_not_exist))
+                error("LISP-PACKAGE-NAME-MODULE: :IF-DOES-NOT-EXIST must be either \"error\" or \"continue\", not \"%s\".", if_does_not_exist))
 
 class package(collections.UserDict):
         def __str__ (self):
-                return '#<PACKAGE "%s">' % self.name
+                return "#<PACKAGE \"%s\">" % self.name
         def __bool__(self):
                 return True
         def __hash__(self):
@@ -1085,7 +1085,7 @@ class package(collections.UserDict):
                                         if functionp(value):
                                                 s.function = value
                                 ## export symbols, according to the python model
-                                if (python_exports and key[0] != '_' and
+                                if (python_exports and key[0] != "_" and
                                     ((not explicit_exports) or
                                      key in explicit_exports)):
                                         self.external.add(self.accessible[key])
@@ -1110,10 +1110,10 @@ def _ccoerce_to_package(x, **args):
         return (x                if packagep(x) else
                 _find_package(x) if stringp(x) else
                 error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
-def _coerce_to_package(x, if_null = 'current'):
+def _coerce_to_package(x, if_null = "current"):
         return (x                         if packagep(x) else
                 find_package(x)           if stringp(x) or symbolp(x) else
-                symbol_value("_package_") if not x and if_null == 'current' else
+                symbol_value("_package_") if not x and if_null == "current" else
                 error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
 
 def defpackage(name, use = [], export = []):
@@ -1394,23 +1394,23 @@ def write_to_string(object,
                 def write_to_string_loop(object):
                         nonlocal string
                         if listp(object) or _tuplep(object):
-                                string += '('
+                                string += "("
                                 max = len(object)
                                 if max:
                                         for i in range(0, max):
                                                 string += do_write_to_string(object[i])
                                                 if i != (max - 1):
                                                         string += " "
-                                string += ')'
+                                string += ")"
                         elif symbolp(object) or integerp(object) or floatp(object):
                                 string += str(object)
                         elif object in obj2lisp_xform:
                                 string += obj2lisp_xform[object]
-                        elif type(object).__name__ == 'builtin_function_or_method':
-                                string += '"#<builtin %s 0x%x>"' % (object.__name__, id(object))
+                        elif type(object).__name__ == "builtin_function_or_method":
+                                string += ""#<builtin %s 0x%x>"" % (object.__name__, id(object))
                         elif stringp(object):
-                                string += '"%s"' % _without_condition_system(
-                                        lambda: re.sub(r'(["\\])', r'\\\\1', object))
+                                string += "\"%s\"" % _without_condition_system(
+                                        lambda: re.sub(r"([\"\\])", r"\\\\1", object))
                         else:
                                 string += "<%s>" % (object,)
                                 # error("Can't write object %s", object)
@@ -1455,7 +1455,7 @@ setq("_read_case_", _keyword("upcase"))
 
 def parse_integer(xs, junk_allowed = nil, radix = 10):
         l = len(xs)
-        def hexcharp(x): return x.isdigit() or x in ['a', 'b', 'c', 'd', 'e', 'f']
+        def hexcharp(x): return x.isdigit() or x in ["a", "b", "c", "d", "e", "f"]
         (test, xform) = ((str.isdigit, identity)      if radix == 10 else
                          (hexcharp,    float.fromhex) if radix == 16 else
                          _not_implemented("PARSE-INTEGER only implemented for radices 10 and 16."))
@@ -1465,7 +1465,7 @@ def parse_integer(xs, junk_allowed = nil, radix = 10):
                                 end -= 1
                                 break
                         else:
-                                error("Junk in string '%s'.", xs)
+                                error("Junk in string \"%s\".", xs)
         return int(xform(xs[:(end + 1)]))
 
 def _read_symbol(x, package = None, case = _keyword("upcase")):
@@ -1488,7 +1488,7 @@ def _read_symbol(x, package = None, case = _keyword("upcase")):
 def read_from_string(string, eof_error_p = True, eof_value = nil,
                      start = 0, end = None, preserve_whitespace = None):
         "Does not conform."
-        # _here("from '%s'" % string)
+        # _here("from \"%s\"" % string)
         # string = re.sub(r"swank\:lookup-presented-object ", r"lookup_presented_object ", string)
         pos, end = start, (end or len(string))
         def handle_short_read_if(test):
@@ -1499,7 +1499,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
         def read():
                 skip_whitespace()
                 char = string[pos]
-                # _here("> '%s', by '%s'" % (string[pos:], char))
+                # _here("> \"%s\", by \"%s\"" % (string[pos:], char))
                 if   char == "(":  obj = read_list()
                 elif char == "\"": obj = read_string()
                 elif char == "'":  obj = read_quote()
@@ -1549,7 +1549,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                                 if   char2 == "\"": add_char(char2)
                                 elif char2 == "\\": add_char(char2)
                                 else:
-                                        error("READ-FROM-STRING: unrecognized escape character '%s'.", char2)
+                                        error("READ-FROM-STRING: unrecognized escape character \"%s\".", char2)
                         else:
                                 add_char(char)
                 # _here("< %s" % (ret,))
@@ -1697,7 +1697,7 @@ def write_string(string, stream = t):
                         try:
                                 return _write_string(string, _coerce_to_stream(stream))
                         except io.UnsupportedOperation as cond:
-                                error(stream_type_error, "%s is not an %s stream: '%s'.",
+                                error(stream_type_error, "%s is not an %s stream: \"%s\".",
                                       stream, ("output" if cond.args[0] == "not writable" else
                                                "adequate"),
                                       cond.args[0])
@@ -1725,7 +1725,7 @@ def force_output(*args, **keys):
 ##
 ## Pythonese execution tracing: for HANDLER-BIND.
 ##
-__tracer_hooks__   = dict() # allowed keys: 'call', 'line', 'return', 'exception', 'c_call', 'c_return', 'c_exception'
+__tracer_hooks__   = dict() # allowed keys: "call", "line", "return", "exception", "c_call", "c_return", "c_exception"
 def _set_tracer_hook(type, fn):        __tracer_hooks__[type] = fn
 def     _tracer_hook(type):     return __tracer_hooks__.get(type) if type in __tracer_hooks__ else None
 
@@ -1740,7 +1740,7 @@ def _enable_pytracer():    sys.settrace(_pytracer); return True
 def _disable_pytracer():   sys.settrace(None);      return True
 
 def _set_condition_handler(fn):
-        _set_tracer_hook('exception', fn)
+        _set_tracer_hook("exception", fn)
         return True
 
 ##
@@ -1775,11 +1775,11 @@ def signal(cond):
         "XXX: this is crippled by inheritance-ignorant exact matching of the condition name."
         name = type_of(cond).__name__
         for cluster in reversed(env.__handler_clusters__):
-                # format(t, "Analysing cluster %s for '%s'.", cluster, name)
+                # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                 if name in cluster:
                         hook = symbol_value("_prehandler_hook_")
                         if hook:
-                                frame = cluster['__frame__']
+                                frame = cluster["__frame__"]
                                 hook(cond, frame, hook)
                         cluster[name](cond)
         return nil
@@ -1806,7 +1806,7 @@ __main_thread__ = threading.current_thread()
 def _report_condition(cond, stream = None, backtrace = None):
         stream = _defaulted_to_var(stream, "_debug_io_")
         format(stream, "%sondition of type %s: %s\n",
-               (("In thread '%s': c" % threading.current_thread().name)
+               (("In thread \"%s\": c" % threading.current_thread().name)
                 if threading.current_thread() is not __main_thread__ else 
                 "C"),
                type(cond), cond)
@@ -1866,18 +1866,18 @@ def handler_bind(fn, no_error = identity, **handlers):
         # this is:
         #     pytracer_enabled_p() and condition_handler_active_p()
         # ..inlined for speed.
-        if _pytracer_enabled_p() and 'exception' in __tracer_hooks__ and __tracer_hooks__['exception'] is __cl_condition_handler__:
+        if _pytracer_enabled_p() and "exception" in __tracer_hooks__ and __tracer_hooks__["exception"] is __cl_condition_handler__:
                 ### XXX: This is a temporary shitty workaround for broken FIND-CLASS (oh, yes, Python, thank you again!)
                 # resolved = dict()
                 # for type, handler in handlers.items():
                 #         resolved[resolve_exception_type(type)] = handler
-                handlers['__frame__'] = _this_frame()
+                handlers["__frame__"] = _this_frame()
                 with env.let(__handler_clusters__ = env.__handler_clusters__ + [handlers]):
                         return no_error(fn())
         else:
                 # old world case..
                 # format(t, "crap FAIL: pep %s, exhook is cch: %s",
-                #        _pytracer_enabled_p(), __tracer_hooks__.get('exception') is __cl_condition_handler__)
+                #        _pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
                 if len(handlers) > 1:
                         error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
                               len(handlers))
@@ -2045,7 +2045,7 @@ returned. Otherwise, NIL is returned.
                 return find_restart(restart_name(identifier)) is identifier
         else:
                 for cluster in reversed(env.__restart_clusters__):
-                        # format(t, "Analysing cluster %s for '%s'.", cluster, name)
+                        # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                         restart = cluster[identifier] if identifier in cluster else None
                         if restart and restart_condition_association_check(condition, restart):
                                 return restart
@@ -2076,7 +2076,7 @@ returned by COMPUTE-RESTARTS is every modified.
 """
         restarts = list()
         for cluster in reversed(env.__restart_clusters__):
-                # format(t, "Analysing cluster %s for '%s'.", cluster, name)
+                # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                 restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
                                 if condition else
                                 cluster.values())
@@ -2120,7 +2120,7 @@ executes the following:
 ##
 def describe(x, stream = t):
         stream = _coerce_to_stream(stream)
-        write_line("Object '%s' of type %s:" % (x, type_of(x)))
+        write_line("Object \"%s\" of type %s:" % (x, type_of(x)))
         for attr, val in (x.__dict__ if hasattr(x, "__dict__") else
                           { k: getattr(x, k) for k in dir(x)}).items():
                 write_line("%25s: %s" % (attr, str(val)))
@@ -2140,7 +2140,7 @@ def load(pathspec, verbose = None, print = None,
         verbose = _defaulted_to_var(verbose, "_load_verbose_")
         print   = _defaulted_to_var(verbose, "_load_print_")
         filename = pathspec
-        exec(compile(file_as_string(filename), filename, 'exec'))
+        exec(compile(file_as_string(filename), filename, "exec"))
         return True
 
 def require(name, pathnames = None):
@@ -2221,7 +2221,7 @@ def eval_(form):
         except error_ as cond:
                 error("EVAL: error while trying to callify <%s>: %s", form, cond)
         try:
-                code = compile(call, '', 'exec')
+                code = compile(call, "", "exec")
         except error_ as cond:
                 import more_ast
                 error("EVAL: error while trying to compile <%s>: %s", more_ast.pp_ast_as_code(expr), cond)
