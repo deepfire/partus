@@ -596,6 +596,13 @@ def none(fn, xs):
 ##
 ## Sequences
 ##
+def getf(xs, key):
+        for i, x in enumerate(xs):
+                if not i%2 and x == key:
+                        return xs[i + 1]
+        else:
+                return nil
+
 def aref(xs, *indices):
         r = xs
         for i in indices:
