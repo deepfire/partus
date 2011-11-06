@@ -184,3 +184,320 @@ Traceback (most recent call last):
 NameError: global name '_package__coerce_to_package' is not defined
 
 ..renaming __coerce_to_package function to _ccoerce_to_package solves the issue.
+
+Issue NESTED-SWANK-ERRORS-PASS-STEALTHILY
+
+================= swank high level:
+Exception in thread repl-thread:
+Traceback (most recent call last):
+  File "/usr/lib/python3.2/threading.py", line 740, in _bootstrap_inner
+    self.run()
+  File "swank_python.py", line 660, in <lambda>
+    thread.run = lambda: cl._enable_pytracer() and fn()
+  File "swank.py", line 891, in <lambda>
+    lambda: repl_loop(conn)),
+  File "swank.py", line 106, in call_with_bindings
+    return fun()
+  File "swank.py", line 891, in <lambda>
+    lambda: repl_loop(conn)),
+  File "swank.py", line 1079, in repl_loop
+    handle_requests(conn)
+  File "swank.py", line 732, in handle_requests
+    lambda: (process_requests(timeout) if symbol_value("_sldb_quit_restart_") else
+  File "swank.py", line 461, in with_connection
+    lambda: with_swank_error_handler(
+  File "swank.py", line 446, in without_slime_interrupts
+    return body()
+  File "swank.py", line 463, in <lambda>
+    lambda: with_io_redirection(
+  File "swank.py", line 297, in with_swank_error_handler
+    swank_error = (lambda condition:
+  File "cl.py", line 1898, in handler_case
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 841, in catch
+    return body()
+  File "cl.py", line 1898, in <lambda>
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 1876, in handler_bind
+    return no_error(fn())
+  File "swank.py", line 293, in handler_case_body
+    swank_error = (lambda condition:
+  File "cl.py", line 1876, in handler_bind
+    return no_error(fn())
+  File "swank.py", line 465, in <lambda>
+    lambda: call_with_debugger_hook(
+  File "swank.py", line 451, in with_io_redirection
+    return with_bindings(conn.env, body)
+  File "swank.py", line 116, in call_with_bindings
+    return progv(vars, vals, fun)
+  File "cl.py", line 963, in progv
+    return body()
+  File "swank.py", line 467, in <lambda>
+    body))))
+  File "swank_backend.py", line 496, in call_with_debugger_hook
+    return body()
+  File "swank.py", line 733, in <lambda>
+    here("within connection!") and tag_body()))
+  File "cl.py", line 863, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "cl.py", line 841, in catch
+    return body()
+  File "cl.py", line 863, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "swank.py", line 729, in tag_body
+    inner()
+  File "cl.py", line 863, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "cl.py", line 841, in catch
+    return body()
+  File "cl.py", line 863, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "swank.py", line 727, in inner
+    lambda: process_requests(timeout)))
+  File "swank.py", line 704, in with_top_level_restart
+    lambda: restart_case(restart_case_body,
+  File "swank.py", line 456, in with_connection
+    return body()
+  File "swank.py", line 707, in <lambda>
+    dict(report = "Return to SLIME's top level."))))
+  File "cl.py", line 2008, in restart_case
+    return _restart_case(body, **_specs_restarts_args(restart_specs))
+  File "cl.py", line 2005, in _restart_case
+    lambda: _restart_bind(body, wrapped_restarts_args))
+  File "cl.py", line 841, in catch
+    return body()
+  File "cl.py", line 2005, in <lambda>
+    lambda: _restart_bind(body, wrapped_restarts_args))
+  File "cl.py", line 1978, in _restart_bind
+    return body()
+  File "swank.py", line 701, in restart_case_body
+    return body()
+  File "swank.py", line 727, in <lambda>
+    lambda: process_requests(timeout)))
+  File "cl.py", line 863, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "cl.py", line 841, in catch
+    return body()
+  File "cl.py", line 863, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "swank.py", line 753, in process_requests
+    return loop(body)
+  File "cl.py", line 448, in loop
+    body()
+  File "swank.py", line 751, in body
+    lambda channel, selector, *args:
+  File "swank.py", line 424, in destructure_case
+    return action(*body)
+  File "swank.py", line 1566, in eval_for_emacs
+    Exception = set_condition)
+  File "cl.py", line 1876, in handler_bind
+    return no_error(fn())
+  File "swank.py", line 1565, in <lambda>
+    handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
+  File "swank.py", line 440, in with_slime_interrupts
+    ret = body()
+  File "swank.py", line 1564, in with_slime_interrupts_body
+    return eval_(form)
+  File "cl.py", line 2247, in eval_
+    exec(code, _lisp_package_name_module(package_name(package)).__dict__)
+  File "", line 1, in <module>
+  File "cl.py", line 1735, in _pytracer
+    method(arg, frame)
+  File "cl.py", line 1852, in __cl_condition_handler__
+    debugger_hook(cond, debugger_hook)
+  File "swank_backend.py", line 495, in <lambda>
+    function(cond, hook))):
+  File "swank.py", line 1874, in swank_debugger_hook
+    invoke_default_debugger_condition = lambda _: invoke_slime_debugger(condition))
+  File "cl.py", line 1898, in handler_case
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 841, in catch
+    return body()
+  File "cl.py", line 1898, in <lambda>
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 1876, in handler_bind
+    return no_error(fn())
+  File "swank.py", line 1873, in <lambda>
+    lambda: invoke_slime_debugger(condition)),
+  File "swank_backend.py", line 496, in call_with_debugger_hook
+    return body()
+  File "swank.py", line 1873, in <lambda>
+    lambda: invoke_slime_debugger(condition)),
+  File "swank.py", line 1861, in invoke_slime_debugger
+    lambda: (debug_in_emacs(condition) if symbol_value("_emacs_connection_") else
+  File "swank.py", line 446, in without_slime_interrupts
+    return body()
+  File "swank.py", line 1861, in <lambda>
+    lambda: (debug_in_emacs(condition) if symbol_value("_emacs_connection_") else
+  File "swank.py", line 1934, in debug_in_emacs
+    call_with_debugging_environment(lambda: sldb_loop(env._sldb_level_))
+  File "swank_python.py", line 440, in call_with_debugging_environment
+    debug_condition = lambda condition: signal((make_condition(sldb_condition,
+  File "cl.py", line 1876, in handler_bind
+    return no_error(fn())
+  File "swank_python.py", line 439, in <lambda>
+    handler_bind(lambda: debugger_loop_fn(),
+  File "swank.py", line 1934, in <lambda>
+    call_with_debugging_environment(lambda: sldb_loop(env._sldb_level_))
+  File "cl.py", line 863, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "cl.py", line 841, in catch
+    return body()
+  File "cl.py", line 863, in <lambda>
+    lambda: fn(*args, **keys)))
+  File "swank.py", line 1957, in sldb_loop
+    with_simple_restart_body)
+  File "cl.py", line 2027, in with_simple_restart
+    report_function = lambda stream: format(stream, "%s", description)) })
+  File "cl.py", line 2008, in restart_case
+    return _restart_case(body, **_specs_restarts_args(restart_specs))
+  File "cl.py", line 2005, in _restart_case
+    lambda: _restart_bind(body, wrapped_restarts_args))
+  File "cl.py", line 841, in catch
+    return body()
+  File "cl.py", line 2005, in <lambda>
+    lambda: _restart_bind(body, wrapped_restarts_args))
+  File "cl.py", line 1978, in _restart_bind
+    return body()
+  File "swank.py", line 1955, in with_simple_restart_body
+    SLDB_CONDITION = lambda c: handle_sldb_condition(c))
+  File "cl.py", line 1898, in handler_case
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 841, in catch
+    return body()
+  File "cl.py", line 1898, in <lambda>
+    lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+  File "cl.py", line 1876, in handler_bind
+    return no_error(fn())
+  File "swank.py", line 1951, in handler_case_body
+    eval_for_emacs(*evt[1:])
+  File "swank.py", line 1566, in eval_for_emacs
+    Exception = set_condition)
+  File "cl.py", line 1876, in handler_bind
+    return no_error(fn())
+  File "swank.py", line 1565, in <lambda>
+    handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
+  File "swank.py", line 440, in with_slime_interrupts
+    ret = body()
+  File "swank.py", line 1564, in with_slime_interrupts_body
+    return eval_(form)
+  File "cl.py", line 2247, in eval_
+    exec(code, _lisp_package_name_module(package_name(package)).__dict__)
+  File "", line 1, in <module>
+KeyError: 'autodoc'
+
+================= wire:
+...Z...:000078(:emacs-rex (swank:autodoc (quote ("function" swank::%cursor-marker%)) :print-right-margin 104) "COMMON-LISP-USER" 1 6)
+
+23:46:34.096169 IP localhost.4005 > localhost.37893: Flags [P.], seq 1696:1726, ack 682, win 273, options [nop,nop,TS val 437707615 ecr 437707610], length 30
+E..R..@.@.s................#S........F.....
+..._...Z000018(:return (:abort nil) 6)
+23:46:34.096185 IP localhost.37893 > localhost.4005: Flags [.], ack 1726, win 282, options [nop,nop,TS val 437707615 ecr 437707615], length 0
+E..4f;@.@...............S......A.....(.....
+
+Issue ABORT-REPLY-HAS-BAD-CONDITION-SERIALISATION
+
+I think, it's a bug in original Swank code.
+  - inversion
+
+================= swank high level (good):
+sldb_loop
+  with-bindings *sldb-printer-bindings*
+    debugger_info_for_emacs
+      debugger_condition_for_emacs
+        safe_condition_message
+          with progv(_print_pretty_ = t,
+                     _print_right_margin_ = 65):
+            symbol_value("_sldb_condition_printer_")(condition)
+              format_sldb_condition
+                princ_to_string          -- for people
+                  write_to_string(object, escape = nil, readably = nil)
+<== [:DEBUG, 1, 1, ['<listener_eval() takes exactly 3 arguments (1 given)>', '   [Condition of type Exception]', []], [['ABORT', '<#restart(function = <function <lambda> at 0x16e50d8>, report_function = CL:NIL, interactive_function = <function <lambda> at 0x16a50d8>, name = ABORT)>']], [[0, 'swank_python.py: call_with_debugging_environment(debugger_loop_fn)'], [1, 'swank.py: debug_in_emacs(condition)'], [2, 'swank.py: <la
+...
+<-- 000439, '(:debug 1 1 ("<listener_eval() takes exactly 3 arguments (1 given)>" "   [Condition of type Exception]" ()) (("ABORT" "<#restart(function = <function <lambda> at 0x16e50d8>, report_function = CL:NIL, interactive_function = <function <lambda> at 0x16a50d8>, name = ABORT)>")) ((0 "swank_python.py: call_with_debugging_environment(debugger_loop_fn)") (1 "swank.py: debug_in_emacs(condition)") (2 "swank.py: <lambda
+...
+================= swank high level (bad):
+eval_for_emacs
+  send_to_emacs
+    send
+control_thread
+  read_loop
+  dispatch_loop
+    with_panic_handler
+      loop
+        dispatch_event
+          return_
+            encode_message
+              write_message
+                with_standard_io_syntax
+                  with progv(_print_case_     = keyword("downcase"),
+                             _print_readably_ = nil,
+                             _print_pretty_   = nil,
+                             _package_        = package):
+                  prin1_to_string_for_emacs
+                    prin1_to_string    -- for READ
+                      write_to_string(object, escape = t)
+    (CONTROL-THREAD)  RECEIVE_IF..<LAMBDA>..CATCH..<LAMBDA>.._RECEIVE_IF:
+       - checking for events on <QUEUE 16e9878>..
+    (CONTROL-THREAD)  _RECEIVE_IF..LOOP..BODY..CALL_WITH_LOCK_HELD..LOCKBODY:
+       - returning [:RETURN, <Thread(repl-thread, started 47072738514688)>, [:ABORT, Exception('listener_eval() takes exactly 3 arguments (1 given)',)], 5]
+    (CONTROL-THREAD)  HANDLER_BIND..<LAMBDA>..LOOP..<LAMBDA>..DISPATCH_EVENT:
+       - [:RETURN, <Thread(repl-thread, started 47072738514688)>, [:ABORT, Exception('listener_eval() takes exactly 3 arguments (1 given)',)], 5]
+<== [:RETURN, [:ABORT, Exception('listener_eval() takes exactly 3 arguments (1 given)',)], 5]
+<-- 00004a, '(:return (:abort <listener_eval() takes exactly 3 arguments (1 given)>) 5)'
+
+Issue SWANK-AUTODOC-NOT-IMPLEMENTED
+
+================= swank high level:
+    (REPL-THREAD)  CATCH..<LAMBDA>..HANDLER_BIND..HANDLER_CASE_BODY..EVAL_FOR_EMACS:
+       - got [SWANK::AUTODOC, [CL:QUOTE, ['function', SWANK:::%CURSOR-MARKER%]], :PRINT-RIGHT-MARGIN, 104]
+    (REPL-THREAD)  EVAL_FOR_EMACS..SEND_TO_EMACS..SEND..CALL_WITH_LOCK_HELD..BODY:
+       - to thread (CONTROL-THREAD): [:RETURN, <Thread(repl-thread, started 47072738514688)>, [:ABORT, None], 6] -> <QUEUE 178bc20> [[:RETURN, <Thread(repl-thread, started 47072738514688)>, [:ABORT, None], 6]]
+
+Issue PRINT-ESCAPE-NOT-IMPLEMENTED
+
+Issue BUGS-BECOMES-UNWIELDY-ORG-NEEDED
+
+Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
+
+Needed by string destination mode of FORMAT.
+
+Issue SWANK-INTERNAL-FAILURE-MODE
+
+Say, when we (progn
+               (in-package :swank)
+               (fmakunbound 'autodoc)), and then trigger autodoc, we get:
+
+---- note, how swank reacts with:
+   (:emacs-rex (swank:autodoc (quote ("defun" "dispatch-event" swank::%cursor-marker%)) :print-right-margin 190) ":swank" t 26)
+   (:debug 2 1 ("The function SWANK:AUTODOC is undefined." ...) (26))
+   (:debug-activate 2 1 nil)
+   (:emacs-rex (swank:sldb-abort) "SWANK" 2 27)
+   (:return (:abort "NIL") 27)
+   (:debug-return 2 1 nil)
+   (:return (:abort "#<UNDEFINED-FUNCTION AUTODOC {1003130381}>") 26)
+   (:emacs-rex (swank:autodoc (quote ("fmakunbound" "'in" swank::%cursor-marker%)) :print-right-margin 104) "SWANK" :repl-thread 28)
+   (:debug 1 1 ("The function SWANK:AUTODOC is undefined." ...) (28))
+   (:debug-activate 1 1 nil)
+   (:emacs-rex (swank:sldb-step 0) "SWANK" 1 29)
+   (:debug 1 2 ("Not currently single-stepping, and no continue restart available." ...) (29 28))
+   (:debug-activate 1 2 nil)
+   (:emacs-rex (swank:autodoc (quote ("SLDB-STEP" swank::%cursor-marker%)) :print-right-margin 104) "SWANK" 1 30)
+   (:debug 1 3 ("The function SWANK:AUTODOC is undefined." ...) (30 29 28))
+   (:debug-activate 1 3 nil)
+   (:emacs-rex (swank:autodoc (quote ("fmakunbound" "'in" swank::%cursor-marker%)) :print-right-margin 104) "SWANK" :repl-thread 31)
+   (:debug 1 4 ("The function SWANK:AUTODOC is undefined." ...) (31 30 29 28))
+   (:debug-activate 1 4 nil)
+   (:emacs-rex (swank:invoke-nth-restart-for-emacs 4 3) "SWANK" 1 32)
+   (:return (:abort "NIL") 32)
+   (:debug-return 1 4 nil)
+   (:return (:abort "#<UNDEFINED-FUNCTION AUTODOC {1004128E31}>") 31)000017(:debug-return 1 3 nil)000042(:return (:abort "#<UNDEFINED-FUNCTION AUTODOC {1004128E31}>") 30)000017(:debug-return 1 2 nil)000042(:return (:abort "#<UNDEFINED-FUNCTION AUTODOC {1004128E31}>") 29)000017(:debug-return 1 1 nil)000042(:return (:abort "#<UNDEFINED-FUNCTION AUTODOC {1004128E31}>") 28)
+
+---- whereas we now react with:
+   (:emacs-rex (swank:listener-eval "\n") "COMMON-LISP-USER" :repl-thread 5)
+   (:debug 1 1 ("#<listener_eval() takes exactly 3 arguments (1 given)>" ...) (5))
+   (:debug-activate 1 1 nil)
+   (:emacs-rex (swank:autodoc (quote ("function" ... 1 6)
+   (:return (:abort "nil") 6)
+   (:debug-return 1 1 nil)
+   (:return (:abort "#<listener_eval() takes exactly 3 arguments (1 given)>") 5)

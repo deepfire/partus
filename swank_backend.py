@@ -3,7 +3,7 @@ import more_ast
 import inspect
 
 from cl import setq, nil, t, boundp, symbol_value, mapcar, remove, warn, _not_implemented, env, _keyword, functionp, error, write_line, _report_condition#, format
-from cl import lisp_implementation_type, probe_file, block, constantly, member
+from cl import lisp_implementation_type, probe_file, block, constantly, member, condition
 
 ##### :: swank-backend.lisp
 
@@ -495,14 +495,18 @@ HOOK should be called for both BREAK and INVOKE-DEBUGGER."""
                               function(cond, hook))):
                 return body()
 
-#### define-condition sldb-condition
-"""Wrapper for conditions that should not be debugged.
+class sldb_condition(condition):
+        """Wrapper for conditions that should not be debugged.
 
 When a condition arises from the internals of the debugger, it is not
 desirable to debug it -- we'd risk entering an endless loop trying to
 debug the debugger! Instead, such conditions can be reported to the
 user without (re)entering the debugger by wrapping them as
 `sldb-condition's."""
+        def __init__(self, original_condition):
+                self.original_condition = original_condition
+        def __str__(self):
+                return format(nil, "Condition in debugger code: %s", self.original_condition)
 
 ## The following functions in this section are supposed to be called
 ## within the dynamic contour of CALL-WITH-DEBUGGING-ENVIRONMENT only.

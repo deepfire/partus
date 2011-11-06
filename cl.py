@@ -181,8 +181,10 @@ def _caller_name(n = 0):
 def _exception_frame():
         return sys.exc_info()[2].tb_frame
 
-def _frames_upward_from(f):
-        return [f] + (_frames_upward_from(f.f_back) if f.f_back else [])
+def _frames_upward_from(f = None, n = -1):
+        "Semantics of N are slightly confusing, but the implementation is so simple.."
+        f = _caller_frame() if f is None else f
+        return [f] + (_frames_upward_from(f.f_back, n - 1) if n and f.f_back else [])
 
 def _top_frame():
         return _caller_frame()
@@ -225,6 +227,12 @@ def _fun_filename(f):   return f.co_filename
 def _fun_bytecode(f):   return f.co_code
 def _fun_constants(f):  return f.co_consts
 
+def _print_function_arglist(f):
+        argspec = inspect.getargspec(f)
+        return ", ".join(argspec.args +
+                         (["*" + argspec.varargs]   if argspec.varargs  else []) +
+                         (["**" + argspec.keywords] if argspec.keywords else []))
+
 def _pp_frame(f, align = None, lineno = None):
         fun = _frame_fun(f)
         fun_name, fun_params, filename = _fun_info(fun)[:3]
@@ -244,11 +252,12 @@ def _backtrace(x = -1, stream = None):
         _print_frames(_frames_upward_from(_this_frame())[1:x],
                       _defaulted_to_var(stream, "_debug_io_"))
 
+def _pp_frame_chain(xs):
+        return "..".join(mapcar(lambda f: _fun_name(_frame_fun(f)), xs))
+
 def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr):
-        names = []
-        for i in reversed(range(callers)):
-                names.append(_caller_name(i))
-        names = "..".join(mapcar(string_upcase, names))
+        frames = _frames_upward_from(_caller_frame(), callers - 1)
+        names = _pp_frame_chain(reversed(frames))
         string = (""           if not note else
                   " - " + note if not args else
                   (note % args))
@@ -375,8 +384,9 @@ _curry = functools.partial
 def _compose(f, g):
         return lambda *args, **keys: f(g(*args, **keys))
 
-def _tuplep(x): return type(x) is tuple
-def _dictp(o):  return type(o) is dict
+def _tuplep(x):       return type(x) is tuple
+def _frozensetp(o):   return type(o) is frozenset
+def _setp(o):         return type(o) is set or _frozensetp(o)
 
 def _ensure_list(x):
         return x if listp(x) else [x]
@@ -392,6 +402,9 @@ def _mapsetn(f, xs):
         for x in xs:
                 acc |= f(x)
         return acc
+
+def _mapcar_star(f, xs):
+        return [ f(*x) for x in xs ]
 
 def _slotting(x):             return lambda y: getattr(y, x, None)
 
@@ -456,6 +469,9 @@ def equal(x, y):
 def destructuring_bind(val, body):
         return body(*tuple(val))
 
+def _destructuring_bind_keys(val, body):
+        return body(**val)
+
 def when(test, body):
         if test:
                 return body() if functionp(body) else body
@@ -483,11 +499,14 @@ class type_error(error_):
 class simple_type_error(simple_condition, type_error):
         pass
 
+type_  = builtins.type     # Should we shadow org.python.type?
 stream = _io._IOBase
 
-def find_class(x):
-        "XXX: how to do this?"
-        return globals()[name]
+def find_class(x, errorp = True):
+        check_type(x, symbol)
+        return (x.value if typep(x.value, type_) else
+                nil     if not errorp            else
+                error("There is no class named %s.", x))
 
 def type_of(x):
         return type(x)
@@ -537,7 +556,10 @@ __function_types__ = frozenset([types.BuiltinFunctionType,
                                 types.FunctionType,
                                 types.LambdaType,
                                 types.MethodType])
-def functionp(o):     return type(o) in __function_types__
+
+function = types.FunctionType.__mro__[0]
+
+def functionp(o):     return isinstance(o, function)
 def integerp(o):      return type(o) is int
 def floatp(o):        return type(o) is float
 def complexp(o):      return type(o) is complex
@@ -545,12 +567,14 @@ def numberp(o):       return type(o) in frozenset([float, int, complex])
 def listp(o):         return type(o) is list
 def boolp(o):         return type(o) is bool
 def sequencep(x):     return getattr(type(x), "__len__", None) is not None
+def hash_table_p(o):  return type(o) is dict
 
 ##
 ## Predicates
 ##
 def null(x):          return not x
-def evenp(x):         return x % 2 == 0
+def evenp(x):         return not (x % 2)
+def oddp(x):          return not not (x % 2)
 def zerop(x):         return x == 0
 def plusp(x):         return x > 0
 def minusp(x):        return x < 0
@@ -602,6 +626,11 @@ def getf(xs, key):
                         return xs[i + 1]
         else:
                 return nil
+
+def assoc(x, xs, test = equal):
+        for k, v in xs:
+                if test(x, k):
+                        return v
 
 def aref(xs, *indices):
         r = xs
@@ -913,7 +942,10 @@ def boundp(symbol):
         return _boundp(_coerce_to_symbol_name(symbol))
 
 def symbol_value(symbol):
-        return _symbol_value(_coerce_to_symbol_name(symbol))
+        return (_symbol_value(_coerce_to_symbol_name(symbol)) if stringp(symbol) else
+                symbol.value                                  if symbolp(symbol) else
+                error(TypeError, "SYMBOL-VALUE accepts either strings or symbols, not '%s'." %
+                      (symbol,)))
 
 def setq(name, value):
         dict = __tls__.dynamic_scope[-1] if __tls__.dynamic_scope else __global_scope__
@@ -967,9 +999,10 @@ with progv(foovar = 3.14,
 ##
 ## Package system
 ##
-__packages__        = dict()
-__keyword_package__ = None
-__modular_noise__   = None
+__packages__         = dict()
+__builtins_package__ = None
+__keyword_package__  = None
+__modular_noise__    = None
 
 class package_error(error_):
         pass
@@ -981,14 +1014,18 @@ def symbol_conflict_error(op, obj, pkg, x, y):
         error(simple_package_error, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
               (op, obj, pkg, x, y))
 
+def _symbol_accessible_in(x, package):
+        return (x.name in package.accessible and
+                package.accessible[x.name] is x)
+
 def symbols_not_accessible_error(package, syms):
         def pp_sym_or_string(x):
-                return "\"%s\"" % x if stringp(x) else _print_symbol(x)
+                return "\"%s\"" % x if stringp(x) else _print_nonkeyword_symbol(x)
         error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
               package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
 
 def _use_package_symbols(dest, src, syms):
-        assert(packagep(dest) and packagep(src) and _dictp(syms))
+        assert(packagep(dest) and packagep(src) and hash_table_p(syms))
         conflict_set = _mapset(_slotting("name"), syms.values()) & set(dest.accessible.keys())
         for name in conflict_set:
                 if syms[name] is not dest.accessible[name]:
@@ -999,12 +1036,11 @@ def _use_package_symbols(dest, src, syms):
                 if name not in dest.accessible: # Addition of this conditional is important for package use loops.
                         dest.accessible[name] = sym
                         # if dest.name == "SWANK" and src.name == "INSPECTOR":
-                        #         debug_printf("merging %s into %s: test: %s", s, dest, _read_symbol(_print_symbol(s)))
+                        #         debug_printf("merging %s into %s: test: %s", s, dest, _read_symbol(_print_nonkeyword_symbol(s)))
                 if dest.module and name not in dest.module.__dict__:
                         dest.module.__dict__[name] = sym.value
 
 def use_package(dest, src):
-        "Warning: we're doing a circular package use."
         dest, src = _coerce_to_package(dest), _coerce_to_package(src)
         symhash = _map_into_hash(lambda x: (x.name, x), src.external)
         _use_package_symbols(dest, src, symhash)
@@ -1029,8 +1065,7 @@ def _lisp_symbol_ast(sym, current_package):
         symname, packname = (_lisp_symbol_name_python_name(sym.name),
                              _lisp_symbol_name_python_name(sym.package.name))
         return (_ast_name(symname)
-                if (sym.name in current_package.accessible and
-                    current_package.accessible[sym.name] is sym) else
+                if _symbol_accessible_in(sym, current_package) else
                 _ast_index(_ast_attribute(_ast_index(_ast_attribute(_ast_name("sys"), "modules"), _ast_string(packname)),
                                                      "__dict__"),
                            _ast_string(symname)))
@@ -1043,7 +1078,7 @@ def _lisp_package_name_module(x, if_does_not_exist = "create"):
                 error("LISP-PACKAGE-NAME-MODULE: :IF-DOES-NOT-EXIST must be either \"error\" or \"continue\", not \"%s\".", if_does_not_exist))
 
 class package(collections.UserDict):
-        def __str__ (self):
+        def __repr__ (self):
                 return "#<PACKAGE \"%s\">" % self.name
         def __bool__(self):
                 return True
@@ -1070,6 +1105,7 @@ class package(collections.UserDict):
                 self.used_packages  = set(mapcar(lambda x: coercer(x, if_null = "error"),
                                                  use))
                 self.packages_using = set()
+                assert(every(packagep, self.used_packages))
                 mapc(_curry(use_package, self), self.used_packages)
 
                 ## Import the corresponding python dictionary.  Intern depends on
@@ -1099,22 +1135,26 @@ def make_package(name, nicknames = [], use = []):
         "XXX: NICKNAMES are ignored."
         return package(string(name), ignore_python = True, use = [])
 
-def _find_package(name):
+def _find_package(name, errorp = True):
         return (__packages__.get(name) if name in __packages__ else
-                None)
-def find_package(name):
-        return _find_package(_coerce_to_symbol_name(name))
+                nil                    if not errorp           else
+                error("Package with name '%s' does not exist.", name))
+def find_package(name, errorp = False):
+        return _find_package(_coerce_to_symbol_name(name), errorp)
 
 # Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
-def _ccoerce_to_package(x, **args):
-        return (x                if packagep(x) else
-                _find_package(x) if stringp(x) else
-                error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
+def _ccoerce_to_package(x, if_null = "current", **args):
+        return (x                         if packagep(x)                      else
+                symbol_value("_package_") if (not x) and if_null == "current" else
+                _find_package(x)          if stringp(x) or symbolp(x)         else
+                error(TypeError, "CCOERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s." %
+                      (x, type_of(x))))
 def _coerce_to_package(x, if_null = "current"):
-        return (x                         if packagep(x) else
-                find_package(x)           if stringp(x) or symbolp(x) else
-                symbol_value("_package_") if not x and if_null == "current" else
-                error("Asked to coerce object >%s< of type %s to a package.", x, type(x)))
+        return (x                         if packagep(x)                      else
+                symbol_value("_package_") if (not x) and if_null == "current" else
+                find_package(x, True)     if stringp(x) or symbolp(x)         else
+                error(TypeError, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s." %
+                      (x, type_of(x))))
 
 def defpackage(name, use = [], export = []):
         p = package(name, use = use)
@@ -1125,13 +1165,9 @@ def defpackage(name, use = [], export = []):
 def in_package(name):
         setq("_package_", _coerce_to_package(name))
 
-def _print_symbol2(x, package = None): return _letf(_coerce_to_package(package),
-                                                    lambda p: (x.name if x.package and p.accessible[x.name] is x else
-                                                               str(x)))
-
 class symbol():
         def __str__(self):
-                return (_print_keyword if self.package is __keyword_package__ else _print_symbol)(self)
+                return _print_symbol(self)
         def __repr__(self):
                 return str(self)
         def __init__(self, name):
@@ -1257,13 +1293,15 @@ def _without_condition_system(body):
 def _init_package_system_0():
         # debug_printf("   --  -- [ package system init..")
         global __packages__
+        global __builtins_package__
         global __keyword_package__
         global __modular_noise__
         global t, nil
         __packages__ = dict()
+        __builtins_package__ = package("BUILTINS", boot = True)
         __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
         __modular_noise__ = frozenset(_load_text_as_module("", "").__dict__)
-        cl = package("CL")
+        cl = package("CL", use = ["BUILTINS"], boot = True)
         intern(".", cl)
 
         t                  = _intern0("T", cl)       # Nothing much works without these..
@@ -1272,7 +1310,7 @@ def _init_package_system_0():
         export([t, nil] + mapcar(lambda n: _intern0(n, cl),
                                  ["QUOTE", "OR", "SOME"]),
                cl)
-        package("COMMON-LISP-USER", use = ["CL"], boot = True)
+        package("COMMON-LISP-USER", use = ["CL", "BUILTINS"], boot = True)
 _init_package_system_0() ########### _keyword() is now available
 
 def _init_reader_0():
@@ -1282,7 +1320,7 @@ _init_reader_0()         ########### _coerce_to_symbol_name() is now available
 
 def _init_package_system_1():
         # Ought to declare it all on the top level.
-        setq("_package_",  package("COMMON-LISP-USER", use = ["CL"]))
+        in_package("COMMON-LISP-USER")
         setq("_features_", [])
         setq("_modules_",  [])
 
@@ -1301,8 +1339,10 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
         write_string(">", stream)
 
 __standard_pprint_dispatch__ = dict() # XXX: this is crap!
+__standard_readtable__       = dict() # XXX: this is crap!
 
-__standard_io_syntax__ = dict(_print_array_           = t,
+__standard_io_syntax__ = dict(_package_               = find_package("COMMON-LISP-USER"),
+                              _print_array_           = t,
                               _print_base_            = 10,
                               _print_case_            = _keyword("upcase"),
                               _print_circle_          = nil,
@@ -1316,24 +1356,323 @@ __standard_io_syntax__ = dict(_print_array_           = t,
                               _print_pretty_          = t,
                               _print_radix_           = nil,
                               _print_readably_        = nil,
-                              _print_right_margin_    = nil)
+                              _print_right_margin_    = nil,
+                              _read_base_                 = 10,
+                              _read_default_float_format_ = "single-float",
+                              _read_eval_                 = t,
+                              _read_suppress_             = nil,
+                              _readtable_                 = __standard_readtable__)
+
+def with_standard_io_syntax(body):
+        """Within the dynamic extent of the BODY of forms, all reader/printer
+control variables, including any implementation-defined ones not
+specified by this standard, are bound to values that produce standard
+READ/PRINT behavior. The values for the variables specified by this
+standard are listed in the next figure.
+
+Variable                     Value                               
+*package*                    The CL-USER package                 
+*print-array*                t                                   
+*print-base*                 10                                  
+*print-case*                 :upcase                             
+*print-circle*               nil                                 
+*print-escape*               t                                   
+*print-gensym*               t                                   
+*print-length*               nil                                 
+*print-level*                nil                                 
+*print-lines*                nil                                 
+*print-miser-width*          nil                                 
+*print-pprint-dispatch*      The standard pprint dispatch table  
+*print-pretty*               nil                                 
+*print-radix*                nil                                 
+*print-readably*             t                                   
+*print-right-margin*         nil                                 
+*read-base*                  10                                  
+*read-default-float-format*  single-float                        
+*read-eval*                  t                                   
+*read-suppress*              nil                                 
+*readtable*                  The standard readtable
+"""
+        with progv(**__standard_io_syntax__):
+                return body()
+
+setq("_print_array_",           __standard_io_syntax__["_print_array_"])
+"""Controls the format in which arrays are printed. If it is false,
+the contents of arrays other than strings are never printed. Instead,
+arrays are printed in a concise form using #< that gives enough
+information for the user to be able to identify the array, but does
+not include the entire array contents. If it is true, non-string
+arrays are printed using #(...), #*, or #nA syntax."""
+
+setq("_print_base_",            __standard_io_syntax__["_print_base_"])
+"""*PRINT-BASE* and *PRINT-RADIX* control the printing of
+rationals. The value of *PRINT-BASE* is called the current output
+base.
+
+The value of *PRINT-BASE* is the radix in which the printer will print
+rationals. For radices above 10, letters of the alphabet are used to
+represent digits above 9."""
+
+setq("_print_case_",            __standard_io_syntax__["_print_case_"])
+"""The value of *PRINT-CASE* controls the case (upper, lower, or
+mixed) in which to print any uppercase characters in the names of
+symbols when vertical-bar syntax is not used.
+
+*PRINT-CASE* has an effect at all times when the value of
+*PRINT-ESCAPE* is false. *PRINT-CASE* also has an effect when the
+value of *PRINT-ESCAPE* is true unless inside an escape context
+(i.e., unless between vertical-bars or after a slash)."""
+
+setq("_print_circle_",          __standard_io_syntax__["_print_circle_"])
+"""Controls the attempt to detect circularity and sharing in an object
+being printed.
+
+If false, the printing process merely proceeds by recursive descent
+without attempting to detect circularity and sharing.
+
+If true, the printer will endeavor to detect cycles and sharing in the
+structure to be printed, and to use #n= and #n# syntax to indicate the
+circularities or shared components.
+
+If true, a user-defined PRINT-OBJECT method can print objects to the
+supplied stream using WRITE, PRIN1, PRINC, or FORMAT and expect
+circularities and sharing to be detected and printed using the #n#
+syntax. If a user-defined PRINT-OBJECT method prints to a stream other
+than the one that was supplied, then circularity detection starts over
+for that stream.
+
+Note that implementations should not use #n# notation when the Lisp
+reader would automatically assure sharing without it (e.g., as happens
+with interned symbols)."""
+
+setq("_print_escape_",          __standard_io_syntax__["_print_escape_"])
+"""If false, escape characters and package prefixes are not output
+when an expression is printed.
+
+If true, an attempt is made to print an expression in such a way that
+it can be READ again to produce an equal expression. (This is only a
+guideline; not a requirement. See *PRINT-READABLY*.)
+
+For more specific details of how the value of *PRINT-ESCAPE* affects
+the printing of certain types, see Section 22.1.3 (Default
+Print-Object Methods)."""
+
+setq("_print_gensym_",          __standard_io_syntax__["_print_gensym_"])
+"""Controls whether the prefix ``#:'' is printed before apparently
+uninterned symbols. The prefix is printed before such symbols if and
+only if the value of *PRINT-GENSYM* is true."""
+
+setq("_print_length_",          __standard_io_syntax__["_print_length_"])
+"""*PRINT-LENGTH* controls how many elements at a given level are
+printed. If it is false, there is no limit to the number of components
+printed. Otherwise, it is an integer indicating the maximum number of
+elements of an object to be printed. If exceeded, the printer will
+print ``...'' in place of the other elements. In the case of a dotted
+list, if the list contains exactly as many elements as the value of
+*PRINT-LENGTH*, the terminating atom is printed rather than printing
+``...''.
+
+*PRINT-LEVEL* and *PRINT-LENGTH* affect the printing of an any object
+printed with a list-like syntax. They do not affect the printing of
+symbols, strings, and bit vectors."""
+
+setq("_print_level_",           __standard_io_syntax__["_print_level_"])
+"""*PRINT-LEVEL* controls how many levels deep a nested object will
+print. If it is false, then no control is exercised. Otherwise, it is
+an integer indicating the maximum level to be printed. An object to be
+printed is at level 0; its components (as of a list or vector) are at
+level 1; and so on. If an object to be recursively printed has
+components and is at a level equal to or greater than the value of
+*PRINT-LEVEL*, then the object is printed as ``#''.
+
+*PRINT-LEVEL* and *PRINT-LENGTH* affect the printing of an any object
+printed with a list-like syntax. They do not affect the printing of
+symbols, strings, and bit vectors."""
+
+setq("_print_lines_",           __standard_io_syntax__["_print_lines_"])
+"""When the value of *PRINT-LINES* is other than NIL, it is a limit on
+the number of output lines produced when something is pretty
+printed. If an attempt is made to go beyond that many lines, ``..'' is
+printed at the end of the last line followed by all of the suffixes
+(closing delimiters) that are pending to be printed."""
+
+setq("_print_miser_width_",     __standard_io_syntax__["_print_miser_width_"])
+"""If it is not NIL, the pretty printer switches to a compact style of
+output (called miser style) whenever the width available for printing
+a substructure is less than or equal to this many ems."""
+
+setq("_print_pprint_dispatch_", __standard_io_syntax__["_print_pprint_dispatch_"])
+"""The PPRINT dispatch table which currently controls the pretty printer.
+
+Initial value is implementation-dependent, but the initial entries all
+use a special class of priorities that have the property that they are
+less than every priority that can be specified using
+SET-PPRINT-DISPATCH, so that the initial contents of any entry can be
+overridden."""
+
+setq("_print_pretty_",          __standard_io_syntax__["_print_pretty_"])
+"""Controls whether the Lisp printer calls the pretty printer.
+
+If it is false, the pretty printer is not used and a minimum of
+whitespace[1] is output when printing an expression.
+
+If it is true, the pretty printer is used, and the Lisp printer will
+endeavor to insert extra whitespace[1] where appropriate to make
+expressions more readable.
+
+*PRINT-PRETTY* has an effect even when the value of *PRINT-ESCAPE* is
+false."""
+
+setq("_print_radix_",           __standard_io_syntax__["_print_radix_"])
+"""*PRINT-BASE* and *PRINT-RADIX* control the printing of
+rationals. The value of *PRINT-BASE* is called the current output
+base.
+
+If the value of *PRINT-RADIX* is true, the printer will print a radix
+specifier to indicate the radix in which it is printing a rational
+number. The radix specifier is always printed using lowercase
+letters. If *PRINT-BASE* is 2, 8, or 16, then the radix specifier used
+is #b, #o, or #x, respectively. For integers, base ten is indicated by
+a trailing decimal point instead of a leading radix specifier; for
+ratios, #10r is used."""
+
+setq("_print_readably_",        __standard_io_syntax__["_print_readably_"])
+"""If *PRINT-READABLY* is true, some special rules for printing
+objects go into effect. Specifically, printing any object O1 produces
+a printed representation that, when seen by the Lisp reader while the
+standard readtable is in effect, will produce an object O2 that is
+similar to O1. The printed representation produced might or might not
+be the same as the printed representation produced when
+*PRINT-READABLY* is false. If printing an object readably is not
+possible, an error of type print-not-readable is signaled rather than
+using a syntax (e.g., the ``#<'' syntax) that would not be readable by
+the same implementation. If the value of some other printer control
+variable is such that these requirements would be violated, the value
+of that other variable is ignored.
+
+Specifically, if *PRINT-READABLY* is true, printing proceeds as if
+*PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
+as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
+
+If *PRINT-READABLY* is false, the normal rules for printing and the
+normal interpretations of other printer control variables are in
+effect.
+
+Individual methods for PRINT-OBJECT, including user-defined methods,
+are responsible for implementing these requirements.
+
+If *READ-EVAL* is false and *PRINT-READABLY* is true, any such method
+that would output a reference to the ``#.'' reader macro will either
+output something else or will signal an error (as described above)."""
+
+setq("_print_right_margin_",    __standard_io_syntax__["_print_right_margin_"])
+"""If it is non-NIL, it specifies the right margin (as integer number
+of ems) to use when the pretty printer is making layout decisions.
+
+If it is NIL, the right margin is taken to be the maximum line length
+such that output can be displayed without wraparound or truncation. If
+this cannot be determined, an implementation-dependent value is
+used."""
+
+setq("_read_base_",                 __standard_io_syntax__["_read_base_"])
+"""."""
+
+setq("_read_default_float_format_", __standard_io_syntax__["_read_default_float_format_"])
+"""."""
+
+setq("_read_eval_",                 __standard_io_syntax__["_read_eval_"])
+"""."""
+
+setq("_read_suppress_",             __standard_io_syntax__["_read_suppress_"])
+"""."""
+
+setq("_readtable_",                 __standard_io_syntax__["_readtable_"])
+"""."""
+
 
 for var, standard_value in __standard_io_syntax__.items():
         setq(var, standard_value)
 
-def _print_symbol(s, gensym = True, case = None):
-        return "%s%s%s" % (s.package.name if s.package else
-                           ("#" if gensym else ""),
-                           (":" if not gensym or s.package else "") if not s.package or (s in s.package.external) else
-                           "::",
-                           _case_xform(_defaulted_to_var(case, "_print_case_"), s.name))
+def _print_symbol(s, escape = None, gensym = None, case = None, package = None, readably = None):
+        # Specifically, if *PRINT-READABLY* is true, printing proceeds as if
+        # *PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
+        # as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
+        #
+        # If *PRINT-READABLY* is false, the normal rules for printing and the
+        # normal interpretations of other printer control variables are in
+        # effect.
+        #
+        # Individual methods for PRINT-OBJECT, including user-defined methods,
+        # are responsible for implementing these requirements.
+        package  = _defaulted_to_var(package,  "_package_")
+        if not packagep(package):
+                _here("------------------------------------------------------------\npackage is a %s: %s" % (type_of(package), package,))
+        readably = _defaulted_to_var(readably, "_print_readably_")
+        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
+        case     = _defaulted_to_var(case,     "_print_case_")   if not readably else t
+        gensym   = _defaulted_to_var(gensym,   "_print_gensym_") if not readably else t
+        # Because the #: syntax does not intern the following symbol, it is
+        # necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
+        # the same uninterned symbol appears several times in an expression to
+        # be printed. For example, the result of
+        #
+        # (let ((x (make-symbol "FOO"))) (list x x))
+        #
+        # would be printed as (#:FOO #:FOO) if *PRINT-CIRCLE* were
+        # false, but as (#1=#:FOO #1#) if *PRINT-CIRCLE* were true.
+        return ((""                       if not escape                        else
+                 ":"                      if s.package is __keyword_package__  else
+                 ""                       if _symbol_accessible_in(s, package) else
+                 ("#:" if gensym else "") if not s.package                     else
+                 (s.package.name + (":"
+                                    if s in s.package.external else
+                                    "::"))) +
+                _case_xform(case, s.name))
 
-def _print_keyword(s):
-        return ":%s" % _case_xform(symbol_value("_print_case_"), s.name)
+def _print_string(x, escape = None, readably = None):
+        """The characters of the string are output in order. If printer escaping
+is enabled, a double-quote is output before and after, and all
+double-quotes and single escapes are preceded by backslash. The
+printing of strings is not affected by *PRINT-ARRAY*. Only the active
+elements of the string are printed."""
+        # XXX: "active elements of the string"
+        # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
+        readably = _defaulted_to_var(readably, "_print_readably_")
+        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
+        return (x if not escape else
+                ("\"" + _without_condition_system(
+                                lambda: re.sub(r"([\"\\])", r"\\\1", x)) +
+                 "\""))
 
-def with_standard_io_syntax(body):
-        # XXX: is this true?
-        return body()
+def _print_function(x, escape = None, readably = None):
+        readably = _defaulted_to_var(readably, "_print_readably_")
+        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
+        q = "\"" if escape else "\""
+        return q + with_output_to_string(
+                lambda s: print_unreadable_object(
+                        x, s,
+                        lambda: format(s, "%s (%s)", x.__name__, _print_function_arglist(x)),
+                        identity = t, type = t)) + q
+
+def _print_unreadable_compound(x, escape = None, readably = None):
+        readably = _defaulted_to_var(readably, "_print_readably_")
+        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
+        q = "\"" if escape else "\""
+        return q + with_output_to_string(
+                lambda s: print_unreadable_object(
+                        x, s,
+                        lambda: format(s, "%d elements", len(x)),
+                        identity = t, type = t)) + q
+
+def _print_unreadable(x, escape = None, readably = None):
+        readably = _defaulted_to_var(readably, "_print_readably_")
+        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
+        q = "\"" if escape else "\""
+        return q + with_output_to_string(
+                lambda stream: print_unreadable_object(
+                        x, stream,
+                        lambda: nil,
+                        identity = t, type = t)) + q
 
 def write_to_string(object,
                     array = None,
@@ -1352,21 +1691,21 @@ def write_to_string(object,
                     readably = None,
                     right_margin = None):
         "XXX: does not conform!"
-        array           = array           if array           is not None else symbol_value("_print_array_")
-        base            = base            if base            is not None else symbol_value("_print_base_")
-        case            = case            if case            is not None else symbol_value("_print_case_")
-        circle          = circle          if circle          is not None else symbol_value("_print_circle_")
-        escape          = escape          if escape          is not None else symbol_value("_print_escape_")
-        gensym          = gensym          if gensym          is not None else symbol_value("_print_gensym_")
-        length          = length          if length          is not None else symbol_value("_print_length_")
-        level           = level           if level           is not None else symbol_value("_print_level_")
-        lines           = lines           if lines           is not None else symbol_value("_print_lines_")
-        miser_width     = miser_width     if miser_width     is not None else symbol_value("_print_miser_width_")
-        pprint_dispatch = pprint_dispatch if pprint_dispatch is not None else symbol_value("_print_pprint_dispatch_")
-        pretty          = pretty          if pretty          is not None else symbol_value("_print_pretty_")
-        radix           = radix           if radix           is not None else symbol_value("_print_radix_")
-        readably        = readably        if readably        is not None else symbol_value("_print_readably_")
-        right_margin    = right_margin    if right_margin    is not None else symbol_value("_print_right_margin_")
+        array           = _defaulted_to_var(array,           "_print_array_")
+        base            = _defaulted_to_var(base,            "_print_base_")
+        case            = _defaulted_to_var(case,            "_print_case_")
+        circle          = _defaulted_to_var(circle,          "_print_circle_")
+        escape          = _defaulted_to_var(escape,          "_print_escape_")
+        gensym          = _defaulted_to_var(gensym,          "_print_gensym_")
+        length          = _defaulted_to_var(length,          "_print_length_")
+        level           = _defaulted_to_var(level,           "_print_level_")
+        lines           = _defaulted_to_var(lines,           "_print_lines_")
+        miser_width     = _defaulted_to_var(miser_width,     "_print_miser_width_")
+        pprint_dispatch = _defaulted_to_var(pprint_dispatch, "_print_pprint_dispatch_")
+        pretty          = _defaulted_to_var(pretty,          "_print_pretty_")
+        radix           = _defaulted_to_var(radix,           "_print_radix_")
+        readably        = _defaulted_to_var(readably,        "_print_readably_")
+        right_margin    = _defaulted_to_var(right_margin,    "_print_right_margin_")
         # assert(True
         #        and array is t
         #        and base is 10
@@ -1402,17 +1741,26 @@ def write_to_string(object,
                                                 if i != (max - 1):
                                                         string += " "
                                 string += ")"
-                        elif symbolp(object) or integerp(object) or floatp(object):
+                        elif symbolp(object):
+                                # Honors *PACKAGE*, *PRINT-CASE*, *PRINT-ESCAPE*, *PRINT-GENSYM*, *PRINT-READABLY*.
+                                # XXX: in particular, *PRINT-ESCAPE* is honored only partially.
+                                string += _print_symbol(object)
+                        elif integerp(object) or floatp(object):
                                 string += str(object)
-                        elif object in obj2lisp_xform:
+                        elif object.__hash__ and object in obj2lisp_xform:
                                 string += obj2lisp_xform[object]
                         elif type(object).__name__ == "builtin_function_or_method":
-                                string += ""#<builtin %s 0x%x>"" % (object.__name__, id(object))
+                                string += "\"#<BUILTIN-FUNCTION-OR-METHOD %s 0x%x>\"" % (object.__name__, id(object))
                         elif stringp(object):
-                                string += "\"%s\"" % _without_condition_system(
-                                        lambda: re.sub(r"([\"\\])", r"\\\\1", object))
+                                # Honors *PRINT-ESCAPE* and *PRINT-READABLY*.
+                                string += _print_string(object)
+                        elif hash_table_p(object) or _setp(object):
+                                # Honors *PRINT-ESCAPE* and *PRINT-READABLY*.
+                                string += _print_unreadable_compound(object)
+                        elif functionp(object):
+                                string += _print_function(object)
                         else:
-                                string += "<%s>" % (object,)
+                                string += _print_unreadable(object)
                                 # error("Can't write object %s", object)
                         return string
                 return write_to_string_loop(object)
@@ -1424,29 +1772,68 @@ def prin1_to_string(object): return write_to_string(object, escape = t)
 def princ_to_string(object): return write_to_string(object, escape = nil, readably = nil)
 
 def write(object, stream = t, **args):
+        """WRITE is the general entry point to the Lisp printer. For each
+explicitly supplied keyword parameter named in the next figure, the
+corresponding printer control variable is dynamically bound to its
+value while printing goes on; for each keyword parameter in the next
+figure that is not explicitly supplied, the value of the corresponding
+printer control variable is the same as it was at the time write was
+invoked. Once the appropriate bindings are established, the object is
+output by the Lisp printer."""
         write_string(write_to_string(object, **args), stream)
         return object
 
-def prin1(object, stream = t): return write(object, stream = stream, escape = t)
-def princ(object, stream = t): return write(object, stream = stream, escape = nil, readably = nil)
+def prin1(object, stream = t):
+        """PRIN1 produces output suitable for input to READ. It binds *PRINT-ESCAPE* to true."""
+        return write(object, stream = stream, escape = t)
+
+def princ(object, stream = t):
+        """PRINC is just like PRIN1 except that the output has no escape characters.
+It binds *PRINT-ESCAPE* to false and *PRINT-READABLY* to false.
+The general rule is that output from PRINC is intended to look good to people, 
+while output from PRIN1 is intended to be acceptable to READ."""
+        return write(object, stream = stream, escape = nil, readably = nil)
 
 def print_(object, stream = t):
+        """PRINT is just like PRIN1 except that the printed representation of object
+is preceded by a newline and followed by a space."""
         terpri(stream)
         prin1(object, stream)
         write_char(" ", stream)
         return object
 
 def pprint(object, stream = t):
+        """PPRINT is just like PRINT except that the trailing space is omitted
+and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty output."""
         terpri(stream)
         write(object, stream = stream, escape = t, pretty = t)
         return object
 
-def format(stream, format_control, *format_arguments):
-        string = format_control % format_arguments
-        if  stream is nil:
-                return string
+def format(destination, control_string, *args):
+        """FORMAT produces formatted output by outputting the characters
+of CONTROL-STRING and observing that a tilde introduces a
+directive. The character after the tilde, possibly preceded by prefix
+parameters and modifiers, specifies what kind of formatting is
+desired. Most directives use one or more elements of ARGS to create
+their output.
+
+If DESTINATION is a string, a stream, or T, then the result is
+nil. Otherwise, the result is a string containing the `output.'
+
+FORMAT is useful for producing nicely formatted text, producing
+good-looking messages, and so on. FORMAT can generate and return a
+string or output to destination.
+
+For details on how the CONTROL-STRING is interpreted, see Section 22.3
+(Formatted Output)."""
+        string = control_string % args
+        if  streamp(destination) or listp(destination) or destination is t:
+                # XXX: python strings are immutable, so lists will serve as adjustable arrays..
+                # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
+                write_string(string, destination)
+                return nil
         else:
-                write_string(string, stream)
+                return string
 
 ##
 ## Reader
@@ -1588,7 +1975,8 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 # _here("< %s" % token)
                 return token
         ret = handler_case(read,
-                           IndexError = lambda c: handle_short_read_if(True))
+                           (IndexError,
+                            lambda c: handle_short_read_if(True)))
         # _here("lastly %s" % (ret,))
         return ret
 
@@ -1772,16 +2160,25 @@ setq("_prehandler_hook_", nil)
 setq("_debugger_hook_",  nil)
 
 def signal(cond):
-        "XXX: this is crippled by inheritance-ignorant exact matching of the condition name."
-        name = type_of(cond).__name__
+        _here("Signalling: %s", cond)
         for cluster in reversed(env.__handler_clusters__):
-                # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
-                if name in cluster:
-                        hook = symbol_value("_prehandler_hook_")
-                        if hook:
-                                frame = cluster["__frame__"]
-                                hook(cond, frame, hook)
-                        cluster[name](cond)
+                # format(t, "Analysing cluster %s for %s.\n", cluster, type_of(cond))
+                for type, handler in cluster:
+                        if not stringp(type):
+                                _here("Trying: %s -> %s", type, typep(cond, type))
+                                if typep(cond, type):
+                                        hook = symbol_value("_prehandler_hook_")
+                                        if hook:
+                                                frame = assoc("__frame__", cluster)
+                                                assert(frame)
+                                                hook(cond, frame, hook)
+                                        handler(cond)
+                                        _here("...continuing handling of %s, refugees: |%s|",
+                                              cond,
+                                              _pp_frame_chain(
+                                                        reversed(_frames_upward_from(
+                                                                        assoc("__frame__", cluster),
+                                                                        15))))
         return nil
 
 def error(datum, *args, **keys):
@@ -1859,7 +2256,7 @@ def __cl_condition_handler__(condspec, frame):
         # even reach this point, as the stack is already unwound.
 _set_condition_handler(__cl_condition_handler__)
 
-def handler_bind(fn, no_error = identity, **handlers):
+def handler_bind(fn, *handlers, no_error = identity):
         "Works like real HANDLER-BIND, when the conditions are right.  Ha."
         value = None
 
@@ -1867,12 +2264,11 @@ def handler_bind(fn, no_error = identity, **handlers):
         #     pytracer_enabled_p() and condition_handler_active_p()
         # ..inlined for speed.
         if _pytracer_enabled_p() and "exception" in __tracer_hooks__ and __tracer_hooks__["exception"] is __cl_condition_handler__:
-                ### XXX: This is a temporary shitty workaround for broken FIND-CLASS (oh, yes, Python, thank you again!)
-                # resolved = dict()
-                # for type, handler in handlers.items():
-                #         resolved[resolve_exception_type(type)] = handler
-                handlers["__frame__"] = _this_frame()
-                with env.let(__handler_clusters__ = env.__handler_clusters__ + [handlers]):
+                for type, _ in handlers:
+                        if not subtypep(type, condition):
+                                error(TypeError, "While establishing handler: '%s' does not designage a known condition type." % (type,))
+                with env.let(__handler_clusters__ = env.__handler_clusters__ +
+                             [handlers + (("__frame__", _this_frame()),)]):
                         return no_error(fn())
         else:
                 # old world case..
@@ -1889,22 +2285,29 @@ def handler_bind(fn, no_error = identity, **handlers):
                 finally:
                         return no_error(value)
 
-def handler_case(body, no_error = identity, **handlers):
+def handler_case(body, *handlers, no_error = identity):
         "Works like real HANDLER-CASE, when the conditions are right.  Ha."
         nonce            = gensym("HANDLER-CASE")
-        wrapped_handlers = { cond_name: (lambda cond: return_from(nonce, handler(cond)))
-                             for cond_name, handler in handlers.items () }
+        wrapped_handlers = _mapcar_star(lambda type, handler:
+                                                (type, lambda cond: return_from(nonce, handler(cond))),
+                                        handlers)
         return catch(nonce,
-                     lambda: handler_bind(body, no_error = no_error, **wrapped_handlers))
+                     lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
 
 def ignore_errors(body):
         return handler_case(body,
-                            Exception = lambda _: None)
+                            (Exception,
+                             lambda _: None))
 
 ##
 ## Restarts
 ##
 class restart(_servile):
+        def __str__(self):
+                # XXX: must conform by honoring *PRINT-ESCAPE*:
+                # http://www.lispworks.com/documentation/lw51/CLHS/Body/m_rst_ca.htm#restart-case
+                return (with_output_to_string(lambda stream: self.report_function(stream)) if self.report_function else
+                        self.__repr__())
         pass
 # RESTART-BIND executes the body of forms in a dynamic environment where
 # restarts with the given names are in effect.
@@ -1961,7 +2364,7 @@ def _specs_restarts_args(restart_specs):
         for name, spec in restart_specs.items():
                 function, options = ((spec[0], spec[1]) if _tuplep(spec) else
                                      spec, dict())
-                restarts_args[name] = _updated_dict(options, dict(name = name,
+                restarts_args[name] = _updated_dict(options, dict(name = name.upper(), # XXX: name mangling!
                                                                   function = function))
         return restarts_args
 
@@ -1978,11 +2381,23 @@ def restart_bind(body, **restart_specs):
 def _restart_case(body, **restarts_args):
         nonce            = gensym("RESTART-CASE")
         wrapped_restarts_args = {
-                restart_name: _letf(restart_args['function'],
-                                    lambda function:
+                restart_name: _letf(restart_args["function"],
+                                    restart_args["interactive"] if "interactive" in restart_args else nil,
+                                    restart_args["report"]      if "report"      in restart_args else nil,
+                                    lambda function, interactive, report:
                                             _updated_dict(restart_args,
                                                           dict(function =
-                                                               lambda *args, **keys: return_from(nonce, function(*args, **keys)))))
+                                                               lambda *args, **keys:
+                                                                       return_from(nonce, function(*args, **keys)),
+                                                               interactive_function =
+                                                               (interactive                 if functionp(interactive) else
+                                                                lambda: []                  if null(interactive) else
+                                                                error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
+                                                               report_function =
+                                                               (report                      if functionp(report) else
+                                                                curry(write_string, report) if stringp(report) else
+                                                                nil                         if null(report) else
+                                                                error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL.")))))
                              for restart_name, restart_args in restarts_args.items () }
         return catch(nonce,
                      lambda: _restart_bind(body, wrapped_restarts_args))

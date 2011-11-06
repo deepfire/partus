@@ -2,6 +2,10 @@ import sys
 import cl
 from cl import *
 
+defpackage("CL-TESTS", use = ["CL", "BUILTINS"])
+
+in_package("CL-TESTS")
+
 setq("_scope_", 0)
 def outer():
         def inner():
@@ -13,6 +17,20 @@ def outer():
         return [ symbol_value("_scope_") ] + midder() + [ symbol_value("_scope_") ]
 assert(outer() == [0, 1, 2, 0])
 print("DYNAMIC-SCOPE: passed")
+
+# with_standard_io_syntax(lambda: mapcar(lambda x: symbol_value(x), ["_print_escape_", "_print_pretty_", "_print_readably_"]))
+# [T, T, NIL]
+def with_alternate_io_syntax(thunk):
+    with progv(_print_escape_ = 1, _print_pretty_ = 2, _print_readably_ = 3):
+        return thunk()
+# with_alternate_io_syntax(lambda: mapcar(lambda x: symbol_value(x), ["_print_escape_", "_print_pretty_", "_print_readably_"]))
+# [1, 2, 3]
+
+assert(with_alternate_io_syntax(
+         lambda: mapcar(lambda x: with_standard_io_syntax(lambda: symbol_value(x)),
+                        ["_print_escape_", "_print_pretty_", "_print_readably_"])) ==
+       [t, t, nil])
+print("WITH-STANDARD-IO-SYNTAX: passed")
 
 def outer():
         def midder(f):
@@ -57,8 +75,9 @@ def f():
         def raiser():
                 raise X1("HANDLER-BIND: Ugh.")
         return handler_bind(raiser,
-                            X1 = lambda cond:
-                            return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_)))
+                            (X1,
+                             lambda cond:
+                                     return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_))))
 assert(f() == "Woot: cl-tests.py: raiser()")
 print("HANDLER-BIND: passed")
 
@@ -66,9 +85,11 @@ def f():
         def raiser():
                 raise X1("HANDLER-CASE: Ugh.")
         return handler_case(raiser,
-                            X1 = lambda cond: "Woot!",
-                            X2 = lambda cond: "Moot!")
-assert(f() == "Woot!")
+                            (X1,
+                             lambda cond: "X1!"),
+                            (X,
+                             lambda cond: "X!"))
+assert(f() == "X1!")
 print("HANDLER-CASE: passed")
 
 def report():
@@ -81,9 +102,11 @@ def f():
                 raise X1("HANDLER-CASE: Ugh.")
         return handler_case(
                 lambda: handler_bind(raiser,
-                                     X1 = lambda cond:
-                                             return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_))),
-                X1 = lambda cond: "Surrounding HANDLER-CASE won!")
+                                     (X1,
+                                      lambda cond:
+                                              return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_)))),
+                (X1,
+                 lambda cond: "Surrounding HANDLER-CASE won!"))
 assert(f() == "Woot: cl-tests.py: raiser()")
 print("HANDLER-CASE-AROUND-HANDLER-BIND: passed")
 
@@ -95,9 +118,11 @@ def f():
                            return_from(f, str([cond, frame]))):
                 return handler_case(
                         lambda: handler_bind(raiser,
-                                             X1 = lambda cond:
-                                                     return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_))),
-                        X1 = lambda cond: "HANDLER-CASE won!")
+                                             (X1,
+                                              lambda cond:
+                                                      return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_)))),
+                        (X1,
+                         lambda cond: "HANDLER-CASE won!"))
 assert("[X1('PREHANDLER-HOOK: Ugh.',), <frame object at" in f())
 print("PREHANDLER-HOOK: passed")
 
@@ -109,19 +134,20 @@ def f():
                         lambda: with_simple_restart(
                                 "brooage", ("Yay2: %s!", 2.71),
                                 lambda: str(mapcar(lambda x: x.name, compute_restarts())))))
-assert(f() == "['brooage', 'fooage']")
+assert(f() == "['BROOAGE', 'FOOAGE']")
 print("WITH-SIMPLE-RESTARTS: passed")
 
 @block
 def f():
         def raiser():
-                raise X("HANDLER-BIND: Ugh.")
+                raise X1("HANDLER-BIND: Ugh.")
         def with_restarter(body):
                 return restart_bind(body,
                                     RETURN = lambda *args: return_from(f, "Winnage: %s, %s!" % args))
         def finder_invoker(body):
                 return handler_bind(body,
-                                    X = lambda _: invoke_restart("RETURN", 1, 2))
+                                    (X,
+                                     lambda _: invoke_restart("RETURN", 1, 2)))
         return with_restarter(lambda:
                                       finder_invoker(raiser))
 assert(f() == 'Winnage: 1, 2!')

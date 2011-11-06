@@ -2,20 +2,21 @@
 ### Some utilities, in the spirit of Common Lisp.
 ###
 from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref, t
-from cl           import write_string, write_line
+from cl           import write_string, write_line, evenp
 from functools    import reduce, partial
-from cl           import _tuplep as tuplep, _dictp as dictp
+from cl           import _tuplep as tuplep, _setp as setp, _frozensetp as frozensetp
 from cl           import _letf   as letf, _if_let as if_let, _when_let as when_let, _lret as lret
 from cl           import _map_into_hash as map_into_hash, _remap_hash_table as remap_hash_table
 from cl           import _not_implemented_error as not_implemented_error, _not_implemented as not_implemented
 from cl           import _curry as curry, _compose as compose
-from cl           import _mapset as mapset, _mapsetn as mapsetn
+from cl           import _mapset as mapset, _mapsetn as mapsetn, _mapcar_star as mapcar_star
 from cl           import _slotting as slotting
 from cl           import _ensure_list as ensure_list
 from cl           import _caller_name as caller_name
 from cl           import _coerce_to_stream as coerce_to_stream
 from cl           import _here as here
 from cl           import _prognf as prognf
+from cl           import _destructuring_bind_keys as destructuring_bind_keys
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]
@@ -38,8 +39,6 @@ def type_name(x):         return type(x).__name__
 def nonep(o):             return o is None
 def minus1p(o):           return o is -1
 def bytesp(o):            return type(o) is bytes
-def frozensetp(o):        return type(o) is frozenset
-def setp(o):              return type(o) is set or frozensetp(o)
 def astp(x):              return typep(x, ast.AST)
 def code_object_p(x):     return type(x) is type(code_object_p.__code__)
 
@@ -312,9 +311,6 @@ def lastcar(xs):       return xs[-1]
 def listf(*args):      return list(args)
 def make_set(*args):   return set(args)
 def make_tuple(*args): return args
-
-def mapcar_star(f, xs):
-        return [ f(*x) for x in xs ]
 
 def unzip(pred, xs):
         yep = []

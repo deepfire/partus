@@ -18,9 +18,10 @@ def read_message(stream, package):
         format(t, "--> %06x, '%s'\n", len(packet), packet)
         message = handler_case(
                 lambda: read_form(packet, package),
-                Exception = (lambda c: # XXX: originally, caught only READER-ERROR
-                             error(make_condition(swank_reader_error,
-                                                  packet, c))))
+                (Exception,
+                 (lambda c: # XXX: originally, caught only READER-ERROR
+                   error(make_condition(swank_reader_error,
+                                        packet, c)))))
         format(t, "==> %s\n", message)
         return message
 
@@ -124,9 +125,9 @@ def write_message(message, package, stream):
 
 def prin1_to_string_for_emacs(object, package):
         def body():
-                with env.let(_print_case_     = keyword("downcase"),
-                             _print_readably_ = nil,
-                             _print_pretty_   = nil,
-                             _package_        = package):
+                with progv(_print_case_     = keyword("downcase"),
+                           _print_readably_ = nil,
+                           _print_pretty_   = nil,
+                           _package_        = package):
                         return prin1_to_string(object)
         return with_standard_io_syntax(body)

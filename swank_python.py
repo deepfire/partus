@@ -333,10 +333,47 @@ def function_name(function):
 #                          policy = nil):		pass
 
 ### Definitions
-#### defparameter *definition-types*
-#### defun definition-specifier
-#### defun make-dspec
-# def find_definitions(object):				pass
+setq("_definition_types_",
+     [keyword("function"), "def",
+      keyword("class"),    "class"])
+"Map SB-INTROSPECT definition type names to Slime-friendly forms"
+
+def definition_specifier(type, name):
+        "Return a pretty specifier for NAME representing a definition of type TYPE."
+        return (keyword("def-ir1-translator") if (symbolp(name) and
+                                                         type is keyword("function") and
+                                                         t) else # Was: (sb-int:info :function :ir1-convert name)
+                getf(symbol_value("_definition_types_"), type))
+
+def make_dspec(type, name, source_location):
+        spec = definition_specifier(type, name)
+        desc = definition_source_description(source_location)
+        if spec is keyword("define-vop"):
+                # The first part of the VOP description is the name of the template
+                # -- which is actually good information and often long. So elide the
+                # original name in favor of making the interesting bit more visible.
+                #
+                # The second part of the VOP description is the associated compiler note, or
+                # NIL -- which is quite uninteresting and confuses the eye when reading the actual
+                # name which usually has a worthwhile postfix. So drop the note.
+                return [spec, desc[0]]
+        else:
+                return [spec, name] + desc
+
+def find_definitions(name):
+        acc = []
+        for type in symbol_value("_definition_types_")[::2]:
+                defsrcs = find_definition_sources_by_name(name, type)
+                acc.extend([make_dspec(type, name, defsrc),
+                            converting_errors_to_error_location(
+                                        lambda: definition_source_for_emacs(defsrc, type, name))]
+                           for defsrc in defsrcs)
+        return acc
+
+def find_source_location(obj):
+        def general_type_of(obj):
+                return typecase(obj,
+                                ())
 # def find_source_location(object):			pass
 
 #### categorize-definition-source
@@ -403,8 +440,12 @@ def call_with_debugging_environment(debugger_loop_fn):
                                          env._stack_top_hint_),
                      _stack_top_hint_ = nil):
                 handler_bind(lambda: debugger_loop_fn(),
-                             debug_condition = lambda condition: signal((make_condition(sldb_condition,
-                                                                                        original_condition = condition))))
+                             # XXX: disabled, due to lack of SB-DI:DEBUG-CONDITION
+                             # (debug_condition, # XXX: Was: SB-DI:DEBUG-CONDITION
+                             #  lambda condition:
+                             #          signal(make_condition(sldb_condition,
+                             #                                original_condition = condition)))
+                             )
 #+#.(swank-backend::sbcl-with-new-stepper-p)
 ### progn
 # def activate_stepping(frame_number):			pass
@@ -578,6 +619,7 @@ def frame_locals(index):
 
 @defimplementation
 def format_sldb_condition(condition):
+        # Originally: let ((sb-int:*print-condition-references* nil))
         return princ_to_string(condition)
 
 ### Profiling
@@ -747,8 +789,8 @@ def send(thread, message):
         mbox = mailbox(thread)
         def body():
                 mbox.queue.append(message)
-                # here("to thread (%s): %s -> <QUEUE %x> %s" % (thread_name(thread).upper(),
-                #                                               message, id(mbox.queue), mbox.queue,))
+                here("to thread (%s): %s -> <QUEUE %x> %s" % (thread_name(thread).upper(),
+                                                              message, id(mbox.queue), mbox.queue,))
                 mbox.waitqueue.notify_all()
         return call_with_lock_held(mbox.mutex,
                                    body)
@@ -786,20 +828,22 @@ def receive_if(test, timeout = nil):
                                 tail = member_if(test, q)
                                 if tail:
                                         mbox.queue = ldiff(q, tail) + rest(tail)
-                                        # here("returning " + str(first(tail)))
+                                        here("returning " + str(first(tail)),
+                                             callers = 20)
                                         return_from(_receive_if,
                                                     (first(tail), None))
-                                # elif q:
-                                #         here("unmatched events: %s" % (mbox.queue,))
+                                elif q:
+                                        here("unmatched events: %s" % (mbox.queue,))
                                 if timeout is t:
                                         return_from(_receive_if,
                                                     (None, True))
                                 if not busywait_reported:
-                                        # here("polling <QUEUE %x>" % id(mbox.queue))
+                                        here("polling <QUEUE %x>" % id(mbox.queue))
                                         busywait_reported = t
                                 condition_timed_wait(waitq, mutex, 0.2)
                         call_with_lock_held(mutex, lockbody)
-                here("checking for events on <QUEUE %x>.." % id(mbox.queue))
+                here("checking for events on <QUEUE %x>.." % id(mbox.queue),
+                     callers = 20)
                 loop(body)
         ret = _receive_if()
         # cl._backtrace()

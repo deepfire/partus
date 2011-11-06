@@ -270,15 +270,17 @@ def safe_backtrace():
                         lambda:
                                 backtrace(0, nil)))
 
-class swank_error(Exception):
+class swank_error(error_):
         "Condition which carries a backtrace."
         def __init__(self, backtrace = None, condition = None):
                 self.backtrace, self.condition = backtrace, condition
         def __str__(self):
                 return str(self.condition)
 
-def make_swank_error(condition, backtrace = safe_backtrace()):
-        return swank_error(condition = condition, backtrace = backtrace)
+def make_swank_error(condition, backtrace = None):
+        return swank_error(condition = condition,
+                           backtrace = (safe_backtrace() if backtrace is None else
+                                        backtrace))
 
 setq("_debug_on_swank_protocol_error_", nil)
 """When non-nil invoke the system debugger on errors that were
@@ -290,22 +292,25 @@ def with_swank_error_handler(conn, body):
         def handler_case_body():
                 return handler_bind(
                         body,
-                        swank_error = (lambda condition:
-                                               symbol_value("_debug_on_swank_protocol_error_") and
-                                       invoke_default_debugger(condition)))
+                        (swank_error,
+                         (lambda condition:
+                           (symbol_value("_debug_on_swank_protocol_error_") and
+                                        invoke_default_debugger(condition)))))
         return handler_case(handler_case_body,
-                            swank_error = (lambda condition:
-                                                   close_connection(conn,
-                                                                    condition.condition,
-                                                                    condition.backtrace)))
+                            (swank_error,
+                             (lambda condition:
+                               close_connection(conn,
+                                                condition.condition,
+                                                condition.backtrace))))
 
 def with_panic_handler(conn, body):
         "Close the connection on unhandled `serious-condition's."
         return handler_bind(body,
-                            Exception = (lambda condition:
-                                                 close_connection(conn,
-                                                                  condition,
-                                                                  safe_backtrace())))
+                            (error_,
+                             (lambda condition:
+                               close_connection(conn,
+                                                condition,
+                                                safe_backtrace()))))
 
 def notify_backend_of_connection(conn):
         return emacs_connected()
@@ -466,17 +471,12 @@ def with_connection(conn, body):
                                                         swank_debugger_hook,
                                                         body))))
 
-def call_with_retry_restart(fn, msg = "Retry"):
-        "XXX: swankr"
-        retry = True
-        while retry:
-                retry = False
-                def handler_body():
-                        nonlocal retry
-                        retry = True
-                with_restarts(fn,
-                              retry = { 'description': msg,
-                                        'handler':     handler_body })
+@block
+def call_with_retry_restart(thunk, msg = "Retry"):
+        def body():
+                with_simple_restart("RETRY", msg,
+                                    lambda: return_from(call_with_retry_restart, thunk()))
+        loop(body)
 
 with_retry_restart = call_with_retry_restart # Was: defmacro
 
@@ -630,8 +630,8 @@ def send_user_output(string, pcount, tag, plength):
             plength > symbol_value("_maximum_pipelined_output_length_")):
                 tag = (tag + 1) % 1000
                 send_to_emacs([keyword("ping"), current_thread_id(), tag])
-                with_simple_restart("ABORT", "Abort sending output to Emacs.")
-                wait_for_event([keyword("emacs-pong"), tag])
+                with_simple_restart("ABORT", "Abort sending output to Emacs.",
+                                    lambda: wait_for_event([keyword("emacs-pong"), tag]))
                 pcount, plength = 0
         send_to_emacs([keyword("write-string"), string])
         return pcount + 1, tag, plength + len(string)
@@ -676,15 +676,14 @@ def decode_message(stream):
         "Read an S-expression from STREAM using the SLIME protocol."
         log_event("decode_message\n")
         return without_slime_interrupts(
-                lambda:
-                        handler_bind(
-                        lambda:
-                                handler_case(
+                lambda: handler_bind(
+                        lambda: handler_case(
                                 lambda: read_message(stream,
                                                      symbol_value("_swank_io_package_")),
-                                swank_reader_error =
-                                lambda c: [keyword("reader-error"), c.packet, c.cause]),
-                        Exception = lambda c: error(make_swank_error(c))))
+                                (swank_reader_error,
+                                 lambda c: [keyword("reader-error"), c.packet, c.cause])),
+                        (error_,
+                         lambda c: error(make_swank_error(c)))))
 
 def encode_message(message, stream):
         "Write an S-expression to STREAM using the SLIME protocol."
@@ -694,7 +693,8 @@ def encode_message(message, stream):
                         handler_bind(lambda: write_message(message,
                                                            symbol_value("_swank_io_package_"),
                                                            stream),
-                                     Exception = lambda c: error(make_swank_error(c))))
+                                     (error_,
+                                      lambda c: error(make_swank_error(c)))))
 
 ### Event Processing: swank.lisp:1028
 setq("_sldb_quit_restart_", nil)
@@ -887,7 +887,7 @@ def spawn_worker_thread(conn):
                                 lambda:
                                         eval_for_emacs(*wait_for_event([keyword("emacs-rex"),
                                                                         # XXX: was: :emacs-rex . _
-                                                                        ])[1:]))),
+                                                                        ])[0][1:]))),
                      name = "worker")
 
 def spawn_repl_thread(conn, name):
@@ -903,17 +903,17 @@ def dispatch_event(event):
                 thread = thread_for_evaluation(thread_id)
                 if thread:
                         symbol_value("_active_threads_").append(thread)
-                        send_event(thread, [keyword("emacs-rex"), form, package, id])
+                        return send_event(thread, [keyword("emacs-rex"), form, package, id])
                 else:
-                        encode_message([keyword("invalid-rpc"), id,
-                                        format(nil, "Thread not found: %s", thread_id)],
-                                       current_socket_io())
+                        return encode_message([keyword("invalid-rpc"), id,
+                                               format(nil, "Thread not found: %s", thread_id)],
+                                              current_socket_io())
         def return_(thread, *args, **keys):
                 tail = member(thread, symbol_value("_active_threads_"))
                 setq("_active_threads_",
                      ldiff(symbol_value("_active_threads_"), tail) +
                      rest(tail))
-                encode_message([keyword("return")] + list(args), current_socket_io())
+                return encode_message([keyword("return")] + list(args), current_socket_io())
         here(str(event))
         destructure_case(
                 event,
@@ -992,14 +992,17 @@ If TIMEOUT is 'nil wait until a matching event is enqued.
 If TIMEOUT is 't only scan the queue without waiting.
 The second return value is t if the timeout expired before a matching
 event was found."""
+        # Warning: returns multiple values!
         log_event("wait_for_event: %s %s\n", pattern, timeout)
-        return without_slime_interrupts(
-                lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout)
-                         if use_threads_p() else
+        ret = without_slime_interrupts(
+                lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout) if use_threads_p() else
                          wait_for_event_event_loop(pattern, timeout)))
+        here("returning %s" % (ret,))
+        return ret
 
 @block
 def wait_for_event_event_loop(pattern, timeout):
+        # Warning: not tested (which is somewhat irrelevant, because use_threads_p() -> T)
         if timeout and timeout is not t:
                 error(simple_type_error, "WAIT-FOR-EVENT-LOOP: timeout must be NIL or T, was: %s.", timeout)
         def body():
@@ -1042,9 +1045,9 @@ def event_match_p(event, pattern):
         elif listp(pattern):
                 # here("matching ev %s against pat %s" % (event, pattern))
                 f = pattern[0] # XXX: symbols or strings?
-                here("hit LIST: %s vs. %s of type %s" % (pattern, event[0], type_of(event[0])))
+                # here("hit LIST: %s vs. %s of type %s" % (pattern, event[0], type_of(event[0])))
                 if f is or_:
-                        here("hit OR")
+                        # here("hit OR")
                         return some(lambda p: event_match_p(event, p), rest(pattern))
                 else:
                         return (listp(event) and
@@ -1348,7 +1351,7 @@ converted to lower case."""
 """Eval FORM in Emacs.
 `slime-enable-evaluate-in-emacs' should be set to T on the Emacs side."""
 
-setq("_swank_wire_protocol_version_", nil)
+setq("_swank_wire_protocol_version_", "2011-09-28")
 "The version of the swank/slime communication protocol."
 
 def connection_info():
@@ -1438,7 +1441,8 @@ def without_printing_errors(object, stream, body, msg = "<<error printing object
                 else:
                         return msg
         return handler_case(body,
-                            Exception = handler)
+                            (error_,
+                             handler))
 
 def to_string(object):
         """Write OBJECT in the *BUFFER-PACKAGE*.
@@ -1554,6 +1558,7 @@ Errors are trapped and invoke our debugger."""
         #                                   `(:ok ,result)
         #                                   `(:abort ,(prin1-to-string condition)))
         #                              ,id)))))
+        here("got %s" % (form,))
         ok, result, condition = None, None, None
         def set_result(x):    nonlocal result;    result = x
         def set_condition(x): nonlocal condition; condition = x
@@ -1564,7 +1569,8 @@ Errors are trapped and invoke our debugger."""
                         def with_slime_interrupts_body():
                                 return eval_(form)
                         handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
-                                     Exception = set_condition)
+                                     (error_,
+                                      set_condition))
                         run_hook(boundp("_pre_reply_hook_") and symbol_value("_pre_reply_hook_"))
                         ok = True
         finally:
@@ -1572,7 +1578,7 @@ Errors are trapped and invoke our debugger."""
                                current_thread(),
                                ([keyword("ok"), result]
                                 if ok else
-                                [keyword("abort"), condition]),
+                                [keyword("abort"), prin1_to_string(condition)]),
                                id])
 
 setq("_echo_area_prefix_", "=> ")
@@ -1865,14 +1871,15 @@ after Emacs causes a restart to be invoked."""
                                           with_connection(conn,
                                                           lambda: debug_in_emacs(condition)))))
 
-class invoke_default_debugger_condition(BaseException):
+class invoke_default_debugger_condition(condition):
         pass
 
 def swank_debugger_hook(condition, hook):
         "Debugger function for binding *DEBUGGER-HOOK*."
         handler_case(lambda: call_with_debugger_hook(swank_debugger_hook,
                                                      lambda: invoke_slime_debugger(condition)),
-                     invoke_default_debugger_condition = lambda _: invoke_slime_debugger(condition))
+                     (invoke_default_debugger_condition,
+                      lambda _: invoke_slime_debugger(condition)))
 
 def invoke_default_debugger(condition):
         call_with_debugger_hook(nil,
@@ -1945,15 +1952,16 @@ def sldb_loop(level):
                                 send_to_emacs([keyword("debug-activate"), current_thread_id(), level, None])
                                 while True:
                                         def handler_case_body():
-                                                evt = wait_for_event([or_,
-                                                                      [keyword("emacs-rex")],
-                                                                      [keyword("sldb-return", level + 1)]])
+                                                evt, _ = wait_for_event([or_,
+                                                                         [keyword("emacs-rex")],
+                                                                         [keyword("sldb-return", level + 1)]])
                                                 if evt[0] is keyword("emacs-rex"):
                                                         eval_for_emacs(*evt[1:])
                                                 elif evt[0] is keyword("sldb-return"):
                                                         return_from("sldb_loop", None)
                                         handler_case(handler_case_body,
-                                                     SLDB_CONDITION = lambda c: handle_sldb_condition(c))
+                                                     (sldb_condition,
+                                                      lambda c: handle_sldb_condition(c)))
                         with_simple_restart("ABORT", "Return to sldb level %d." % level,
                                             with_simple_restart_body)
         finally:
@@ -1985,9 +1993,11 @@ def safe_condition_message(condition):
                 return handler_case(lambda: symbol_value("_sldb_condition_printer_")(condition),
                                     # Beware of recursive errors in printing, so only use the condition
                                     # if it is printable itself:
-                                    Exception = lambda cond:
-                                            format(nil, "Unable to display error condition: %s.",
-                                                   ignore_errors(lambda: princ_to_string(cond))))
+                                    (error_,
+                                     lambda cond:
+                                             format(nil, "Unable to display error condition: %s.",
+                                                    ignore_errors(
+                                                lambda: princ_to_string(cond)))))
 
 def debugger_condition_for_emacs():
         condition = symbol_value("_swank_debugger_condition_")
@@ -2033,7 +2043,8 @@ frame."""
 def frame_to_string(frame):
         return with_string_stream(lambda stream:
                                           handler_case(lambda: print_frame(frame, stream),
-                                                       Error = lambda _: format(stream, "[error printing frame]")),
+                                                       (error_,
+                                                        lambda _: format(stream, "[error printing frame]"))),
                                   length = ((symbol_value("_print_lines_")        or 1) *
                                             (symbol_value("_print_right_margin_") or 100)),
                                   bindings = symbol_value("_print_right_margin_"))
@@ -2142,20 +2153,26 @@ TAGS has is a list of strings."""
         # return [mapcar(lambda local_name: [keyword("name"), local_name,
         #                                    keyword("id"), 0,
         #                                    keyword("value"), handler_bind(lambda: print_to_string(frame_local_value(frame, local_name)),
-        #                                                                    Exception = lambda c: "Error printing object: %s." % c)],
+        #                                                                    (error_,
+        #                                                                     lambda c: "Error printing object: %s." % c))],
         #                ordered_frame_locals(frame)),
         #         []]
         return [frame_locals_for_emacs(index),
                 mapcar(to_string, frame_catch_tags(index))]
 
 def frame_locals_for_emacs(index):
-        return with_bindings(symbol_value("_backtrace_printer_bindings_"),
-                             lambda: mapcar(lambda var: destructuring_bind(plist_hash_table(var),
-                                                                           lambda name = nil, id = nil, value = nil:
-                                                                                   [keyword("name"),  prin1_to_string(name),
-                                                                                    keyword("id"),    id,
-                                                                                    keyword("value"), to_line(value)]),
-                                            frame_locals(index)))
+        return with_bindings(
+                symbol_value("_backtrace_printer_bindings_"),
+                lambda: mapcar(lambda var:
+                                       destructuring_bind_keys(
+                                plist_hash_table(var),
+                                lambda name = nil, id = nil, value = nil:
+                                        # XXX: this will present variable names as strings,
+                                        #      that is, not symbols, which is somewhat ugly...
+                                        [keyword("name"),  prin1_to_string(name),
+                                         keyword("id"),    id,
+                                         keyword("value"), to_line(value)]),
+                               frame_locals(index)))
 
 def sldb_disassemble(index):
         def body(stream):
@@ -2219,11 +2236,11 @@ def collect_notes(function):
                                 # To report location of error-signaling toplevel forms
                                 # for errors in EVAL-WHEN or during macroexpansion.
                         restart_case(lambda: multiple_value_list(function()),
-                                     ABORT = (lambda: [nil],
+                                     abort = (lambda: [nil],
                                               dict(report = "Abort compilation.")))),
                 # XXX -- condition type matching
-                compiler_condition = lambda c:
-                        notes.append(make_compiler_note(c)))
+                (compiler_condition,
+                 lambda c: notes.append(make_compiler_note(c))))
         def destructuring_bind_body(success, loadp = nil, faslfile = nil):
                 faslfile = (nil                            if faslfile is nil else
                             pathname_to_filename(faslfile) if stringp(faslfile) else
@@ -2605,7 +2622,8 @@ def profile_by_substring(substring, package):
                     not profiledp(symbol) and
                     search(substring, symbol_name(symbol), test = string_equal)):
                         handler_case(body,
-                                     error = lambda condition: warn("%s", condition))
+                                     (error,
+                                      lambda condition: warn("%s", condition)))
         if package:
                 do_symbols(maybe_profile, parse_package(package))
         else:
