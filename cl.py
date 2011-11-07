@@ -1290,6 +1290,10 @@ def _without_condition_system(body):
         else:
                 return body()
 
+def _condition_system_enabled_p():
+        return (_pytracer_enabled_p() and
+                _tracer_hook("exception") is __cl_condition_handler__)
+
 def _init_package_system_0():
         # debug_printf("   --  -- [ package system init..")
         global __packages__
@@ -2120,6 +2124,7 @@ def     _tracer_hook(type):     return __tracer_hooks__.get(type) if type in __t
 def _pytracer(frame, event, arg):
         method = _tracer_hook(event)
         if method:
+                _here("handling %s", arg)
                 method(arg, frame)
         return _pytracer
 
@@ -2641,7 +2646,11 @@ def eval_(form):
                 import more_ast
                 error("EVAL: error while trying to compile <%s>: %s", more_ast.pp_ast_as_code(expr), cond)
         import more_ast
-        write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
+        _here("---------------------------------------------------\ncondition system is: %s\n*DEBUGGER-HOOK*: %s",
+              _condition_system_enabled_p(), _print_function(symbol_value("_debugger_hook_")))
+        write_line(">>> EVAL: %s, condsys %s, de-ho %s" % 
+                   (more_ast.pp_ast_as_code(expr),
+                    _condition_system_enabled_p(), _print_function(symbol_value("_debugger_hook_"))))
         exec(code, _lisp_package_name_module(package_name(package)).__dict__)
         return __evget__()
 

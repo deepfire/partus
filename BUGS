@@ -501,3 +501,107 @@ Say, when we (progn
    (:return (:abort "nil") 6)
    (:debug-return 1 1 nil)
    (:return (:abort "#<listener_eval() takes exactly 3 arguments (1 given)>") 5)
+
+---- stack trace of autodoc fuckage:
+_bootstrap_inner
+<lambda>
+<lambda>
+call_with_bindings
+<lambda>
+repl_loop
+handle_requests
+with_connection
+without_slime_interrupts
+<lambda>
+with_swank_error_handler
+handler_case
+catch
+<lambda>
+handler_bind
+handler_case_body
+handler_bind
+<lambda>
+with_io_redirection
+call_with_bindings
+progv
+<lambda>
+call_with_debugger_hook
+<lambda>
+<lambda>
+catch
+<lambda>
+tag_body
+<lambda>
+catch
+<lambda>
+inner
+with_top_level_restart
+with_connection
+<lambda>
+restart_case
+_restart_case
+catch
+<lambda>
+_restart_bind
+restart_case_body
+<lambda>
+<lambda>
+catch
+<lambda>
+process_requests
+loop
+body
+destructure_case
+eval_for_emacs
+handler_bind
+<lambda>
+with_slime_interrupts
+with_slime_interrupts_body
+eval_ ---------------------------- first EVAL bombs out.. (original error)
+<module>
+_pytracer
+__cl_condition_handler__
+<lambda>
+swank_debugger_hook
+handler_case
+catch
+<lambda>
+handler_bind --------------------- handles INVOKE-DEFAULT-DEBUGGER-CONDITION, by the means of
+                                   invoke_slime_debugger
+<lambda>
+call_with_debugger_hook
+<lambda>
+invoke_slime_debugger
+without_slime_interrupts
+<lambda>
+debug_in_emacs
+call_with_debugging_environment
+handler_bind --------------------- supposed to resignal SB-DI:DEBUG-CONDITION as SLDB-CONDITION
+<lambda>
+<lambda>
+<lambda>
+catch
+<lambda>
+sldb_loop
+with_simple_restart
+restart_case
+_restart_case
+catch
+<lambda>
+_restart_bind
+with_simple_restart_body
+handler_case --------------------- handles SLDB-CONDITIONs, only
+catch
+<lambda>
+handler_bind
+handler_case_body
+eval_for_emacs
+handler_bind --------------------- records the condition
+<lambda>
+with_slime_interrupts
+with_slime_interrupts_body
+eval_ ---------------------------- autodoc EVAL
+<module>
+
+...wait a moment.. why isn't *DEBUGGER-HOOK* involved?
+Oh damn, right, we're not re-enabling the condition system.

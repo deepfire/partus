@@ -156,3 +156,54 @@ print("CONDITIONS-RESTARTS: passed")
 assert(probe_file("/etc/passwd") and
        not probe_file("/does/not/exist"))
 print("PROBE-FILE: passed")
+
+
+original_tracer = sys.gettrace()
+
+handler = None
+def test_tracer(frame, event, arg):
+        if event != "line":
+                cl._here("<%s> %s", event, arg, callers = 10)
+                if event == "exception" and handler:
+                        handler(arg, frame)
+        return test_tracer
+sys.settrace(test_tracer)
+
+@block
+def f():
+        global handler
+        def second_handler(cond, _):
+                cl._here("Handling <%s>, tracer: %s", cond, sys.gettrace())
+                return_from(f, "All handled.")
+        def first_handler(cond, _):
+                cl._here("Handling <%s>, tracer: %s", cond, sys.gettrace())
+                def continuation():
+                        global handler
+                        handler = second_handler
+                        raise error_("Nested condition!")
+                # sys.call_tracing(continuation, tuple())
+                sys.settrace(test_tracer)
+                continuation()
+        handler = first_handler
+        raise error_("Initial condition!")
+assert(f() == "All handled.")
+sys.settrace(original_tracer)
+print("NESTED-PYTRACER: passed")
+
+@block
+def f():
+        def second_handler(cond, _):
+                return_from(f, "All handled.")
+        def first_handler(cond, _):
+                with progv(_debugger_hook_ = second_handler):
+                        write_line(">>> condsys %s, de-ho %s" % 
+                                   (cl._condition_system_enabled_p(),
+                                    cl._print_function(symbol_value("_debugger_hook_"))))
+                        error("Nested condition!")
+        with progv(_debugger_hook_ = first_handler):
+                write_line(">>> condsys %s, de-ho %s" % 
+                           (cl._condition_system_enabled_p(),
+                            cl._print_function(symbol_value("_debugger_hook_"))))
+                error("Initial condition!")
+assert(f() == "All handled.")
+print("NESTED-DEBUGGER-HOOK: passed")
