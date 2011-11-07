@@ -63,7 +63,7 @@ def _read_case_xformed(x):
 def _coerce_to_symbol_name(x):
         return (x.name                if symbolp(x) else
                 _read_case_xformed(x) if stringp(x) else
-                error(TypeError, "%s cannot be coerced to string." % (x,)))
+                error(simple_type_error, "%s cannot be coerced to string.", x))
 
 def _astp(x):                                return typep(x, ast.AST)
 def _ast_num(n):                             return ast.Num(n = the(int, n))
@@ -169,6 +169,11 @@ def _all_threads_frames():
 def _this_frame():
         return sys._getframe(1)
 
+_frame = type(_this_frame())
+
+def _framep(x):
+        return typep(x, _frame)
+
 def _next_frame(f):
         return f.f_back if f.f_back else error("Frame \"%s\" is the last frame.", _pp_frame(f, lineno = True))
 
@@ -183,7 +188,7 @@ def _exception_frame():
 
 def _frames_upward_from(f = None, n = -1):
         "Semantics of N are slightly confusing, but the implementation is so simple.."
-        f = _caller_frame() if f is None else f
+        f = _caller_frame() if f is None else the(_frame, f)
         return [f] + (_frames_upward_from(f.f_back, n - 1) if n and f.f_back else [])
 
 def _top_frame():
@@ -333,6 +338,9 @@ def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.s
 ##
 condition = BaseException
 error_    = Exception
+
+def _conditionp(x):
+        return typep(x, condition)
 
 class simple_condition(condition):
         def __init__(self, format_control, *format_arguments):
@@ -519,8 +527,7 @@ def subtypep(sub, super):
 
 def the(type, x):
         return (x if isinstance(x, type) else
-                error(TypeError, "The value %s is not of type %s." %
-                                 (x, type.__name__)))
+                error(simple_type_error, "The value %s is not of type %s.", x, type.__name__))
 
 def check_type(x, type):
         the(type, x)
@@ -535,8 +542,8 @@ def etypecase(val, *clauses):
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
                         return body() if functionp(body) else body
         else:
-                error(TypeError, "%s fell through ETYPECASE expression. Wanted one of (%s)." %
-                      (val, ", ".join(mapcar(lambda c: c[0].__name__, clauses))))
+                error(simple_type_error, "%s fell through ETYPECASE expression. Wanted one of (%s).",
+                      val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
 
 def coerce(x, type):
         if type(x) is type:
@@ -944,8 +951,8 @@ def boundp(symbol):
 def symbol_value(symbol):
         return (_symbol_value(_coerce_to_symbol_name(symbol)) if stringp(symbol) else
                 symbol.value                                  if symbolp(symbol) else
-                error(TypeError, "SYMBOL-VALUE accepts either strings or symbols, not '%s'." %
-                      (symbol,)))
+                error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
+                      symbol))
 
 def setq(name, value):
         dict = __tls__.dynamic_scope[-1] if __tls__.dynamic_scope else __global_scope__
@@ -1147,14 +1154,14 @@ def _ccoerce_to_package(x, if_null = "current", **args):
         return (x                         if packagep(x)                      else
                 symbol_value("_package_") if (not x) and if_null == "current" else
                 _find_package(x)          if stringp(x) or symbolp(x)         else
-                error(TypeError, "CCOERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s." %
-                      (x, type_of(x))))
+                error(simple_type_error, "CCOERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
+                      x, type_of(x)))
 def _coerce_to_package(x, if_null = "current"):
         return (x                         if packagep(x)                      else
                 symbol_value("_package_") if (not x) and if_null == "current" else
                 find_package(x, True)     if stringp(x) or symbolp(x)         else
-                error(TypeError, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s." %
-                      (x, type_of(x))))
+                error(simple_type_error, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
+                      x, type_of(x)))
 
 def defpackage(name, use = [], export = []):
         p = package(name, use = use)
@@ -1275,7 +1282,7 @@ def export(symbols, package = None):
 def string(x):
         return (x              if stringp(x) else
                 symbol_name(x) if symbolp(x) else
-                error(TypeError, "%s cannot be coerced to string." % (x,)))
+                error(simple_type_error, "%s cannot be coerced to string.", x))
 
 def _init_condition_system():
         _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
@@ -1763,6 +1770,8 @@ def write_to_string(object,
                                 string += _print_unreadable_compound(object)
                         elif functionp(object):
                                 string += _print_function(object)
+                        elif (not escape) and typep(object, restart) or typep(object, condition):
+                                string += str(object)
                         else:
                                 string += _print_unreadable(object)
                                 # error("Can't write object %s", object)
@@ -2153,7 +2162,7 @@ at all.
         cond = (default_type(datum % args) if stringp(datum) else
                 datum(*args, **keys)       if typep(datum, type_of(condition)) else
                 datum                      if typep(datum, condition) else
-                error(TypeError, "The first argument to MAKE-CONDITION must either a string, a condition type or a condition, was: %s, of type %s.",
+                error(simple_type_error, "The first argument to MAKE-CONDITION must either a string, a condition type or a condition, was: %s, of type %s.",
                       datum, type_of(datum)))
         # format(t, "made %s %s %s\n", datum, args, keys)
         # format(t, "    %s\n", cond)
@@ -2292,15 +2301,23 @@ def _dump_thread_state():
 
 def __cl_condition_handler__(condspec, frame):
         def continuation():
-                def _maybe_upgrade_condition(cond):
-                        "Fix up the shit routinely being passed around."
-                        return etypecase(cond,
-                                         (BaseException, lambda: cond),
-                                         (str,       lambda: error_(cond)))
-                type, cond, traceback = condspec
-                cond = _maybe_upgrade_condition(cond)
+                type, raw_cond, traceback = condspec
                 # print_frames(frames_upward_from(frame))
-                if not typep(cond, __catcher_throw__): # no need to delay the inevitable
+                if not typep(raw_cond, __catcher_throw__): # no need to delay the inevitable
+                        def _maybe_upgrade_condition(cond):
+                                "Fix up the shit routinely being passed around."
+                                return (cond if typep(cond, condition) else
+                                        condspec[0](*([cond] if stringp(cond) else
+                                                      cond)))
+                                       # typecase(cond,
+                                       #          (BaseException, lambda: cond),
+                                       #          (str,       lambda: error_(cond)))
+                        cond = _maybe_upgrade_condition(raw_cond)
+                        if cond is not raw_cond:
+                                _here("Condition Upgrader: %s(%s) -> %s(%s)",
+                                      raw_cond, type_of(raw_cond),
+                                      cond, type_of(cond),
+                                      )
                         with env.let(_traceback_ = traceback,
                                      _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
                                 presignal_hook = symbol_value("_presignal_hook_")
@@ -2332,7 +2349,7 @@ def handler_bind(fn, *handlers, no_error = identity):
         if _pytracer_enabled_p() and "exception" in __tracer_hooks__ and __tracer_hooks__["exception"] is __cl_condition_handler__:
                 for type, _ in handlers:
                         if not subtypep(type, condition):
-                                error(TypeError, "While establishing handler: '%s' does not designage a known condition type." % (type,))
+                                error(simple_type_error, "While establishing handler: '%s' does not designage a known condition type.", type)
                 with env.let(__handler_clusters__ = env.__handler_clusters__ +
                              [handlers + (("__frame__", _this_frame()),)]):
                         return no_error(fn())
@@ -2418,7 +2435,7 @@ class restart(_servile):
 #                           test_function        = lambda cond: visible_p(cond))))
 setq("__restart_clusters__", [])
 
-def restartp(x):
+def _restartp(x):
         return typep(x, restart)
 
 def restart_name(x):
@@ -2429,9 +2446,8 @@ def _specs_restarts_args(restart_specs):
         restarts_args = dict()
         for name, spec in restart_specs.items():
                 function, options = ((spec[0], spec[1]) if _tuplep(spec) else
-                                     spec, dict())
-                restarts_args[name] = _updated_dict(options, dict(name = name.upper(), # XXX: name mangling!
-                                                                  function = function))
+                                     (spec, dict()))
+                restarts_args[name.upper()] = _updated_dict(options, dict(function = function)) # XXX: name mangling!
         return restarts_args
 
 ##
@@ -2444,27 +2460,34 @@ def _restart_bind(body, restarts_args):
 def restart_bind(body, **restart_specs):
         return _restart_bind(body, _specs_restarts_args(restart_specs))
 
+__valid_restart_options__ = frozenset(["interactive", "report", "test", "function"])
 def _restart_case(body, **restarts_args):
-        nonce            = gensym("RESTART-CASE")
+        def validate_restart_options(options):
+                unknown = set(options.keys()) - __valid_restart_options__
+                return t if not unknown else error(simple_type_error, "Acceptable restart options are: (%s), not (%s)",
+                                                   " ".join(__valid_restart_options__), " ".join(options.keys()))
+        nonce = gensym("RESTART-CASE")
         wrapped_restarts_args = {
                 restart_name: _letf(restart_args["function"],
                                     restart_args["interactive"] if "interactive" in restart_args else nil,
                                     restart_args["report"]      if "report"      in restart_args else nil,
                                     lambda function, interactive, report:
-                                            _updated_dict(restart_args,
-                                                          dict(function =
-                                                               lambda *args, **keys:
-                                                                       return_from(nonce, function(*args, **keys)),
-                                                               interactive_function =
-                                                               (interactive                 if functionp(interactive) else
-                                                                lambda: []                  if null(interactive) else
-                                                                error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
-                                                               report_function =
-                                                               (report                      if functionp(report) else
-                                                                curry(write_string, report) if stringp(report) else
-                                                                nil                         if null(report) else
-                                                                error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL.")))))
-                             for restart_name, restart_args in restarts_args.items () }
+                                            (validate_restart_options(restart_args) and
+                                             _updated_dict(restart_args,
+                                                           dict(name                 = restart_name,
+                                                                function             =
+                                                                lambda *args, **keys:
+                                                                        return_from(nonce, function(*args, **keys)),
+                                                                interactive_function =
+                                                                (interactive                  if functionp(interactive) else
+                                                                 lambda: []                   if null(interactive) else
+                                                                 error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
+                                                                report_function      =
+                                                                (report                       if functionp(report) else
+                                                                 _curry(write_string, report) if stringp(report) else
+                                                                 nil                          if null(report) else
+                                                                 error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
+                for restart_name, restart_args in restarts_args.items () }
         return catch(nonce,
                      lambda: _restart_bind(body, wrapped_restarts_args))
 
@@ -2486,9 +2509,8 @@ The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
 """
         description = (format_control_and_arguments if stringp(format_control_and_arguments) else
                        format(nil, format_control_and_arguments[0], *format_control_and_arguments[1:]))
-        return restart_case(body, **{ name: dict(name            = name,
-                                                 function        = lambda: None,
-                                                 report_function = lambda stream: format(stream, "%s", description)) })
+        return restart_case(body, **{ name: (lambda: None,
+                                             dict(report = lambda stream: format(stream, "%s", description))) })
 
 def restart_condition_association_check(cond, restart):
         """
@@ -2522,7 +2544,7 @@ returned if no such restart is found.
 If IDENTIFIER is a currently active restart, then it is
 returned. Otherwise, NIL is returned.
 """
-        if restartp(identifier):
+        if _restartp(identifier):
                 return find_restart(restart_name(identifier)) is identifier
         else:
                 for cluster in reversed(env.__restart_clusters__):
@@ -2568,8 +2590,8 @@ def invoke_restart(restart, *args, **keys):
 Calls the function associated with RESTART, passing arguments to
 it. Restart must be valid in the current dynamic environment.
 """
-        assert(stringp(restart) or restartp(restart))
-        restart = restart if restartp(restart) else find_restart(restart)
+        assert(stringp(restart) or _restartp(restart))
+        restart = restart if _restartp(restart) else find_restart(restart)
         return restart.function(*args, **keys)
 
 def invoke_restart_interactively(restart):
@@ -2592,8 +2614,8 @@ executes the following:
 
  (apply #'invoke-restart restart arguments)
 """
-        assert(stringp(restart) or restartp(restart))
-        restart = restart if restartp(restart) else find_restart(restart)
+        assert(stringp(restart) or _restartp(restart))
+        restart = restart if _restartp(restart) else find_restart(restart)
         return invoke_restart(*restart.interactive_function())
 
 ##
@@ -2707,11 +2729,7 @@ def eval_(form):
                 import more_ast
                 error("EVAL: error while trying to compile <%s>: %s", more_ast.pp_ast_as_code(expr), cond)
         import more_ast
-        _here("---------------------------------------------------\ncondition system is: %s\n*DEBUGGER-HOOK*: %s",
-              _condition_system_enabled_p(), _print_function(symbol_value("_debugger_hook_")))
-        write_line(">>> EVAL: %s, condsys %s, de-ho %s" % 
-                   (more_ast.pp_ast_as_code(expr),
-                    _condition_system_enabled_p(), _print_function(symbol_value("_debugger_hook_"))))
+        write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         exec(code, _lisp_package_name_module(package_name(package)).__dict__)
         return __evget__()
 

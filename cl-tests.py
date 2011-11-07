@@ -178,11 +178,10 @@ def pause():
 def f():
         global handler
         def second_handler(cond, _):
-                cl._here("Handling <%s>, tracer: %s", cond, sys.gettrace())
+                # cl._here("Handling <%s>, tracer: %s", cond, sys.gettrace())
                 return_from(f, "All handled.")
         def first_handler(cond, _):
-                cl._here("Handling <%s>, tracer: %s, info: %s", cond, sys.gettrace(), sys.exc_info())
-                print(dir(cond[2]))
+                # cl._here("Handling <%s>, tracer: %s, info: %s", cond, sys.gettrace(), sys.exc_info())
                 def continuation():
                         global handler
                         # cl._dump_thread_state()

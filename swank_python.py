@@ -5,7 +5,7 @@ import threading
 
 import cl
 
-from cl import env, identity, setq, symbol_value, progv, boundp, t, nil, format, find, member_if, remove_if_not, constantly, loop, ldiff, rest, first
+from cl import identity, setq, symbol_value, progv, boundp, t, nil, format, find, member_if, remove_if_not, constantly, loop, ldiff, rest, first
 from cl import block, return_from, handler_bind, signal, make_condition, write_line, princ_to_string, stream, mapcar
 from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword as keyword
@@ -435,10 +435,11 @@ def find_source_location(obj):
 def call_with_debugging_environment(debugger_loop_fn):
         # Note that the notion of the "top frame" in CL culture
         # is opposite to its Python counterpart.
-        with env.let(_sldb_stack_top_ = (_top_frame()
-                                         if symbol_value("_debug_swank_backend_") or not boundp("_stack_top_hint_") else
-                                         env._stack_top_hint_),
-                     _stack_top_hint_ = nil):
+        with progv(_sldb_stack_top_ = (_top_frame() if (symbol_value("_debug_swank_backend_") or
+                                                        not boundp("_stack_top_hint_") or
+                                                        not symbol_value("_stack_top_hint_")) else
+                                       symbol_value("_stack_top_hint_")),
+                   _stack_top_hint_ = nil):
                 handler_bind(lambda: debugger_loop_fn(),
                              # XXX: disabled, due to lack of SB-DI:DEBUG-CONDITION
                              # (debug_condition, # XXX: Was: SB-DI:DEBUG-CONDITION
@@ -470,8 +471,7 @@ def compute_backtrace(start, end = nil):
         """Return a list of frames starting with frame number START and
 continuing to frame number END or, if END is nil, the last frame on the
 stack."""
-        nth_f = nth_frame(start)
-        return cl._frames_upward_from(nth_f)[:(end - start - 1) if end else None]
+        return cl._frames_upward_from(nth_frame(start))[:(end - start - 1) if end else None]
 
 @defimplementation
 def print_frame(frame, stream):
@@ -789,8 +789,8 @@ def send(thread, message):
         mbox = mailbox(thread)
         def body():
                 mbox.queue.append(message)
-                here("to thread (%s): %s -> <QUEUE %x> %s" % (thread_name(thread).upper(),
-                                                              message, id(mbox.queue), mbox.queue,))
+                # here("to thread (%s): %s -> <QUEUE %x> %s" % (thread_name(thread).upper(),
+                #                                               message, id(mbox.queue), mbox.queue,))
                 mbox.waitqueue.notify_all()
         return call_with_lock_held(mbox.mutex,
                                    body)
@@ -828,22 +828,22 @@ def receive_if(test, timeout = nil):
                                 tail = member_if(test, q)
                                 if tail:
                                         mbox.queue = ldiff(q, tail) + rest(tail)
-                                        here("returning " + str(first(tail)),
-                                             callers = 20)
+                                        # here("returning " + str(first(tail)),
+                                        #      callers = 20)
                                         return_from(_receive_if,
                                                     (first(tail), None))
-                                elif q:
-                                        here("unmatched events: %s" % (mbox.queue,))
+                                # elif q:
+                                #         here("unmatched events: %s" % (mbox.queue,))
                                 if timeout is t:
                                         return_from(_receive_if,
                                                     (None, True))
                                 if not busywait_reported:
-                                        here("polling <QUEUE %x>" % id(mbox.queue))
+                                        # here("polling <QUEUE %x>" % id(mbox.queue))
                                         busywait_reported = t
                                 condition_timed_wait(waitq, mutex, 0.2)
                         call_with_lock_held(mutex, lockbody)
-                here("checking for events on <QUEUE %x>.." % id(mbox.queue),
-                     callers = 20)
+                # here("checking for events on <QUEUE %x>.." % id(mbox.queue),
+                #      callers = 20)
                 loop(body)
         ret = _receive_if()
         # cl._backtrace()

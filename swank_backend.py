@@ -2,8 +2,8 @@ import sys
 import more_ast
 import inspect
 
-from cl import setq, nil, t, boundp, symbol_value, mapcar, remove, warn, _not_implemented, env, _keyword, functionp, error, write_line, _report_condition#, format
-from cl import lisp_implementation_type, probe_file, block, constantly, member, condition
+from cl import setq, nil, t, boundp, symbol_value, mapcar, remove, warn, _not_implemented, _keyword, functionp, error, write_line, _report_condition#, format
+from cl import lisp_implementation_type, probe_file, block, constantly, member, condition, progv
 
 ##### :: swank-backend.lisp
 
@@ -52,7 +52,7 @@ def defimplementation(fn):
         return fn
 
 def warn_unimplemented_interfaces():
-        with env.let("_print_pretty_", t):
+        with progv("_print_pretty_", t):
                 warn("These Swank interfaces are unimplemented:\n%s",
                      ", ".join(mapcar(lambda x: x.upper(),
                                       sorted(symbol_value("_unimplemented_interfaces_")))))
@@ -489,10 +489,10 @@ def call_with_debugger_hook(function, body):
         """Call FUN and use HOOK as debugger hook. HOOK can be NIL.
 
 HOOK should be called for both BREAK and INVOKE-DEBUGGER."""
-        with env.let(_debugger_hook_ = lambda cond, hook:
-                             (write_line("Debugger hook caught:") and
-                              _report_condition(cond, backtrace = t) and
-                              function(cond, hook))):
+        with progv(_debugger_hook_ = lambda cond, hook:
+                           (write_line("Debugger hook caught:") and
+                            _report_condition(cond, backtrace = t) and
+                            function(cond, hook))):
                 return body()
 
 class sldb_condition(condition):

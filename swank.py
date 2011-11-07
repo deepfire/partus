@@ -238,7 +238,7 @@ connection is in use, i.e. *EMACS-CONNECTION* is NIL.
 
 The default connection is defined (quite arbitrarily) as the most
 recently established one."""
-        return env._connections_[0]
+        return symbol_value("_connections_")[0]
 
 def make_connection(socket, stream, style, coding_system):
         serve, cleanup = ((spawn_threads_for_connection, cleanup_connection_threads) if style is keyword("spawn") else
@@ -361,17 +361,17 @@ def log_event(format_string, *args):
         """Write a message to *terminal-io* when *log-events* is non-nil.
 Useful for low level debugging."""
         def wsios_body():
-                with env.let(_print_readably_ = nil,
-                             _print_pretty_   = nil,
-                             _package_        = symbol_value("_swank_io_package_")):
+                with progv(_print_readably_ = nil,
+                           _print_pretty_   = nil,
+                           _package_        = symbol_value("_swank_io_package_")):
                         if symbol_value("_enable_event_history_"):
                                 symbol_value("_event_history_")[symbol_value("_event_history_index_")] = format(nil, format_string, *args)
                                 setq("_event_history_index_",
                                      (symbol_value("_event_history_index_") + 1) % len(symbol_value("_event_history_")))
-                        if symbol_value("_log_events_"):
-                                write_string(escape_non_ascii(format(nil, format_string, *args)), # XXX: was (format nil "~?" format-string args)
-                                             symbol_value("_log_output_"))
-                                force_output(symbol_value("_log_output_"))
+                                if symbol_value("_log_events_"):
+                                        write_string(escape_non_ascii(format(nil, format_string, *args)), # XXX: was (format nil "~?" format-string args)
+                                                     symbol_value("_log_output_"))
+                                        force_output(symbol_value("_log_output_"))
         with_standard_io_syntax(wsios_body)
 
 def event_history_to_list():
@@ -441,13 +441,13 @@ corresponding values in the CDR of VALUE."""
 
 def with_slime_interrupts(body):
         check_slime_interrupts()
-        with env.let(_slime_interrupts_enabled_ = t):
+        with progv(_slime_interrupts_enabled_ = t):
                 ret = body()
         check_slime_interrupts()
         return ret
 
 def without_slime_interrupts(body):
-        with env.let(_slime_interrupts_enabled_ = nil):
+        with progv(_slime_interrupts_enabled_ = nil):
                 return body()
 
 #### invoke-or-queue-interrupt
@@ -460,8 +460,8 @@ def with_connection(conn, body):
         if symbol_value("_emacs_connection_") is conn:
                 return body()
         else:
-                with env.let(_emacs_connection_ = conn,
-                         _pending_slime_interrupts_ = []):
+                with progv(_emacs_connection_ = conn,
+                           _pending_slime_interrupts_ = []):
                         return without_slime_interrupts(
                                 lambda: with_swank_error_handler(
                                         conn,
@@ -702,7 +702,7 @@ setq("_sldb_quit_restart_", nil)
 
 def with_top_level_restart(conn, restart_fn, body):
         def restart_case_body():
-                with env.let(_sldb_quit_restart_ = find_restart("ABORT")):
+                with progv(_sldb_quit_restart_ = find_restart("ABORT")):
                         return body()
         return with_connection(
                 conn,
@@ -735,17 +735,15 @@ The processing is done in the extent of the toplevel restart."""
         with_connection(
                 conn,
                 lambda: (process_requests(timeout) if symbol_value("_sldb_quit_restart_") else
-                         here("within connection!") and tag_body()))
+                         tag_body()))
 
 @block
 def process_requests(timeout):
         "Read and process requests from Emacs."
         def body():
-                here("waiting for event..")
                 event, timeoutp = wait_for_event([or_,
                                                   [keyword("emacs-rex"), ],        # XXX: (:emacs-rex . _)
                                                   [keyword("emacs-channel-send")]]) # XXX: (:emacs-channel-send . _)
-                here(("got event: %s" % (event,)) if not timeoutp else "event sleep timed out, breaking out..")
                 if timeoutp:
                         return_from(process_requests, nil)
                 destructure_case(
@@ -806,7 +804,7 @@ def read_loop(conn):
                                          loop(lambda: send(control_thread, decode_message(input_stream))))
 
 def dispatch_loop(conn):
-        with env.let(_emacs_connection_ = conn):
+        with progv(_emacs_connection_ = conn):
                 with_panic_handler(conn,
                                    lambda:
                                            loop(lambda: dispatch_event(receive()[0]))) # WARNING: multiple values!
@@ -914,7 +912,6 @@ def dispatch_event(event):
                      ldiff(symbol_value("_active_threads_"), tail) +
                      rest(tail))
                 return encode_message([keyword("return")] + list(args), current_socket_io())
-        here(str(event))
         destructure_case(
                 event,
                 ([keyword("emacs-rex")],
@@ -997,7 +994,7 @@ event was found."""
         ret = without_slime_interrupts(
                 lambda: (receive_if(lambda e: event_match_p(e, pattern), timeout) if use_threads_p() else
                          wait_for_event_event_loop(pattern, timeout)))
-        here("returning %s" % (ret,))
+        # here("returning %s" % (ret,))
         return ret
 
 @block
@@ -1558,13 +1555,12 @@ Errors are trapped and invoke our debugger."""
         #                                   `(:ok ,result)
         #                                   `(:abort ,(prin1-to-string condition)))
         #                              ,id)))))
-        here("got %s" % (form,))
         ok, result, condition = None, None, None
         def set_result(x):    nonlocal result;    result = x
         def set_condition(x): nonlocal condition; condition = x
         try:
-                with env.let(_buffer_package_ = guess_buffer_package(buffer_package),
-                             _pending_continuations_ = [id] + env._pending_continuations_):
+                with progv(_buffer_package_ = guess_buffer_package(buffer_package),
+                           _pending_continuations_ = [id] + symbol_value("_pending_continuations_")):
                         check_type(symbol_value("_buffer_package_"), package)
                         def with_slime_interrupts_body():
                                 return eval_(form)
@@ -1928,18 +1924,18 @@ def debug_in_emacs(condition):
         #      ;; We used to have (WITH-BINDING *SLDB-PRINTER-BINDINGS* ...)
         #      ;; here, but that truncated the result of an eval-in-frame.
         #      (sldb-loop *sldb-level*)))))
-        with env.let(_swank_debugger_condition_ = condition,
-                     _sldb_restarts_            = compute_restarts(condition),
-                     _sldb_quit_restart_        = env._sldb_quit_restart_ and find_restart(env._sldb_quit_restart_),
-                     _package_                  = ((boundp("_buffer_package_") and
-                                                    symbol_value("_buffer_package_")) or
-                                                   symbol_value("_package_")),
-                     _sldb_level_               = 1 + env._sldb_level_,
-                     _sldb_stepping_p_          = None):
+        with progv(_swank_debugger_condition_ = condition,
+                   _sldb_restarts_            = compute_restarts(condition),
+                   _sldb_quit_restart_        = symbol_value("_sldb_quit_restart_") and find_restart(symbol_value("_sldb_quit_restart_")),
+                   _package_                  = ((boundp("_buffer_package_") and
+                                                  symbol_value("_buffer_package_")) or
+                                                 symbol_value("_package_")),
+                   _sldb_level_               = 1 + symbol_value("_sldb_level_"),
+                   _sldb_stepping_p_          = None):
                 force_user_output()
                 ## We used to have (WITH-BINDING *SLDB-PRINTER-BINDINGS* ...)
                 ## here, but that truncated the result of an eval-in-frame.
-                call_with_debugging_environment(lambda: sldb_loop(env._sldb_level_))
+                call_with_debugging_environment(lambda: sldb_loop(symbol_value("_sldb_level_")))
 
 @block
 def sldb_loop(level):
@@ -1948,7 +1944,7 @@ def sldb_loop(level):
                         def with_simple_restart_body():
                                 send_to_emacs([keyword("debug"), current_thread_id(), level] +
                                               # was wrapped into (with-bindings *sldb-printer-bindings*)
-                                              debugger_info_for_emacs(0, env._sldb_initial_frames_))
+                                              debugger_info_for_emacs(0, symbol_value("_sldb_initial_frames_")))
                                 send_to_emacs([keyword("debug-activate"), current_thread_id(), level, None])
                                 while True:
                                         def handler_case_body():
@@ -1962,13 +1958,13 @@ def sldb_loop(level):
                                         handler_case(handler_case_body,
                                                      (sldb_condition,
                                                       lambda c: handle_sldb_condition(c)))
-                        with_simple_restart("ABORT", "Return to sldb level %d." % level,
+                        with_simple_restart("ABORT", ("Return to sldb level %d.", level),
                                             with_simple_restart_body)
         finally:
                 send_to_emacs([keyword("debug-return"),
                                current_thread_id(),
                                level,
-                               env._sldb_stepping_p_])
+                               symbol_value("_sldb_stepping_p_")])
                 # clean event-queue
                 wait_for_event([keyword("sldb-return"), level + 1],
                                t)
@@ -2010,21 +2006,21 @@ def format_restarts_for_emacs():
 format suitable for Emacs."""
         with progv(_print_right_margin_ = most_positive_fixnum):
                 return mapcar(lambda restart:
-                                      [("*" if restart is env._sldb_quit_restart_ else
+                                      [("*" if restart is symbol_value("_sldb_quit_restart_") else
                                         "") + restart_name(restart),
                                        with_output_to_string(
                                         lambda stream:
                                                 without_printing_errors(restart, stream,
                                                                         lambda: princ(restart, stream),
                                                                         msg = "<<error printing restart>>"))],
-                              env._sldb_restarts_)
+                              symbol_value("_sldb_restarts_"))
 
 ### SLDB entry points: swank.lisp:2614
 
 def sldb_break_with_default_debugger(dont_unwind):
         "Invoke the default debugger."
         if dont_unwind:
-                invoke_default_debugger(env._swank_debugger_condition_)
+                invoke_default_debugger(symbol_value("_swank_debugger_condition_"))
         else:
                 signal(invoke_default_debugger)
 
@@ -2034,7 +2030,6 @@ def backtrace(start, end):
 I is an integer, and can be used to reference the corresponding frame
 from Emacs; FRAME is a string representation of an implementation's
 frame."""
-        here()
         return mapcar(lambda i, frame: [i, frame_to_string(frame)] + ([keyword("restartable"), True]
                                                                       if frame_restartable_p(frame) else
                                                                       []),
