@@ -163,11 +163,16 @@ original_tracer = sys.gettrace()
 handler = None
 def test_tracer(frame, event, arg):
         if event != "line":
-                cl._here("<%s> %s", event, arg, callers = 10)
+                # cl._here("<%s> %s", event, arg)
                 if event == "exception" and handler:
                         handler(arg, frame)
         return test_tracer
 sys.settrace(test_tracer)
+
+def pause():
+        import sys
+        print("Paused!")
+        sys.stdin.readline()
 
 @block
 def f():
@@ -176,16 +181,18 @@ def f():
                 cl._here("Handling <%s>, tracer: %s", cond, sys.gettrace())
                 return_from(f, "All handled.")
         def first_handler(cond, _):
-                cl._here("Handling <%s>, tracer: %s", cond, sys.gettrace())
+                cl._here("Handling <%s>, tracer: %s, info: %s", cond, sys.gettrace(), sys.exc_info())
+                print(dir(cond[2]))
                 def continuation():
                         global handler
+                        # cl._dump_thread_state()
+                        # pause()
                         handler = second_handler
                         raise error_("Nested condition!")
-                # sys.call_tracing(continuation, tuple())
-                sys.settrace(test_tracer)
-                continuation()
+                # cl._dump_thread_state()
+                sys.call_tracing(continuation, tuple())
         handler = first_handler
-        raise error_("Initial condition!")
+        exec("{1:2}[3]")
 assert(f() == "All handled.")
 sys.settrace(original_tracer)
 print("NESTED-PYTRACER: passed")
@@ -196,14 +203,16 @@ def f():
                 return_from(f, "All handled.")
         def first_handler(cond, _):
                 with progv(_debugger_hook_ = second_handler):
-                        write_line(">>> condsys %s, de-ho %s" % 
-                                   (cl._condition_system_enabled_p(),
-                                    cl._print_function(symbol_value("_debugger_hook_"))))
+                        # write_line(">>> condsys %s, de-ho %s" % 
+                        #            (cl._condition_system_enabled_p(),
+                        #             cl._print_function(symbol_value("_debugger_hook_"))))
+                        # cl._dump_thread_state()
                         error("Nested condition!")
         with progv(_debugger_hook_ = first_handler):
-                write_line(">>> condsys %s, de-ho %s" % 
-                           (cl._condition_system_enabled_p(),
-                            cl._print_function(symbol_value("_debugger_hook_"))))
+                # write_line(">>> condsys %s, de-ho %s" % 
+                #            (cl._condition_system_enabled_p(),
+                #             cl._print_function(symbol_value("_debugger_hook_"))))
+                # cl._dump_thread_state()
                 error("Initial condition!")
 assert(f() == "All handled.")
 print("NESTED-DEBUGGER-HOOK: passed")

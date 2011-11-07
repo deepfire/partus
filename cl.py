@@ -2124,7 +2124,6 @@ def     _tracer_hook(type):     return __tracer_hooks__.get(type) if type in __t
 def _pytracer(frame, event, arg):
         method = _tracer_hook(event)
         if method:
-                _here("handling %s", arg)
                 method(arg, frame)
         return _pytracer
 
@@ -2165,12 +2164,12 @@ setq("_prehandler_hook_", nil)
 setq("_debugger_hook_",  nil)
 
 def signal(cond):
-        _here("Signalling: %s", cond)
+        # _here("Signalling: %s", cond)
         for cluster in reversed(env.__handler_clusters__):
                 # format(t, "Analysing cluster %s for %s.\n", cluster, type_of(cond))
                 for type, handler in cluster:
                         if not stringp(type):
-                                _here("Trying: %s -> %s", type, typep(cond, type))
+                                # _here("Trying: %s -> %s", type, typep(cond, type))
                                 if typep(cond, type):
                                         hook = symbol_value("_prehandler_hook_")
                                         if hook:
@@ -2178,12 +2177,12 @@ def signal(cond):
                                                 assert(frame)
                                                 hook(cond, frame, hook)
                                         handler(cond)
-                                        _here("...continuing handling of %s, refugees: |%s|",
-                                              cond,
-                                              _pp_frame_chain(
-                                                        reversed(_frames_upward_from(
-                                                                        assoc("__frame__", cluster),
-                                                                        15))))
+                                        # _here("...continuing handling of %s, refugees: |%s|",
+                                        #       cond,
+                                        #       _pp_frame_chain(
+                                        #                 reversed(_frames_upward_from(
+                                        #                                 assoc("__frame__", cluster),
+                                        #                                 15))))
         return nil
 
 def error(datum, *args, **keys):
@@ -2231,27 +2230,89 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
         else:
                 return body()
 
+def _dump_thread_state():
+        def body():
+                import ctypes
+                from binascii import hexlify
+                from ctypes import c_uint, c_char, c_ulong, POINTER, cast, pythonapi
+                def dump(obj):
+                        for i, x in enumerate(hexlify(memoryview(obj)).decode()):
+                                print(x, end='')
+                                if i and not (i + 1)%8:
+                                        print(" ", end='')
+                                if i and not (i + 1)%32:
+                                        print("")
+                class PyThreadState(ctypes.Structure):
+                        _fields_ = [("next",               c_ulong),
+                                    ("interp",             c_ulong),
+
+                                    ("frame",              c_ulong),
+                                    ("recursion_depth",    c_uint),
+                                    ("overflowed",         c_char),
+
+                                    ("recursion_critical", c_char),
+
+                                    ("pad0_", c_char),
+                                    ("pad1_", c_char),
+
+                                    ("tracing",            c_uint),
+                                    ("use_tracing",        c_uint),
+
+                                    ("c_profilefunc",      c_ulong),
+                                    ("c_tracefunc",        c_ulong),
+                                    ("c_profileobj",       c_ulong),
+                                    ("c_traceobj",         c_ulong),
+
+                                    ("curexc_type",        c_ulong),
+                                    ("curexc_value",       c_ulong),
+                                    ("curexc_traceback",   c_ulong),
+
+                                    ("exc_type",           c_ulong),
+                                    ("exc_value",          c_ulong),
+                                    ("exc_traceback",      c_ulong),
+
+                                    ("dict",               c_ulong),
+
+                                    ("tick_counter",       c_uint),
+
+                                    ("gilstate_counter",   c_uint),
+
+                                    ("async_exc",          c_ulong),
+                                    ("thread_id",          c_ulong)]
+                pythonapi.PyThreadState_Get.restype = PyThreadState
+                o = pythonapi.PyThreadState_Get()
+
+                print("o: %s, id: {%x}" % (o, id(o)))
+                print(dump(o))
+                for slot, _ in type(o)._fields_:
+                        val = getattr(o, slot)
+                        type_ = type(val)
+                        print(("%25s: " + ("%x" if type_ is int else "%s")) % (slot, val))
+        _without_condition_system(body)
+
 def __cl_condition_handler__(condspec, frame):
-        def _maybe_upgrade_condition(cond):
-                "Fix up the shit routinely being passed around."
-                return etypecase(cond,
-                                 (BaseException, lambda: cond),
-                                 (str,       lambda: error_(cond)))
-        type, cond, traceback = condspec
-        cond = _maybe_upgrade_condition(cond)
-        # print_frames(frames_upward_from(frame))
-        if not typep(cond, __catcher_throw__): # no need to delay the inevitable
-                with env.let(_traceback_ = traceback,
-                             _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
-                        presignal_hook = symbol_value("_presignal_hook_")
-                        if presignal_hook:
-                                with env.let(_presignal_hook_ = nil):
-                                        presignal_hook(cond, presignal_hook)
-                        signal(cond)
-                        debugger_hook = symbol_value("_debugger_hook_")
-                        if debugger_hook:
-                                with env.let(_debugger_hook_ = nil):
-                                        debugger_hook(cond, debugger_hook)
+        def continuation():
+                def _maybe_upgrade_condition(cond):
+                        "Fix up the shit routinely being passed around."
+                        return etypecase(cond,
+                                         (BaseException, lambda: cond),
+                                         (str,       lambda: error_(cond)))
+                type, cond, traceback = condspec
+                cond = _maybe_upgrade_condition(cond)
+                # print_frames(frames_upward_from(frame))
+                if not typep(cond, __catcher_throw__): # no need to delay the inevitable
+                        with env.let(_traceback_ = traceback,
+                                     _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
+                                presignal_hook = symbol_value("_presignal_hook_")
+                                if presignal_hook:
+                                        with env.let(_presignal_hook_ = nil):
+                                                presignal_hook(cond, presignal_hook)
+                                signal(cond)
+                                debugger_hook = symbol_value("_debugger_hook_")
+                                if debugger_hook:
+                                        with env.let(_debugger_hook_ = nil):
+                                                debugger_hook(cond, debugger_hook)
+        sys.call_tracing(continuation, tuple())
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
         #
