@@ -196,7 +196,11 @@ def _exception_frame():
 def _frames_upward_from(f = None, n = -1):
         "Semantics of N are slightly confusing, but the implementation is so simple.."
         f = _caller_frame() if f is None else the(_frame, f)
-        return [f] + (_frames_upward_from(f.f_back, n - 1) if n and f.f_back else [])
+        acc = [f]
+        while f.f_back and n:
+                f, n = f.f_back, n - 1
+                acc.append(f)
+        return acc
 
 def _top_frame():
         return _caller_frame()
@@ -2373,8 +2377,8 @@ def handler_bind(fn, *handlers, no_error = identity):
         # ..inlined for speed.
         if _pytracer_enabled_p() and "exception" in __tracer_hooks__ and __tracer_hooks__["exception"] is __cl_condition_handler__:
                 for type, _ in handlers:
-                        if not subtypep(type, condition):
-                                error(simple_type_error, "While establishing handler: '%s' does not designage a known condition type.", type)
+                        if not (typep(type, type_) and subtypep(type, condition)):
+                                error(simple_type_error, "While establishing handler: '%s' does not designate a known condition type.", type)
                 with env.let(__handler_clusters__ = env.__handler_clusters__ +
                              [handlers + (("__frame__", _this_frame()),)]):
                         return no_error(fn())

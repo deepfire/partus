@@ -901,7 +901,8 @@ def dispatch_event(event):
                 thread = thread_for_evaluation(thread_id)
                 if thread:
                         symbol_value("_active_threads_").append(thread)
-                        return send_event(thread, [keyword("emacs-rex"), form, package, id])
+                        return send_event(thread,
+                                          [keyword("emacs-rex"), form, package, id])
                 else:
                         return encode_message([keyword("invalid-rpc"), id,
                                                format(nil, "Thread not found: %s", thread_id)],
@@ -1969,8 +1970,8 @@ def sldb_loop(level):
                 wait_for_event([keyword("sldb-return"), level + 1],
                                t)
                 if level > 1:
-                        send_event(symbol_value("_emacs_connection_"),
-                                   current_thread(), [keyword("sldb-return"), level])
+                        send_event(current_thread(),
+                                   [keyword("sldb-return"), level])
 
 def handle_sldb_condition(condition):
         """Handle an internal debugger condition.

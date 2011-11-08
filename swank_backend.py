@@ -2,8 +2,11 @@ import sys
 import more_ast
 import inspect
 
-from cl import setq, nil, t, boundp, symbol_value, mapcar, remove, warn, _not_implemented, _keyword, functionp, error, write_line, _report_condition#, format
-from cl import lisp_implementation_type, probe_file, block, constantly, member, condition, progv
+from cl import nil, t, _keyword, functionp, constantly
+from cl import mapcar, remove, member
+from cl import setq, boundp, progv, symbol_value, block
+from cl import handler_bind, condition, error, _report_condition, warn, _not_implemented
+from cl import lisp_implementation_type, write_line, probe_file
 
 ##### :: swank-backend.lisp
 
@@ -675,9 +678,10 @@ returns."""
 def converting_errors_to_error_location(body):
         "Catches errors during BODY and converts them to an error location."
         return handler_bind(body,
-                            error_ = lambda e: (nil if symbol_value("_debug_swank_backend_") else
-                                                return_from(converting_errors_to_error_location,
-                                                            make_error_location(e))))
+                            (error,
+                             lambda e: (nil if symbol_value("_debug_swank_backend_") else
+                                            return_from(converting_errors_to_error_location,
+                                                        make_error_location(e)))))
 
 def make_error_location(datum, *args):
         if typep(datum, condition):

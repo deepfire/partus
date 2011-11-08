@@ -13,7 +13,7 @@ from cl import _keyword as keyword
 from pergamum import slotting, here, when_let, if_let
 
 from swank_backend import defimplementation
-from swank_backend import check_slime_interrupts
+from swank_backend import check_slime_interrupts, converting_errors_to_error_location
 
 def not_implemented():
         raise NotImplemented("Not implemented: %s.", inspect.stack()[1][3].upper())
