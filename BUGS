@@ -617,3 +617,5 @@ Issue SEMI-HANDLED-ERROR-MISSING-DEBUGGER
       Condition Upgrader: global name 'code_location_source_location' is not defined(<class 'str'>) -> global name 'code_location_source_location' is not defined(<class 'NameError'>)
 <== [:RETURN, [:OK, [:ERROR, "Error: global name 'code_location_source_location' is not defined"]], 6]
 <-- 00005e, '(:return (:ok (:error "Error: global name 'code_location_source_location' is not defined")) 6)'
+
+Issue BUGS-STALE
