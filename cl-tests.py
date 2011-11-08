@@ -1,6 +1,7 @@
 import sys
 import cl
 from cl import *
+from cl import _intern0
 
 defpackage("CL-TESTS", use = ["CL", "BUILTINS"])
 
@@ -33,12 +34,13 @@ assert(with_alternate_io_syntax(
 print("WITH-STANDARD-IO-SYNTAX: passed")
 
 def outer():
+        mid, out = _intern0("midder"), _intern0("outer")
         def midder(f):
-                catch("midder", f)
+                catch(mid, f)
                 return "midder"
         def inner():
-                throw("outer", "inner")
-        return catch("outer", lambda: midder(inner))
+                throw(out, "inner")
+        return catch(out, lambda: midder(inner))
 assert(outer() == "inner")
 print("CATCH/THROW: passed")
 

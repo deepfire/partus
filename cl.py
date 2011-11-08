@@ -458,10 +458,9 @@ class _servile():
 ##
 __gensym_counter__ = 0
 def gensym(x = "G"):
-        "Not a real GENSYM, as it returns merely a string."
         global __gensym_counter__
         __gensym_counter__ += 1
-        return sys.intern(x + str(__gensym_counter__))
+        return make_symbol(x + str(__gensym_counter__))
 
 ##
 ## Basic
@@ -887,14 +886,12 @@ def unwind_protect(form, fn):
 
 # WARNING: non-specific try/except clauses and BaseException handlers break this!
 class __catcher_throw__(condition):
-        def __str__(self):
-                return "The ball escaped!"
         def __init__(self, ball, value, reenable_pytracer = False):
                 self.ball, self.value, self.reenable_pytracer = ball, value, reenable_pytracer
 
 def catch(ball, body):
         "This seeks the stack like mad, like the real one."
-        ball = sys.intern(ball)
+        check_type(ball, symbol)
         try:
                 return body()
         except __catcher_throw__ as ct:
@@ -908,10 +905,8 @@ def catch(ball, body):
 
 def throw(ball, value):
         "Stack this seeks, like mad, like the real one."
+        check_type(ball, symbol)
         raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp("_signalling_frame_"))
-
-def make_ball(name, nonce):
-        return nonce + name + nonce # Shall we do something smarter?
 
 def __block__(fn):
         "An easy decorator-styled interface for block establishment."
@@ -929,7 +924,7 @@ of nonce-ing is to be handled manually."""
         if not body: # Assuming we were called as a decorator..
                 return __block__(nonce_or_fn)
         else:
-                return catch(nonce, body)
+                return catch(nonce_or_fn, body)
 
 def return_from(nonce, value):
         nonce = (nonce if not functionp(nonce) else
