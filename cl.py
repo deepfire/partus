@@ -2641,7 +2641,7 @@ executes the following:
 """
         assert(stringp(restart) or _restartp(restart))
         restart = restart if _restartp(restart) else find_restart(restart)
-        return invoke_restart(*restart.interactive_function())
+        return invoke_restart(restart, *restart.interactive_function())
 
 ##
 ## Interactivity
