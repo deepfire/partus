@@ -474,8 +474,8 @@ stack."""
         return cl._frames_upward_from(nth_frame(start))[:(end - start - 1) if end else None]
 
 @defimplementation
-def print_frame(frame, stream):
-        return cl._print_frame(frame, stream)
+def print_frame(frame, stream, **keys):
+        return cl._print_frame(frame, stream, **keys)
 
 # def frame_restartable_p(frame):			pass # That is to say: not very.
 # def frame_call(frame_number):				pass

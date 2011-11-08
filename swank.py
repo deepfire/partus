@@ -2038,7 +2038,8 @@ frame."""
 
 def frame_to_string(frame):
         return with_string_stream(lambda stream:
-                                          handler_case(lambda: print_frame(frame, stream),
+                                          # XXX: There was no align-related pretty-printing : -)
+                                          handler_case(lambda: print_frame(frame, stream, align = 17, handle_overflow = t),
                                                        (error_,
                                                         lambda _: format(stream, "[error printing frame]"))),
                                   length = ((symbol_value("_print_lines_")        or 1) *
