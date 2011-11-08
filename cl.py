@@ -249,16 +249,17 @@ def _print_function_arglist(f):
                          (["*" + argspec.varargs]   if argspec.varargs  else []) +
                          (["**" + argspec.keywords] if argspec.keywords else []))
 
-def _pp_frame(f, align = None, lineno = None):
+def _pp_frame(f, align = None, handle_overflow = None, lineno = None):
         fun = _frame_fun(f)
         fun_name, fun_params, filename = _fun_info(fun)[:3]
-        padding = " " * ((align or len(filename)) - len(filename))
-        return "%s:%s %s(%s)" % (padding + filename,
-                                  ("%d:" % _frame_lineno(f)) if lineno else "",
-                                  fun_name, ", ".join(fun_params))
+        align = ((align or 10) if handle_overflow else
+                 _defaulted(align, 0))
+        return ("%s%s %s(%s)" % (filename + ("" if align else ":") + (" " * (align - (len(filename) % align if align else 0))),
+                                 ("%d:" % _frame_lineno(f)) if lineno else "",
+                                 fun_name, ", ".join(fun_params)))
 
-def _print_frame(f, stream = None):
-        write_string(_pp_frame(f), _defaulted_to_var(stream, "_debug_io_"))
+def _print_frame(f, stream = None, **keys):
+        write_string(_pp_frame(f, **keys), _defaulted_to_var(stream, "_debug_io_"))
 
 def _print_frames(fs, stream = None):
         mapc(lambda i, f: format(_defaulted_to_var(stream, "_debug_io_"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
