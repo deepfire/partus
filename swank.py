@@ -2621,7 +2621,7 @@ def profile_by_substring(substring, package):
                     not profiledp(symbol) and
                     search(substring, symbol_name(symbol), test = string_equal)):
                         handler_case(body,
-                                     (error,
+                                     (error_,
                                       lambda condition: warn("%s", condition)))
         if package:
                 do_symbols(maybe_profile, parse_package(package))

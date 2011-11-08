@@ -2,10 +2,11 @@ import sys
 import more_ast
 import inspect
 
-from cl import nil, t, _keyword, functionp, constantly
+from cl import nil, t, _keyword as keyword, functionp, constantly
+from cl import typep
 from cl import mapcar, remove, member
 from cl import setq, boundp, progv, symbol_value, block
-from cl import handler_bind, condition, error, _report_condition, warn, _not_implemented
+from cl import return_from, handler_bind, condition, error, error_, _report_condition, warn, _not_implemented
 from cl import lisp_implementation_type, write_line, probe_file
 
 ##### :: swank-backend.lisp
@@ -63,28 +64,28 @@ def warn_unimplemented_interfaces():
 #### import-to-swank-mop
 #### import-swank-mop-symbols
 
-setq("_gray_stream_symbols_", [_keyword("fundamental-character-output-stream"),
-                               _keyword("stream-write-char"),
-                               _keyword("stream-write-string"),
-                               _keyword("stream-fresh-line"),
-                               _keyword("stream-force-output"),
-                               _keyword("stream-finish-output"),
-                               _keyword("fundamental-character-input-stream"),
-                               _keyword("stream-read-char"),
-                               _keyword("stream-peek-char"),
-                               _keyword("stream-read-line"),
+setq("_gray_stream_symbols_", [keyword("fundamental-character-output-stream"),
+                               keyword("stream-write-char"),
+                               keyword("stream-write-string"),
+                               keyword("stream-fresh-line"),
+                               keyword("stream-force-output"),
+                               keyword("stream-finish-output"),
+                               keyword("fundamental-character-input-stream"),
+                               keyword("stream-read-char"),
+                               keyword("stream-peek-char"),
+                               keyword("stream-read-line"),
                                ## STREAM-FILE-POSITION is not available on all implementations, or
                                ## partially under a different name.
                                # :stream-file-posiion
-                               _keyword("stream-listen"),
-                               _keyword("stream-unread-char"),
-                               _keyword("stream-clear-input"),
-                               _keyword("stream-line-column"),
-                               _keyword("stream-read-char-no-hang"),
+                               keyword("stream-listen"),
+                               keyword("stream-unread-char"),
+                               keyword("stream-clear-input"),
+                               keyword("stream-line-column"),
+                               keyword("stream-read-char-no-hang"),
                                ## STREAM-LINE-LENGTH is an extension to gray streams that's apparently
                                ## supported by CMUCL, OpenMCL, SBCL and SCL.
                                #+(or cmu openmcl sbcl scl)
-                               _keyword("stream-line-length")])
+                               keyword("stream-line-length")])
 
 #### import-from
 
@@ -678,7 +679,7 @@ returns."""
 def converting_errors_to_error_location(body):
         "Catches errors during BODY and converts them to an error location."
         return handler_bind(body,
-                            (error,
+                            (error_,
                              lambda e: (nil if symbol_value("_debug_swank_backend_") else
                                             return_from(converting_errors_to_error_location,
                                                         make_error_location(e)))))
