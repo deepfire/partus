@@ -605,3 +605,5 @@ eval_ ---------------------------- autodoc EVAL
 
 ...wait a moment.. why isn't *DEBUGGER-HOOK* involved?
 Oh damn, right, we're not re-enabling the condition system.
+
+Issue RESTART-NAMING-STRING-VS-SYMBOL

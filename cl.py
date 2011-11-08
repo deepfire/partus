@@ -41,6 +41,13 @@ def string_upcase(x):     return x.upper()
 def string_downcase(x):   return x.lower()
 def string_capitalize(x): return x.capitalize()
 
+__core_symbol_names__ = [
+        "QUOTE",
+        "AND", "OR",
+        "SOME", "EVERY",
+        "ABORT", "CONTINUE", "BREAK",
+        ]
+
 _case_attribute_map = dict(UPCASE     = string_upcase,
                            DOWNCASE   = string_downcase,
                            CAPITALIZE = string_capitalize,
@@ -498,6 +505,21 @@ def ecase(val, *clauses):
                         return body() if functionp(body) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
+def every(fn, xs):
+        for x in xs:
+                if not fn(x): return False
+        return True
+
+def some(fn, xs):
+        for x in xs:
+                if fn(x): return True
+        return False
+
+def none(fn, xs):
+        for x in xs:
+                if fn(x): return False
+        return True
+
 ##
 ## Types
 ##
@@ -519,14 +541,24 @@ def find_class(x, errorp = True):
 def type_of(x):
         return type(x)
 
-def typep(x, super):
-        return isinstance(x, super)
+# __type_predicate_map__ is declared after the package system is initialised
+def _check_complex_type(type, x):
+        zero, test = __type_predicate_map__[type[0]]
+        return (zero if len(type) is 1 else
+                test(lambda elem_type: typep(x, elem_type),
+                     type[1:]))
+
+def typep(x, type):
+        return (isinstance(x, type)          if isinstance(type, type_)                      else
+                _check_complex_type(x, type) if (listp(type) and
+                                                 type and type[0] in __type_predicate_map__) else
+                error(simple_type_error, "%s is not a valid type specifier.", type))
 
 def subtypep(sub, super):
         return issubclass(sub, super)
 
 def the(type, x):
-        return (x if isinstance(x, type) else
+        return (x if typep(x, type) else
                 error(simple_type_error, "The value %s is not of type %s.", x, type.__name__))
 
 def check_type(x, type):
@@ -609,21 +641,6 @@ def prog1(val, body):
         body()
         return val
 
-def every(fn, xs):
-        for x in xs:
-                if not fn(x): return False
-        return True
-
-def some(fn, xs):
-        for x in xs:
-                if fn(x): return True
-        return False
-
-def none(fn, xs):
-        for x in xs:
-                if fn(x): return False
-        return True
-
 ##
 ## Sequences
 ##
@@ -647,7 +664,8 @@ def aref(xs, *indices):
 def first(xs):        return xs[0]   # don't confuse with car/cdr
 def rest(xs):         return xs[1:]  # !!!
 
-def nth_value(n, xs): return xs[n]
+def nth(n, xs):       return xs[n] if n < len(xs) else nil
+def nth_value(n, xs): return nth(n, xs)
 
 def subseq(xs, start, end = None):
         return xs[start:end]
@@ -1319,7 +1337,7 @@ def _init_package_system_0():
         nil                = _intern0("NIL", cl)
         t.value, nil.value = t, nil     # Self-evaluation.
         export([t, nil] + mapcar(lambda n: _intern0(n, cl),
-                                 ["QUOTE", "OR", "SOME"]),
+                                 __core_symbol_names__),
                cl)
         package("COMMON-LISP-USER", use = ["CL", "BUILTINS"], boot = True)
 _init_package_system_0() ########### _keyword() is now available
@@ -1336,6 +1354,13 @@ def _init_package_system_1():
         setq("_modules_",  [])
 
 _init_package_system_1()
+
+__type_predicate_map__ = { _keyword("or"):              (nil, some),
+                           _find_symbol_or_fail("OR"):  (nil, some),
+                           _keyword("and"):             (t,   every),
+                           _find_symbol_or_fail("AND"): (t,   every),
+                           }
+
 
 ##
 ## Pretty-printing
@@ -2590,6 +2615,7 @@ def invoke_restart(restart, *args, **keys):
 Calls the function associated with RESTART, passing arguments to
 it. Restart must be valid in the current dynamic environment.
 """
+        
         assert(stringp(restart) or _restartp(restart))
         restart = restart if _restartp(restart) else find_restart(restart)
         return restart.function(*args, **keys)

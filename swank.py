@@ -2091,7 +2091,9 @@ def invoke_nth_restart(index):
                 return invoke_restart_interactively(restart)
 
 def sldb_abort():
-        return invoke_restart(find(find_symbol_or_fail("ABORT"),
+        here("restarts: %s", symbol_value("_sldb_restarts_"))
+        # Issue RESTART-NAMING-STRING-VS-SYMBOL
+        return invoke_restart(find("ABORT", # XXX: Was: (find 'abort *sldb-restarts* :key #'restart-name)
                                    symbol_value("_sldb_restarts_"),
                                    key = restart_name))
 

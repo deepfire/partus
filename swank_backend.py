@@ -671,8 +671,13 @@ returns."""
 #### defstruct position
 #### defstruct tag
 
-#### defmacro converting-errors-to-error-location
-"Catches errors during BODY and converts them to an error location."
+@block
+def converting_errors_to_error_location(body):
+        "Catches errors during BODY and converts them to an error location."
+        return handler_bind(body,
+                            error_ = lambda e: (nil if symbol_value("_debug_swank_backend_") else
+                                                return_from(converting_errors_to_error_location,
+                                                            make_error_location(e))))
 
 def make_error_location(datum, *args):
         if typep(datum, condition):
