@@ -1955,7 +1955,7 @@ def sldb_loop(level):
                                                 if evt[0] is keyword("emacs-rex"):
                                                         eval_for_emacs(*evt[1:])
                                                 elif evt[0] is keyword("sldb-return"):
-                                                        return_from("sldb_loop", None)
+                                                        return_from(sldb_loop, None)
                                         handler_case(handler_case_body,
                                                      (sldb_condition,
                                                       lambda c: handle_sldb_condition(c)))
