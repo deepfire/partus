@@ -2027,6 +2027,13 @@ def probe_file(pathname):
         return _without_condition_system(
                 lambda: os.path.exists(pathname))
 
+def namestring(pathname):
+        return pathname
+
+def truename(pathname):
+        "XXX: does not conform."
+        return pathname
+
 ##
 ## Streams
 ##
@@ -2342,7 +2349,7 @@ def __cl_condition_handler__(condspec, frame):
                                 _here("Condition Upgrader: %s(%s) -> %s(%s)",
                                       raw_cond, type_of(raw_cond),
                                       cond, type_of(cond),
-                                      )
+                                      callers = 15)
                         with env.let(_traceback_ = traceback,
                                      _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
                                 presignal_hook = symbol_value("_presignal_hook_")

@@ -6,9 +6,11 @@ import threading
 import cl
 
 from cl import setq, symbol_value, progv, boundp
+from cl import ecase
 from cl import identity, constantly, t, nil, format, loop, ldiff, rest, first
-from cl import mapcar, find, member_if, remove_if_not
+from cl import mapcar, find, member_if, remove_if_not, getf
 from cl import block, return_from, handler_bind, signal, make_condition, write_line, princ_to_string, stream, mapcar
+from cl import namestring, truename
 from cl import _keyword as keyword
 
 from pergamum import slotting, here, when_let, if_let, mapcar_star
@@ -490,13 +492,13 @@ def print_frame(frame, stream, **keys):
 ## source-location of the corresponding function.
 
 def code_location_source_location(code_location):
-        dsource = code_location_debug_source(code_location)
-        plist = debug_source_plist(dsource)
+        dsource = sb_di.code_location_debug_source(code_location)
+        plist = sb_di.debug_source_plist(dsource)
         if getf(plist, keyword("emacs-buffer")):
                 return emacs_buffer_source_location(code_location, plist)
         else:
                 #+#.(swank-backend:with-symbol 'debug-source-from 'sb-di)
-                ecase(debug_source_from(dsource),
+                ecase(sb_di.debug_source_from(dsource),
                       (keyword("file"), lambda: file_source_location(code_location)),
                       (keyword("lisp"), lambda: lisp_source_location(code_location)))
                 #-#.(swank-backend:with-symbol 'debug-source-from 'sb-di)
@@ -516,7 +518,7 @@ def code_location_source_location(code_location):
 
 def file_source_location(code_location):
         return (source_file_source_location(code_location)
-                if code_location_has_debug_info_p(code_location) else
+                if code_location_has_debug_block_info_p(code_location) else
                 fallback_source_location(code_location))
 
 def fallback_source_location(code_location):

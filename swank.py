@@ -102,6 +102,7 @@ bound to the corresponding VALUE."""
 def call_with_bindings(alist, fun):
         """Call FUN with variables bound according to ALIST.
 ALIST is a list of the form ((VAR . VAL) ...)."""
+        check_type(alist, list)
         if not alist:
                 return fun()
         else:
