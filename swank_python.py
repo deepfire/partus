@@ -5,15 +5,18 @@ import threading
 
 import cl
 
-from cl import identity, setq, symbol_value, progv, boundp, t, nil, format, find, member_if, remove_if_not, constantly, loop, ldiff, rest, first
+from cl import setq, symbol_value, progv, boundp
+from cl import identity, constantly, t, nil, format, loop, ldiff, rest, first
+from cl import mapcar, find, member_if, remove_if_not
 from cl import block, return_from, handler_bind, signal, make_condition, write_line, princ_to_string, stream, mapcar
-from cl import _top_frame, _frame_fun, _fun_info
 from cl import _keyword as keyword
 
-from pergamum import slotting, here, when_let, if_let
+from pergamum import slotting, here, when_let, if_let, mapcar_star
 
 from swank_backend import defimplementation
 from swank_backend import check_slime_interrupts, converting_errors_to_error_location
+
+import sb_di
 
 def not_implemented():
         raise NotImplemented("Not implemented: %s.", inspect.stack()[1][3].upper())
@@ -435,18 +438,16 @@ def find_source_location(obj):
 def call_with_debugging_environment(debugger_loop_fn):
         # Note that the notion of the "top frame" in CL culture
         # is opposite to its Python counterpart.
-        with progv(_sldb_stack_top_ = (_top_frame() if (symbol_value("_debug_swank_backend_") or
-                                                        not boundp("_stack_top_hint_") or
-                                                        not symbol_value("_stack_top_hint_")) else
+        with progv(_sldb_stack_top_ = (sb_di.top_frame() if (symbol_value("_debug_swank_backend_") or
+                                                             not boundp("_stack_top_hint_") or
+                                                             not symbol_value("_stack_top_hint_")) else
                                        symbol_value("_stack_top_hint_")),
                    _stack_top_hint_ = nil):
                 handler_bind(lambda: debugger_loop_fn(),
-                             # XXX: disabled, due to lack of SB-DI:DEBUG-CONDITION
-                             # (debug_condition, # XXX: Was: SB-DI:DEBUG-CONDITION
-                             #  lambda condition:
-                             #          signal(make_condition(sldb_condition,
-                             #                                original_condition = condition)))
-                             )
+                             (sb_di.debug_condition,
+                              lambda condition:
+                                      signal(make_condition(sldb_condition,
+                                                            original_condition = condition))))
 #+#.(swank-backend::sbcl-with-new-stepper-p)
 ### progn
 # def activate_stepping(frame_number):			pass
@@ -462,7 +463,7 @@ def nth_frame(index):
         frame = symbol_value("_sldb_stack_top_")
         i = index
         while i:
-                frame = cl._next_frame(frame)
+                frame = sb_di.frame_down(frame)
                 i -= 1
         return frame
 
@@ -488,7 +489,20 @@ def print_frame(frame, stream, **keys):
 ## If there's no debug-block info, we return the (less precise)
 ## source-location of the corresponding function.
 
-#### code-location-source-location
+def code_location_source_location(code_location):
+        dsource = code_location_debug_source(code_location)
+        plist = debug_source_plist(dsource)
+        if getf(plist, keyword("emacs-buffer")):
+                return emacs_buffer_source_location(code_location, plist)
+        else:
+                #+#.(swank-backend:with-symbol 'debug-source-from 'sb-di)
+                ecase(debug_source_from(dsource),
+                      (keyword("file"), lambda: file_source_location(code_location)),
+                      (keyword("lisp"), lambda: lisp_source_location(code_location)))
+                #-#.(swank-backend:with-symbol 'debug-source-from 'sb-di)
+                return (file_source_location(code_location)
+                        if debug_source_namestring(dsource) else
+                        lisp_source_location(code_location))
 
 ## FIXME: The naming policy of source-location functions is a bit
 ## fuzzy: we have FUNCTION-SOURCE-LOCATION which returns the
@@ -500,17 +514,96 @@ def print_frame(frame, stream, **keys):
 ## least the names should indicate the main entry point vs. helper
 ## status.
 
-#### file-source-location
-#### fallback-source-location
-#### lisp-source-location
-#### emacs-buffer-source-location
-#### source-file-source-location
-#### code-location-debug-source-name
-#### code-location-debug-source-created
-#### code-location-debug-fun-fun
-#### code-location-has-debug-block-info-p
-#### stream-source-position
-#### string-source-position
+def file_source_location(code_location):
+        return (source_file_source_location(code_location)
+                if code_location_has_debug_info_p(code_location) else
+                fallback_source_location(code_location))
+
+def fallback_source_location(code_location):
+        fun = code_location_debug_fun_fun(code_location)
+        return (function_source_location(fun) if fun else
+                error("Cannot find source location for: %s ", code_location))
+
+def lisp_source_location(code_location):
+        source = prin1_to_string(code_location_source_form(code_location, 100))
+        return make_location([keyword("source-form"), source,
+                              keyword("position"), 1])
+
+def emacs_buffer_source_location(code_location, plist):
+        if code_location_has_debug_block_info_p(code_location):
+                emacs_buffer, emacs_position, emacs_string = (getf(plist, keyword("emacs-buffer")),
+                                                              getf(plist, keyword("emacs-position")),
+                                                              getf(plist, keyword("emacs-string")))
+                pos = string_source_position(code_location, emacs_string)
+                snipped = read_snippet_from_string(emacs_string, pos)
+                return make_location([keyword("buffer"),  emacs_buffer],
+                                     [keyword("offset"),  emacs_position, pos],
+                                     [keyword("snippet"), snipped])
+        else:
+                return fallback_source_location(code_location)
+
+def source_file_source_location(code_location):
+        code_date = code_location_debug_source_created(code_location)
+        filename = code_location_debug_source_name(code_location)
+        source_code = get_source_code(filename, code_date)
+        with progv(_readtable_ = guess_readtable_for_filename(filename)):
+                def body(s):
+                        pos = stream_source_position(code_location, s)
+                        snippet = read_snippet(s, pos)
+                        return make_location([keyword("file"), filename],
+                                             [keyword("position"), pos],
+                                             [keyword("snippet"), snippet])
+                return with_debootstrapping(
+                        lambda: with_input_from_string(source_code, body))
+
+def code_location_debug_source_name(code_location):
+        #+#.(swank-backend:with-symbol 'debug-source-name 'sb-di)
+        # debug_source_name       # XXX: what to make of it?
+        #-#.(swank-backend:with-symbol 'debug-source-name 'sb-di)
+        # debug_source_namestring # XXX: ditto..
+        return namestring(truename(sb_di.code_location_debug_source(code_location).name))
+
+def code_location_debug_source_created(code_location):
+        return sb_di.code_location_debug_source(code_location).created
+
+def code_location_debug_fun_fun(code_location):
+        return sb_di.code_location_debug_fun(code_location).fun
+
+def code_location_has_debug_block_info_p(code_location):
+        # (handler-case
+        #       (progn (sb-di:code-location-debug-block code-location)
+        #              t)
+        #     (sb-di:no-debug-blocks  () nil))
+        return t
+
+def stream_source_position(code_location, stream):
+        # (let* ((cloc (sb-debug::maybe-block-start-location code-location))
+        #        (tlf-number (sb-di::code-location-toplevel-form-offset cloc))
+        #        (form-number (sb-di::code-location-form-number cloc)))
+        #   (multiple-value-bind (tlf pos-map) (read-source-form tlf-number stream)
+        #     (let* ((path-table (sb-di::form-number-translations tlf 0))
+        #            (path (cond ((<= (length path-table) form-number)
+        #                         (warn "inconsistent form-number-translations")
+        #                         (list 0))
+        #                        (t
+        #                         (reverse (cdr (aref path-table form-number)))))))
+        #       (source-path-source-position path tlf pos-map))))
+        cloc = maybe_block_start_location(coe_location)
+        tlf_number = code_location_toplevel_form_offset(cloc)
+        form_number = code_location_form_number(cloc)
+        tlf, pos_map = read_source_form(tlf_number, stream)
+        path_table = form_number_translations(tlf, 0)
+        if len(path_table) <= form_number:
+                warn("inconsistent form-number-translations")
+                path = [0]
+        else:
+                path = reverse(cdr(aref(path_table, form_number)))
+        return source_path_source_position(path, tlf, pos_map)
+
+def string_source_position(code_location, string):
+        return with_input_from_string(
+                string,
+                lambda s: stream_source_position(code_location, s))
 
 ## source-path-file-position and friends are in swank-source-path-parser
 
@@ -528,7 +621,7 @@ def frame_source_location(n):
         #                 find_symbol0("nil")]
         return converting_errors_to_error_location(
                 lambda: code_location_source_location(
-                        frame_code_location(nth_frame(index))))
+                        sb_di.frame_code_location(nth_frame(n))))
 
 def frame_debug_vars(frame):
         "Return a vector of debug-variables in frame."
@@ -540,14 +633,14 @@ def debug_var_value(var, frame, location):
         #   (:valid (sb-di:debug-var-value var frame))
         #   ((:invalid :unknown) ':<not-available>))
         ## However, lack of inlining and optimisations in Python make this a non-issue.
-        return cl._frame_locals(frame)[var]
+        return sb_di.debug_var_value(var, frame)
 
 def debug_var_info(var):
         "Introduced by SBCL 1.0.49.76."
         # (let ((s (find-symbol "DEBUG-VAR-INFO" :sb-di)))
         #   (when (and s (fboundp s))
         #    (funcall s var)))
-        pass
+        return sb_di.debug_var_info(var)
 
 @defimplementation
 def frame_locals(index):
@@ -584,12 +677,13 @@ def frame_locals(index):
         #                                                                  0 more-count)))))))
         #     locals)))
         frame = nth_frame(index)
-        loc = nil                                           # XXX: was (sb-di:frame-code-location frame)
+        loc = sb_di.frame_code_location(frame)
         vars = frame_debug_vars(frame)
-        return mapcar(lambda kv: ["name",  kv[0],
-                                  "id",    0,      # XXX: was (sb-di:debug-var-id v)
-                                  "value", kv[1]], # XXX: depended upon loc
-                      vars.items())
+        # Note: whither symtable?
+        return mapcar_star(lambda name, value: ["name",  debug_var_symbol(v),
+                                                "id",    debug_var_id(v),
+                                                "value", debug_var_value(v, frame, loc)],
+                           vars.items())
 
 # @defimplementation
 # def frame_var_value(frame, var):
