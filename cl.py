@@ -1695,35 +1695,26 @@ elements of the string are printed."""
                                 lambda: re.sub(r"([\"\\])", r"\\\1", x)) +
                  "\""))
 
-def _print_function(x, escape = None, readably = None):
-        readably = _defaulted_to_var(readably, "_print_readably_")
-        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
-        q = "\"" if escape else ""
-        return q + with_output_to_string(
+def _print_function(x):
+        return with_output_to_string(
                 lambda s: print_unreadable_object(
                         x, s,
                         lambda: format(s, "%s (%s)", x.__name__, _print_function_arglist(x)),
-                        identity = t, type = t)) + q
+                        identity = t, type = t))
 
-def _print_unreadable_compound(x, escape = None, readably = None):
-        readably = _defaulted_to_var(readably, "_print_readably_")
-        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
-        q = "\"" if escape else ""
-        return q + with_output_to_string(
+def _print_unreadable_compound(x):
+        return with_output_to_string(
                 lambda s: print_unreadable_object(
                         x, s,
                         lambda: format(s, "%d elements", len(x)),
-                        identity = t, type = t)) + q
+                        identity = t, type = t))
 
-def _print_unreadable(x, escape = None, readably = None):
-        readably = _defaulted_to_var(readably, "_print_readably_")
-        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
-        q = "\"" if escape else ""
-        return q + with_output_to_string(
+def _print_unreadable(x):
+        return with_output_to_string(
                 lambda stream: print_unreadable_object(
                         x, stream,
                         lambda: nil,
-                        identity = t, type = t)) + q
+                        identity = t, type = t))
 
 def write_to_string(object,
                     array = None,
