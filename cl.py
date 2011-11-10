@@ -43,10 +43,12 @@ def string_capitalize(x): return x.capitalize()
 
 __core_symbol_names__ = [
         "QUOTE",
-        "AND", "OR",
-        "SOME", "EVERY",
+        "AND", "OR", "MEMBER", "EQL",
         "ABORT", "CONTINUE", "BREAK",
         ]
+__more_symbol_names__ = [
+        "SOME", "EVERY",
+]
 
 _case_attribute_map = dict(UPCASE     = string_upcase,
                            DOWNCASE   = string_downcase,
@@ -482,6 +484,14 @@ def loop(body):
 def eq(x, y):
         return x is y
 
+def eql(x, y):
+        ## Python is really cute:
+        # >>> 256 is (255 + 1)
+        # True
+        # >>> 257 is (256 + 1)
+        # False
+        return (x is y) if not isinstance(x, int) else x == y
+
 def equal(x, y):
         return x == y
 
@@ -547,14 +557,14 @@ def type_of(x):
 
 # __type_predicate_map__ is declared after the package system is initialised
 def _check_complex_type(type, x):
-        zero, test = __type_predicate_map__[type[0]]
+        zero, test, element_test = __type_predicate_map__[type[0]]
         return (zero if len(type) is 1 else
-                test(lambda elem_type: typep(x, elem_type),
+                test(lambda elem_type: element_test(x, elem_type),
                      type[1:]))
 
 def typep(x, type):
         return (isinstance(x, type)          if isinstance(type, type_)                      else
-                _check_complex_type(x, type) if (listp(type) and
+                _check_complex_type(type, x) if (listp(type) and
                                                  type and type[0] in __type_predicate_map__) else
                 error(simple_type_error, "%s is not a valid type specifier.", type))
 
@@ -563,7 +573,7 @@ def subtypep(sub, super):
 
 def the(type, x):
         return (x if typep(x, type) else
-                error(simple_type_error, "The value %s is not of type %s.", x, type.__name__))
+                error(simple_type_error, "The value %s is not of type %s.", x, type))
 
 def check_type(x, type):
         the(type, x)
@@ -601,6 +611,7 @@ __function_types__ = frozenset([types.BuiltinFunctionType,
                                 types.MethodType])
 
 function = types.FunctionType.__mro__[0]
+integer  = int
 
 def functionp(o):     return isinstance(o, function)
 def integerp(o):      return type(o) is int
@@ -1337,10 +1348,15 @@ def _init_package_system_0():
         nil                = _intern0("NIL", cl)
         t.value, nil.value = t, nil     # Self-evaluation.
         export([t, nil] + mapcar(lambda n: _intern0(n, cl),
-                                 __core_symbol_names__),
+                                 __core_symbol_names__ +
+                                 __more_symbol_names__),
                cl)
+        def pythonise_core_symbol_name(x):
+                return x.lower() + "_"
+        for sym in __core_symbol_names__:
+                sys.modules['cl'].__dict__[pythonise_core_symbol_name(sym)] = _find_symbol_or_fail(sym, cl)
         package("COMMON-LISP-USER", use = ["CL", "BUILTINS"], boot = True)
-_init_package_system_0() ########### _keyword() is now available
+_init_package_system_0() ########### _keyword(), quote_, and_, or_, abort_, continue_, break_ are now available
 
 def _init_reader_0():
         "SETQ, SYMBOL_VALUE, LET and BOUNDP (anything calling _COERCE_TO_SYMBOL_NAME) need this to mangle names."
@@ -1355,12 +1371,15 @@ def _init_package_system_1():
 
 _init_package_system_1()
 
-__type_predicate_map__ = { _keyword("or"):              (nil, some),
-                           _find_symbol_or_fail("OR"):  (nil, some),
-                           _keyword("and"):             (t,   every),
-                           _find_symbol_or_fail("AND"): (t,   every),
+__type_predicate_map__ = { _keyword("or"):     (nil, some,  typep),
+                           or_:                (nil, some,  typep),
+                           _keyword("and"):    (t,   every, typep),
+                           and_:               (t,   every, typep),
+                           _keyword("member"): (nil, some,  eql),
+                           member_:            (nil, some,  eql),
+                           _keyword("eql"):    (nil, some,  eql),
+                           eql_:               (nil, some,  eql),
                            }
-
 
 ##
 ## Pretty-printing
@@ -1624,10 +1643,6 @@ setq("_read_suppress_",             __standard_io_syntax__["_read_suppress_"])
 
 setq("_readtable_",                 __standard_io_syntax__["_readtable_"])
 """."""
-
-
-for var, standard_value in __standard_io_syntax__.items():
-        setq(var, standard_value)
 
 def _print_symbol(s, escape = None, gensym = None, case = None, package = None, readably = None):
         # Specifically, if *PRINT-READABLY* is true, printing proceeds as if
