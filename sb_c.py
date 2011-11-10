@@ -1,6 +1,9 @@
 import cl
 
+from cl import *
 from cl import _defaulted_to_var as defaulted_to_var
+
+defvar("_source_plist_", [])
 
 # There is one per compiled file and one per function compiled at
 # toplevel or loaded from source.

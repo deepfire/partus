@@ -18,6 +18,7 @@ from pergamum import slotting, here, when_let, if_let, mapcar_star
 from swank_backend import defimplementation
 from swank_backend import check_slime_interrupts, converting_errors_to_error_location
 
+import sb_c
 import sb_di
 
 def not_implemented():
@@ -563,7 +564,7 @@ def code_location_debug_source_name(code_location):
         # debug_source_name       # XXX: what to make of it?
         #-#.(swank-backend:with-symbol 'debug-source-name 'sb-di)
         # debug_source_namestring # XXX: ditto..
-        return namestring(truename(sb_di.debug_source_name(sb_di.code_location_debug_source(code_location))))
+        return namestring(truename(sb_c.debug_source_namestring(sb_di.code_location_debug_source(code_location))))
 
 def code_location_debug_source_created(code_location):
         return sb_di.code_location_debug_source(code_location).created
@@ -591,10 +592,10 @@ def stream_source_position(code_location, stream):
         #                         (reverse (cdr (aref path-table form-number)))))))
         #       (source-path-source-position path tlf pos-map))))
         cloc = maybe_block_start_location(coe_location)
-        tlf_number = code_location_toplevel_form_offset(cloc)
-        form_number = code_location_form_number(cloc)
+        tlf_number = sb_di.code_location_toplevel_form_offset(cloc)
+        form_number = sb_di.code_location_form_number(cloc)
         tlf, pos_map = read_source_form(tlf_number, stream)
-        path_table = form_number_translations(tlf, 0)
+        path_table = sb_di.form_number_translations(tlf, 0)
         if len(path_table) <= form_number:
                 warn("inconsistent form-number-translations")
                 path = [0]

@@ -7,6 +7,8 @@ from pergamum import *
 
 from cl import _keyword as keyword, _intern0 as intern0
 
+import sb_c
+
 ###
 ### Conditions
 ###
@@ -134,10 +136,10 @@ def code_location_debug_source(l):
         return sb_c.debug_source(
                 namestring = l.debug_fun.co_filename,
                 created = file_write_date(l.debug_fun.co_filename),
-                source = 0,
+                source_root = 0,
                 start_positions = [],
                 form = nil,
-                function = l.debug_fun.
+                function = l.debug_fun,
                 compiled = file_write_date(l.debug_fun.co_filename),
                 plist = [])
 
