@@ -1698,7 +1698,7 @@ elements of the string are printed."""
 def _print_function(x, escape = None, readably = None):
         readably = _defaulted_to_var(readably, "_print_readably_")
         escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
-        q = "\"" if escape else "\""
+        q = "\"" if escape else ""
         return q + with_output_to_string(
                 lambda s: print_unreadable_object(
                         x, s,
@@ -1708,7 +1708,7 @@ def _print_function(x, escape = None, readably = None):
 def _print_unreadable_compound(x, escape = None, readably = None):
         readably = _defaulted_to_var(readably, "_print_readably_")
         escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
-        q = "\"" if escape else "\""
+        q = "\"" if escape else ""
         return q + with_output_to_string(
                 lambda s: print_unreadable_object(
                         x, s,
@@ -1718,7 +1718,7 @@ def _print_unreadable_compound(x, escape = None, readably = None):
 def _print_unreadable(x, escape = None, readably = None):
         readably = _defaulted_to_var(readably, "_print_readably_")
         escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
-        q = "\"" if escape else "\""
+        q = "\"" if escape else ""
         return q + with_output_to_string(
                 lambda stream: print_unreadable_object(
                         x, stream,
@@ -1810,7 +1810,7 @@ def write_to_string(object,
                                 string += _print_unreadable_compound(object)
                         elif functionp(object):
                                 string += _print_function(object)
-                        elif (not escape) and typep(object, restart) or typep(object, condition):
+                        elif (not escape) and typep(object, [or_, restart, condition]):
                                 string += str(object)
                         else:
                                 string += _print_unreadable(object)
@@ -2362,8 +2362,8 @@ def __cl_condition_handler__(condspec, frame):
                         cond = _maybe_upgrade_condition(raw_cond)
                         if cond is not raw_cond:
                                 _here("Condition Upgrader: %s(%s) -> %s(%s)",
-                                      raw_cond, type_of(raw_cond),
-                                      cond, type_of(cond),
+                                      prin1_to_string(raw_cond), type_of(raw_cond),
+                                      prin1_to_string(cond), type_of(cond),
                                       callers = 15)
                         with env.let(_traceback_ = traceback,
                                      _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
