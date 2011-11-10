@@ -503,7 +503,7 @@ def code_location_source_location(code_location):
                       (keyword("lisp"), lambda: lisp_source_location(code_location)))
                 #-#.(swank-backend:with-symbol 'debug-source-from 'sb-di)
                 return (file_source_location(code_location)
-                        if debug_source_namestring(dsource) else
+                        if sb_c.debug_source_namestring(dsource) else
                         lisp_source_location(code_location))
 
 ## FIXME: The naming policy of source-location functions is a bit
@@ -563,7 +563,7 @@ def code_location_debug_source_name(code_location):
         # debug_source_name       # XXX: what to make of it?
         #-#.(swank-backend:with-symbol 'debug-source-name 'sb-di)
         # debug_source_namestring # XXX: ditto..
-        return namestring(truename(sb_di.code_location_debug_source(code_location).name))
+        return namestring(truename(sb_di.debug_source_name(sb_di.code_location_debug_source(code_location))))
 
 def code_location_debug_source_created(code_location):
         return sb_di.code_location_debug_source(code_location).created

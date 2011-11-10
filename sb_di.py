@@ -24,9 +24,6 @@ class no_debug_blocks(debug_condition):
 class code_location(servile):
         pass
 
-class debug_source(servile):
-        pass
-
 class debug_fun(servile):
         pass
 
@@ -134,34 +131,15 @@ def code_location_debug_source(l):
         #         (debug-signal 'no-debug-blocks :debug-fun
         #                       (code-location-debug-fun code-location))))
         # return inspect.getsource(l.debug_fun)
-        return debug_source(
-                # When the DEBUG-SOURCE describes a file, the file's namestring.
-                # Otherwise, NIL.
+        return sb_c.debug_source(
                 namestring = l.debug_fun.co_filename,
-                # the universal time that the source was written, or NIL if
-                # unavailable
-                created = nil,
-                # the source path root number of the first form read from this
-                # source (i.e. the total number of forms converted previously in
-                # this compilation).  (Note: this will always be 0 so long as the
-                # SOURCE-INFO structure has exactly one FILE-INFO.)
-                source_root = 0,
-                # The FILE-POSITIONs of the truly top level forms read from this
-                # file (if applicable). The vector element type will be chosen to
-                # hold the largest element.
-                start_positions = nil,
-                
-                # For functions processed by EVAL (including EVAL-WHEN and LOAD on
-                # a source file), the source form.
+                created = file_write_date(l.debug_fun.co_filename),
+                source = 0,
+                start_positions = [],
                 form = nil,
-                # This is the function whose source is the form.
-                function = l.debug_fun,
-                
-                # the universal time that the source was compiled
-                compiled = ...,
-                # Additional information from (WITH-COMPILATION-UNIT (:SOURCE-PLIST ...))
-                plist = [], # XXX: supposed to be: symbol_value("_source_plist_")
-                )
+                function = l.debug_fun.
+                compiled = file_write_date(l.debug_fun.co_filename),
+                plist = [])
 
 def code_location_debug_block(l):
         # the DEBUG-BLOCK containing CODE-LOCATION. XXX Possibly toss this
