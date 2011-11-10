@@ -18,6 +18,8 @@ from pergamum import slotting, here, when_let, if_let, mapcar_star
 from swank_backend import defimplementation
 from swank_backend import check_slime_interrupts, converting_errors_to_error_location
 
+from swank_source_file_cache import *
+
 import sb_c
 import sb_di
 
@@ -557,7 +559,8 @@ def source_file_source_location(code_location):
                                              [keyword("position"), pos],
                                              [keyword("snippet"), snippet])
                 return with_debootstrapping(
-                        lambda: with_input_from_string(source_code, body))
+                        lambda: with_input_from_string(source_code,
+                                                       body))
 
 def code_location_debug_source_name(code_location):
         #+#.(swank-backend:with-symbol 'debug-source-name 'sb-di)
@@ -573,11 +576,9 @@ def code_location_debug_fun_fun(code_location):
         return sb_di.code_location_debug_fun(code_location).fun
 
 def code_location_has_debug_block_info_p(code_location):
-        # (handler-case
-        #       (progn (sb-di:code-location-debug-block code-location)
-        #              t)
-        #     (sb-di:no-debug-blocks  () nil))
-        return t
+        return handler_case(lambda: sb_di.code_location_debug_block(code_location) or t,
+                            (sb_di.no_debug_blocks,
+                             lambda _: nil))
 
 def stream_source_position(code_location, stream):
         # (let* ((cloc (sb-debug::maybe-block-start-location code-location))

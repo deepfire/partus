@@ -27,6 +27,10 @@ from neutrality import stringp, _write_string
 def identity(x):
         return x
 
+def let(*values_and_body):
+        values, body = values_and_body[:-1], values_and_body[-1]
+        return body(*values)
+
 def progn(*body):
         for b in body[:-1]:
                 b()
@@ -36,6 +40,9 @@ def _prognf(*body):
         return lambda: progn(*body)
 
 most_positive_fixnum = 67108864
+
+def defstruct(name, *slots):
+        return collections.namedtuple(name, slots)
 
 def string_upcase(x):     return x.upper()
 def string_downcase(x):   return x.lower()
@@ -385,10 +392,6 @@ def _not_implemented(x = None):
 ##
 ## Pergamum 0
 ##
-def _letf(*values_and_body):
-        values, body = values_and_body[:-1], values_and_body[-1]
-        return body(*values)
-
 def _if_let(cond, consequent, antecedent = lambda: None):
         x = cond() if functionp(cond) else cond
         return consequent(x) if x else antecedent()
@@ -1927,16 +1930,16 @@ def _read_symbol(x, package = None, case = _keyword("upcase")):
         # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
         name, p = ((x[1:], __keyword_package__)
                    if x[0] == ":" else
-                   _letf(x.find(":"),
-                         lambda index:
-                                 (_if_let(find_package(x[0:index].upper()),
-                                          lambda p:
-                                                  (x[index + 1:], p),
-                                          lambda:
-                                                  error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
-                                                        x[0:index].upper(), x))
-                                  if index != -1 else
-                                  (x, _coerce_to_package(package)))))
+                   let(x.find(":"),
+                       lambda index:
+                               (_if_let(find_package(x[0:index].upper()),
+                                        lambda p:
+                                                (x[index + 1:], p),
+                                        lambda:
+                                                error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
+                                                      x[0:index].upper(), x))
+                                if index != -1 else
+                                (x, _coerce_to_package(package)))))
         return _intern0(_case_xform(case, name), p)
 
 @block
@@ -2078,6 +2081,7 @@ at which the file specified by PATHSPEC was last written
         #
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # os.path.getmtime() returns microseconds..
+        _here("filename: %s", pathspec)
         return int(os.path.getmtime(pathspec))
 
 ##
@@ -2547,25 +2551,25 @@ def _restart_case(body, **restarts_args):
                                                    " ".join(__valid_restart_options__), " ".join(options.keys()))
         nonce = gensym("RESTART-CASE")
         wrapped_restarts_args = {
-                restart_name: _letf(restart_args["function"],
-                                    restart_args["interactive"] if "interactive" in restart_args else nil,
-                                    restart_args["report"]      if "report"      in restart_args else nil,
-                                    lambda function, interactive, report:
-                                            (validate_restart_options(restart_args) and
-                                             _updated_dict(restart_args,
-                                                           dict(name                 = restart_name,
-                                                                function             =
-                                                                lambda *args, **keys:
-                                                                        return_from(nonce, function(*args, **keys)),
-                                                                interactive_function =
-                                                                (interactive                  if functionp(interactive) else
-                                                                 lambda: []                   if null(interactive) else
-                                                                 error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
-                                                                report_function      =
-                                                                (report                       if functionp(report) else
-                                                                 _curry(write_string, report) if stringp(report) else
-                                                                 nil                          if null(report) else
-                                                                 error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
+                restart_name: let(restart_args["function"],
+                                  restart_args["interactive"] if "interactive" in restart_args else nil,
+                                  restart_args["report"]      if "report"      in restart_args else nil,
+                                  lambda function, interactive, report:
+                                          (validate_restart_options(restart_args) and
+                                           _updated_dict(restart_args,
+                                                         dict(name                 = restart_name,
+                                                              function             =
+                                                              lambda *args, **keys:
+                                                                      return_from(nonce, function(*args, **keys)),
+                                                              interactive_function =
+                                                              (interactive                  if functionp(interactive) else
+                                                               lambda: []                   if null(interactive) else
+                                                               error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
+                                                              report_function      =
+                                                              (report                       if functionp(report) else
+                                                               _curry(write_string, report) if stringp(report) else
+                                                               nil                          if null(report) else
+                                                               error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
                 for restart_name, restart_args in restarts_args.items () }
         return catch(nonce,
                      lambda: _restart_bind(body, wrapped_restarts_args))

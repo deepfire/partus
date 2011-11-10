@@ -955,10 +955,10 @@ def dispatch_event(event):
                                     [first(event)] + args)), # XXX: keys? linearise?
                 ([keyword("emacs-channel-send")],
                  lambda channel_id, msg:
-                         letf(find_channel(channel_id),
-                              lambda ch:
-                                      send_event(channel_thread(ch),
-                                                 [keyword("emacs-channel-send"), ch, msg]))),
+                         let(find_channel(channel_id),
+                             lambda ch:
+                                     send_event(channel_thread(ch),
+                                                [keyword("emacs-channel-send"), ch, msg]))),
                 ([keyword("reader-error")],
                  lambda packet, condition:
                          encode_message([keyword("reader-error"), packet,
@@ -2224,9 +2224,9 @@ def make_compiler_note(condition):
                 keyword("severity"),   severity(condition),
                 keyword("location"),   location(condition),
                 keyword("references"), references(condition)
-                ] + letf(source_context(condition),
-                         lambda s: ([keyword("source-context"), s] if s else
-                                    []))
+                ] + let(source_context(condition),
+                        lambda s: ([keyword("source-context"), s] if s else
+                                   []))
 
 def collect_notes(function):
         notes = []
@@ -2490,10 +2490,10 @@ Returns a list of completions with package qualifiers if needed."""
 ### Simple arglist display: swank.lisp:3090
 def operator_arglist(name, package):
         return ignore_errors(
-                lambda: letf(arglist(parse_symbol(name, guess_buffer_package(package))),
-                             lambda args:
-                                     (nil if args is keyword("not-available") else
-                                      princ_to_string([name] + args))))
+                lambda: let(arglist(parse_symbol(name, guess_buffer_package(package))),
+                            lambda args:
+                                    (nil if args is keyword("not-available") else
+                                     princ_to_string([name] + args))))
 
 ### Documentation: swank.lisp:3099
 def apropos_list_for_emacs(name, external_only = nil, case_sensitive = nil, package = nil):

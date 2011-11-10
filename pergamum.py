@@ -5,7 +5,7 @@ from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp,
 from cl           import write_string, write_line, evenp
 from functools    import reduce, partial
 from cl           import _tuplep as tuplep, _setp as setp, _frozensetp as frozensetp
-from cl           import _letf   as letf, _if_let as if_let, _when_let as when_let, _lret as lret
+from cl           import _if_let as if_let, _when_let as when_let, _lret as lret
 from cl           import _map_into_hash as map_into_hash, _remap_hash_table as remap_hash_table
 from cl           import _not_implemented_error as not_implemented_error, _not_implemented as not_implemented
 from cl           import _curry as curry, _compose as compose
