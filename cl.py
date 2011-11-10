@@ -2040,6 +2040,22 @@ def truename(pathname):
         "XXX: does not conform."
         return pathname
 
+def file_write_date(pathspec):
+        """Returns a universal time representing the time
+at which the file specified by PATHSPEC was last written
+(or created), or returns NIL if such a time cannot be determined. """
+        # XXX: doesn't conform terribly well:
+        # 1. NIL isn't returned if the time cannot be determined: python will,
+        #    in most likelihood, raise an error.
+        # 2. (from CLHS) Exceptional Situations:
+        # An error of type FILE-ERROR is signaled if pathspec is wild.
+        # An error of type FILE-ERROR is signaled if the file system
+        # cannot perform the requested operation.
+        #
+        # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
+        # os.path.getmtime() returns microseconds..
+        return int(os.path.getmtime(pathspec))
+
 ##
 ## Streams
 ##
@@ -2697,6 +2713,11 @@ def require(name, pathnames = None):
 ##
 ## Environment
 ##
+def get_universal_time():
+        # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
+        # time.time() returns microseconds..
+        return int(time.time())
+
 def sleep(x):
         return time.sleep(x)
 
