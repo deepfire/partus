@@ -682,8 +682,8 @@ def frame_locals(index):
         loc = sb_di.frame_code_location(frame)
         vars = frame_debug_vars(frame)
         # Note: whither symtable?
-        return mapcar_star(lambda name, value: ["name",  debug_var_symbol(v),
-                                                "id",    debug_var_id(v),
+        return mapcar_star(lambda name, value: ["name",  sb_di.debug_var_symbol(v),
+                                                "id",    sb_di.debug_var_id(v),
                                                 "value", debug_var_value(v, frame, loc)],
                            vars.items())
 

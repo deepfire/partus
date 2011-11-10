@@ -5,7 +5,7 @@ import cl
 from cl       import *
 from pergamum import *
 
-from cl import _keyword as keyword
+from cl import _keyword as keyword, _intern0 as intern0
 
 ###
 ### Conditions
@@ -192,13 +192,13 @@ def debug_var_value(var, frame):
         return cl._frame_locals(frame)[var]
 
 def debug_var_info(var):
-        return nil
+        return nil # XXX: not_implemented() would be more fair?
 
-def debug_var_symbol():
-        return not_implemented()
+def debug_var_symbol(var):
+        return intern0(the(string, var)) # XXX: not_implemented() would be more fair?
 
-def debug_var_id():
-        return not_implemented()
+def debug_var_id(var):
+        return 0 # XXX: not_implemented() would be more fair..
 
 def preprocess_for_eval():
         return not_implemented()

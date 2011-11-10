@@ -102,7 +102,7 @@ bound to the corresponding VALUE."""
 def call_with_bindings(alist, fun):
         """Call FUN with variables bound according to ALIST.
 ALIST is a list of the form ((VAR . VAL) ...)."""
-        check_type(alist, list)
+        check_type(alist, [or_, list, [member_, nil]])
         if not alist:
                 return fun()
         else:
@@ -185,7 +185,7 @@ class connection():
                 self.user_output                = nil
                 self.user_io                    = nil
                 # Bindings used for this connection (usually streams)
-                self.env                        = None
+                self.env                        = nil
                 # A stream that we use for *trace-output*; if nil, we user user-output.
                 self.trace_output               = nil
                 # A stream where we send REPL results.
