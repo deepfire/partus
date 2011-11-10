@@ -186,8 +186,8 @@ def _framep(x):
 def _next_frame(f):
         return f.f_back if f.f_back else error("Frame \"%s\" is the last frame.", _pp_frame(f, lineno = True))
 
-def _caller_frame(n = 0):
-        return sys._getframe(n + 2)
+def _caller_frame(caller_relative = 0):
+        return sys._getframe(caller_relative + 2)
 
 def _caller_name(n = 0):
         return _fun_name(_frame_fun(sys._getframe(n + 2)))
@@ -2390,7 +2390,8 @@ def __cl_condition_handler__(condspec, frame):
                                 if debugger_hook:
                                         with env.let(_debugger_hook_ = nil):
                                                 debugger_hook(cond, debugger_hook)
-        sys.call_tracing(continuation, tuple())
+        with progv(_stack_top_hint_ = _caller_frame(caller_relative = 1)):
+                sys.call_tracing(continuation, tuple())
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
         #
