@@ -18,6 +18,7 @@ from cl           import _here as here
 from cl           import _prognf as prognf
 from cl           import _destructuring_bind_keys as destructuring_bind_keys
 from cl           import _servile as servile
+from cl           import _stream_as_string as stream_as_string, _file_as_string as file_as_string
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]

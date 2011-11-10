@@ -383,7 +383,7 @@ def _not_implemented(x = None):
               _caller_name())
 
 ##
-## Non-CL tools
+## Pergamum 0
 ##
 def _letf(*values_and_body):
         values, body = values_and_body[:-1], values_and_body[-1]
@@ -440,6 +440,13 @@ def _map_into_hash(f, xs, key = identity):
 def _updated_dict(to, from_):
         to.update(from_)
         return to
+
+def _stream_as_string(stream):
+        return stream.read()
+
+def _file_as_string(filename):
+        with open(filename, "r") as f:
+                return _stream_as_string(f)
 
 ##
 ## Lesser non-CL tools
@@ -2698,7 +2705,7 @@ def load(pathspec, verbose = None, print = None,
         verbose = _defaulted_to_var(verbose, "_load_verbose_")
         print   = _defaulted_to_var(verbose, "_load_print_")
         filename = pathspec
-        exec(compile(file_as_string(filename), filename, "exec"))
+        exec(compile(_file_as_string(filename), filename, "exec"))
         return True
 
 def require(name, pathnames = None):
