@@ -999,6 +999,9 @@ def setq(name, value):
         dict[_coerce_to_symbol_name(name)] = value
         return value
 
+# defvar(name, value, documentation = nil):
+# defparameter(name, value, documentation = nil):
+
 class _env_cluster(object):
         def __init__(self, cluster):
                 self.cluster = cluster
@@ -1387,6 +1390,20 @@ __type_predicate_map__ = { _keyword("or"):     (nil, some,  typep),
                            _keyword("eql"):    (nil, some,  eql),
                            eql_:               (nil, some,  eql),
                            }
+
+##
+## T/NIL-dependent stuff
+##
+def defvar(name, value, documentation = nil):
+        "XXX: documentation, declaring as special"
+        if not boundp(name):
+                setq(name, value)
+        return name
+
+def defparameter(name, value, documentation = nil):
+        "XXX: documentation, declaring as special"
+        setq(name, value)
+        return name
 
 ##
 ## Pretty-printing
