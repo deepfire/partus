@@ -628,3 +628,17 @@ Issue PRINC-PRINTS-ESCAPED-STANDARD-COMPLIANCE
              callers = 15)
   --> (note the double quotes around the AttributeError):
        Condition Upgrader: "'list' object has no attribute '__name__'"(<class 'str'>) -> "#<AttributeError  {1373e10}>"(<class 'AttributeError'>)
+
+Issue PYTHON-AUTO-STRING-COALESCENCE
+
+This:
+"form_number"      # :unparsed :type (or index (member :unparsed))
+## Our cargo-cult imitation..
+"lineno"
+
+..is awfully close to:
+"form_number",     # :unparsed :type (or index (member :unparsed))
+## Our cargo-cult imitation..
+"lineno"
+
+..and it can be really hard to catch in a vararg situation.
