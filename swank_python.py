@@ -21,6 +21,7 @@ from swank_backend import check_slime_interrupts, converting_errors_to_error_loc
 from swank_source_file_cache import *
 
 import sb_c
+import sb_debug
 import sb_di
 
 def not_implemented():
@@ -496,7 +497,7 @@ def print_frame(frame, stream, **keys):
 
 def code_location_source_location(code_location):
         dsource = sb_di.code_location_debug_source(code_location)
-        plist = sb_di.debug_source_plist(dsource)
+        plist = sb_c.debug_source_plist(dsource)
         if getf(plist, keyword("emacs-buffer")):
                 return emacs_buffer_source_location(code_location, plist)
         else:
@@ -530,7 +531,7 @@ def fallback_source_location(code_location):
                 error("Cannot find source location for: %s ", code_location))
 
 def lisp_source_location(code_location):
-        source = prin1_to_string(code_location_source_form(code_location, 100))
+        source = prin1_to_string(sb_debug.code_location_source_form(code_location, 100))
         return make_location([keyword("source-form"), source,
                               keyword("position"), 1])
 

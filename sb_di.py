@@ -9,6 +9,8 @@ from cl import _keyword as keyword, _intern0 as intern0
 
 import sb_c
 
+from sb_c import debug_source_from, debug_source_namestring # XXX
+
 ###
 ### Conditions
 ###
@@ -257,7 +259,10 @@ code_location = defstruct("code_location",
                           "tlf_offset",      # :unparsed :type (or index (member :unparsed))
                           ## This is the depth-first number of the node that begins
                           ## code-location within its top level form.
-                          "form_number")     # :unparsed :type (or index (member :unparsed))
+                          "form_number",     # :unparsed :type (or index (member :unparsed))
+
+                          ## Our cargo-cult imitation..
+                          "lineno",)
 
 #### DEBUG-SOURCEs
 
@@ -384,18 +389,38 @@ def find_stepped_frame():
         return not_implemented()
 
 def frame_code_location(f):
-        return code_location(debug_fun = f.f_code,   # the DEBUG-FUN containing this CODE-LOCATION
+        return code_location(## the DEBUG-FUN containing this CODE-LOCATION
+                             # "debug_fun",       # nil :type debug-fun
+                             debug_fun = f.f_code,
                              #
-                             # The stuff we don't have:
+                             ## This is initially :UNSURE. Upon first trying to access an
+                             ## :UNPARSED slot, if the data is unavailable, then this becomes T,
+                             ## and the code-location is unknown. If the data is available, this
+                             ## becomes NIL, a known location. We can't use a separate type
+                             ## code-location for this since we must return code-locations before
+                             ## we can tell whether they're known or unknown. For example, when
+                             ## parsing the stack, we don't want to unpack all the variables and
+                             ## blocks just to make frames.
+                             # "unknown_p",       # :unsure :type (member t nil :unsure)
+                             unknown_p   = keyword("unsure"),
                              #
-                             # This is the number of forms processed by the compiler or loader
-                             # before the top level form containing this code-location.
-                             # tlf-offset            
+                             ## the DEBUG-BLOCK containing CODE-LOCATION. XXX Possibly toss this
+                             ## out and just find it in the blocks cache in DEBUG-FUN.
+                             # "debug_block",     # :unparsed :type (or debug-block (member :unparsed))
+                             debug_block = keyword("unparsed"),
                              #
-                             # This is the depth-first number of the node that begins
-                             # code-location within its top level form.
-                             # form-number           # 
-                             lineno    = f.f_lineno) # ..a measly substitute..
+                             ## This is the number of forms processed by the compiler or loader
+                             ## before the top level form containing this code-location.
+                             # "tlf_offset",      # :unparsed :type (or index (member :unparsed))
+                             tlf_offset  = keyword("unparsed"),
+                             #
+                             ## This is the depth-first number of the node that begins
+                             ## code-location within its top level form.
+                             # "form_number",     # :unparsed :type (or index (member :unparsed))
+                             form_number = keyword("unparsed"),
+                             #
+                             # ..our measly substitute..
+                             lineno      = f.f_lineno)
 
 ###
 def code_location_toplevel_form_offset(l):
@@ -463,6 +488,7 @@ def code_location_debug_source(l):
                                           file_write_date(filename),
                                           file_write_date(filename)) if exists_p else
                                          # no backing file...
+                                         # XXX: really ought to deal with this..
                                          (nil,
                                           nil,
                                           get_universal_time()))
@@ -474,28 +500,25 @@ def code_location_debug_source(l):
                 form = nil,
                 function = l.debug_fun,
                 compiled = compiled,
+                # Mind this (in swank_python.py, code_location_source_location()):
+                # getf(plist, keyword("emacs-buffer"))
                 plist = [])
 
 def code_location_debug_block(basic_code_location):
         # Return the DEBUG-BLOCK containing code-location if it is available.
         # Some debug policies inhibit debug-block information, and if none
         # is available, then this signals a NO-DEBUG-BLOCKS condition.
-        block = basic_code_location.debug_block
-        return (etypecase(basic_code_location,
-                          compiled_code_location(
-                                compute_compiled_code_location_debug_block(basic_code_location)))
-                if block is keyword("unparsed") else
-                block)
+        ## XXX: ought to be:
+        # block = basic_code_location.debug_block
+        # return (etypecase(basic_code_location,
+        #                   (compiled_code_location,
+        #                    lambda: compute_compiled_code_location_debug_block(basic_code_location)))
+        #         if block is keyword("unparsed") else
+        #         block)
+        ## -- we're identity, instead
+        return basic_code_location
 
 ###
-def debug_source_plist(ds):      return ds.plist        # Mind this: getf(plist, keyword("emacs-buffer"))
-def debug_source_from(ds):       return keyword("file") # XXX: Mind C-c C-c !
-def debug_source_namestring(ds): return ds.namestring
-def debug_source_created(ds):    return ds.created
-
-def debug_source_name(ds):
-        return not_implemented()
-
 def debug_fun_debug_vars(df):
         return not_implemented()
 
