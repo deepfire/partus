@@ -7,9 +7,13 @@ from pergamum import *
 
 from cl import _keyword as keyword, _intern0 as intern0
 
+import more_ast
+
 import sb_c
 
 from sb_c import debug_source_from, debug_source_namestring # XXX
+
+# more or less src/code/debug-int.lisp
 
 ###
 ### Conditions
@@ -137,7 +141,7 @@ with respect to other DEBUG-VARs in the same function."""
 ### These exist for caching data stored in packed binary form in
 ### compiler DEBUG-FUNs. *COMPILED-DEBUG-FUNS* maps a SB!C::DEBUG-FUN
 ### to a DEBUG-FUN. There should only be one DEBUG-FUN in existence
-### for any function# that is, all CODE-LOCATIONs and other objects
+### for any function; that is, all CODE-LOCATIONs and other objects
 ### that reference DEBUG-FUNs point to unique objects. This is
 ### due to the overhead in cached information.
 # (defstruct (debug-fun (:constructor nil)
@@ -391,7 +395,7 @@ def find_stepped_frame():
 def frame_code_location(f):
         return code_location(## the DEBUG-FUN containing this CODE-LOCATION
                              # "debug_fun",       # nil :type debug-fun
-                             debug_fun = f.f_code,
+                             debug_fun = f.f_code,  # a code object.. which is really closer to a debug block
                              #
                              ## This is initially :UNSURE. Upon first trying to access an
                              ## :UNPARSED slot, if the data is unavailable, then this becomes T,
@@ -475,6 +479,47 @@ def maybe_block_start_location(l):
 def code_location_debug_fun(l):
         return l.debug_fun
 
+### AST cache
+def _record_ast(cache, id, timestamp, astree):
+        cache[id] = (id, timestamp)
+
+def _try_get_ast(cache, id, timestamp):
+        values, presentp = gethash(id, cache)
+        return (values if presentp else
+                (None, None))
+
+def _ensure_astree(cache, id, timestamp, source_getter, timestamp_getter):
+        astree, timestamp = _try_get_ast(cache, id, timestamp)
+        if not astree:
+                astree, timestamp = (more_ast.extract_ast(source_getter(id)),
+                                     timestamp_getter(id))
+                _record_ast(cache, id, astree, timestamp)
+        return astree, timestamp
+
+__namestring_asts__ = dict() # namestring -> (timestamp, [ast])
+def _record_namestring_ast(id, timestamp, astree):
+        _record_ast(__namestring_asts__, id, timestamp, astree)
+
+def _try_get_namestring_ast(id, timestamp):
+        return _try_get_ast(__namestring_asts__, id, timestamp)
+
+def _ensure_namestring_ast(id, timestamp):
+        return _ensure_astree(__namestring_asts__, id, timestamp, 
+                              source_getter    = get_file_content,
+                              timestamp_getter = file_write_date)
+
+__func_asts__ = dict() # func -> (timestamp, [ast])
+def _record_func_ast(id, timestamp, astree):
+        _record_ast(__func_asts__, id, timestamp, astree)
+
+def _try_get_func_ast(id, timestamp):
+        return _try_get_ast(__func_asts__, id, timestamp)
+
+def _ensure_func_ast(id, timestamp):
+        return _ensure_astree(__func_asts__, id, timestamp, 
+                              source_getter    = inspect.getsource,
+                              timestamp_getter = constantly(nil))
+
 def code_location_debug_source(l):
         # (let ((info (compiled-debug-fun-debug-info
         #                (code-location-debug-fun code-location))))
@@ -482,25 +527,140 @@ def code_location_debug_source(l):
         #         (debug-signal 'no-debug-blocks :debug-fun
         #                       (code-location-debug-fun code-location))))
         # return inspect.getsource(l.debug_fun)
+        ##
+        ## frame (debug-int.lisp):
+        ##  a:
+        ##   - up
+        ##   - %down
+        ##   - debug-fun
+        ##   - code-location
+        ##   - %catches
+        ##   - pointer
+        ##   - number
+        ##  c:
+        ##   - 
+        ##
+        ## cloc (debug-int.lisp):
+        ##  a:
+        ##   - debug-fun
+        ##   - %unknown-p
+        ##   - %debug-block
+        ##   - %tlf-offset
+        ##   - %form-number
+        ##  c:
+        ##   - dsource
+        ##  
+        ## dfun (debug-int.lisp (don't confuse with SB!C::DEBUG-FUN)):
+        ##  a:
+        ##   - %lambda-list
+        ##   - %debug-vars
+        ##   - blocks
+        ##   - %function
+        ##  c:
+        ##   - dinfo
+        ##  
+        ## dvar (debug-int.lisp):
+        ##  a:
+        ##   - symbol
+        ##   - id
+        ##   - alive-p
+        ##  c:
+        ##   - 
+        ##
+        ## dblock (debug-int.lisp):
+        ##  a:
+        ##   - successors
+        ##   - elsewhere-p
+        ##
+        ## compiled-dfun (debug-info.lisp):
+        ##  a:
+        ##   - name
+        ##   - kind
+        ##   - vars
+        ##   - blocks
+        ##   - tlf-number
+        ##   - arguments
+        ##   - returns
+        ##   - return-pc
+        ##   - old-fp
+        ##   - nfp
+        ##   - start-pc
+        ##   - elsewhere-pc
+        ##  c:
+        ##   - 
+        ##
+        ## dsource (debug-info.lisp):
+        ##  a:
+        ##   - namestring
+        ##   - created
+        ##   - source-root
+        ##   - start-positions
+        ##   - form
+        ##   - function
+        ##   - compiled
+        ##   - plist
+        ##  c:
+        ##   - dinfo
+        ## 
+        ## dinfo (debug-info.lisp):
+        ##  a:
+        ##   - name
+        ##   - source
+        ##  c:
+        ## 
+        ##
         filename = l.debug_fun.co_filename
         exists_p = probe_file(filename)
-        namestring, created, compiled = ((filename,
-                                          file_write_date(filename),
-                                          file_write_date(filename)) if exists_p else
-                                         # no backing file...
-                                         # XXX: really ought to deal with this..
-                                         (nil,
-                                          nil,
-                                          get_universal_time()))
+        plausible_file_p = exists_p or sb_c.source_namestring_looks_real_p(filename)
+        cl._here("filename: %s, exists_p: %s, function: %s", filename, exists_p, dir(l.debug_fun))
+        describe(l.debug_fun)
+        if exists_p:
+                ast, timestamp = _ensure_namestring_ast(namestring, None)
+        else:
+                if not plausible_file_p:
+                        ast, timestamp = _ensure_func_ast(l.debug_fun, None)
+                else:
+                        # file went missing
+                        not_implemented("source file missing")
+
+        # XXX: it's very unclear, how do we track the compilation timestamp..
+        namestring, created, compiled, form = (
+                (filename,
+                 timestamp,
+                 timestamp,
+                 nil) if exists_p else
+                # no backing file...
+                # XXX: really ought to deal with this..
+                (nil,
+                 nil,
+                 get_universal_time(),
+                 ast))
         return sb_c.debug_source(
-                namestring = filename,
+                # When the DEBUG-SOURCE describes a file, the file's namestring.
+                # Otherwise, NIL.
+                namestring = namestring,
+                # the universal time that the source was written, or NIL if
+                # unavailable
                 created = created,
+                # the source path root number of the first form read from this
+                # source (i.e. the total number of forms converted previously in
+                # this compilation).  (Note: this will always be 0 so long as the
+                # SOURCE-INFO structure has exactly one FILE-INFO.)
                 source_root = 0,
+                # The FILE-POSITIONs of the truly top level forms read from this
+                # file (if applicable). The vector element type will be chosen to
+                # hold the largest element.
                 start_positions = [],
+                # For functions processed by EVAL (including EVAL-WHEN and LOAD on
+                # a source file), the source form.
                 form = nil,
+                # This is the function whose source is the form.
                 function = l.debug_fun,
+                # the universal time that the source was compiled
                 compiled = compiled,
-                # Mind this (in swank_python.py, code_location_source_location()):
+                # Additional information from (WITH-COMPILATION-UNIT (:SOURCE-PLIST ...))
+                #
+                # XXX: Mind this (in swank_python.py, code_location_source_location()):
                 # getf(plist, keyword("emacs-buffer"))
                 plist = [])
 

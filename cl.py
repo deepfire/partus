@@ -2707,10 +2707,10 @@ executes the following:
 ##
 def describe(x, stream = t):
         stream = _coerce_to_stream(stream)
-        write_line("Object \"%s\" of type %s:" % (x, type_of(x)))
+        write_line("Object \"%s\" of type %s:" % (x, type_of(x)), stream)
         for attr, val in (x.__dict__ if hasattr(x, "__dict__") else
                           { k: getattr(x, k) for k in dir(x)}).items():
-                write_line("%25s: %s" % (attr, str(val)))
+                write_line("%25s: %s" % (attr, ignore_errors(lambda: str(val))), stream)
 
 ##
 ## Modules
@@ -2803,6 +2803,7 @@ def _callify(form, package = None, quoted = False):
                 error("Unable to convert form %s", form)
 
 def eval_(form):
+        # XXX: I see problems, once statements start coming this way..
         package = symbol_value("_package_")
         try:
                 expr = _callify(form, package)

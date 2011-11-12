@@ -49,6 +49,6 @@ def debug_source_from(ds):
                        "lisp")
 
 def source_namestring_looks_real_p(namestring):
-        return (namestring and
+        return (len(namestring) > 3 and
                 (namestring[0] != "<") and
-                "." in namestring)
+                namestring[-3:] == ".py")

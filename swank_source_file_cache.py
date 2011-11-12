@@ -68,7 +68,7 @@ Return NIL if the right version cannot be found."""
                     lret(read_file(filename),
                          lambda source:
                                  symbol_value("_source_file_cache_").update({
-                                            filename: make_source_cache_entry(source, date) }))
+                                            filename: source_cache_entry(source, date) }))
                     if file_write_date(filename) == date else
                     nil)
 

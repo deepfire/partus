@@ -3,6 +3,8 @@ import inspect
 import cl
 from   cl import *
 
+import sb_di
+
 def maybe_block_start_location(location):
         # (if (sb!di:code-location-unknown-p loc)
         #  (let* ((block (sb!di:code-location-debug-block loc))
