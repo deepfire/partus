@@ -527,29 +527,38 @@ def code_location_debug_source(l):
         #         (debug-signal 'no-debug-blocks :debug-fun
         #                       (code-location-debug-fun code-location))))
         # return inspect.getsource(l.debug_fun)
+        ## form:
+        ##  c:
+        ##   - sb-di::preprocess-for-eval :: form -> loc -> (frame -> t)
+        ##   - sb-di::form-number-translations :: form -> integer (TLF #) -> { integer (TLF #) -> list }
         ##
         ## frame (debug-int.lisp):
         ##  a:
         ##   - up
-        ##   - %down
-        ##   - debug-fun
-        ##   - code-location
-        ##   - %catches
+        ##   -*%down
+        ##   -*debug-fun
+        ##   -*code-location
+        ##   -*%catches
         ##   - pointer
         ##   - number
         ##  c:
-        ##   - 
+        ##   - sb-di:top-frame :: IO -> frame
         ##
         ## cloc (debug-int.lisp):
         ##  a:
-        ##   - debug-fun
+        ##   -*debug-fun
         ##   - %unknown-p
-        ##   - %debug-block
-        ##   - %tlf-offset
-        ##   - %form-number
+        ##   -+%debug-block
+        ##       sb-di::code-location-debug-block :: cloc -(via cache/parse)-> dblock
+        ##   -+%tlf-offset
+        ##       sb-di::code-location-toplevel-form-offset :: cloc -(via cache/parse)-> integer (TLF #)
+        ##   -+%form-number
+        ##       sb-di::code-location-form-number :: cloc -(via cache/parse)-> integer (form #)
         ##  c:
-        ##   - dsource
-        ##  
+        ##   - sb-di::code-location-debug-source :: cloc -(via dinfo (via dfun))-> dsource
+        ##   - sb-debug::maybe-block-start-location :: cloc -> cloc            # only identity is practical for us
+        ##   - sb-debug::code-location-source-form :: cloc -> integer -> form  # no surprises here
+        ##
         ## dfun (debug-int.lisp (don't confuse with SB!C::DEBUG-FUN)):
         ##  a:
         ##   - %lambda-list
@@ -561,11 +570,12 @@ def code_location_debug_source(l):
         ##  
         ## dvar (debug-int.lisp):
         ##  a:
-        ##   - symbol
-        ##   - id
-        ##   - alive-p
+        ##   -*symbol
+        ##   -*id
+        ##   -*alive-p
         ##  c:
-        ##   - 
+        ##   - sb-di:debug-var-value
+        ##   - sb-di::debug-var-validity :: dvar -> cloc -> (member :valid :invalid :unknown)
         ##
         ## dblock (debug-int.lisp):
         ##  a:
@@ -591,16 +601,17 @@ def code_location_debug_source(l):
         ##
         ## dsource (debug-info.lisp):
         ##  a:
-        ##   - namestring
-        ##   - created
+        ##   -*namestring
+        ##   -*created
         ##   - source-root
         ##   - start-positions
         ##   - form
         ##   - function
         ##   - compiled
-        ##   - plist
+        ##   -*plist
         ##  c:
-        ##   - dinfo
+        ##   - dinfo ???
+        ##   - sb-di:debug-source-from :: dsource -> (member :file :lisp)
         ## 
         ## dinfo (debug-info.lisp):
         ##  a:

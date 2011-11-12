@@ -1,0 +1,231 @@
+   sb-c::debug-source-created
+   sb-c::debug-source-name
+   sb-c::debug-source-namestring
+   sb-c::debug-source-plist
+   sb-c::find-error-context
+   sb-cltl2:declaration-information
+   sb-c:%more-arg-values
+   sb-c::node-source-path
+   sb-c::source-path-original-source
+   sb-debug::code-location-source-form
+   sb-debug::frame-call
+   sb-debug::frame-call-as-list
+   sb-debug:frame-has-debug-tag-p
+   sb-debug::maybe-block-start-location
+   sb-debug::print-frame-call
+ * sb-debug:*stack-top-hint*
+   sb-debug:unwind-to-frame-and-call
+ *?sb-di:code-location-debug-block
+   sb-di:code-location-debug-fun
+ ? sb-di:code-location-debug-source
+   sb-di::code-location-form-number
+   sb-di::code-location-toplevel-form-offset
+ * sb-di:debug-condition
+   sb-di:debug-source-from
+   sb-di:debug-source-namestring
+ * sb-di:debug-var-id
+   sb-di:debug-var-symbol
+   sb-di:debug-var-validity
+   sb-di:debug-var-value
+   sb-di::form-number-translations
+ ? sb-di:frame-code-location
+co sb-di:frame-debug-fun
+ * sb-di:frame-down
+ * sb-di:no-debug-blocks
+   sb-di:preprocess-for-eval
+ * sb-di:top-frame
+   sb-ext:*invoke-debugger-hook*
+   sb-ext:*runtime-pathname*
+   sb-ext:*save-hooks*
+   sb-impl::%fun-name
+   sb-impl::inspected-parts
+   sb-impl::invoke-debugger
+   sb-int:encapsulated-condition
+   sb-introspect::definition-source-
+   sb-introspect::definition-source-description
+   sb-introspect:deftype-lambda-list
+   sb-introspect:find-definition-source
+   sb-introspect:find-definition-sources-by-name
+   sb-introspect:find-function-callees
+   sb-introspect:find-function-callers
+   sb-introspect:function-arglist
+   sb-introspect:function-lambda-list
+   sb-walker:walk-form
+   sb-walker:*walk-form-expand-macros-p*
+
+### relevance unknown
+sb-c::node-p
+sb-ext:timeout
+sb-int:bootstrap-package-not-found
+sb-int:debootstrap-package
+sb-int:info
+
+### relevant, but not terribly important, just now
+sb-debug::disable-debugger
+sb-debug::enable-debugger
+sb-debug::ensure-printable-object
+sb-di::find-stepped-frame
+sb-di:frame-catches
+sb-di::indirect-value-cell-p
+sb-disassem::align
+sb-disassem:disassemble-code-component
+sb-disassem:disassemble-memory
+sb-ext:compiler-note
+sb-ext:parse-native-namestring
+
+### hardly very relevant soon
+sb-c:compiler-error
+sb-c::compiler-error-context
+sb-c::compiler-error-context-enclosing-source
+sb-c::compiler-error-context-file-name
+sb-c::compiler-error-context-original-source
+sb-c::compiler-error-context-original-source-path
+sb-c::compiler-error-context-p
+sb-c::compiler-error-context-source
+sb-c:fatal-compiler-error
+sb-c::insert-debug-catch
+sb-c::insert-step-conditions
+sb-c::merge-tail-calls
+sb-c::step-values
+sb-ext:restrict-compiler-policy
+sb-ext:step-form-condition
+sb-ext:step-into
+sb-ext:step-next
+sb-ext:step-out
+sb-ext:*stepper-hook*
+sb-ext:hash-table-weakness
+sb-ext:make-weak-pointer
+sb-ext:weak-pointer
+sb-ext:weak-pointer-value
+sb-impl::enable-stepping
+sb-impl::invoke-stepper
+sb-impl::step-form-condition
+sb-int:named-lambda
+sb-int:*print-condition-references*
+sb-int:reference-condition
+sb-int:reference-condition-references
+sb-pcl::documentation
+sb-pcl::fast-method
+sb-pcl::generic-function-initial-methods
+sb-pcl::generic-function-pretty-arglist
+sb-pcl::method
+sb-pcl::slow-method
+
+###
+### not terribly relevant just now, categorically
+###
+
+### inapplicable
+# sb-alien:addr
+# sb-alien:alien-sap
+# sb-alien:c-string
+# sb-alien:define-alien-routine
+# sb-alien:deref
+# sb-alien:free-alien
+# sb-alien:int
+# sb-alien:load-shared-object
+# sb-alien:long
+# sb-kernel:%closure-fun
+# sb-kernel:%closure-index-ref
+# sb-kernel:%code-code-size
+# sb-kernel:code-component
+# sb-kernel:%code-debug-info
+# sb-kernel:%code-entry-points
+# sb-kernel:code-header-ref
+# sb-kernel:fdefn
+# sb-kernel:fdefn-fun
+# sb-kernel:fdefn-name
+# sb-kernel:fun-code-header
+# sb-kernel:get-closure-length
+# sb-kernel:get-header-data
+# sb-kernel:get-lisp-obj-address
+# sb-kernel:redefinition-warning
+# sb-kernel:%simple-fun-arglist
+# sb-kernel:%simple-fun-name
+# sb-kernel:%simple-fun-next
+# sb-kernel:%simple-fun-self
+# sb-kernel:%simple-fun-type
+# sb-kernel:value-cell-ref
+# sb-kernel:values-specifier-type
+# sb-kernel:widetag-of
+# sb-vm:closure-header-widetag
+# sb-vm:code-constants-offset
+# sb-vm:code-trace-table-offset-slot
+# sb-vm:lowtag-mask
+# sb-vm:n-lowtag-bits
+# sb-vm:n-word-bytes
+# sb-vm:simple-fun-header-widetag
+# sb-vm:word-shift
+
+### network
+# sb-bsd-sockets:get-host-by-name
+# sb-bsd-sockets:host-ent-addresses
+# sb-bsd-sockets:inet-socket
+# sb-bsd-sockets:interrupted-error
+# sb-bsd-sockets:socket-accept
+# sb-bsd-sockets:socket-bind
+# sb-bsd-sockets:socket-close
+# sb-bsd-sockets:socket-file-descriptor
+# sb-bsd-sockets:socket-listen
+# sb-bsd-sockets:socket-make-stream
+# sb-bsd-sockets:socket-name
+# sb-bsd-sockets:sockopt-reuse-address
+
+### profiling
+# sb-profile:profile
+# sb-profile:report
+# sb-profile:reset
+# sb-profile:unprofile
+
+### threading
+# sb-thread:condition-broadcast
+# sb-thread:condition-wait
+# sb-thread:*current-thread*
+# sb-thread:interrupt-thread
+# sb-thread:list-all-threads
+# sb-thread:make-mutex
+# sb-thread:make-thread
+# sb-thread:make-waitqueue
+# sb-thread:terminate-thread
+# sb-thread:thread-alive-p
+# sb-thread:thread-name
+# sb-thread:with-mutex
+# sb-thread:with-recursive-lock
+
+### other system
+# sb-ext:*posix-argv*
+# sb-ext:quit
+# sb-ext:save-lisp-and-die
+# sb-impl::buffer-head
+# sb-impl::buffer-tail
+# sb-impl::*descriptor-handlers*
+# sb-impl::fd-stream-fd
+# sb-impl::fd-stream-ibuf
+# sb-posix:close
+# sb-posix:dup
+# sb-posix:fork
+# sb-posix:f-setfd
+# sb-posix::f-setown
+# sb-posix:getpid
+# sb-posix::o-async
+# sb-posix:pipe
+# sb-posix:waitpid
+# sb-posix:wexitstatus
+# sb-posix:wifexited
+# sb-sys:add-fd-handler
+# sb-sys:deadline-timeout
+# sb-sys:fd-stream-fd
+# sb-sys:invalidate-descriptor
+# sb-sys:invoke-interruption
+# sb-sys:make-fd-stream
+# sb-sys:remove-fd-handler
+# sb-sys:with-deadline
+# sb-sys:with-interrupts
+# sb-unix:sigint
+# sb-unix:sigio
+# sb-unix:unix-fstat
+# sb-win32:dword
+# sb-win32:handle
+# sb-win32::input-record-size
+# sb-win32:peek-console-input
+# sb-win32:peek-named-pipe
