@@ -657,6 +657,27 @@ def plusp(x):         return x > 0
 def minusp(x):        return x < 0
 
 ##
+## Multiple values
+##
+def values(*xs):
+        return xs
+
+def nth_value(n, xs):
+        return nth(n, xs)
+
+def multiple_value_bind(values_form, body):
+        return body(*values_form)
+
+def multiple_value_list(values_form):
+        return list(values_form)
+
+def multiple_values_list(list):
+        return tuple(list)
+
+def multiple_value_call(function, *values_forms):
+        return function(*(append(*values_forms)))
+
+##
 ## Conses
 ##
 def cons(x, y):       return (x, y)
@@ -703,7 +724,6 @@ def first(xs):        return xs[0]   # don't confuse with car/cdr
 def rest(xs):         return xs[1:]  # !!!
 
 def nth(n, xs):       return xs[n] if n < len(xs) else nil
-def nth_value(n, xs): return nth(n, xs)
 
 def subseq(xs, start, end = None):
         return xs[start:end]
@@ -1962,6 +1982,8 @@ def _read_symbol(x, package = None, case = _keyword("upcase")):
                                 (x, _coerce_to_package(package)))))
         return _intern0(_case_xform(case, name), p)
 
+end_of_file = EOFError
+
 @block
 def read_from_string(string, eof_error_p = True, eof_value = nil,
                      start = 0, end = None, preserve_whitespace = None):
@@ -1971,7 +1993,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
         def handle_short_read_if(test):
                 # _here("< %s" % (test,))
                 if test:
-                        (error("EOF during read") if eof_error_p else
+                        (error(end_of_file, "end of file on %s" % (make_string_input_stream(string),)) if eof_error_p else
                          return_from(read_from_string, eof_value))
         def read():
                 skip_whitespace()
@@ -2074,7 +2096,7 @@ def read_char(stream = sys.stdin, eof_error_p = True, eof_value = nil, recursive
         ret = the(_io._IOBase, stream).read(1)
         return (ret       if ret             else
                 eof_value if not eof_error_p else
-                error("EOF while reading from %s.", stream))
+                error(end_of_file, "end of file on %s" % (stream,)))
 
 def unread_char(x, stream = sys.stdin):
         "XXX: conformance"
@@ -2088,7 +2110,6 @@ def unread_char(x, stream = sys.stdin):
 @block
 def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         "Does not conform."
-        # _here("from \"%s\"" % string)
         def read_inner():
                 skip_whitespace()
                 char = read_char(stream)
@@ -2166,11 +2187,10 @@ def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_white
                                 token += char
                 # _here("< %s" % token)
                 return token
-        ret = read_inner()
-        # ret = handler_case(read_inner,
-        #                    (Exception,
-        #                     lambda c: error("EOF during read") if eof_error_p else
-        #                               return_from(read, eof_value)))
+        ret = handler_case(read_inner,
+                           (end_of_file,
+                            lambda c: error(c) if eof_error_p else
+                                      return_from(read, eof_value)))
         # _here("lastly %s" % (ret,))
         return ret
 
@@ -2510,11 +2530,14 @@ def _dump_thread_state():
                         print(("%25s: " + ("%x" if type_ is int else "%s")) % (slot, val))
         _without_condition_system(body)
 
+__not_even_conditions__ = frozenset([SystemExit, __catcher_throw__])
+"A set of condition types which are entirely ignored by the condition system."
+
 def __cl_condition_handler__(condspec, frame):
         def continuation():
                 type, raw_cond, traceback = condspec
                 # print_frames(frames_upward_from(frame))
-                if not typep(raw_cond, __catcher_throw__): # no need to delay the inevitable
+                if type_of(raw_cond) not in __not_even_conditions__:
                         def _maybe_upgrade_condition(cond):
                                 "Fix up the shit routinely being passed around."
                                 return (cond if typep(cond, condition) else
@@ -2540,8 +2563,15 @@ def __cl_condition_handler__(condspec, frame):
                                 if debugger_hook:
                                         with env.let(_debugger_hook_ = nil):
                                                 debugger_hook(cond, debugger_hook)
+                        return cond
+                else:
+                        return raw_cond
         with progv(_stack_top_hint_ = _caller_frame(caller_relative = 1)):
-                sys.call_tracing(continuation, tuple())
+                cond = sys.call_tracing(continuation, tuple())
+        if type_of(cond) not in __not_even_conditions__:
+                _here("In thread '%s': unhandled condition : %s",
+                      threading.current_thread().name, prin1_to_string(cond),
+                      callers = 15)
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
         #
@@ -2952,9 +2982,10 @@ def eval_(form):
                 import more_ast
                 error("EVAL: error while trying to compile <%s>: %s", more_ast.pp_ast_as_code(expr), cond)
         import more_ast
-        write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
+        # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         exec(code, _lisp_package_name_module(package_name(package)).__dict__)
-        return __evget__()
+        values = __evget__()
+        return values if _tuplep(values) else (values,)
 
 ###
 ### Init

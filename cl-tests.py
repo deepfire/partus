@@ -242,3 +242,7 @@ print("READ-FROM-STRING: passed")
 assert(with_input_from_string(" ".join(printed), lambda s: mapcar(read, [s] * len(data))) ==
        readed)
 print("READ: passed")
+
+assert(with_input_from_string("", lambda s: read(s, nil, nil)) ==
+       nil)
+print("READ-EOF-ERROR-P-NIL: passed")

@@ -610,7 +610,7 @@ def code_location_debug_source(l):
         cl._here("filename: %s, exists_p: %s, function: %s", filename, exists_p, dir(l.debug_fun))
         describe(l.debug_fun)
         if exists_p:
-                ast, timestamp = _ensure_namestring_ast(namestring, None)
+                ast, timestamp = _ensure_namestring_ast(filename, None)
         else:
                 if not plausible_file_p:
                         ast, timestamp = _ensure_func_ast(l.debug_fun, None)

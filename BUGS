@@ -642,3 +642,5 @@ This:
 "lineno"
 
 ..and it can be really hard to catch in a vararg situation.
+
+Issue CANNOT-QUIT-LISP

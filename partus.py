@@ -53,6 +53,16 @@ setq('_coding_system_',                     "utf-8")
 setq('_listener_sockets_',                  dict())
 setq('_default_server_port_',               4005)
 
+defvar("_shutdown_", nil) # XXX: python-specific invention..
+def honoring_death_wish():
+        while True:
+                if symbol_value("_shutdown_"):
+                        sys.exit()
+                try:
+                        sleep(1)
+                except KeyboardInterrupt:
+                        sys.exit()
+
 def start_server(port_file,
                  style         = symbol_value('_communication_style_'),
                  dont_close    = symbol_value('_dont_close_'),
@@ -60,6 +70,7 @@ def start_server(port_file,
         setup_server(0,
                      lambda port: announce_server_port(port_file, port),
                      style, dont_close, coding_system)
+        honoring_death_wish()
 
 def create_server(port          = symbol_value("_default_server_port_"),
                   style         = symbol_value('_communication_style_'),
@@ -67,6 +78,7 @@ def create_server(port          = symbol_value("_default_server_port_"),
                   coding_system = symbol_value('_coding_system_')):
         setup_server(port, simple_announce_function,
                      style, dont_close, coding_system)
+        honoring_death_wish()
 
 def find_external_format_or_lose(fmt):
         return find_external_format(fmt) or error()
@@ -124,8 +136,11 @@ def restart_server(port          = symbol_value("_default_server_port_"),
 
 def accept_connections(socket, style, dont_close, coding_system):
         ef = find_external_format_or_lose(coding_system)
-        client = unwind_protect(lambda: accept_connection(socket, external_format = ef),
-                                lambda: None if dont_close else close_socket(socket))
+        try:
+                client = accept_connection(socket, external_format = ef)
+        finally:
+                if not dont_close:
+                        close_socket(socket)
         authenticate_client(client)
         serve_requests(make_connection(socket, client, style, coding_system))
 

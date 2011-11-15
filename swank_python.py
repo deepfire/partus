@@ -685,9 +685,9 @@ def frame_locals(index):
         loc = sb_di.frame_code_location(frame)
         vars = frame_debug_vars(frame)
         # Note: whither symtable?
-        return mapcar_star(lambda name, value: ["name",  sb_di.debug_var_symbol(v),
-                                                "id",    sb_di.debug_var_id(v),
-                                                "value", debug_var_value(v, frame, loc)],
+        return mapcar_star(lambda name, value: ["name",  name,
+                                                "id",    0,
+                                                "value", value],
                            vars.items())
 
 # @defimplementation
@@ -903,7 +903,7 @@ def condition_timed_wait(waitqueue, mutex, timeout):
         #         (sb-thread:condition-wait waitqueue mutex) t))
         #   (sb-ext:timeout ()
         #     nil)))
-        waitqueue.wait(timeout)
+        cl._without_condition_system(lambda: waitqueue.wait(timeout))
 
 ## FIXME: with-timeout doesn't work properly on Darwin
 #+sb-lutex

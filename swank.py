@@ -1562,14 +1562,18 @@ Errors are trapped and invoke our debugger."""
         #                                   `(:abort ,(prin1-to-string condition)))
         #                              ,id)))))
         ok, result, condition = None, None, None
-        def set_result(x):    nonlocal result;    result = x
-        def set_condition(x): nonlocal condition; condition = x
+        def set_result(x):            nonlocal result;    result = x
+        def set_condition(x):         here("set: %s", x); nonlocal condition; condition = x
+        def passthrough_condition(x): here("passthrough: %s", x); raise x
         try:
                 with progv(_buffer_package_ = guess_buffer_package(buffer_package),
                            _pending_continuations_ = [id] + symbol_value("_pending_continuations_")):
                         check_type(symbol_value("_buffer_package_"), package)
                         def with_slime_interrupts_body():
-                                return eval_(form)
+                                try:
+                                        return nth_value(0, eval_(form))
+                                except SystemExit:
+                                        setq("_shutdown_", t)
                         handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
                                      (error_,
                                       set_condition))
@@ -1600,6 +1604,7 @@ last form."""
         def body(stream):
                 less, vals = nil, nil
                 def loop_body():
+                        nonlocal less, vals
                         form = read(stream, nil, stream)
                         if form is stream:
                                 finish_output()
@@ -1644,13 +1649,15 @@ def track_package(fn):
 
 def send_repl_results_to_emacs(values):
         finish_output()
+        here("returning %s", values)
         if not values:
                 send_to_emacs([keyword("write-string"), "; No value", keyword("repl-result"),])
+        else:
                 mapc(lambda v: send_to_emacs(
                                 [keyword("write-string"), prin1_to_string(v) + "\n", keyword("repl-result")]),
                      values)
 
-setq("_send_repl_results_to_emacs_", send_repl_results_to_emacs)
+setq("_send_repl_results_function_", send_repl_results_to_emacs)
 
 def repl_eval(string):
         # clear_user_input()
@@ -1839,7 +1846,7 @@ def value_for_editing(form):
         """Return a readable value of FORM for editing in Emacs.
 FORM is expected, but not required, to be SETF'able."""
         # FIXME: Can we check FORM for setfability? -luke (12/Mar/2005)
-        value = eval_(read_from_string(form))
+        value = nth_value(0, eval_(read_from_string(form)))
         with progv(_print_length_ = nil):
                 return prin1_to_string(value)
 
@@ -2420,7 +2427,7 @@ def disassemble_form(form):
                            _print_readably_ = nil):
                         # XXX: does it really do what it name suggests?
                         # This EVAL thing is highly suspicious..
-                        disassemble(eval_(read_from_string(form)))
+                        disassemble(nth_value(0, eval_(read_from_string(form))))
         return with_buffer_syntax(
                 lambda: with_output_to_string(body))
 
@@ -2567,7 +2574,7 @@ def list_all_package_names(nicknames = nil):
 
 ### Tracing: swank.lisp:3235
 def tracedp(fspec):
-        return member(fspec, eval_([find_symbol_or_fail("TRACE")]))
+        return member(fspec, nth_value(0, eval_([find_symbol_or_fail("TRACE")])))
 
 def swank_toggle_trace(spec_string):
         spec = from_string(spec_string)
@@ -2649,7 +2656,7 @@ def value_spec_ref(spec):
                 spec,
                 ([keyword("string")],
                  lambda string, package:
-                         eval_(read_from_string(string))),
+                         nth_value(0, eval_(read_from_string(string)))),
                 ([keyword("inspector")],
                  inspector_nth_part),
                 ([keyword("sldb")],
@@ -2727,7 +2734,7 @@ def reset_inspector():
 def init_inspector(string):
         def with_retry_restart_body():
                 reset_inspector()
-                return inspect_object(eval_(read_from_string(string)))
+                return inspect_object(nth_value(0, eval_(read_from_string(string))))
         return with_buffer_syntax(
                 lambda: with_retry_restart(with_retry_restart_body,
                                            msg = "retry SLIME inspection request"))
