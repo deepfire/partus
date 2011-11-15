@@ -1633,13 +1633,14 @@ Return the full package-name and the string to use in the prompt."""
 
 # inversion: listener_eval, repl_eval are a bit lower..
 def track_package(fn):
-        p = _package_()
+        orig_pkg = symbol_value("_package_")
         try:
                 return fn()
         finally:
-                if p is not _package_():
-                        send_to_emacs([keyword("new-package"), package_name(_package_()),
-                                       package_string_for_prompt(_package_())])
+                cur_pkg = symbol_value("_package_")
+                if orig_pkg is not cur_pkg:
+                        send_to_emacs([keyword("new-package"), package_name(cur_pkg),
+                                       package_string_for_prompt(cur_pkg)])
 
 def send_repl_results_to_emacs(values):
         finish_output()
