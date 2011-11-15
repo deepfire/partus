@@ -2942,6 +2942,8 @@ def _callify(form, package = None, quoted = False):
         else:
                 error("Unable to convert form %s", form)
 
+__eval_source_cache__ = dict() # :: code_object -> string
+
 def eval_(form):
         # XXX: I see problems, once statements start coming this way..
         package = symbol_value("_package_")
@@ -2955,6 +2957,8 @@ def eval_(form):
                 error("EVAL: error while trying to callify <%s>: %s", form, cond)
         try:
                 code = compile(call, "", "exec")
+                if boundp("_source_for_eval_"):
+                        __eval_source_cache__[code] = symbol_value("_source_for_eval_")
         except error_ as cond:
                 import more_ast
                 error("EVAL: error while trying to compile <%s>: %s", more_ast.pp_ast_as_code(expr), cond)
