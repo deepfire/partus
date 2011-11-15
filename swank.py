@@ -1615,6 +1615,13 @@ last form."""
                 loop(loop_body)
         return with_input_from_string(string, body)
 
+def eval_region_python(string):
+        # Called from CONTROL-THREAD..(FIND-THREAD-FOR-EVALUATION == WORKER-THREAD)..(LISTENER-EVAL == REPL-EVAL)
+        """Evaluate STRING in Python mode.
+Return the result of evaluation and NIL, as multiple values."""
+        return (cl._eval_python(string),
+                nil)
+
 #### interactive-eval-region
 #### re-evaluate-defvar
 
@@ -1659,10 +1666,19 @@ def send_repl_results_to_emacs(values):
 
 setq("_send_repl_results_function_", send_repl_results_to_emacs)
 
+defvar("_evaluator_mode_", keyword("lisp"))
+
+def lisp_mode():
+        setq("_evaluator_mode_", keyword("lisp"))
+def python_mode():
+        setq("_evaluator_mode_", keyword("python"))
+
 def repl_eval(string):
         # clear_user_input()
         def track_package_body():
-                values, form = eval_region(string)
+                values, form = ecase(symbol_value("_evaluator_mode_"),
+                                     (keyword("lisp"),   lambda: eval_region),
+                                     (keyword("python"), lambda: eval_region_python))(string)
                 # (setq *** **  ** *  * (car values)
                 #       /// //  // /  / values
                 #       +++ ++  ++ +  + last-form)
