@@ -878,18 +878,19 @@ def thread_for_evaluation(id):
         else:
                 error(TypeError, "THREAD-FOR-EVALUATION: id must be one of: T, :REPL-THREAD or a fixnum, was: %s" % id)
 
-def spawn_worker_thread(conn):
-        return spawn(lambda:
-                             with_bindings(
-                        symbol_value("_default_worker_thread_bindings_"),
+def worker_thread(conn):
+        "XXX: heresy!  This is not a true REPLica!"
+        with_bindings(symbol_value("_default_worker_thread_bindings_"),
+                      lambda:
+                              with_top_level_restart(
+                        conn, nil,
                         lambda:
-                                with_top_level_restart(
-                                conn, nil,
-                                lambda:
-                                        eval_for_emacs(*wait_for_event([keyword("emacs-rex"),
-                                                                        # XXX: was: :emacs-rex . _
-                                                                        ])[0][1:]))),
-                     name = "worker")
+                                eval_for_emacs(*wait_for_event([keyword("emacs-rex"),
+                                                                # XXX: was: :emacs-rex . _
+                                                                ])[0][1:])))
+
+def spawn_worker_thread(conn):
+        return spawn(lambda: worker_thread(conn), name = "worker")
 
 def spawn_repl_thread(conn, name):
         return spawn(lambda:
@@ -902,7 +903,7 @@ def dispatch_event(event):
         "Handle an event triggered either by Emacs or within Lisp."
         log_event("dispatch_event: %s\n", event)
         def emacs_rex(form, package, thread_id, id):
-                thread = thread_for_evaluation(thread_id)
+                thread = thread_for_evaluation(thread_id) # A worker thread, in most cases.
                 if thread:
                         symbol_value("_active_threads_").append(thread)
                         return send_event(thread,
