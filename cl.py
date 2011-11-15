@@ -1013,13 +1013,17 @@ def _boundp(name):
         if name in __global_scope__:
                 return t
 
-def _symbol_value(name):
+def _find_dynamic_frame(name):
         for scope in reversed(__tls__.dynamic_scope):
                 if name in scope:
-                        return scope[name]
+                        return scope
         if name in __global_scope__:
-                return __global_scope__[name]
-        error(AttributeError, "Unbound variable: %s." % name)
+                return __global_scope__
+
+def _symbol_value(name):
+        frame = _find_dynamic_frame(name)
+        return (frame[name] if frame else
+                error(AttributeError, "Unbound variable: %s." % name))
 
 def _coerce_cluster_keys_to_symbol_names(dict):
         return { _coerce_to_symbol_name(var):val for var, val in dict.items() }
@@ -1034,12 +1038,11 @@ def symbol_value(symbol):
                       symbol))
 
 def setq(name, value):
-        dict = __tls__.dynamic_scope[-1] if __tls__.dynamic_scope else __global_scope__
-        # if name == "_scope_":
-        #         _write_string("setq(%s -(%s)> %s, %s)" %
-        #                       (name, symbol_value("_read_case_"), _case_xform(symbol_value("_read_case_"), name), value),
-        #                       sys.stdout)
-        dict[_coerce_to_symbol_name(name)] = value
+        name = _coerce_to_symbol_name(name)
+        frame = (_find_dynamic_frame(name) or
+                 (__tls__.dynamic_scope[-1] if __tls__.dynamic_scope else
+                  __global_scope__))
+        frame[name] = value
         return value
 
 # defvar(name, value, documentation = nil):
