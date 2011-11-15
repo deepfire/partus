@@ -1664,7 +1664,7 @@ def repl_eval(string):
 
 setq("_listener_eval_function_", repl_eval)
 
-def listener_eval(slime_connection, sldb_state, string):
+def listener_eval(string):
         # CONTROL-THREAD has this..
         return symbol_value("_listener_eval_function_")(string)
 # end-of-inversion
