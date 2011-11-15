@@ -231,3 +231,14 @@ def f():
                 error("Initial condition!")
 assert(f() == "All handled.")
 print("NESTED-DEBUGGER-HOOK: passed")
+
+data  = [0, [1], "two"]
+printed = mapcar(princ_to_string, data)
+
+readed = mapcar(read_from_string, printed)
+assert(data == readed)
+print("READ-FROM-STRING: passed")
+
+assert(with_input_from_string(" ".join(printed), lambda s: mapcar(read, [s] * len(data))) ==
+       readed)
+print("READ: passed")
