@@ -738,6 +738,7 @@ The processing is done in the extent of the toplevel restart."""
                 lambda: (process_requests(timeout) if symbol_value("_sldb_quit_restart_") else
                          tag_body()))
 
+## Aka HANDLE-REQUESTS, aka REPL-LOOP.  Yeah, really.
 @block
 def process_requests(timeout):
         "Read and process requests from Emacs."
@@ -804,6 +805,7 @@ def read_loop(conn):
                                  lambda:
                                          loop(lambda: send(control_thread, decode_message(input_stream))))
 
+# Aka CONTROL-THREAD, really.
 def dispatch_loop(conn):
         with progv(_emacs_connection_ = conn):
                 with_panic_handler(conn,
@@ -895,6 +897,7 @@ def spawn_repl_thread(conn, name):
                                            lambda: repl_loop(conn)),
                      name = name)
 
+# Aka CONTROL-THREAD iteration, really.
 def dispatch_event(event):
         "Handle an event triggered either by Emacs or within Lisp."
         log_event("dispatch_event: %s\n", event)
@@ -1588,6 +1591,7 @@ setq("_echo_area_prefix_", "=> ")
 #### eval-and-grab-output
 
 def eval_region(string):
+        # Called from CONTROL-THREAD..(FIND-THREAD-FOR-EVALUATION == WORKER-THREAD)..(LISTENER-EVAL == REPL-EVAL)
         """Evaluate STRING.
 Return the results of the last form as a list and as secondary value the 
 last form."""
@@ -1660,6 +1664,7 @@ def repl_eval(string):
 setq("_listener_eval_function_", repl_eval)
 
 def listener_eval(slime_connection, sldb_state, string):
+        # CONTROL-THREAD has this..
         return symbol_value("_listener_eval_function_")(string)
 # end-of-inversion
 
