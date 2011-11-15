@@ -480,22 +480,6 @@ def code_location_debug_fun(l):
         return l.debug_fun
 
 ### AST cache
-def _record_ast(cache, id, timestamp, astree):
-        cache[id] = (id, timestamp)
-
-def _try_get_ast(cache, id, timestamp):
-        values, presentp = gethash(id, cache)
-        return (values if presentp else
-                (None, None))
-
-def _ensure_astree(cache, id, timestamp, source_getter, timestamp_getter):
-        astree, timestamp = _try_get_ast(cache, id, timestamp)
-        if not astree:
-                astree, timestamp = (more_ast.extract_ast(source_getter(id)),
-                                     timestamp_getter(id))
-                _record_ast(cache, id, astree, timestamp)
-        return astree, timestamp
-
 __namestring_asts__ = dict() # namestring -> (timestamp, [ast])
 def _record_namestring_ast(id, timestamp, astree):
         _record_ast(__namestring_asts__, id, timestamp, astree)

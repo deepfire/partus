@@ -67,6 +67,19 @@ def _case_xform(type, s):
 ###
 ### Ring 1.
 ###
+class _cache(collections.UserDict):
+        def __init__(self, filler):
+                self.filler = filler
+                self.data = dict()
+        def __getitem__(self, key):
+                check_type(key, tuple)
+                key, access_timestamp = key
+                if key[0] not in self.data:
+                        self.data[key[0]] = self.filler(key)
+                return self.data[key[0]]
+        def __setitem__(self, key, value):
+                error("Direct cache writes are not allowed.")
+
 def _defaulted(x, value):
         return x if x is not None else value
 
