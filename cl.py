@@ -694,6 +694,9 @@ def car(x):           return x[0]
 def cdr(x):           return x[1]
 def cadr(x):          return x[1][0]
 
+def copy_list(x):
+        return list(the(list, x))
+
 ##
 ## Functions
 ##
@@ -888,23 +891,20 @@ LIST."""
 ##
 ## Strings
 ##
+def string_equal(xs, ys):            return xs == ys
+def string_greater(xs, ys):          return xs > ys
+def string_greater_or_equal(xs, ys): return xs >= ys
+def string_less(xs, ys):             return xs < ys
+def string_less_or_equal(xs, ys):    return xs <= ys
+
 def string_right_trim(cs, s):
-        "http://www.lispworks.com/documentation/lw50/CLHS/Body/f_stg_tr.htm"
-        for i in range(len(s) - 1, 0, -1):
-                if s[i] not in cs:
-                        return s[0:i+1]
-        return ""
+        return s.rstrip("".join(cs))
 
 def string_left_trim(cs, s):
-        "http://www.lispworks.com/documentation/lw50/CLHS/Body/f_stg_tr.htm"
-        for i in range(0, len(s) - 1, 1):
-                if s[i] not in cs:
-                        return s[i:]
-        return ""
+        return s.lstrip("".join(cs))
 
 def string_trim(cs, s):
-        "http://www.lispworks.com/documentation/lw50/CLHS/Body/f_stg_tr.htm"
-        return string_left_trim(cs, string_right_trim(cs, s))
+        return s.strip("".join(cs))
 
 def with_output_to_string(f):
         x = make_string_output_stream()
