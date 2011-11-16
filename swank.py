@@ -29,6 +29,8 @@ import swank_python  # the thing patches swank_backend, to avoid indirection
 from swank_backend import *
 
 from swank_rpc import *
+
+from swank_arglists import *
 #### in-package swank
 
 ### Top-level variables, constants, macros: swank.lisp:74
