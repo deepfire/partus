@@ -1615,12 +1615,23 @@ last form."""
                 loop(loop_body)
         return with_input_from_string(string, body)
 
+@block
 def eval_region_python(string):
         # Called from CONTROL-THREAD..(FIND-THREAD-FOR-EVALUATION == WORKER-THREAD)..(LISTENER-EVAL == REPL-EVAL)
-        """Evaluate STRING in Python mode.
-Return the result of evaluation and NIL, as multiple values."""
-        return (cl._eval_python(string),
-                nil)
+        """Evaluate STRING in Python mode (without doing a CL:_CALLIFY).
+Return the results of the last form as a list and as secondary value the
+last form."""
+        forms = more_ast.extract_ast(string).body[::-1] # Reverse, to facilitate .pop()
+        less, vals = nil, nil
+        def loop_body():
+                nonlocal less, vals
+                if not forms:
+                        finish_output()
+                        return_from(eval_region_python, values(vals, less))
+                form = forms.pop()
+                vals = multiple_value_list(cl._eval_python(form))
+                finish_output()
+        loop(loop_body)
 
 #### interactive-eval-region
 #### re-evaluate-defvar
@@ -1668,10 +1679,15 @@ setq("_send_repl_results_function_", send_repl_results_to_emacs)
 
 defvar("_evaluator_mode_", keyword("lisp"))
 
-def lisp_mode():
+def lisp_mode(report = t):
         setq("_evaluator_mode_", keyword("lisp"))
-def python_mode():
+        if report:
+                write_line("Evaluator is now in (lisp-mode)")
+
+def python_mode(report = t):
         setq("_evaluator_mode_", keyword("python"))
+        if report:
+                write_line("Evaluator is now in Python(\"mode\")")
 
 def repl_eval(string):
         # clear_user_input()
