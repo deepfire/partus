@@ -2935,6 +2935,34 @@ def _make_eval_context():
         return get, set
 __evget__, __evset__ = _make_eval_context()
 
+__eval_source_cache__ = dict() # :: code_object -> string
+
+def _coerce_to_expr(x):
+        return (x.value if typep(x, ast.Expr) else
+                x)
+
+def _eval_python(expr_or_stmt):
+        "In AST form, naturally."
+        package = symbol_value("_package_")
+        exprp = typep(the(ast.AST, expr_or_stmt), [or_, ast.expr, ast.Expr])
+        call = ast.fix_missing_locations(_ast_module(
+                        [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
+                         _ast_Expr(_ast_funcall(_ast_name("__evset__"), _coerce_to_expr(expr_or_stmt)))]
+                        if exprp else
+                        [expr_or_stmt]))
+        code = handler_case(lambda: compile(call, "", "exec"),
+                            (error_,
+                             lambda cond:
+                                     error("EVAL: error while trying to compile <%s>: %s",
+                                           more_ast.pp_ast_as_code(expr_or_stmt), cond)))
+        if boundp("_source_for_eval_"):
+                __eval_source_cache__[code] = symbol_value("_source_for_eval_")
+        # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
+        exec(code, _lisp_package_name_module(package_name(package)).__dict__)
+        values = (__evget__() if exprp else
+                  tuple())
+        return values if _tuplep(values) else (values,)
+
 def _callify(form, package = None, quoted = False):
         package = _defaulted_to_var(package, "_package_")
         obj2ast_xform = {
@@ -2964,31 +2992,9 @@ def _callify(form, package = None, quoted = False):
         else:
                 error("Unable to convert form %s", form)
 
-__eval_source_cache__ = dict() # :: code_object -> string
-
 def eval_(form):
-        # XXX: I see problems, once statements start coming this way..
         package = symbol_value("_package_")
-        try:
-                expr = _callify(form, package)
-                call = ast.fix_missing_locations(_ast_module(
-                                [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
-                                 _ast_Expr(_ast_funcall(_ast_name("__evset__"), expr)),
-                                 ]))
-        except error_ as cond:
-                error("EVAL: error while trying to callify <%s>: %s", form, cond)
-        try:
-                code = compile(call, "", "exec")
-                if boundp("_source_for_eval_"):
-                        __eval_source_cache__[code] = symbol_value("_source_for_eval_")
-        except error_ as cond:
-                import more_ast
-                error("EVAL: error while trying to compile <%s>: %s", more_ast.pp_ast_as_code(expr), cond)
-        import more_ast
-        # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
-        exec(code, _lisp_package_name_module(package_name(package)).__dict__)
-        values = __evget__()
-        return values if _tuplep(values) else (values,)
+        return _eval_python(_callify(form, package))
 
 ###
 ### Init
