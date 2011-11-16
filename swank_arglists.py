@@ -4,95 +4,100 @@
 ##          Tobias C. Rittweiler <tcr@freebits.de>
 ##          and others
 ##
+## Transcribed into Python:
+##          Samium Gromoff <_deepfire@feelingofgreen.ru> 
+##
 ## License: Public Domain
 ##
 
-(in-package :swank)
+import cl
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (swank-require :swank-c-p-c))
+from   cl       import *
+from   pergamum import *
+
+# (in-package :swank)
+
+# (eval-when (:compile-toplevel :load-toplevel :execute)
+#   (swank-require :swank-c-p-c))
 
 #### Utilities
 
-(defun compose (&rest functions)
-  "Compose FUNCTIONS right-associatively, returning a function"
-  #'(lambda (x)
-      (reduce #'funcall functions :initial-value x :from-end t)))
+from cl import _compose as compose
 
-(defun length= (seq n)
-  """Test for whether SEQ contains N number of elements. I.e. it's equivalent
- to (= (LENGTH SEQ) N), but besides being more concise, it may also be more
- efficiently implemented."""
-  (etypecase seq
-    (list (do ((i n (1- i))
-               (list seq (cdr list)))
-              ((or (<= i 0) (null list))
-               (and (zerop i) (null list)))))
-    (sequence (= (length seq) n))))
+def length_equal(seq, n):
+        """Test for whether SEQ contains N number of elements. I.e. it's equivalent
+to (= (LENGTH SEQ) N), but besides being more concise, it may also be more
+efficiently implemented."""
+        # Was complicated by efficient support of cons-lists
+        return len(seq) == n
 
-(declaim (inline memq))
-(defun memq (item list)
-  (member item list :test #'eq))
+def memq(item, list):
+        return member(item, list, test = eq)
 
-(defun exactly-one-p (&rest values)
- """If exactly one value in VALUES is non-NIL, this value is returned.
+@block
+def exactly_one_p(*values):
+        """If exactly one value in VALUES is non-NIL, this value is returned.
 Otherwise NIL is returned."""
-  (let ((found nil))
-    (dolist (v values)
-      (when v (if found
-                  (return-from exactly-one-p nil)
-                  (setq found v))))
-    found))
+        found = nil
+        for v in values:
+                if v:
+                        if found:
+                                return_from(exactly_one_p, nil)
+                        else:
+                                found = v
+        return found
 
-(defun valid-operator-symbol-p (symbol)
+def valid_operator_symbol_p(symbol):
   "Is SYMBOL the name of a function, a macro, or a special-operator?"
-  (or (fboundp symbol)
-      (macro-function symbol)
-      (special-operator-p symbol)
-      (member symbol '(declare declaim))))
+  return (fboundp(symbol) or
+          macro_function(symbol) or
+          special_operator_p(symbol) or
+          member(symbol, [])) # Was: (member symbol '(declare declaim)))
 
-(defun function-exists-p (form)
-  (and (valid-function-name-p form)
-       (fboundp form)
-       t))
+def function_exists_p(form):
+        return (valid_function_name_p(form) and
+                fboundp(form) and
+                t)
 
-(defmacro multiple-value-or (&rest forms)
-  (if (null forms)
-      nil
-      (let ((first (first forms))
-            (rest (rest forms)))
-        `(let* ((values (multiple-value-list ,first))
-                (primary-value (first values)))
-          (if primary-value
-              (values-list values)
-              (multiple-value-or ,@rest))))))
+### MULTIPLE-VALUE-OR: impossible                
+# (defmacro multiple_value_or (&rest forms)
+#   (if (null forms)
+#       nil
+#       (let ((first (first forms))
+#             (rest (rest forms)))
+#         `(let* ((values (multiple_value_list ,first))
+#                 (primary_value (first values)))
+#           (if primary_value
+#               (values_list values)
+#               (multiple_value_or ,@rest))))))
+N_A = keyword("not-available")
+def arglist_available_p(arglist):
+        return arglist is not N_A
 
-(defun arglist-available-p (arglist)
-  (not (eql arglist :not-available)))
 
-(defmacro with-available-arglist ((var &rest more-vars) form &body body)
-  `(multiple-value-bind (,var ,@more-vars) ,form
-     (if (eql ,var :not-available)
-         :not-available
-         (progn ,@body))))
-
+def with_available_arglist(form, body):
+        return (N_A if form[0] is N_A else
+                body(*form))
 
 #### Arglist Definition
 
-(defstruct (arglist (:conc-name arglist.) (:predicate arglist-p))
-  provided-args         # list of the provided actual arguments
-  required-args         # list of the required arguments
-  optional-args         # list of the optional arguments
-  key-p                 # whether &key appeared
-  keyword-args          # list of the keywords
-  rest                  # name of the &rest or &body argument (if any)
-  body-p                # whether the rest argument is a &body
-  allow-other-keys-p    # whether &allow-other-keys appeared
-  aux-args              # list of &aux variables
-  any-p                 # whether &any appeared
-  any-args              # list of &any arguments  [*]
-  known-junk            # &whole, &environment
-  unknown-junk)         # unparsed stuff
+arglist = defstruct("arglist",
+                    "provided_args",      # list of the provided actual arguments       
+                    "required_args",      # list of the required arguments              
+                    "optional_args",      # list of the optional arguments              
+                    "key_p",              # whether &key appeared                       
+                    "keyword_args",       # list of the keywords                        
+                    "rest",               # name of the &rest or &body argument (if any)
+                    "body_p",             # whether the rest argument is a &body        
+                    "allow_other_keys_p", # whether &allow-other-keys appeared          
+                    "aux_args",           # list of &aux variables                      
+                    "any_p",              # whether &any appeared                       
+                    "any_args",           # list of &any arguments  [*]                 
+                    "known_junk",         # &whole, &environment                        
+                    "unknown_junk")       # unparsed stuff
+
+def arglist_p(x):
+        return typep(x, arglist)
 
 ###
 ### [*] The &ANY lambda keyword is an extension to ANSI Common Lisp,
@@ -128,90 +133,134 @@ Otherwise NIL is returned."""
 
 ## This is a wrapper object around anything that came from Slime and
 ## could not reliably be read.
-(defstruct (arglist-dummy
-	     (:conc-name #:arglist-dummy.)
-             (:constructor make-arglist-dummy (string-representation)))
-  string-representation)
+arglist_dummy = defstruct("arglist_dummy",
+                          "string_representation")
 
-(defun empty-arg-p (dummy)
-  (and (arglist-dummy-p dummy)
-       (zerop (length (arglist-dummy.string-representation dummy)))))
+def arglist_dummy_p(x):
+        return typep(x, arglist_dummy)
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defparameter +lambda-list-keywords+
-    '(&provided &required &optional &rest &key &any)))
+def make_arglist_dummy(string_representation):
+        return arglist_dummy(string_representation)
 
-(defmacro do-decoded-arglist (decoded-arglist &body clauses)
-  (assert (loop for clause in clauses
-		thereis (member (car clause) +lambda-list-keywords+)))
-  (flet ((parse-clauses (clauses)
-	   (let* ((size    (length +lambda-list-keywords+))
-		  (initial (make-hash-table :test #'eq :size size))
-		  (main    (make-hash-table :test #'eq :size size))
-		  (final   (make-hash-table :test #'eq :size size)))
-	     (loop for clause in clauses
-		   for lambda-list-keyword = (first clause)
-		   for clause-parameter    = (second clause)
-		   doing (cond ((eq clause-parameter :initially)
-				(setf (gethash lambda-list-keyword initial) clause))
-			       ((eq clause-parameter :finally)
-				(setf (gethash lambda-list-keyword final) clause))
-			       (t
-				(setf (gethash lambda-list-keyword main) clause)))
-		   finally
-		(return (values initial main final)))))
-	 (generate-main-clause (clause arglist)
-	   (destructure-case clause
-             ((&provided (&optional arg) . body)
-              (let ((gensym (gensym "PROVIDED-ARG+")))
-		`(dolist (,gensym (arglist.provided-args ,arglist))
-		   (declare (ignorable ,gensym))
-		   (let (,@(when arg `((,arg ,gensym))))
-		     ,@body))))
-	     ((&required (&optional arg) . body)
-	      (let ((gensym (gensym "REQUIRED-ARG+")))
-		`(dolist (,gensym (arglist.required-args ,arglist))
-		   (declare (ignorable ,gensym))
-		   (let (,@(when arg `((,arg ,gensym))))
-		     ,@body))))
-	     ((&optional (&optional arg init) . body)
-	      (let ((optarg (gensym "OPTIONAL-ARG+")))
-		`(dolist (,optarg (arglist.optional-args ,arglist))
-		   (declare (ignorable ,optarg))
-		   (let (,@(when arg  `((,arg (optional-arg.arg-name ,optarg))))
-			 ,@(when init `((,init (optional-arg.default-arg ,optarg)))))
-		     ,@body))))
-	     ((&key (&optional keyword arg init) . body)
-	      (let ((keyarg (gensym "KEY-ARG+")))
-		`(dolist (,keyarg (arglist.keyword-args ,arglist))
-		   (declare (ignorable ,keyarg))
-		   (let (,@(when keyword `((,keyword (keyword-arg.keyword ,keyarg))))
-			 ,@(when arg     `((,arg (keyword-arg.arg-name ,keyarg))))
-			 ,@(when init    `((,init (keyword-arg.default-arg ,keyarg)))))
-		     ,@body))))
-	     ((&rest (&optional arg body-p) . body)
-	      `(when (arglist.rest ,arglist)
-		 (let (,@(when arg    `((,arg (arglist.rest ,arglist))))
-		       ,@(when body-p `((,body-p (arglist.body-p ,arglist)))))
-		   ,@body)))
-	     ((&any (&optional arg) . body)
-              (let ((gensym (gensym "REQUIRED-ARG+")))
-                `(dolist (,gensym (arglist.any-args ,arglist))
-                    (declare (ignorable ,gensym))
-                    (let (,@(when arg `((,arg ,gensym))))
-                      ,@body)))))))
-    (let ((arglist (gensym "DECODED-ARGLIST+")))
-      (multiple-value-bind (initially-clauses main-clauses finally-clauses)
-	  (parse-clauses clauses)
-	`(let ((,arglist ,decoded-arglist))
-	   (block do-decoded-arglist
-	     ,@(loop for keyword in '(&provided &required &optional &rest &key &any)
-		     append (cddr (gethash keyword initially-clauses))
-		     collect (let ((clause (gethash keyword main-clauses)))
-			       (when clause (generate-main-clause clause arglist)))
-		     append (cddr (gethash keyword finally-clauses)))))))))
+def empty_arg_p(dummy):
+        return (arglist_dummy_p(dummy) and
+                not len(dummy.string_representation))
 
-#### Arglist Printing
+_provided, _required, _optional, _rest, _key, _any  = mapcar(cl.intern0, 
+                                                             ["_provided",
+                                                              "_required",
+                                                              "_optional",
+                                                              "_rest",
+                                                              "_key",
+                                                              "_any"])
+lambda_list_keywords = [_provided, _required, _optional, _rest, _key, _any]
+
+###################################################################################
+# (defmacro do-decoded-arglist (decoded-arglist &body clauses)
+#   (assert (loop for clause in clauses
+# 		thereis (member (car clause) +lambda-list-keywords+)))
+#   (flet ((parse-clauses (clauses)
+# 	   (let* ((size    (length +lambda-list-keywords+))
+# 		  (initial (make-hash-table :test (function eq) :size size))
+# 		  (main    (make-hash-table :test (function eq) :size size))
+# 		  (final   (make-hash-table :test (function eq) :size size)))
+# 	     (loop for clause in clauses
+# 		   for lambda-list-keyword = (first clause)
+# 		   for clause-parameter    = (second clause)
+# 		   doing (cond ((eq clause-parameter :initially)
+# 				(setf (gethash lambda-list-keyword initial) clause))
+# 			       ((eq clause-parameter :finally)
+# 				(setf (gethash lambda-list-keyword final) clause))
+# 			       (t
+# 				(setf (gethash lambda-list-keyword main) clause)))
+# 		   finally
+# 		(return (values initial main final)))))
+# 	 (generate-main-clause (clause arglist)
+# 	   (destructure-case clause
+#              ((&provided (&optional arg) . body)
+#               (let ((gensym (gensym "PROVIDED-ARG+")))
+# 		`(dolist (,gensym (arglist.provided-args ,arglist))
+# 		   (declare (ignorable ,gensym))
+# 		   (let (,@(when arg `((,arg ,gensym))))
+# 		     ,@body))))
+# 	     ((&required (&optional arg) . body)
+# 	      (let ((gensym (gensym "REQUIRED-ARG+")))
+# 		`(dolist (,gensym (arglist.required-args ,arglist))
+# 		   (declare (ignorable ,gensym))
+# 		   (let (,@(when arg `((,arg ,gensym))))
+# 		     ,@body))))
+# 	     ((&optional (&optional arg init) . body)
+# 	      (let ((optarg (gensym "OPTIONAL-ARG+")))
+# 		`(dolist (,optarg (arglist.optional-args ,arglist))
+# 		   (declare (ignorable ,optarg))
+# 		   (let (,@(when arg  `((,arg (optional-arg.arg-name ,optarg))))
+# 			 ,@(when init `((,init (optional-arg.default-arg ,optarg)))))
+# 		     ,@body))))
+# 	     ((&key (&optional keyword arg init) . body)
+# 	      (let ((keyarg (gensym "KEY-ARG+")))
+# 		`(dolist (,keyarg (arglist.keyword-args ,arglist))
+# 		   (declare (ignorable ,keyarg))
+# 		   (let (,@(when keyword `((,keyword (keyword-arg.keyword ,keyarg))))
+# 			 ,@(when arg     `((,arg (keyword-arg.arg-name ,keyarg))))
+# 			 ,@(when init    `((,init (keyword-arg.default-arg ,keyarg)))))
+# 		     ,@body))))
+# 	     ((&rest (&optional arg body-p) . body)
+# 	      `(when (arglist.rest ,arglist)
+# 		 (let (,@(when arg    `((,arg (arglist.rest ,arglist))))
+# 		       ,@(when body-p `((,body-p (arglist.body-p ,arglist)))))
+# 		   ,@body)))
+# 	     ((&any (&optional arg) . body)
+#               (let ((gensym (gensym "REQUIRED-ARG+")))
+#                 `(dolist (,gensym (arglist.any-args ,arglist))
+#                     (declare (ignorable ,gensym))
+#                     (let (,@(when arg `((,arg ,gensym))))
+#                       ,@body)))))))
+#     (let ((arglist (gensym "DECODED-ARGLIST+")))
+#       (multiple-value-bind (initially-clauses main-clauses finally-clauses)
+# 	  (parse-clauses clauses)
+# 	`(let ((,arglist ,decoded-arglist))
+# 	   (block do-decoded-arglist
+# 	     ,@(loop for keyword in (&provided &required &optional &rest &key &any)
+# 		     append (cddr (gethash keyword initially-clauses))
+# 		     collect (let ((clause (gethash keyword main-clauses)))
+# 			       (when clause (generate-main-clause clause arglist)))
+# 		     append (cddr (gethash keyword finally-clauses)))))))))
+###################################################################################
+
+### Arglist Printing
+
+def print_decoded_arglist(arglist, operator = nil, provided_args = nil, highlight = nil):
+        def space():
+                ## Kludge: When OPERATOR is not given, we don't want to
+                ## print a space for the first argument.
+                nonlocal operator
+                if not operator:
+                        operator = t
+                else:
+                        write_char(" ")
+                        pprint_newline(keyword("fill"))
+        def with_highlighting(body, index = nil):
+                if index == car(highlight):
+                        princ("===> ")
+                        body()
+                        princ(" <===")
+                else:
+                        body()
+        def print_arglist_recursively(argl, index = nil):
+                if index == car(highlight):
+                        print_decoded_arglist(argl, keyword("highlight"), cdr(highlight))
+                        print_decoded_arglist(argl)
+        index = 0
+        def body(stream):
+                if operator:
+                        print_arg(operator)
+                        pprint_indent(keyword("current"), 1)   # 1 due to possibly added space
+                def do_decoded_arglist_body():
+                        pass
+                do_decoded_arglist(do_decoded_arglist_body)
+        return print_unreadable_object(nil, nil,
+                                       body,
+                                       prefix = "(", suffix = ")")
 
 (defun print-decoded-arglist (arglist &key operator provided-args highlight)
   (macrolet ((space ()
@@ -219,7 +268,8 @@ Otherwise NIL is returned."""
                ## print a space for the first argument.
                `(if (not operator)
                     (setq operator t)
-                    (progn (write-char #\space)
+                    (progn (write-char #\space
+)
                            (pprint-newline :fill))))
              (with-highlighting ((&key index) &body body)
                `(if (eql ,index (car highlight))
@@ -249,7 +299,7 @@ Otherwise NIL is returned."""
           (&optional :initially
              (when (arglist.optional-args arglist)
                (space)
-               (princ '&optional)))
+               (princ (quote &optional))))
           (&optional (arg init-value)
              (space)
              (if (arglist-p arg)
@@ -262,7 +312,7 @@ Otherwise NIL is returned."""
           (&key :initially
              (when (arglist.key-p arglist)
                (space)
-               (princ '&key)))
+               (princ (quote &key))))
           (&key (keyword arg init)
              (space)
              (if (arglist-p arg)
@@ -281,17 +331,17 @@ Otherwise NIL is returned."""
           (&key :finally
              (when (arglist.allow-other-keys-p arglist)
                (space)
-               (princ '&allow-other-keys)))
+               (princ (quote &allow-other-keys))))
           (&any :initially
              (when (arglist.any-p arglist)
                (space)
-               (princ '&any)))
+               (princ (quote &any))))
           (&any (arg)
              (space)
              (print-arg arg))
           (&rest (args bodyp)
              (space)
-             (princ (if bodyp '&body '&rest))
+             (princ (if bodyp (body &body) (body &rest)))
              (space)
              (if (arglist-p args)
                  (print-arglist-recursively args :index index)
@@ -313,7 +363,8 @@ Otherwise NIL is returned."""
   (let ((first-p t))
     (flet ((space ()
              (unless first-p
-               (write-char #\space))
+               (write-char #\space
+))
              (setq first-p nil))
            (print-arg-or-pattern (arg)
              (etypecase arg
@@ -332,7 +383,7 @@ Otherwise NIL is returned."""
             (space) (princ "[") (print-arg-or-pattern arg) (princ "]"))
           (&key (keyword arg)
             (space) 
-            (prin1 (if (keywordp keyword) keyword `',keyword))
+            (prin1 (if (keywordp keyword) keyword (list (quote quote) keyword)))
             (space)
             (print-arg-or-pattern arg)
             (pprint-newline :linear))
@@ -345,7 +396,7 @@ Otherwise NIL is returned."""
               (format t "~A..." args))))))))
 
 (defvar *arglist-pprint-bindings*
-  '((*print-case*     . :downcase)
+   ((*print-case*     . :downcase)
     (*print-pretty*   . t)
     (*print-circle*   . nil)
     (*print-readably* . nil)
@@ -451,14 +502,14 @@ Return three values: keyword, argument name, default arg."""
            (list keyword/name))))))
 
 (progn
-  (assert (equalp (decode-keyword-arg 'x)
-                  (make-keyword-arg :x 'x nil)))
-  (assert (equalp (decode-keyword-arg '(x t))
-                  (make-keyword-arg :x 'x t)))
-  (assert (equalp (decode-keyword-arg '((:x y)))
-                  (make-keyword-arg :x 'y nil)))
-  (assert (equalp (decode-keyword-arg '((:x y) t))
-                  (make-keyword-arg :x 'y t))))
+  (assert (equalp (decode-keyword-arg (quote x))
+                  (make-keyword-arg :x (quote x) nil)))
+  (assert (equalp (decode-keyword-arg (quote (x t)))
+                  (make-keyword-arg :x (quote x) t)))
+  (assert (equalp (decode-keyword-arg (quote ((:x y))))
+                  (make-keyword-arg :x (quote y) nil)))
+  (assert (equalp (decode-keyword-arg (quote ((:x y) t)))
+                  (make-keyword-arg :x (quote y) t))))
 
 ### FIXME suppliedp?
 (defstruct (optional-arg
@@ -485,10 +536,10 @@ Return an OPTIONAL-ARG structure."""
       (optional-arg.arg-name optional-arg)))
 
 (progn
-  (assert (equalp (decode-optional-arg 'x)
-                  (make-optional-arg 'x nil)))
-  (assert (equalp (decode-optional-arg '(x t))
-                  (make-optional-arg 'x t))))
+  (assert (equalp (decode-optional-arg (quote x))
+                  (make-optional-arg (quote x) nil)))
+  (assert (equalp (decode-optional-arg (quote (x t)))
+                  (make-optional-arg (quote x) t))))
 
 (define-modify-macro nreversef () nreverse "Reverse the list in PLACE.")
 
@@ -505,29 +556,30 @@ Return an OPTIONAL-ARG structure."""
                   (pop arglist)
                   (progn
                     (prog1 arglist
-                      (setf mode '&rest
+                      (setf mode (quote &rest)
                             arglist nil))))
     do (cond
-         ((eql mode '&unknown-junk)
+         ((eql mode (quote &unknown-junk))
           ## don't leave this mode -- we don't know how the arglist
           ## after unknown lambda-list keywords is interpreted
           (push arg (arglist.unknown-junk result)))
-         ((eql arg '&allow-other-keys)
+         ((eql arg (quote &allow-other-keys))
           (setf (arglist.allow-other-keys-p result) t))
-         ((eql arg '&key)
+         ((eql arg (quote &key))
           (setf (arglist.key-p result) t
                 mode arg))
-         ((memq arg '(&optional &rest &body &aux))
+         ((memq arg (&optional &rest &body &aux))
           (setq mode arg))
-         ((memq arg '(&whole &environment))
+         ((memq arg (&whole &environment))
           (setq mode arg)
           (push arg (arglist.known-junk result)))
          ((and (symbolp arg)
-               (string= (symbol-name arg) (string '#:&any))) # may be interned
+               (string= (symbol-name arg) (string (quote #:&any
+)))) # may be interned
           (setf (arglist.any-p result) t) #  in any *package*.
-          (setq mode '&any))
+          (setq mode (quote &any)))
          ((memq arg lambda-list-keywords)
-          (setq mode '&unknown-junk)
+          (setq mode (quote &unknown-junk))
           (push arg (arglist.unknown-junk result)))
          (t
           (ecase mode
@@ -568,19 +620,19 @@ Return an OPTIONAL-ARG structure."""
     finally (return result)))
 
 (defun encode-arglist (decoded-arglist)
-  (append (mapcar #'encode-required-arg (arglist.required-args decoded-arglist))
+  (append (mapcar (function encode-required-arg) (arglist.required-args decoded-arglist))
           (when (arglist.optional-args decoded-arglist)
-            '(&optional))
-          (mapcar #'encode-optional-arg (arglist.optional-args decoded-arglist))
+            (&optional))
+          (mapcar (function encode-optional-arg) (arglist.optional-args decoded-arglist))
           (when (arglist.key-p decoded-arglist)
-            '(&key))
-          (mapcar #'encode-keyword-arg (arglist.keyword-args decoded-arglist))
+            (&key))
+          (mapcar (function encode-keyword-arg) (arglist.keyword-args decoded-arglist))
           (when (arglist.allow-other-keys-p decoded-arglist)
-            '(&allow-other-keys))
+            (&allow-other-keys))
           (when (arglist.any-args decoded-arglist)
-            `(&any ,@(arglist.any-args decoded-arglist)))
+            (list* (quote &any) (arglist.any-args decoded-arglist)))
           (cond ((not (arglist.rest decoded-arglist))
-                 '())
+                 ())
                 ((arglist.body-p decoded-arglist)
                  `(&body ,(arglist.rest decoded-arglist)))
                 (t
@@ -603,14 +655,14 @@ As a secondary value, return whether &allow-other-keys appears."""
 (defun methods-keywords (methods)
   """Collect all keywords in the arglists of METHODS.
 As a secondary value, return whether &allow-other-keys appears somewhere."""
-  (let ((keywords '())
+  (let ((keywords ())
 	(allow-other-keys nil))
     (dolist (method methods)
       (multiple-value-bind (kw aok)
 	  (arglist-keywords
 	   (swank-mop:method-lambda-list method))
 	(setq keywords (remove-duplicates (append keywords kw)
-                                          :key #'keyword-arg.keyword)
+                                          :key (function keyword-arg.keyword))
 	      allow-other-keys (or allow-other-keys aok))))
     (values keywords allow-other-keys)))
 
@@ -627,7 +679,7 @@ whether &allow-other-keys appears somewhere."""
   (methods-keywords
    (multiple-value-bind (amuc okp)
        (swank-mop:compute-applicable-methods-using-classes
-        generic-function (mapcar #'class-of arguments))
+        generic-function (mapcar (function class-of) arguments))
      (if okp
          amuc
          (compute-applicable-methods generic-function arguments)))))
@@ -662,7 +714,7 @@ to determine the extra keywords."""))
 according to their used-by relation with REFERENCE-PACKAGES. Packages
 will be sorted first which appear first in the PACKAGE-USE-LIST of the
 reference packages."""
-  (let ((package-use-table (make-hash-table :test 'eq)))
+  (let ((package-use-table (make-hash-table :test (quote eq))))
     ## Walk the package dependency graph breadth-fist, and fill
     ## PACKAGE-USE-TABLE accordingly.
     (loop with queue = (copy-list reference-packages)
@@ -672,7 +724,7 @@ reference packages."""
 	    do      (setf (gethash p package-use-table) (shiftf bfn (1+ bfn)))
 	    and do  (setf queue (nconc queue (copy-list (package-use-list p))))
 	  while queue)
-    #'(lambda (p1 p2)
+    (lambda (p1 p2)
 	(let ((bfn1 (gethash p1 package-use-table))
 	      (bfn2 (gethash p2 package-use-table)))
 	  (cond ((and bfn1 bfn2) (<= bfn1 bfn2))
@@ -682,7 +734,7 @@ reference packages."""
 
 (defun sort-extra-keywords (kwds)
   (stable-sort kwds (make-package-comparator (list keyword-package *package*))
-               :key (compose #'symbol-package #'keyword-arg.keyword)))
+               :key (compose (function symbol-package) (function keyword-arg.keyword))))
 
 (defun keywords-of-operator (operator)
   """Return a list of KEYWORD-ARGs that OPERATOR accepts.
@@ -697,14 +749,14 @@ forward keywords to OPERATOR."""
   ## default method
   (declare (ignore args))
   (let ((symbol-function (symbol-function operator)))
-    (if (typep symbol-function 'generic-function)
+    (if (typep symbol-function (quote generic-function))
         (generic-function-keywords symbol-function)
         nil)))
 
 (defun class-from-class-name-form (class-name-form)
   (when (and (listp class-name-form)
              (= (length class-name-form) 2)
-             (eq (car class-name-form) 'quote))
+             (eq (car class-name-form) (quote quote)))
     (let* ((class-name (cadr class-name-form))
            (class (find-class class-name nil)))
       (when (and class
@@ -741,15 +793,15 @@ forward keywords to OPERATOR."""
             (extra-keywords/slots class)
           (multiple-value-bind (allocate-instance-keywords ai-aokp)
               (applicable-methods-keywords
-               #'allocate-instance (list class))
+               (function allocate-instance) (list class))
             (multiple-value-bind (initialize-instance-keywords ii-aokp)
                 (ignore-errors
                   (applicable-methods-keywords
-                   #'initialize-instance (list (swank-mop:class-prototype class))))
+                   (function initialize-instance) (list (swank-mop:class-prototype class))))
               (multiple-value-bind (shared-initialize-keywords si-aokp)
                   (ignore-errors
                     (applicable-methods-keywords
-                     #'shared-initialize (list (swank-mop:class-prototype class) t)))
+                     (function shared-initialize) (list (swank-mop:class-prototype class) t)))
                 (values (append slot-init-keywords
                                 allocate-instance-keywords
                                 initialize-instance-keywords
@@ -769,7 +821,7 @@ forward keywords to OPERATOR."""
           (multiple-value-bind (shared-initialize-keywords si-aokp)
               (ignore-errors
                 (applicable-methods-keywords
-                 #'shared-initialize (list (swank-mop:class-prototype class) t)))
+                 (function shared-initialize) (list (swank-mop:class-prototype class) t)))
             ## FIXME: much as it would be nice to include the
             ## applicable keywords from
             ## UPDATE-INSTANCE-FOR-DIFFERENT-CLASS, I don't really see
@@ -780,45 +832,45 @@ forward keywords to OPERATOR."""
                     t
                     (list class-name-form))))))))
 
-(defmethod extra-keywords ((operator (eql 'make-instance))
+(defmethod extra-keywords ((operator (eql (quote make-instance)))
                            &rest args)
-  (multiple-value-or (apply #'extra-keywords/make-instance operator args)
+  (multiple-value-or (apply (function extra-keywords/make-instance) operator args)
                      (call-next-method)))
 
-(defmethod extra-keywords ((operator (eql 'make-condition))
+(defmethod extra-keywords ((operator (eql (quote make-condition)))
                            &rest args)
-  (multiple-value-or (apply #'extra-keywords/make-instance operator args)
+  (multiple-value-or (apply (function extra-keywords/make-instance) operator args)
                      (call-next-method)))
 
-(defmethod extra-keywords ((operator (eql 'error))
+(defmethod extra-keywords ((operator (eql (quote error)))
                            &rest args)
-  (multiple-value-or (apply #'extra-keywords/make-instance operator args)
+  (multiple-value-or (apply (function extra-keywords/make-instance) operator args)
                      (call-next-method)))
 
-(defmethod extra-keywords ((operator (eql 'signal))
+(defmethod extra-keywords ((operator (eql (quote signal)))
                            &rest args)
-  (multiple-value-or (apply #'extra-keywords/make-instance operator args)
+  (multiple-value-or (apply (function extra-keywords/make-instance) operator args)
                      (call-next-method)))
 
-(defmethod extra-keywords ((operator (eql 'warn))
+(defmethod extra-keywords ((operator (eql (quote warn)))
                            &rest args)
-  (multiple-value-or (apply #'extra-keywords/make-instance operator args)
+  (multiple-value-or (apply (function extra-keywords/make-instance) operator args)
                      (call-next-method)))
 
-(defmethod extra-keywords ((operator (eql 'cerror))
+(defmethod extra-keywords ((operator (eql (quote cerror)))
                            &rest args)
   (multiple-value-bind (keywords aok determiners)
-      (apply #'extra-keywords/make-instance operator
+      (apply (function extra-keywords/make-instance) operator
              (cdr args))
     (if keywords
         (values keywords aok
                 (cons (car args) determiners))
         (call-next-method))))
 
-(defmethod extra-keywords ((operator (eql 'change-class))
+(defmethod extra-keywords ((operator (eql (quote change-class)))
                            &rest args)
   (multiple-value-bind (keywords aok determiners)
-      (apply #'extra-keywords/change-class operator (cdr args))
+      (apply (function extra-keywords/change-class) operator (cdr args))
     (if keywords
         (values keywords aok
                 (cons (car args) determiners))
@@ -832,7 +884,7 @@ forward keywords to OPERATOR."""
           (remove-duplicates
            (append (arglist.keyword-args decoded-arglist)
                    keywords)
-           :key #'keyword-arg.keyword)))
+           :key (function keyword-arg.keyword))))
   (setf (arglist.allow-other-keys-p decoded-arglist)
         (or (arglist.allow-other-keys-p decoded-arglist)
             allow-other-keys-p)))
@@ -844,7 +896,7 @@ the initial sublist of ARGS that was needed to determine the extra
 keywords.  As a tertiary return value, return whether any enrichment
 was done."""
   (multiple-value-bind (extra-keywords extra-aok determining-args)
-      (apply #'extra-keywords form)
+      (apply (function extra-keywords) form)
     ## enrich the list of keywords with the extra keywords
     (enrich-decoded-arglist-with-keywords decoded-arglist
                                           extra-keywords extra-aok)
@@ -865,13 +917,13 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
                                                 (cons operator-form
                                                       argument-forms))))
 
-(defmethod compute-enriched-decoded-arglist ((operator-form (eql 'with-open-file))
+(defmethod compute-enriched-decoded-arglist ((operator-form (eql (quote with-open-file)))
                                              argument-forms)
   (declare (ignore argument-forms))
   (multiple-value-bind (decoded-arglist determining-args)
       (call-next-method)
     (let ((first-arg (first (arglist.required-args decoded-arglist)))
-          (open-arglist (compute-enriched-decoded-arglist 'open nil)))
+          (open-arglist (compute-enriched-decoded-arglist (quote open) nil)))
       (when (and (arglist-p first-arg) (arglist-p open-arglist))
         (enrich-decoded-arglist-with-keywords
          first-arg
@@ -879,12 +931,12 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
          nil)))
     (values decoded-arglist determining-args t)))
 
-(defmethod compute-enriched-decoded-arglist ((operator-form (eql 'apply))
+(defmethod compute-enriched-decoded-arglist ((operator-form (eql (quote apply)))
                                              argument-forms)
   (let ((function-name-form (car argument-forms)))
     (when (and (listp function-name-form)
                (length= function-name-form 2)
-               (memq (car function-name-form) '(quote function)))
+               (memq (car function-name-form) (quote (quote function))))
       (let ((function-name (cadr function-name-form)))
         (when (valid-operator-symbol-p function-name)
           (let ((function-arglist
@@ -892,11 +944,11 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
                                                    (cdr argument-forms))))
             (return-from compute-enriched-decoded-arglist
               (values (make-arglist :required-args
-                                    (list 'function)
+                                    (list (quote function))
                                     :optional-args
                                     (append
-                                     (mapcar #'(lambda (arg)
-                                                 (make-optional-arg arg nil))
+                                     (mapcar (lambda (arg)
+                                              (make-optional-arg arg nil))
                                              (arglist.required-args function-arglist))
                                      (arglist.optional-args function-arglist))
                                     :key-p
@@ -904,7 +956,7 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
                                     :keyword-args
                                     (arglist.keyword-args function-arglist)
                                     :rest
-                                    'args
+                                    (quote args)
                                     :allow-other-keys-p
                                     (arglist.allow-other-keys-p function-arglist))
                       (list function-name-form)
@@ -930,11 +982,11 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
       (&key (keyword)
        ## N.b. we consider a keyword to be given only when the keyword
        ## _and_ a value has been given for it.
-       (loop for (key value) on args by #'cddr
+       (loop for (key value) on args by (function cddr)
 	     when (and (eq keyword key) value)
 	       do (setf (arglist.keyword-args decoded-arglist)
 			(remove keyword (arglist.keyword-args decoded-arglist)
-				:key #'keyword-arg.keyword))))))
+				:key (function keyword-arg.keyword))))))))
   decoded-arglist)
 
 (defun remove-given-args (decoded-arglist args)
@@ -948,7 +1000,7 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
       :not-available
       (arglist-dispatch (car form) (cdr form))))
 
-(export 'arglist-dispatch)
+(export (quote arglist-dispatch))
 (defgeneric arglist-dispatch (operator arguments)
   ## Default method
   (:method (operator arguments)
@@ -963,11 +1015,11 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
         (setf (arglist.provided-args arglist) determining-args)
         arglist))))
 
-(defmethod arglist-dispatch ((operator (eql 'defmethod)) arguments)
+(defmethod arglist-dispatch ((operator (eql (quote defmethod))) arguments)
   (match (cons operator arguments)
-    (('defmethod (#'function-exists-p gf-name) . rest)
+    (((quote defmethod) ((function function-exists-p) gf-name) . rest)
      (let ((gf (fdefinition gf-name)))
-       (when (typep gf 'generic-function)
+       (when (typep gf (quote generic-function))
          (with-available-arglist (arglist) (decode-arglist (arglist gf))
            (let ((qualifiers (loop for x in rest
                                    until (or (listp x) (empty-arg-p x))
@@ -979,9 +1031,9 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
     (_)) # Fall through
   (call-next-method))
 
-(defmethod arglist-dispatch ((operator (eql 'define-compiler-macro)) arguments)
+(defmethod arglist-dispatch ((operator (eql (quote define-compiler-macro))) arguments)
   (match (cons operator arguments)
-    (('define-compiler-macro (#'function-exists-p gf-name) . _)
+    (((quote define-compiler-macro) ((function function-exists-p) gf-name) . _)
      (let ((gf (fdefinition gf-name)))
        (with-available-arglist (arglist) (decode-arglist (arglist gf))
          (return-from arglist-dispatch
@@ -992,33 +1044,36 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
   (call-next-method))
 
 
-(defmethod arglist-dispatch ((operator (eql 'eval-when)) arguments)
+(defmethod arglist-dispatch ((operator (eql (quote eval-when))) arguments)
   (declare (ignore arguments))
-    (let ((eval-when-args '(:compile-toplevel :load-toplevel :execute)))
+    (let ((eval-when-args (quote (:compile-toplevel :load-toplevel :execute))))
     (make-arglist 
      :required-args (list (make-arglist :any-p t :any-args eval-when-args))
-     :rest '#:body :body-p t)))
+     :rest (quote #:body
+           ) :body-p t)))
 
 
-(defmethod arglist-dispatch ((operator (eql 'declare)) arguments)
+(defmethod arglist-dispatch ((operator (eql (quote declare))) arguments)
   (let* ((declaration      (cons operator (last arguments)))
          (typedecl-arglist (arglist-for-type-declaration declaration)))
     (if (arglist-available-p typedecl-arglist)
         typedecl-arglist
         (match declaration
-          (('declare ((#'consp typespec) . decl-args)) 
+          (((quote declare) (((function consp) typespec) . decl-args)) 
            (with-available-arglist (typespec-arglist) 
                (decoded-arglist-for-type-specifier typespec)
              (make-arglist
               :required-args (list (make-arglist
                                     :required-args (list typespec-arglist)
-                                    :rest '#:variables)))))
-          (('declare (decl-identifier . decl-args))
+                                    :rest (quote #:variables
+))))))
+          (((quote declare) (decl-identifier . decl-args))
            (decoded-arglist-for-declaration decl-identifier decl-args))
-          (_ (make-arglist :rest '#:declaration-specifiers))))))
+          (_ (make-arglist :rest (quote #:declaration-specifiers
+                                  )))))))
 
-(defmethod arglist-dispatch ((operator (eql 'declaim)) arguments)
-  (arglist-dispatch 'declare arguments))
+(defmethod arglist-dispatch ((operator (eql (quote declaim))) arguments)
+  (arglist-dispatch (quote declare) arguments))
 
 
 (defun arglist-for-type-declaration (declaration)
@@ -1031,17 +1086,21 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
                                     :required-args (list typespec-arglist)
                                     :rest rest-var-name))))))
     (match declaration
-      (('declare ('type (#'consp typespec) . decl-args)) 
-       (%arglist-for-type-declaration 'type typespec '#:variables))
-      (('declare ('ftype (#'consp typespec) . decl-args)) 
-       (%arglist-for-type-declaration 'ftype typespec '#:function-names))
-      (('declare ((#'consp typespec) . decl-args)) 
+      (((quote declare) ((quote type) ((function consp) typespec) . decl-args)) 
+       (%arglist-for-type-declaration (quote type) typespec (quote #:variables
+                                                             )))
+      (((quote declare) ((quote ftype) ((function consp) typespec) . decl-args)) 
+       (%arglist-for-type-declaration (quote ftype) typespec (quote 
+                                                              #:function-names
+                                                              )))
+      (((quote declare) (((function consp) typespec) . decl-args)) 
        (with-available-arglist (typespec-arglist) 
            (decoded-arglist-for-type-specifier typespec)
          (make-arglist
           :required-args (list (make-arglist
                                 :required-args (list typespec-arglist)
-                                :rest '#:variables)))))
+                                :rest (quote #:variables
+                                       ))))))
       (_ :not-available))))
 
 (defun decoded-arglist-for-declaration (decl-identifier decl-args)
@@ -1089,7 +1148,7 @@ If the arglist is not available, return :NOT-AVAILABLE."""))
 RAW-FORM that does have an arglist. The highlighted parameter is
 wrapped in ===> X <===."""
   (handler-bind ((serious-condition
-                  #'(lambda (c)
+                  (lambda (c)
                       (unless (debug-on-swank-error)
                         (let ((*print-right-margin* print-right-margin))
                           (return-from autodoc
@@ -1113,7 +1172,7 @@ wrapped in ===> X <===."""
   (and symbol
        (symbolp symbol)
        (boundp symbol)
-       (not (memq symbol '(cl:t cl:nil)))
+       (not (memq symbol (quote (cl:t cl:nil))))
        (not (keywordp symbol))))
 
 (defun print-variable-to-string (symbol)
@@ -1140,7 +1199,7 @@ wrapped in ===> X <===."""
       (with-available-arglist (arglist) arglist
         (decoded-arglist-to-template-string
          (delete-given-args arglist
-                            (remove-if #'empty-arg-p provided-args
+                            (remove-if (function empty-arg-p) provided-args
                                        :from-end t :count 1))
          :prefix "" :suffix "")))))
 
@@ -1154,24 +1213,25 @@ to the context provided by RAW-FORM."""
         ## It would be possible to complete keywords only if we are in
         ## a keyword position, but it is not clear if we want that.
         (let* ((keywords
-                (append (mapcar #'keyword-arg.keyword
+                (append (mapcar (function keyword-arg.keyword)
                                 (arglist.keyword-args arglist))
-                        (remove-if-not #'keywordp (arglist.any-args arglist))))
+                        (remove-if-not (function keywordp) (arglist.any-args arglist))))
                (keyword-name
                 (tokenize-symbol keyword-string))
                (matching-keywords
                 (find-matching-symbols-in-list
-                 keyword-name keywords (make-compound-prefix-matcher #\-)))
+                 keyword-name keywords (make-compound-prefix-matcher #\-
+                                        )))
                (converter (completion-output-symbol-converter keyword-string))
                (strings
                 (mapcar converter
-                        (mapcar #'symbol-name matching-keywords)))
+                        (mapcar (function symbol-name) matching-keywords)))
                (completion-set
                 (format-completion-set strings nil "")))
           (list completion-set
                 (longest-compound-prefix completion-set)))))))
 
-(defparameter +cursor-marker+ '%cursor-marker%)
+(defparameter +cursor-marker+ (quote %cursor-marker%))
 
 (defun find-subform-with-arglist (form)
   """Returns four values:
@@ -1191,7 +1251,7 @@ to the context provided by RAW-FORM."""
          (multiple-value-bind (form obj-at-cursor form-path)
              (extract-cursor-marker form)
            (values form
-                   (let ((entry (assoc (car form) local-ops :test #'op=)))
+                   (let ((entry (assoc (car form) local-ops :test (function op=))))
                      (if entry
                          (decode-arglist (cdr entry))
                          (arglist-from-form form)))
@@ -1201,7 +1261,7 @@ to the context provided by RAW-FORM."""
          (values nil :not-available))
        (operator-p (operator local-ops)
          (or (and (symbolp operator) (valid-operator-symbol-p operator))
-             (assoc operator local-ops :test #'op=)))
+             (assoc operator local-ops :test (function op=))))
        (op= (op1 op2)
          (cond ((and (symbolp op1) (symbolp op2))
                 (eq op1 op2))
@@ -1232,17 +1292,17 @@ to the context provided by RAW-FORM."""
                                    (yield-success form local-ops)))
                ## Some typespecs clash with function names, so we make
                ## sure to bail out early.
-               ((member operator '(cl:declare cl:declaim))
+               ((member operator (quote (cl:declare cl:declaim)))
                 (yield-success form local-ops))
                ## Mostly uninteresting, hence skip.
-               ((memq operator '(cl:quote cl:function))
+               ((memq operator (quote (cl:quote cl:function)))
                 (yield-failure))
                (t
                 (multiple-value-or (grovel-form last-subform local-ops)
                                    (yield-success form local-ops))))))))
     (if (null form)
         (yield-failure)
-        (grovel-form form '()))))
+        (grovel-form form ()))))
 
 (defun extract-cursor-marker (form)
   """Returns three values: normalized `form' without +CURSOR-MARKER+,
@@ -1282,14 +1342,14 @@ object."""
     (declare (ignore operator args))
     nil)
   ## FLET
-  (:method ((operator (eql 'cl:flet)) args)
+  (:method ((operator (eql (quote cl:flet))) args)
     (let ((defs (first args))
           (body (rest args)))
       (cond ((null body) nil)            # `(flet ((foo (x) |'
             ((atom defs) nil)            # `(flet ,foo (|'
             (t (%collect-op/argl-alist defs)))))
   ## LABELS
-  (:method ((operator (eql 'cl:labels)) args)
+  (:method ((operator (eql (quote cl:labels))) args)
     ## Notice that we only have information to "look backward" and
     ## show arglists of previously occuring local functions.
     (destructuring-bind (defs . body) args
@@ -1297,19 +1357,19 @@ object."""
         (let ((current-def (car (last defs))))
           (cond ((atom current-def) nil) # `(labels ((foo (x) ...)|'
                 ((not (null body))
-                 (extract-local-op-arglists 'cl:flet args))
+                 (extract-local-op-arglists (quote cl:flet) args))
                 (t
                  (let ((def.body (cddr current-def)))
                    (when def.body
                      (%collect-op/argl-alist defs)))))))))
   ## MACROLET
-  (:method ((operator (eql 'cl:macrolet)) args)
-    (extract-local-op-arglists 'cl:labels args)))
+  (:method ((operator (eql (quote cl:macrolet))) args)
+    (extract-local-op-arglists (quote cl:labels) args)))
 
 (defun %collect-op/argl-alist (defs)
-  (setq defs (remove-if-not #'(lambda (x)
-                                ## Well-formed FLET/LABELS def?
-                                (and (consp x) (second x)))
+  (setq defs (remove-if-not (lambda (x)
+                              ## Well-formed FLET/LABELS def?
+                              (and (consp x) (second x)))
                             defs))
   (loop for (name arglist . nil) in defs
         collect (cons name arglist)))
@@ -1324,10 +1384,10 @@ returned in that case."""
            (let* ((arglist-path (form-path-to-arglist-path form-path
                                                            form
                                                            arglist))
-                  (argl (apply #'arglist-ref
+                  (argl (apply (function arglist-ref)
                                arglist
                                arglist-path))
-                  (args (apply #'provided-arguments-ref
+                  (args (apply (function provided-arguments-ref)
                                (cdr form)
                                arglist
                                arglist-path)))
@@ -1370,7 +1430,7 @@ indices."""
     (convert
      ## FORM contains irrelevant operator. Adjust FORM-PATH.
      (cond ((null form-path) nil)
-           ((equal form-path '(0)) nil)
+           ((equal form-path (quote (0))) nil)
            (t
             (destructuring-bind (car . cdr) form-path
               (cons (1- car) cdr))))
@@ -1380,25 +1440,29 @@ indices."""
 (defun arglist-index (provided-argument-index provided-arguments arglist)
   """Return the arglist index into `arglist' for the parameter belonging
 to the argument (NTH `provided-argument-index' `provided-arguments')."""
-  (let ((positional-args# (positional-args-number arglist))
+  (let ((positional-args#
+         (positional-args-number arglist))
         (arg-index provided-argument-index))
     (with-struct (arglist. key-p rest) arglist
       (cond
-        ((< arg-index positional-args#) # required + optional
+        ((< arg-index positional-args#
+            ) # required + optional
          arg-index)
         ((and (not key-p) (not rest))   # more provided than allowed
          nil)
         ((not key-p)                    # rest + body
          (assert (arglist.rest arglist))
-         positional-args#) 
+         positional-args#
+         ) 
         (t                              # key
          ## Find last provided &key parameter
          (let* ((argument      (nth arg-index provided-arguments))
-                (provided-keys (subseq provided-arguments positional-args#)))
-           (loop for (key value) on provided-keys by #'cddr
+                (provided-keys (subseq provided-arguments positional-args#
+                                )))
+           (loop for (key value) on provided-keys by (function cddr)
                  when (eq value argument)
                  return (match key
-                            (('quote symbol) symbol)
+                            (((quote quote) symbol) symbol)
                             (_ key)))))))))
 
 (defun arglist-ref (arglist &rest indices)
@@ -1410,18 +1474,21 @@ represent key parameters."""
            (with-struct (arglist. provided-args required-args optional-args rest) 
                arglist
              (loop for args in (list provided-args required-args 
-                                     (mapcar #'optional-arg.arg-name optional-args))
-                   for args# = (length args)
-                   if (< index args#)
+                                     (mapcar (function optional-arg.arg-name) optional-args))
+                   for args#
+              = (length args)
+                   if (< index args#
+                         )
                      return (nth index args)
                    else
-                     do (decf index args#)
+                     do (decf index args#
+                         )
                    finally (return (or rest nil)))))
          (ref-keyword-arg (arglist keyword)
            ## keyword argument may be any symbol,
            ## not only from the KEYWORD package.
            (let ((keyword (match keyword
-                            (('quote symbol) symbol)
+                            (((quote quote) symbol) symbol)
                             (_ keyword))))
              (do-decoded-arglist arglist
                (&key (kw arg) (when (eq kw keyword)
@@ -1481,15 +1548,19 @@ symbols is a big no-no.
 In such a case (that no symbol could be found), an object of type
 ARGLIST-DUMMY is returned instead, which works as a placeholder
 datum for subsequent logics to rely on."""
-  (let* ((string  (string-left-trim '(#\Space #\Tab #\Newline) string))
+  (let* ((string  (string-left-trim (quote (#\Space #\Tab #\Newline
+                                           ) string)))
          (length  (length string))
 	 (type    (cond ((zerop length) nil)
-                        ((eql (aref string 0) #\')
+                        ((eql (aref string 0) #\'
+                          )
                          :quoted-symbol)
                         ((search "#'" string :end2 (min length 2))
                          :sharpquoted-symbol)
-                        ((and (eql (aref string 0) #\")
-                              (eql (aref string (1- length)) #\"))
+                        ((and (eql (aref string 0) #\"
+                               )
+                              (eql (aref string (1- length)) #\"
+                               ))
                          :string)
                         (t
                          :symbol))))
@@ -1515,31 +1586,32 @@ datum for subsequent logics to rely on."""
              (unless (string= actual string)
                (warn "Test failed: ~S => ~S~%  Expected: ~S"
                      arglist actual string)))))
-    (test '(function cons) "(function cons)")
-    (test '(quote cons) "(quote cons)")
-    (test '(&key (function #'+)) "(&key (function #'+))")
-    (test '(&whole x y z) "(y z)")
-    (test '(x &aux y z) "(x)")
-    (test '(x &environment env y) "(x y)")
-    (test '(&key ((function f))) "(&key ((function ..)))")
-    (test '(eval-when (&any :compile-toplevel :load-toplevel :execute) &body body)
+    (test (quote (function cons)) "(function cons)")
+    (test (quote (quote cons)) "(quote cons)")
+    (test (quote (&key (function (function +)))) "(&key (function #'+))")
+    (test (quote (&whole x y z)) "(y z)")
+    (test (quote (x &aux y z)) "(x)")
+    (test (quote (x &environment env y)) "(x y)")
+    (test (quote (&key ((function f)))) "(&key ((function ..)))")
+    (test (quote (eval-when (&any :compile-toplevel :load-toplevel :execute) &body body))
 	  "(eval-when (&any :compile-toplevel :load-toplevel :execute) &body body)")
-    (test '(declare (optimize &any (speed 1) (safety 1)))
+    (test (quote (declare (optimize &any (speed 1) (safety 1))))
 	  "(declare (optimize &any (speed 1) (safety 1)))")
     ))
 
 (defun test-arglist-ref ()
   (macrolet ((soft-assert (form)
-               `(unless ,form
-                  (warn "Assertion failed: ~S~%" ',form))))
-    (let ((sample (decode-arglist '(x &key ((:k (y z)))))))
-      (soft-assert (eq (arglist-ref sample 0)    'x))
-      (soft-assert (eq (arglist-ref sample :k 0) 'y))
-      (soft-assert (eq (arglist-ref sample :k 1) 'z))
+               # `(unless ,form
+               #    (warn "Assertion failed: ~S~%" ',form))
+               ))
+    (let ((sample (decode-arglist (quote (x &key ((:k (y z))))))))
+      (soft-assert (eq (arglist-ref sample 0)    (quote x)))
+      (soft-assert (eq (arglist-ref sample :k 0) (quote y)))
+      (soft-assert (eq (arglist-ref sample :k 1) (quote z)))
 
-      (soft-assert (eq (provided-arguments-ref '(a :k (b c)) sample 0)    'a))
-      (soft-assert (eq (provided-arguments-ref '(a :k (b c)) sample :k 0) 'b))
-      (soft-assert (eq (provided-arguments-ref '(a :k (b c)) sample :k 1) 'c)))))
+      (soft-assert (eq (provided-arguments-ref (quote (a :k (b c))) sample 0)    (quote a)))
+      (soft-assert (eq (provided-arguments-ref (quote (a :k (b c))) sample :k 0) (quote b)))
+      (soft-assert (eq (provided-arguments-ref (quote (a :k (b c))) sample :k 1) (quote c))))))
 
 (test-print-arglist)
 (test-arglist-ref)
