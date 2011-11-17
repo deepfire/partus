@@ -456,13 +456,6 @@ def _mapcar_star(f, xs):
 
 def _slotting(x):             return lambda y: getattr(y, x, None)
 
-def _map_into_hash(f, xs, key = identity):
-        acc = dict()
-        for x in xs:
-                k, v = f(key(x))
-                acc[k] = v
-        return acc
-
 def _updated_dict(to, from_):
         to.update(from_)
         return to
@@ -484,8 +477,8 @@ def ___(str, expr):
 class _servile():
         def __repr__(self):
                 return "#%s(%s)" % (type(self).__name__,
-                                    ", ".join(maphash(lambda k, v: "%s = %s" % (k, v),
-                                                      self.__dict__)))
+                                    ", ".join(_maphash(lambda k, v: "%s = %s" % (k, v),
+                                                       self.__dict__)))
         def __init__(self, **keys):
                 self.__dict__.update(keys)
 
@@ -940,11 +933,18 @@ def gethash(key, dict):
         inp = key in dict
         return (dict.get(key) if inp else None), key in dict
 
-def maphash(f, dict):
+def _maphash(f, dict):
         return [ f(k, v) for k, v in dict.items() ]
 
 def _remap_hash_table(f, xs):
         return { k: f(k, v) for k, v in xs.items() }
+
+def _map_into_hash(f, xs, key = identity):
+        acc = dict()
+        for x in xs:
+                k, v = f(key(x))
+                acc[k] = v
+        return acc
 
 ##
 ## Non-local control transfers
