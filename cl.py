@@ -2999,6 +2999,31 @@ def _eval_python(expr_or_stmt):
 
 def _callify(form, package = None, quoted = False):
         package = _defaulted_to_var(package, "_package_")
+        def callify_call(sym, args):
+                func = function(the(symbol, sym))
+                argspec = inspect.getfullargspec(func)
+                # _here("args: %s", args)
+                # _here("argspec: %s", argspec)
+                nfix = len(argspec.args) - len(argspec.defaults or []) # ILTW Python implementors think..
+                if oddp(len(args) - nfix):
+                        error("odd number of &KEY arguments")
+                allow_other_keys = argspec.varkw is not None
+                fixnames, keynames = (argspec.args[0:nfix],
+                                      set(argspec.args[nfix:] + argspec.kwonlyargs))
+                fixargs = args[0:nfix]
+                keyargs = ({ _lisp_symbol_python_name(k):v
+                             for k, v in _plist_alist(args[nfix:]) })
+                if not allow_other_keys:
+                        for k in keyargs.keys():
+                                if k not in keynames:
+                                        error("unknown &KEY argument: %s", k)
+                return _ast_funcall(
+                        _lisp_symbol_ast(sym, package),
+                        *mapcar(lambda x: _callify(x, package),
+                                args),
+                        **_remap_hash_table(
+                                lambda k, x: (k, _callify(x, package)),
+                                keyargs))
         obj2ast_xform = {
                 False : _ast_name("False"),
                 None  : _ast_name("None"),
@@ -3012,8 +3037,7 @@ def _callify(form, package = None, quoted = False):
                                 if listp(form[1]) else
                                 _callify(form[1], package, True))
                 else:
-                        return _ast_funcall(_lisp_symbol_ast(form[0], package),
-                                            *list(map(lambda x: _callify(x, package), form[1:])))
+                        return callify_call(form[0], form[1:])
         elif symbolp(form):
                 return (_ast_funcall("_read_symbol",
                                      _ast_string(form.name), _ast_string(form.package.name))
