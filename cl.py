@@ -2555,6 +2555,10 @@ setq("_presignal_hook_", nil)
 setq("_prehandler_hook_", nil)
 setq("_debugger_hook_",  nil)
 
+def _report_handling_handover(cond, frame, hook):
+        format(sys.stderr, "Handing over handling of %s to frame %s\n",
+               prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
+
 def signal(cond):
         # _here("Signalling: %s", cond)
         for cluster in reversed(env.__handler_clusters__):
