@@ -2555,10 +2555,6 @@ setq("_presignal_hook_", nil)
 setq("_prehandler_hook_", nil)
 setq("_debugger_hook_",  nil)
 
-def _report_handling_handover(cond, frame, hook):
-        format(sys.stderr, "Handing over handling of %s to frame %s\n",
-               prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
-
 def signal(cond):
         # _here("Signalling: %s", cond)
         for cluster in reversed(env.__handler_clusters__):
@@ -3120,15 +3116,15 @@ def _callify(form, package = None, quoted = False):
         package = _defaulted_to_var(package, "_package_")
         def callify_call(sym, args):
                 func = function(the(symbol, sym))
-                argspec = inspect.getfullargspec(func)
+                paramspec = inspect.getfullargspec(func)
+                nfix = len(paramspec.args) - len(paramspec.defaults or []) # ILTW Python implementors think..
                 # _here("args: %s", args)
                 # _here("argspec: %s", argspec)
-                nfix = len(argspec.args) - len(argspec.defaults or []) # ILTW Python implementors think..
                 if oddp(len(args) - nfix):
                         error("odd number of &KEY arguments")
-                allow_other_keys = argspec.varkw is not None
-                fixnames, keynames = (argspec.args[0:nfix],
-                                      set(argspec.args[nfix:] + argspec.kwonlyargs))
+                allow_other_keys = paramspec.varkw is not None
+                fixnames, keynames = (paramspec.args[0:nfix],
+                                      set(paramspec.args[nfix:] + paramspec.kwonlyargs))
                 fixargs = args[0:nfix]
                 keyargs = ({ _lisp_symbol_python_name(k):v
                              for k, v in _plist_alist(args[nfix:]) })
@@ -3140,7 +3136,7 @@ def _callify(form, package = None, quoted = False):
                         _lisp_symbol_ast(sym, package),
                         *mapcar(lambda x: _callify(x, package),
                                 args),
-                        **_remap_hash_table(
+                        **_map_hash_table(
                                 lambda k, x: (k, _callify(x, package)),
                                 keyargs))
         obj2ast_xform = {
