@@ -129,6 +129,7 @@ def _ast_list(xs):
 def _ast_funcall(name, *args, **keys):
         if not every(lambda x: stringp(x) or _astp(x) or x is None, args):
                 error("AST-FUNCALL: %s: improper arglist %s", name, str(args))
+        _here("as: %s, keys: %s", args, keys)
         return ast.Call(func = (_ast_name(name) if stringp(name) else name),
                         args = mapcar(_ast_maybe_normalise_string, args),
                         keywords = _maphash(_ast_keyword, keys),
@@ -200,7 +201,7 @@ def _caller_name(n = 0):
 def _exception_frame():
         return sys.exc_info()[2].tb_frame
 
-def _frames_upward_from(f = None, n = -1):
+def _frames_calling(f = None, n = -1):
         "Semantics of N are slightly confusing, but the implementation is so simple.."
         f = _caller_frame() if f is None else the(_frame, f)
         acc = [f]
@@ -246,10 +247,11 @@ def _fun_info(f):
                 f.co_varnames[f.co_argcount:], # non-parameter bound locals
                 f.co_freevars,
                 )
-def _fun_name(f):       return f.co_name
-def _fun_filename(f):   return f.co_filename
-def _fun_bytecode(f):   return f.co_code
-def _fun_constants(f):  return f.co_consts
+def _fun_name(f):        return f.co_name
+def _fun_filename(f):    return f.co_filename
+def _fun_firstlineno(f): return f.co_firstlineno
+def _fun_bytecode(f):    return f.co_code
+def _fun_constants(f):   return f.co_consts
 
 def _print_function_arglist(f):
         argspec = inspect.getargspec(f)
@@ -274,20 +276,30 @@ def _print_frames(fs, stream = None):
              *zip(*enumerate(fs)))
 
 def _backtrace(x = -1, stream = None):
-        _print_frames(_frames_upward_from(_this_frame())[1:x],
+        _print_frames(_frames_calling(_this_frame())[1:x],
                       _defaulted_to_var(stream, "_debug_io_"))
 
-def _pp_frame_chain(xs):
-        return "..".join(mapcar(lambda f: _fun_name(_frame_fun(f)), xs))
+def _pp_frame_chain(xs, source_location = None):
+        lastf = xs[-1]
+        fun = _frame_fun(lastf)
+        return ("..".join(mapcar(lambda f: _fun_name(_frame_fun(f)), xs)) +
+                (format(nil, ":%d @%s:%d",
+                        _frame_lineno(lastf) - _fun_firstlineno(fun),
+                        _fun_filename(fun),
+                        _frame_lineno(lastf))))
 
-def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr):
-        frames = _frames_upward_from(_caller_frame(), callers - 1)
-        names = _pp_frame_chain(reversed(frames))
-        string = (""           if not note else
-                  " - " + note if not args else
-                  (note % args))
+def _pp_chain_of_frame(x, callers = 5):
+        fs = _frames_calling(x, callers)
+        fs.reverse()
+        return _pp_frame_chain(fs)
+
+def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr, frame = None):
         return write_line("    (%s)  %s:\n      %s" % (threading.current_thread().name.upper(),
-                                                       names, string),
+                                                       _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
+                                                                          callers = callers - 1),
+                                                       (""           if not note else
+                                                        " - " + note if not args else
+                                                        (note % args))),
                           _defaulted(stream, default_stream))
 
 # >>> dir(f)
@@ -2576,7 +2588,7 @@ def signal(cond):
                                         # _here("...continuing handling of %s, refugees: |%s|",
                                         #       cond,
                                         #       _pp_frame_chain(
-                                        #                 reversed(_frames_upward_from(
+                                        #                 reversed(_frames_calling(
                                         #                                 assoc("__frame__", cluster),
                                         #                                 15))))
         return nil
@@ -2692,7 +2704,7 @@ __not_even_conditions__ = frozenset([SystemExit, __catcher_throw__])
 def __cl_condition_handler__(condspec, frame):
         def continuation():
                 type, raw_cond, traceback = condspec
-                # print_frames(frames_upward_from(frame))
+                # _print_frames(_frames_calling(frame))
                 if type_of(raw_cond) not in __not_even_conditions__:
                         def _maybe_upgrade_condition(cond):
                                 "Fix up the shit routinely being passed around."
@@ -2749,7 +2761,7 @@ def handler_bind(fn, *handlers, no_error = identity):
                         if not (typep(type, type_) and subtypep(type, condition)):
                                 error(simple_type_error, "While establishing handler: '%s' does not designate a known condition type.", type)
                 with env.let(__handler_clusters__ = env.__handler_clusters__ +
-                             [handlers + (("__frame__", _this_frame()),)]):
+                             [handlers + (("__frame__", _caller_frame()),)]):
                         return no_error(fn())
         else:
                 # old world case..
@@ -2852,7 +2864,8 @@ def _specs_restarts_args(restart_specs):
 # XXX: :TEST-FUNCTION is currently IGNORED!
 ##
 def _restart_bind(body, restarts_args):
-        with env.let(__restart_clusters__ = env.__restart_clusters__ + [_remap_hash_table(lambda _, restart_args: restart(**restart_args), restarts_args)]):
+        with env.let(__restart_clusters__ = (env.__restart_clusters__ +
+                                             [_remap_hash_table(lambda _, restart_args: restart(**restart_args), restarts_args)])):
                 return body()
 
 def restart_bind(body, **restart_specs):
@@ -3090,6 +3103,9 @@ __evget__, __evset__ = _make_eval_context()
 
 __eval_source_cache__ = dict() # :: code_object -> string
 
+def _code_source(co):
+        return gethash(co, __eval_source_cache__)
+
 def _coerce_to_expr(x):
         return (x.value if typep(x, ast.Expr) else
                 x)
@@ -3122,8 +3138,10 @@ def _callify(form, package = None, quoted = False):
                 func = function(the(symbol, sym))
                 paramspec = inspect.getfullargspec(func)
                 nfix = len(paramspec.args) - len(paramspec.defaults or []) # ILTW Python implementors think..
-                # _here("args: %s", args)
-                # _here("argspec: %s", argspec)
+                _here("func: %s -> %s, paramspec: %s", sym, func, paramspec)
+                _here("nfix: %s", nfix)
+                _here("args: %s", args)
+                _here("nkeys: %s", len(args) - nfix)
                 if oddp(len(args) - nfix):
                         error("odd number of &KEY arguments")
                 allow_other_keys = paramspec.varkw is not None

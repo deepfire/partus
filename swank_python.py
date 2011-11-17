@@ -478,7 +478,7 @@ def compute_backtrace(start, end = nil):
         """Return a list of frames starting with frame number START and
 continuing to frame number END or, if END is nil, the last frame on the
 stack."""
-        return cl._frames_upward_from(nth_frame(start))[:(end - start - 1) if end else None]
+        return cl._frames_calling(nth_frame(start))[:(end - start - 1) if end else None]
 
 @defimplementation
 def print_frame(frame, stream, **keys):
