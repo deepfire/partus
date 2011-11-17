@@ -106,6 +106,7 @@ def _coerce_to_symbol_name(x):
 def _astp(x):                                return typep(x, ast.AST)
 def _ast_num(n):                             return ast.Num(n = the(int, n))
 def _ast_alias(name):                        return ast.alias(name = the(str, name), asname = None)
+def _ast_keyword(name, value):               return ast.keyword(arg = the(str, name), value = the(ast.expr, value))
 def _ast_Expr(node):                         return ast.Expr(value = the(ast.expr, node))
 def _ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
 def _ast_string(s):                          return ast.Str(s = the(str, s))
@@ -116,12 +117,12 @@ def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x
 def _ast_list(xs):
         assert every(_astp, the(list, xs))
         return ast.List(elts = xs, ctx = ast.Load())
-def _ast_funcall(name, *args):
+def _ast_funcall(name, *args, **keys):
         if not every(lambda x: stringp(x) or _astp(x) or x is None, args):
                 error("AST-FUNCALL: %s: improper arglist %s", name, str(args))
         return ast.Call(func = (_ast_name(name) if stringp(name) else name),
                         args = mapcar(_ast_maybe_normalise_string, args),
-                        keywords = [],
+                        keywords = _maphash(_ast_keyword, keys),
                         starargs = None,
                         kwargs = None)
 def _ast_import_from(module_name, names):
