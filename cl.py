@@ -636,10 +636,14 @@ __function_types__ = frozenset([types.BuiltinFunctionType,
                                 types.LambdaType,
                                 types.MethodType])
 
-function = types.FunctionType.__mro__[0]
-integer  = int
+function_ = types.FunctionType.__mro__[0]
+integer   = int
 
-def functionp(o):     return isinstance(o, function)
+def function(name):
+        pyname, module = _lisp_symbol_python_addr(name)
+        return the(function_, _lisp_symbol_python_value(name))
+
+def functionp(o):     return isinstance(o, function_)
 def integerp(o):      return type(o) is int
 def floatp(o):        return type(o) is float
 def complexp(o):      return type(o) is complex
