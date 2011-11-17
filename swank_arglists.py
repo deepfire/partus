@@ -17,6 +17,8 @@ from   cl       import _keyword as keyword, _intern0 as intern0
 
 from   pergamum import *
 
+from   swank_backend import defimplementation
+
 # (in-package :swank)
 
 # (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -1159,11 +1161,12 @@ def arglist_dispatch(form, tail):
 ### %CURSOR-MARKER%)). Only the forms up to point should be
 ### considered.
 
-@block
+@defimplementation
 def autodoc(raw_form, print_right_margin = nil):
         """Return a string representing the arglist for the deepest subform in
 RAW-FORM that does have an arglist. The highlighted parameter is
 wrapped in ===> X <===."""
+        @block
         def body():
                 form, arglist, obj_at_cursor, form_path = find_subform_with_arglist(
                         parse_raw_form(raw_form))
@@ -1182,11 +1185,11 @@ wrapped in ===> X <===."""
         def handler(c):
                 if not debug_on_swank_error():
                         with progv(_pring_right_margin_ = print_right_margin):
-                                return_from(autodoc,
+                                return_from(body,
                                             format(nil, "Arglist Error: \"%s\"", c))
-        handler_bind(lambda: with_buffer_syntax(body),
-                     (error_,
-                      handler))
+        return handler_bind(lambda: with_buffer_syntax(body),
+                            (error_,
+                             handler))
 
 def boundp_and_interesting(symbol):
         return (symbol and
