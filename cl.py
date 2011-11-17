@@ -1168,21 +1168,39 @@ def _lisp_symbol_name_python_name(x):
         # debug_printf("==> Python(Lisp %s) == %s", x, ret)
         return ret
 
-def _lisp_symbol_ast(sym, current_package):
-        symname, packname = (_lisp_symbol_name_python_name(sym.name),
-                             _lisp_symbol_name_python_name(sym.package.name))
-        return (_ast_name(symname)
-                if _symbol_accessible_in(sym, current_package) else
-                _ast_index(_ast_attribute(_ast_index(_ast_attribute(_ast_name("sys"), "modules"), _ast_string(packname)),
-                                                     "__dict__"),
-                           _ast_string(symname)))
+def _lisp_symbol_python_name(sym):
+        return _lisp_symbol_name_python_name(sym.name)
 
-def _lisp_package_name_module(x, if_does_not_exist = "create"):
-        name = _lisp_symbol_name_python_name(x)
-        return (sys.modules[name]                                                                if name in sys.modules else
-                error(simple_package_error, "The name %s does not designate any package.", name) if if_does_not_exist == "error" else
-                None                                                                             if if_does_not_exist == "continue" else
-                error("LISP-PACKAGE-NAME-MODULE: :IF-DOES-NOT-EXIST must be either \"error\" or \"continue\", not \"%s\".", if_does_not_exist))
+def _lisp_symbol_python_names(sym):
+        return (_lisp_symbol_name_python_name(sym.name),
+                _lisp_symbol_name_python_name(sym.package.name))
+
+def _find_module(name, if_does_not_exist = "error"):
+        return (gethash(name, sys.modules)[0] or
+                ecase(if_does_not_exist,
+                      ("continue",
+                       None),
+                      ("error",
+                       lambda: error(simple_package_error, "The name %s does not designate any package.",
+                                     name))))
+
+def _lisp_symbol_python_addr(sym):
+        symname, packname = _lisp_symbol_python_names(sym)
+        return symname, _find_module(packname)
+
+def _lisp_symbol_python_value(sym):
+        name, module = _lisp_symbol_python_addr(sym)
+        value, presentp = gethash(name, module.__dict__)
+        return (value if presentp else
+                error(simple_package_error, "This name is not accessible in the '%s' module: '%s'.",
+                      module.__name__, name))
+
+def _lisp_symbol_ast(sym, current_package):
+        symname, packname = _lisp_symbol_python_names(sym)
+        return (_ast_name(symname) if _symbol_accessible_in(sym, current_package) else
+                _ast_index(_ast_attribute(_ast_index(_ast_attribute(_ast_name("sys"), "modules"), _ast_string(packname)),
+                                          "__dict__"),
+                           _ast_string(symname)))
 
 class package(collections.UserDict):
         def __repr__ (self):
@@ -1204,7 +1222,7 @@ class package(collections.UserDict):
               # self.internal    = accessible - external
 
                 modname = _lisp_symbol_name_python_name(name)
-                self.module = (_lisp_package_name_module(modname, if_does_not_exist = "continue") or
+                self.module = (_find_module(modname, if_does_not_exist = "continue") or
                                _load_text_as_module(modname, "", filename = filename))
                 # Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
                 coercer = (_ccoerce_to_package if boot else
@@ -1350,7 +1368,8 @@ def _keyword(s, upcase = True):
 def import_(symbols, package = None, populate_module = True):
         p = _coerce_to_package(package)
         symbols = _ensure_list(symbols)
-        module = _lisp_package_name_module(package_name(p), if_does_not_exist = "continue")
+        module = _find_module(_lisp_symbol_name_python_name(package_name(p)),
+                              if_does_not_exist = "continue")
         for s in symbols:
                 ps = p.get(s.name) if s.name in p else None
                 if ps is not None: # conflict
@@ -2973,7 +2992,7 @@ def _eval_python(expr_or_stmt):
         if boundp("_source_for_eval_"):
                 __eval_source_cache__[code] = symbol_value("_source_for_eval_")
         # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
-        exec(code, _lisp_package_name_module(package_name(package)).__dict__)
+        exec(code, _find_module(_lisp_symbol_name_python_name(package_name(package))).__dict__)
         values = (__evget__() if exprp else
                   tuple())
         return values if _tuplep(values) else (values,)
