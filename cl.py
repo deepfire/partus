@@ -1039,6 +1039,15 @@ def gethash(key, dict):
 def _maphash(f, dict):
         return [ f(k, v) for k, v in dict.items() ]
 
+def _map_hash_table(f, hash_table, key_key = _0arg, value_key = _1arg):
+        acc = dict()
+        for old_k, old_v in hash_table.items():
+                k, v = f(old_k, old_v)
+                k, v = key_key(k, v), value_key(k, v)
+                if k is not None:
+                        acc[k] = v
+        return acc
+
 def _remap_hash_table(f, xs):
         return { k: f(k, v) for k, v in xs.items() }
 
@@ -1046,6 +1055,14 @@ def _map_into_hash(f, xs, key = identity):
         acc = dict()
         for x in xs:
                 k, v = f(key(x))
+                acc[k] = v
+        return acc
+
+def _map_into_hash_star(f, xs, key = identity):
+        "This is, actually, more generic than MAP-HASH-TABLE."
+        acc = dict()
+        for x in xs:
+                k, v = f(*key(x))
                 acc[k] = v
         return acc
 
