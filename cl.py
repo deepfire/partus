@@ -933,6 +933,7 @@ def gethash(key, dict):
         inp = key in dict
         return (dict.get(key) if inp else None), key in dict
 
+# Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
 def _maphash(f, dict):
         return [ f(k, v) for k, v in dict.items() ]
 
