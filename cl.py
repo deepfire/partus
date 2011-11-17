@@ -177,40 +177,6 @@ def _reregister_module_as_package(mod, parent_package = None):
 ##
 ## frames
 ##
-# >>> dir(f)
-# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
-# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
-# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
-# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
-# "__subclasshook__", "f_back", "f_builtins", "f_code", "f_globals",
-# "f_lasti", "f_lineno", "f_locals", "f_trace"]
-# >>> dir(f.f_code)
-# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
-# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
-# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
-# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
-# "__subclasshook__", "co_argcount", "co_cellvars", "co_code",
-# "co_consts", "co_filename", "co_firstlineno", "co_flags",
-# "co_freevars", "co_kwonlyargcount", "co_lnotab", "co_name",
-# "co_names", "co_nlocals", "co_stacksize", "co_varnames"]
-def _example_frame():
-        "cellvars: closed over non-globals;  varnames: bound"
-        def xceptor(xceptor_arg):
-                "names: globals;  varnames: args + otherbind;  locals: len(varnames)"
-                try:
-                        error("This is xceptor talking: %s.", xceptor_arg)
-                except Exception as cond:
-                        return _this_frame()
-        def midder(midder_arg):
-                "freevars: non-global-free;  varnames: args + otherbind;  locals: ..."
-                midder_stack_var = 0
-                return xceptor(midder_arg + midder_stack_var)
-        def outer():
-                "freevars: non-global-free;  varnames: args + otherbind"
-                outer_stack_var = 3
-                return midder(outer_stack_var)
-        return outer()
-
 def _all_threads_frames():
         return sys._current_frames()
 
