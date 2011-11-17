@@ -67,6 +67,15 @@ def _case_xform(type, s):
 ###
 ### Ring 1.
 ###
+def _alist_plist(xs):
+        return append(*xs)
+
+def _plist_alist(xs):
+        acc = []
+        for i in range(0, len(xs), 2):
+                acc.append((xs[i], xs[i + 1]))
+        return acc
+
 class _cache(collections.UserDict):
         def __init__(self, filler):
                 self.filler = filler
