@@ -480,29 +480,19 @@ def code_location_debug_fun(l):
         return l.debug_fun
 
 ### AST cache
-__namestring_asts__ = dict() # namestring -> (timestamp, [ast])
-def _record_namestring_ast(id, timestamp, astree):
-        _record_ast(__namestring_asts__, id, timestamp, astree)
+__namestring_asts__ = cl._cache(
+        lambda ns: (more_ast.extract_ast(cl._file_as_string(ns)),
+                      cl.get_universal_time())) # namestring -> (timestamp, [ast])
 
-def _try_get_namestring_ast(id, timestamp):
-        return _try_get_ast(__namestring_asts__, id, timestamp)
+__code_asts__ = cl._cache(
+        lambda co: (more_ast.extract_ast(cl._code_source(co)[0]),
+                      cl.get_universal_time())) # func -> (timestamp, [ast])
 
-def _ensure_namestring_ast(id, timestamp):
-        return _ensure_astree(__namestring_asts__, id, timestamp, 
-                              source_getter    = get_file_content,
-                              timestamp_getter = file_write_date)
+def _namestring_ast(namestring):
+        return __namestring_asts__[(namestring, 0)]
 
-__func_asts__ = dict() # func -> (timestamp, [ast])
-def _record_func_ast(id, timestamp, astree):
-        _record_ast(__func_asts__, id, timestamp, astree)
-
-def _try_get_func_ast(id, timestamp):
-        return _try_get_ast(__func_asts__, id, timestamp)
-
-def _ensure_func_ast(id, timestamp):
-        return _ensure_astree(__func_asts__, id, timestamp, 
-                              source_getter    = inspect.getsource,
-                              timestamp_getter = constantly(nil))
+def _code_ast(code):
+        return __code_asts__[(code, 0)]
 
 def code_location_debug_source(l):
         # (let ((info (compiled-debug-fun-debug-info
@@ -607,13 +597,13 @@ def code_location_debug_source(l):
         filename = l.debug_fun.co_filename
         exists_p = probe_file(filename)
         plausible_file_p = exists_p or sb_c.source_namestring_looks_real_p(filename)
-        cl._here("filename: %s, exists_p: %s, function: %s", filename, exists_p, dir(l.debug_fun))
-        describe(l.debug_fun)
+        # cl._here("filename: %s, exists_p: %s, function: %s", filename, exists_p, dir(l.debug_fun))
+        # describe(l.debug_fun)
         if exists_p:
-                ast, timestamp = _ensure_namestring_ast(filename, None)
+                ast, timestamp = _namestring_ast(filename)
         else:
                 if not plausible_file_p:
-                        ast, timestamp = _ensure_func_ast(l.debug_fun, None)
+                        ast, timestamp = _code_ast(l.debug_fun)
                 else:
                         # file went missing
                         not_implemented("source file missing")
