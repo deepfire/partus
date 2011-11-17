@@ -67,6 +67,15 @@ def _case_xform(type, s):
 ###
 ### Ring 1.
 ###
+def _1arg(*args):
+        return args[0]
+
+def _0arg(*args):
+        return args[1]
+
+def _narg(n, *args):
+        return args[n]
+
 def _alist_plist(xs):
         return append(*xs)
 
