@@ -2707,7 +2707,7 @@ def __cl_condition_handler__(condspec, frame):
                                 _here("Condition Upgrader: %s(%s) -> %s(%s)",
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
-                                      callers = 15)
+                                      callers = 45, frame = symbol_value("_stack_top_hint_"))
                         with env.let(_traceback_ = traceback,
                                      _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
                                 presignal_hook = symbol_value("_presignal_hook_")
