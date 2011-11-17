@@ -416,11 +416,11 @@ def _not_implemented(x = None):
 ## Pergamum 0
 ##
 def _if_let(cond, consequent, antecedent = lambda: None):
-        x = cond() if functionp(cond) else cond
+        x = cond() if isinstance(cond, function_) else cond
         return consequent(x) if x else antecedent()
 
 def _when_let(cond, consequent):
-        x = cond() if functionp(cond) else cond
+        x = cond() if isinstance(cond, function_) else cond
         return consequent(x) if x else None
 
 def _lret(value, body):
@@ -536,20 +536,20 @@ def _destructuring_bind_keys(val, body):
 
 def when(test, body):
         if test:
-                return body() if functionp(body) else body
+                return body() if isinstance(body, function_) else body
 def cond(*clauses):
         for (test, body) in clauses:
-                if test() if functionp(test) else test:
-                        return body() if functionp(body) else body
+                if test() if isinstance(test, function_) else test:
+                        return body() if isinstance(body, function_) else body
 def case(val, *clauses):
         for (cval, body) in clauses:
                 if val == cval or (cval is True) or (cval is t):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, function_) else body
 
 def ecase(val, *clauses):
         for (cval, body) in clauses:
                 if val == cval:
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, function_) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
 def every(fn, xs):
@@ -614,12 +614,12 @@ def check_type(x, type):
 def typecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, function_) else body
 
 def etypecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, function_) else body
         else:
                 error(simple_type_error, "%s fell through ETYPECASE expression. Wanted one of (%s).",
                       val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
@@ -999,7 +999,7 @@ of nonce-ing is to be handled manually."""
                 return catch(nonce_or_fn, body)
 
 def return_from(nonce, value):
-        nonce = (nonce if not functionp(nonce) else
+        nonce = (nonce if not isinstance(nonce, function_) else
                  (getattr(nonce, "ball", None) or
                   error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
         throw(nonce, value)
