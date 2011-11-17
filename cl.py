@@ -255,6 +255,7 @@ def _frame_info(f):
                 f.f_builtins,
                 )
 
+# Issue FRAME-CODE-OBJECT-IS-NOT-FUN
 def _frame_fun(f):               return f.f_code
 def _frame_lineno(f):            return f.f_lineno
 def _frame_locals(f):            return f.f_locals
