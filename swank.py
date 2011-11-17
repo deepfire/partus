@@ -1565,8 +1565,7 @@ Errors are trapped and invoke our debugger."""
         #                              ,id)))))
         ok, result, condition = None, None, None
         def set_result(x):            nonlocal result;    result = x
-        def set_condition(x):         here("set: %s", x); nonlocal condition; condition = x
-        def passthrough_condition(x): here("passthrough: %s", x); raise x
+        def set_condition(x):         nonlocal condition; condition = x
         try:
                 with progv(_buffer_package_ = guess_buffer_package(buffer_package),
                            _pending_continuations_ = [id] + symbol_value("_pending_continuations_")):

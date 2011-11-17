@@ -323,58 +323,180 @@ def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.s
                                                        names, string),
                           _defaulted(stream, default_stream))
 
+# >>> dir(f)
+# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
+# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
+# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
+# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
+# "__subclasshook__", "f_back", "f_builtins", "f_code", "f_globals",
+# "f_lasti", "f_lineno", "f_locals", "f_trace"]
+# >>> dir(f.f_code)
+# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
+# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
+# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
+# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
+# "__subclasshook__", "co_argcount", "co_cellvars", "co_code",
+# "co_consts", "co_filename", "co_firstlineno", "co_flags",
+# "co_freevars", "co_kwonlyargcount", "co_lnotab", "co_name",
+# "co_names", "co_nlocals", "co_stacksize", "co_varnames"]
+def _example_frame():
+        "cellvars: closed over non-globals;  varnames: bound"
+        def xceptor(xceptor_arg):
+                "names: globals;  varnames: args + otherbind;  locals: len(varnames)"
+                try:
+                        error("This is xceptor talking: %s.", xceptor_arg)
+                except Exception as cond:
+                        return _this_frame()
+        def midder(midder_arg):
+                "freevars: non-global-free;  varnames: args + otherbind;  locals: ..."
+                midder_stack_var = 0
+                return xceptor(midder_arg + midder_stack_var)
+        def outer():
+                "freevars: non-global-free;  varnames: args + otherbind"
+                outer_stack_var = 3
+                return midder(outer_stack_var)
+        return outer()
 # Study was done by the means of:
-# print("\n".join(map(lambda f:
-#                             "== def %s\n%s\n" %
-#                     (fun_name(f),
-#                      "\n  ".join(map(lambda s: s + ": " + str(getattr(f, s)),
-#                                      ["co_argcount",
-#                                       "co_cellvars",
-#                                       "co_names",
-#                                       "co_varnames",
-#                                       "co_freevars",
-#                                       "co_nlocals"]))),
-#                     ffuns)))
+# print("\n".join((lambda listattr:
+#                   map(lambda f:
+#                        "== co %s\n  %s\n== def %s\n  %s\n" %
+#                        (f, listattr(f), cl._fun_name(cl._frame_fun(f)), listattr(cl._frame_fun(f))),
+#                        cl._frames_calling(cl._example_frame())))
+#                 (lambda x: "\n  ".join(map(lambda s: s + ": " + str(getattr(x, s)),
+#                                            cl.remove_if(lambda attr: "__" in attr or "builtins" in attr or "locals" in attr or "globals" in attr,
+#                                                         dir(x)))))))
 
+# == co <frame object at 0x2381de0>
+#   f_back: <frame object at 0x2381c00>
+#   f_code: <code object xceptor at 0x277a4f8, file "cl.py", line 199>
+#   f_lasti: 59
+#   f_lineno: 204
+#   f_trace: None
 # == def xceptor
-# co_argcount: 1
+#   co_argcount: 1
 #   co_cellvars: ()
-#   co_names: ("error", "Exception", "this_frame")
-#   co_varnames: ("xceptor_arg", "cond")
+#   co_code: b'y\x11\x00t\x00\x00d\x01\x00|\x00\x00\x83\x02\x00\x01Wn,\x00\x04t\x01\x00k\n\x00r?\x00\x01}\x01\x00\x01z\x0c\x00t\x02\x00\x83\x00\x00SWYd\x02\x00d\x02\x00}\x01\x00~\x01\x00Xn\x01\x00Xd\x02\x00S'
+#   co_consts: ('names: globals;  varnames: args + otherbind;  locals: len(varnames)', 'This is xceptor talking: %s.', None)
+#   co_filename: cl.py
+#   co_firstlineno: 199
+#   co_flags: 83
 #   co_freevars: ()
-#   co_nlocals: 2
+#   co_kwonlyargcount: 0
+#   co_lnotab: b'\x00\x02\x03\x01\x11\x01\x12\x01'
+#   co_name: xceptor
+#   co_names: ('error', 'Exception', '_this_frame')
+#   co_stacksize: 16
+#   co_varnames: ('xceptor_arg', 'cond')
 
+# == co <frame object at 0x2381c00>
+#   f_back: <frame object at 0x1fa8480>
+#   f_code: <code object midder at 0x277a580, file "cl.py", line 205>
+#   f_lasti: 19
+#   f_lineno: 208
+#   f_trace: None
 # == def midder
-# co_argcount: 1
+#   co_argcount: 1
 #   co_cellvars: ()
+#   co_code: b'd\x01\x00}\x01\x00\x88\x00\x00|\x00\x00|\x01\x00\x17\x83\x01\x00S'
+#   co_consts: ('freevars: non-global-free;  varnames: args + otherbind;  locals: ...', 0)
+#   co_filename: cl.py
+#   co_firstlineno: 205
+#   co_flags: 19
+#   co_freevars: ('xceptor',)
+#   co_kwonlyargcount: 0
+#   co_lnotab: b'\x00\x02\x06\x01'
+#   co_name: midder
 #   co_names: ()
-#   co_varnames: ("midder_arg", "midder_stack_var")
-#   co_freevars: ("xceptor",)
-#   co_nlocals: 2
+#   co_stacksize: 3
+#   co_varnames: ('midder_arg', 'midder_stack_var')
 
+# == co <frame object at 0x1fa8480>
+#   f_back: <frame object at 0x27ce6c0>
+#   f_code: <code object outer at 0x277a608, file "cl.py", line 209>
+#   f_lasti: 15
+#   f_lineno: 212
+#   f_trace: None
 # == def outer
-# co_argcount: 0
+#   co_argcount: 0
 #   co_cellvars: ()
+#   co_code: b'd\x01\x00}\x00\x00\x88\x00\x00|\x00\x00\x83\x01\x00S'
+#   co_consts: ('freevars: non-global-free;  varnames: args + otherbind', 3)
+#   co_filename: cl.py
+#   co_firstlineno: 209
+#   co_flags: 19
+#   co_freevars: ('midder',)
+#   co_kwonlyargcount: 0
+#   co_lnotab: b'\x00\x02\x06\x01'
+#   co_name: outer
 #   co_names: ()
-#   co_varnames: ("outer_stack_var",)
-#   co_freevars: ("midder",)
-#   co_nlocals: 1
+#   co_stacksize: 2
+#   co_varnames: ('outer_stack_var',)
 
-# == def example_frame
-# co_argcount: 0
-#   co_cellvars: ("xceptor", "midder")
-#   co_names: ()
-#   co_varnames: ("outer",)
+# == co <frame object at 0x27ce6c0>
+#   f_back: <frame object at 0x27f3030>
+#   f_code: <code object _example_frame at 0x277a690, file "cl.py", line 197>
+#   f_lasti: 45
+#   f_lineno: 213
+#   f_trace: None
+# == def _example_frame
+#   co_argcount: 0
+#   co_cellvars: ('xceptor', 'midder')
+#   co_code: b'd\x01\x00\x84\x00\x00\x89\x00\x00\x87\x00\x00f\x01\x00d\x02\x00\x86\x00\x00\x89\x01\x00\x87\x01\x00f\x01\x00d\x03\x00\x86\x00\x00}\x00\x00|\x00\x00\x83\x00\x00S'
+#   co_consts: ('cellvars: closed over non-globals;  varnames: bound', <code object xceptor at 0x277a4f8, file "cl.py", line 199>, <code object midder at 0x277a580, file "cl.py", line 205>, <code object outer at 0x277a608, file "cl.py", line 209>)
+#   co_filename: cl.py
+#   co_firstlineno: 197
+#   co_flags: 3
 #   co_freevars: ()
-#   co_nlocals: 1
+#   co_kwonlyargcount: 0
+#   co_lnotab: b'\x00\x02\t\x06\x0f\x04\x0f\x04'
+#   co_name: _example_frame
+#   co_names: ()
+#   co_stacksize: 2
+#   co_varnames: ('outer',)
 
+# == co <frame object at 0x27f3030>
+#   f_back: <frame object at 0x2388fd0>
+#   f_code: <code object <lambda> at 0x278de00, file "<stdin>", line 1>
+#   f_lasti: 36
+#   f_lineno: 5
+#   f_trace: None
+# == def <lambda>
+#   co_argcount: 1
+#   co_cellvars: ('listattr',)
+#   co_code: b't\x00\x00\x87\x00\x00f\x01\x00d\x01\x00\x86\x00\x00t\x01\x00j\x02\x00t\x01\x00j\x03\x00\x83\x00\x00\x83\x01\x00\x83\x02\x00S'
+#   co_consts: (None, <code object <lambda> at 0x278d0b8, file "<stdin>", line 2>)
+#   co_filename: <stdin>
+#   co_firstlineno: 1
+#   co_flags: 3
+#   co_freevars: ()
+#   co_kwonlyargcount: 0
+#   co_lnotab: b'\x00\x01\x0f\x03'
+#   co_name: <lambda>
+#   co_names: ('map', 'cl', '_frames_calling', '_example_frame')
+#   co_stacksize: 4
+#   co_varnames: ('listattr',)
+
+# == co <frame object at 0x2388fd0>
+#   f_back: None
+#   f_code: <code object <module> at 0x220f7a0, file "<stdin>", line 1>
+#   f_lasti: 24
+#   f_lineno: 6
+#   f_trace: None
 # == def <module>
-# co_argcount: 0
+#   co_argcount: 0
 #   co_cellvars: ()
-#   co_names: ("example_frame", "f")
-#   co_varnames: ()
+#   co_code: b'e\x00\x00d\x00\x00j\x01\x00d\x01\x00\x84\x00\x00d\x02\x00\x84\x00\x00\x83\x01\x00\x83\x01\x00\x83\x01\x00Fd\x03\x00S'
+#   co_consts: ('\n', <code object <lambda> at 0x278de00, file "<stdin>", line 1>, <code object <lambda> at 0x220f2d8, file "<stdin>", line 6>, None)
+#   co_filename: <stdin>
+#   co_firstlineno: 1
+#   co_flags: 64
 #   co_freevars: ()
-#   co_nlocals: 0
+#   co_kwonlyargcount: 0
+#   co_lnotab: b'\x0f\x05'
+#   co_name: <module>
+#   co_names: ('print', 'join')
+#   co_stacksize: 4
+#   co_varnames: ()
 
 # More info:
 # sys.call_tracing()
