@@ -3117,7 +3117,7 @@ __evget__, __evset__ = _make_eval_context()
 
 __eval_source_cache__ = dict() # :: code_object -> string
 
-def _code_source(co):
+def _evaluated_code_source(co):
         return gethash(co, __eval_source_cache__)
 
 def _coerce_to_expr(x):
