@@ -3046,12 +3046,13 @@ executes the following:
 ##
 ## Interactivity
 ##
-def describe(x, stream = t):
+def describe(x, stream = t, show_hidden = nil):
         stream = _coerce_to_stream(stream)
         write_line("Object \"%s\" of type %s:" % (x, type_of(x)), stream)
         for attr, val in (x.__dict__ if hasattr(x, "__dict__") else
                           { k: getattr(x, k) for k in dir(x)}).items():
-                write_line("%25s: %s" % (attr, ignore_errors(lambda: str(val))), stream)
+                if show_hidden or "__" not in attr:
+                        write_line("%25s: %s" % (attr, ignore_errors(lambda: str(val))), stream)
 
 ##
 ## Modules
