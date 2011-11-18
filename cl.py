@@ -659,12 +659,14 @@ def cond(*clauses):
                         return body() if isinstance(body, function_) else body
 def case(val, *clauses):
         for (cval, body) in clauses:
-                if val == cval or (cval is True) or (cval is t):
+                if ((val == cval or (cval is True) or (cval is t)) if not isinstance(cval, list) else
+                    val in cval):
                         return body() if isinstance(body, function_) else body
 
 def ecase(val, *clauses):
         for (cval, body) in clauses:
-                if val == cval:
+                if ((val == cval) if not isinstance(cval, list) else
+                    val in cval):
                         return body() if isinstance(body, function_) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
