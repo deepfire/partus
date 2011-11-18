@@ -98,6 +98,16 @@ class _cache(collections.UserDict):
         def __setitem__(self, key, value):
                 error("Direct cache writes are not allowed.")
 
+def _make_timestamping_cache(map_computer):
+        cache = _cache(lambda x:
+                              let(map_computer(x),
+                                  lambda y: ((y, get_universal_time()) if x else
+                                             None)))
+        def cache_getter(x):
+                res = cache[(x, 0)]
+                return res[0] if res is not None else None
+        return cache, cache_getter
+
 def _defaulted(x, value):
         return x if x is not None else value
 
