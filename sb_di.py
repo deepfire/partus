@@ -426,6 +426,7 @@ def _make_cloc(co, lineno):
                              # ..our measly substitute..
                              lineno      = lineno)
 
+# Issue FRAME-CLOC-AND-RELATED-MAPS-MUST-BE-WEAK
 (__frame_clocs__, _frame_cloc) = cl._make_timestamping_cache(
         lambda frame: _make_cloc(cl._frame_fun(frame),
                                  cl._frame_lineno(frame)))
