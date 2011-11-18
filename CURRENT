@@ -1,4 +1,45 @@
 1. Keyword argument support in CALLIFY:
 (swank:autodoc (quote ("+" swank::%cursor-marker%)) :print-right-margin 190) -- this is two args, not three!
 
-2. AUTODOC saga..
+2. AST caching:
+In thread "repl-thread": condition of type <class 'AttributeError'>: 'property' object has no attribute 'co_filename'
+ 0: cl.py:2638: _report_condition(cond, stream, backtrace)
+ 1: <string>:1: <lambda>(c, h)
+ 2: cl.py:2743: continuation()
+ 3: cl.py:2753: __cl_condition_handler__(condspec, frame)
+ 4: cl.py:2546: _pytracer(frame, event, arg)
+ 5: sb_di.py:751: __code_ast(co)
+ 6: cl.py:106: <lambda>(x)
+ 7: cl.py:96: __getitem__(self, key)
+ 8: cl.py:110: cache_getter(x)
+ 9: sb_di.py:839: fill_in_code_location(code_location)
+10: sb_di.py:519: <lambda>()
+11: cl.py:2780: handler_bind(fn)
+12: cl.py:2803: <lambda>()
+13: cl.py:1115: catch(ball, body)
+14: cl.py:2803: handler_case(body)
+15: sb_di.py:521: try_fill_in()
+16: sb_di.py:527: code_location_unknown_p(basic_code_location)
+17: sb_di.py:768: code_location_toplevel_form_offset(l)
+18: swank_python.py:612: stream_source_position(code_location, stream)
+19: swank_python.py:572: body(s)
+20: cl.py:1045: with_input_from_string(s, f)
+21: swank_python.py:579: <lambda>()
+22: swank_python.py:289: call_with_debootstrapping(body)
+23: swank_python.py:578: source_file_source_location(code_location)
+24: swank_python.py:540: file_source_location(code_location)
+25: swank_python.py:521: <lambda>()
+26: cl.py:670: ecase(val)
+27: swank_python.py:522: code_location_source_location(code_location)
+28: swank_python.py:644: <lambda>()
+29: cl.py:2780: handler_bind(fn)
+30: swank_backend.py:683: converting_errors_to_error_location(body)
+31: cl.py:1135: <lambda>()
+32: cl.py:1115: catch(ball, body)
+33: cl.py:1135: <lambda>()
+34: swank_python.py:643: frame_source_location(n)
+35: <unknown-file>:1: <module>()
+36: cl.py:3146: _eval_python(expr_or_stmt)
+37: cl.py:3208: eval_(form)
+
+3. AUTODOC saga
