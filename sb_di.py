@@ -392,10 +392,10 @@ def find_stepped_frame():
         # provide a *STACK-TOP-HINT*.
         return not_implemented()
 
-def frame_code_location(f):
+def _make_cloc(co, lineno):
         return code_location(## the DEBUG-FUN containing this CODE-LOCATION
                              # "debug_fun",       # nil :type debug-fun
-                             debug_fun = f.f_code,  # a code object.. which is really closer to a debug block
+                             debug_fun = co,      # a code object.. which is really closer to a debug block
                              #
                              ## This is initially :UNSURE. Upon first trying to access an
                              ## :UNPARSED slot, if the data is unavailable, then this becomes T,
@@ -424,7 +424,31 @@ def frame_code_location(f):
                              form_number = keyword("unparsed"),
                              #
                              # ..our measly substitute..
-                             lineno      = f.f_lineno)
+                             lineno      = lineno)
+
+(__frame_clocs__, _frame_cloc) = cl._make_timestamping_cache(
+        lambda frame: _make_cloc(cl._frame_fun(frame),
+                                 cl._frame_lineno(frame)))
+
+frame_code_location = _frame_cloc
+
+def __namestring_ast(namestring):
+        if probe_file(namestring):
+                return more_ast.extract_ast(cl._file_as_string(namestring))
+
+(__namestring_asts__, _namestring_ast) = cl._make_timestamping_cache(__namestring_ast)
+
+def __code_ast(co):
+        source_ast = _namestring_ast(co.co_filename)
+        if source_ast:
+                return source_ast
+        # Source file missing, the only other place where we could've had
+        # the source is EVAL.
+        co_source, code_source_present_p = cl._evaluated_code_source(co)
+        if code_source_present_p:
+                return more_ast.extract_ast(co_source)
+
+(__code_asts__, _code_ast) = cl._make_timestamping_cache(__code_ast)
 
 ###
 def code_location_toplevel_form_offset(l):
@@ -432,7 +456,17 @@ def code_location_toplevel_form_offset(l):
         # CODE-LOCATION as seen by the compiler in some compilation unit. (A
         # compilation unit is not necessarily a single file, see the section
         # on debug-sources.)
-        return not_implemented()
+        def find_toplevel_for_lineno(toplevel_forms, lineno):
+                last = nil
+                for i, form in enumerate(toplevel_forms):
+                        if form.lineno >= lineno:
+                                return i, last
+                return nil, nil
+        co, lineno = l.debug_fun, l.lineno
+        # source, presentp = cl._code_source(co)
+        # forms = more_ast.extract_ast(source)
+        ast = the(ast.Module, _code_ast(co))
+        return find_toplevel_for_lineno(ast.body, lineno)[0]
 
 def code_location_form_number(l):
         # Return the number of the form corresponding to CODE-LOCATION. The
@@ -478,21 +512,6 @@ def maybe_block_start_location(l):
 
 def code_location_debug_fun(l):
         return l.debug_fun
-
-### AST cache
-__namestring_asts__ = cl._cache(
-        lambda ns: (more_ast.extract_ast(cl._file_as_string(ns)),
-                      cl.get_universal_time())) # namestring -> (timestamp, [ast])
-
-__code_asts__ = cl._cache(
-        lambda co: (more_ast.extract_ast(cl._code_source(co)[0]),
-                      cl.get_universal_time())) # func -> (timestamp, [ast])
-
-def _namestring_ast(namestring):
-        return __namestring_asts__[(namestring, 0)]
-
-def _code_ast(code):
-        return __code_asts__[(code, 0)]
 
 def code_location_debug_source(l):
         # (let ((info (compiled-debug-fun-debug-info
@@ -594,23 +613,13 @@ def code_location_debug_source(l):
         ##  c:
         ## 
         ##
-        filename = l.debug_fun.co_filename
-        exists_p = probe_file(filename)
-        plausible_file_p = exists_p or sb_c.source_namestring_looks_real_p(filename)
-        # cl._here("filename: %s, exists_p: %s, function: %s", filename, exists_p, dir(l.debug_fun))
-        # describe(l.debug_fun)
-        if exists_p:
-                ast, timestamp = _namestring_ast(filename)
-        else:
-                if not plausible_file_p:
-                        ast, timestamp = _code_ast(l.debug_fun)
-                else:
-                        # file went missing
-                        not_implemented("source file missing")
-
+        co = l.debug_fun
+        namestring = co.co_filename
+        _namestring_ast, timestamp = __namestring_asts__[(namestring, 0)]
+        exists_p = _namestring_ast
         # XXX: it's very unclear, how do we track the compilation timestamp..
         namestring, created, compiled, form = (
-                (filename,
+                (namestring,
                  timestamp,
                  timestamp,
                  nil) if exists_p else

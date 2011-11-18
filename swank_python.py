@@ -270,10 +270,25 @@ def input_ready_p(stream):
 #### shebang-readtable
 #### sbcl-package-p
 #### sbcl-source-file-p
-#### guess-readtable-for-filename
-#### defvar *debootstrap-packages*
-#### call-with-debootstrapping
-#### defmacro with-debootstrapping
+
+def guess_readtable_for_filename(filename):
+        ## Was:
+        # (if (sbcl-source-file-p filename)
+        #       (shebang-readtable)
+        #       *readtable*)
+        return symbol_value("_readtable_")
+
+defvar("_debootstrap_packages_", t)
+
+def call_with_debootstrapping(body):
+        ## Was:
+        # (defun call-with-debootstrapping (fun)
+        #   (handler-bind ((sb-int:bootstrap-package-not-found
+        #                   #'sb-int:debootstrap-package))
+        #     (funcall fun)))
+        return body()
+
+with_debootstrapping = call_with_debootstrapping
 
 # def call_with_syntax_hooks(fn):			pass
 # def default_readtable_alist():			pass
@@ -593,7 +608,7 @@ def stream_source_position(code_location, stream):
         #                        (t
         #                         (reverse (cdr (aref path-table form-number)))))))
         #       (source-path-source-position path tlf pos-map))))
-        cloc = maybe_block_start_location(coe_location)
+        cloc = sb_debug.maybe_block_start_location(code_location)
         tlf_number = sb_di.code_location_toplevel_form_offset(cloc)
         form_number = sb_di.code_location_form_number(cloc)
         tlf, pos_map = read_source_form(tlf_number, stream)
