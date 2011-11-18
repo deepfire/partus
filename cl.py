@@ -93,7 +93,10 @@ class _cache(collections.UserDict):
                 check_type(key, tuple)
                 key, access_timestamp = key
                 if key not in self.data:
-                        self.data[key] = self.filler(key)
+                        res = self.filler(key)
+                        if res is None: # Allow the filler to refuse.
+                                return
+                        self.data[key] = res
                 return self.data[key]
         def __setitem__(self, key, value):
                 error("Direct cache writes are not allowed.")
