@@ -292,24 +292,32 @@ def _backtrace(x = -1, stream = None):
         _print_frames(_frames_calling(_this_frame())[1:x],
                       _defaulted_to_var(stream, "_debug_io_"))
 
-def _pp_frame_chain(xs, source_location = None):
-        lastf = xs[-1]
-        fun = _frame_fun(lastf)
-        return ("..".join(mapcar(lambda f: _fun_name(_frame_fun(f)), xs)) +
-                (format(nil, ":%d @%s:%d",
-                        _frame_lineno(lastf) - _fun_firstlineno(fun),
-                        _fun_filename(fun),
-                        _frame_lineno(lastf))))
+def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_line = None):
+        def _pp_frame_in_chain(f, pretty = None):
+                fun = _frame_fun(f)
+                return format(nil, *(("%s",
+                                      _fun_name(fun))
+                                     if not pretty else
+                                     ("%s%s@%s:%d",
+                                      _fun_name(fun),
+                                      (":" + str(_frame_lineno(f) - _fun_firstlineno(fun))) if print_fun_line else "",
+                                      _fun_filename(fun),
+                                      _frame_lineno(f))))
+        return ("..".join(mapcar(lambda f: _pp_frame_in_chain(f, t), xs) if all_pretty else
+                          (mapcar(lambda f: _pp_frame_in_chain(f), xs[:-1]) +
+                           [_pp_frame_in_chain(xs[-1], t)])))
 
-def _pp_chain_of_frame(x, callers = 5):
+def _pp_chain_of_frame(x, callers = 5, *args, **keys):
         fs = _frames_calling(x, callers)
         fs.reverse()
-        return _pp_frame_chain(fs)
+        return _pp_frame_chain(fs, *args, **keys)
 
-def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr, frame = None):
+def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
         return write_line("    (%s)  %s:\n      %s" % (threading.current_thread().name.upper(),
                                                        _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
-                                                                          callers = callers - 1),
+                                                                          callers = callers - 1,
+                                                                          print_fun_line = print_fun_line,
+                                                                          all_pretty = all_pretty),
                                                        (""           if not note else
                                                         " - " + note if not args else
                                                         (note % args))),
