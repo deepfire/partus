@@ -22,7 +22,7 @@ from cl import *
 from pergamum import *
 from more_ast import *
 
-from cl import _servile as servile, _keyword as keyword, import_, _find_symbol0 as find_symbol0, _find_symbol_or_fail as find_symbol_or_fail, _intern0 as intern0
+from cl import _servile as servile, _keyword as keyword, import_, _find_symbol0 as find_symbol0, _find_symbol_or_fail as find_symbol_or_fail, _intern0 as intern0, _defaulted as defaulted, _defaulted_to_var as defaulted_to_var
 
 import swank_backend
 import swank_python  # the thing patches swank_backend, to avoid indirection
@@ -1402,17 +1402,20 @@ VERSION: the protocol version"""
 EVAL-FOR-EMACS binds *buffer-package*.  Strings originating from a slime
 buffer are best read in this package.  See also FROM-STRING and TO-STRING."""
 
-# (defun call-with-buffer-syntax (package fun)
-#   (let ((*package* (if package 
-#                        (guess-buffer-package package) 
-#                        *buffer-package*)))
-#     ;; Don't shadow *readtable* unnecessarily because that prevents
-#     ;; the user from assigning to it.
-#     (if (eq *readtable* *buffer-readtable*)
-#         (call-with-syntax-hooks fun)
-#         (let ((*readtable* *buffer-readtable*))
-#           (call-with-syntax-hooks fun)))))
-def call_with_buffer_syntax(package, body):
+def with_buffer_syntax(body, package = nil):
+        """Execute BODY with appropriate *package* and *readtable* bindings.
+
+This should be used for code that is conceptionally executed in an
+Emacs buffer."""
+        # (let ((*package* (if package 
+        #                      (guess-buffer-package package) 
+        #                      *buffer-package*)))
+        #   ;; Don't shadow *readtable* unnecessarily because that prevents
+        #   ;; the user from assigning to it.
+        #   (if (eq *readtable* *buffer-readtable*)
+        #       (call-with-syntax-hooks fun)
+        #       (let ((*readtable* *buffer-readtable*))
+        #         (call-with-syntax-hooks fun))))
         with progv(_package_ = (guess_buffer_package(package) if package else
                                 symbol_value("_buffer_package_"))):
                 # Don't shadow *readtable* unnecessarily because that prevents
@@ -1422,13 +1425,6 @@ def call_with_buffer_syntax(package, body):
                 else:
                         with progv(_readtable_ = symbol_value("_buffer_readtable_")):
                                 return call_with_syntax_hooks(body)
-
-def with_buffer_syntax(body, package = nil):
-        """Execute BODY with appropriate *package* and *readtable* bindings.
-
-This should be used for code that is conceptionally executed in an
-Emacs buffer."""
-        return call_with_buffer_syntax(package, body)
 
 def without_printing_errors(object, stream, body, msg = "<<error printing object>>"):
         "Catches errors during evaluation of BODY and prints MSG instead."
@@ -1473,30 +1469,102 @@ def parse_string(string, package):
                         return read_from_string(string)
         return with_buffer_syntax(body)
 
-#### tokenize-symbol
-"""STRING is interpreted as the string representation of a symbol
+## FIXME: deal with #\| etc.  hard to do portably.
+def tokenize_symbol(string):
+        """STRING is interpreted as the string representation of a symbol
 and is tokenized accordingly. The result is returned in three
 values: The package identifier part, the actual symbol identifier
 part, and a flag if the STRING represents a symbol that is
 internal to the package identifier part. (Notice that the flag is
 also true with an empty package identifier part, as the STRING is
 considered to represent a symbol internal to some current package.)"""
-#### tokenize-symbol-thoroughly
-"This version of TOKENIZE-SYMBOL handles escape characters."
-#### untokenize-symbol
-"""The inverse of TOKENIZE-SYMBOL.
+        package = let(position(":", string),
+                     lambda pos: subseq(string, 0, pos) if pos else nil)
+        symbol = let(position(":", string, from_end = t),
+                     lambda pos: subseq(string, pos + 1) if pos else string)
+        internp = count(":", string) != 1
+        return values(symbol, package, internp)
+
+def tokenize_symbol_thoroughly(string) -> values(str, str, bool):
+        "This version of TOKENIZE-SYMBOL handles escape characters."
+        package = nil
+        token = ""
+        backslash = nil
+        vertical = nil
+        internp = nil
+        for char in string:
+                if backslash:
+                        token += char
+                        backslash = nil
+                elif char == "\\": # Quotes next character, even within |...|
+                        backslash = t
+                elif char == "":
+                        vertical = not vertical
+                elif vertical:
+                        token += char
+                elif char == ":":
+                        if package and internp:
+                                return values(nil, nil, nil)
+                        elif package:
+                                internp = t
+                        else:
+                                package = token
+                                token = ""
+                else:
+                        token += casify_char(char)
+        return (values(token, package, (not package) or internp) if not vertical else
+                values(nil, nil, nil))
+
+def untokenize_symbol(package_name, internal_p, symbol_name):
+        """The inverse of TOKENIZE-SYMBOL.
 
   (untokenize-symbol \"quux\" nil \"foo\") ==> \"quux:foo\"
   (untokenize-symbol \"quux\" t \"foo\")   ==> \"quux::foo\"
   (untokenize-symbol nil nil \"foo\")    ==> \"foo\"
 """
-#### casify-char
-"Convert CHAR accoring to readtable-case."
-#### find-symbol-with-status
-#### parse-symbol
-"""Find the symbol named STRING.
+        return (symbol_name                          if not package_name else
+                cat(package_name, "::", symbol_name) if internal_p       else
+                cat(package_name, ":",  symbol_name))
+
+def casify_char(char):
+        "Convert CHAR accoring to readtable-case."
+        return ecase(symbol_value(readtable_case(symbol_value("_readtable_"))),
+                     (keyword("preserve"), lambda: char),
+                     (keyword("upcase"),   lambda: char_upcase(char)),
+                     (keyword("downcase"), lambda: char_downcase(char)),
+                     (keyword("invert"),   lambda: (char_downcase(char)
+                                                    if upper_case_p(char) else
+                                                    char_upcase(char))))
+
+def find_symbol_with_status(symbol_name, status, package = None) -> values(symbol, bool):
+        package = defaulted_to_var(package, "_package_")
+        symbol, flag = find_symbol(symbol_name, package)
+        return ((symbol, flag) if (flag and flag is status) else
+                (nil, nil))
+
+def parse_symbol(string, package = None):
+        """Find the symbol named STRING.
 Return the symbol and a flag indicating whether the symbols was found."""
-#### parse-symbol-or-lose
+        package = defaulted_to_var(package, "_package_")
+        sname, pname, internalp = tokenize_symbol_thoroughly(string)
+        if sname:
+                package = (keyword_package     if pname == "" else
+                           find_package(pname) if pname       else
+                           package)
+                if package:
+                        symbol, flag = (find_symbol(sname, package) if internalp else
+                                        find_symbol_with_status(sname, keyword("external"), package))
+                        return values(symbol, flag, sname, package)
+                else:
+                        return values(nil, nil, nil, nil)
+        else:
+                return values(nil, nil, nil, nil)
+
+def parse_symbol_or_lose(string, package = None):
+        package = defaulted_to_var(package, "_package_")
+        symbol, status = parse_symbol(string, package)[:2]
+        return (values(symbol, status) if status else
+                error("Unknown symbol: %s [in %s]", string, package))
 
 def parse_package(string):
         """Find the package named STRING.
@@ -1526,8 +1594,8 @@ Return nil if no package matches."""
 setq("_readtable_alist_", default_readtable_alist())
 "An alist mapping package names to readtables."
 
-def guess_buffer_readtable(package_name):
-        package = guess_package(package_name)
+def guess_buffer_readtable(name):
+        package = guess_package(name)
         return ((package and
                  rest(assoc(package_name(package), symbol_value("_readtable_alist_"),
                             test = string_equal))) or
@@ -1550,6 +1618,7 @@ Errors are trapped and invoke our debugger."""
         # (let (ok result condition)
         #   (unwind-protect
         #        (let ((*buffer-package* (guess-buffer-package buffer-package))
+        #              (*buffer-readtable* (guess-buffer-readtable buffer-package))
         #              (*pending-continuations* (cons id *pending-continuations*)))
         #          (check-type *buffer-package* package)
         #          ;; APPLY would be cleaner than EVAL.
@@ -1568,6 +1637,7 @@ Errors are trapped and invoke our debugger."""
         def set_condition(x):         nonlocal condition; condition = x
         try:
                 with progv(_buffer_package_ = guess_buffer_package(buffer_package),
+                           _buffer_readtable_ = guess_buffer_readtable(buffer_package),
                            _pending_continuations_ = [id] + symbol_value("_pending_continuations_")):
                         check_type(symbol_value("_buffer_package_"), package)
                         def with_slime_interrupts_body():
@@ -1678,7 +1748,12 @@ def send_repl_results_to_emacs(values):
 
 setq("_send_repl_results_function_", send_repl_results_to_emacs)
 
-defvar("_evaluator_mode_", keyword("lisp"))
+defvar("_evaluator_mode_", keyword("python"))
+
+def lisp_mode_p():
+        return symbol_value("_evaluator_mode_") is keyword("lisp")
+def python_mode_p():
+        return symbol_value("_evaluator_mode_") is keyword("python")
 
 def lisp_mode(report = t):
         setq("_evaluator_mode_", keyword("lisp"))
@@ -2638,7 +2713,7 @@ def unintern_symbol(name, package):
         if not pkg:
                 return format(nil, "No such package: %s", package)
         else:
-                sym, found = parse_symbol(name, pkg)
+                sym, found = parse_symbol(name, pkg)[:2]
                 if not found:
                         return format(nil, "%s not in package %s", name, package)
                 else:
@@ -2695,13 +2770,17 @@ def value_spec_ref(spec):
                 ([keyword("sldb")],
                  inspector_frame_var))
 
-def find_definitions_for_emacs(name):
+def find_definitions_for_emacs(name) -> [(str, str)]:
         """Return a list ((DSPEC LOCATION) ...) of definitions for NAME.
 DSPEC is a string and LOCATION a source location. NAME is a string."""
-        symbol, found = with_buffer_syntax(
-                lambda: parse_symbol(name))
-        if found:
-                return mapcar(xref_elisp, find_definitions(symbol))
+
+        if lisp_mode_p():
+                symbol, found = with_buffer_syntax(lambda:
+                                                           parse_symbol(name)[:2])
+                if found:
+                        return mapcar(xref_elisp, find_definitions(symbol))
+        else:
+                pass
 
 ## Generic function so contribs can extend it.
 #### defgeneric xref-doit
