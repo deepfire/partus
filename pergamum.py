@@ -95,56 +95,54 @@ def andf(x, y): return x & y
 def xorf(x, y): return x ^ y
 
 ## conses
-def single(x):        return (x,)
-def ensure_car(x):    return x[0] if consp(x) else x
-def ensure_cons(x, default = None):
-        return x if consp(x)   else (x, default)
-def triplep(o):       return type(o) is tuple and len(o) is 3
-def ensure_triple(x): return x if triplep(x) else (x, None, None)
+# def single(x):        return (x,)
+# def ensure_car(x):    return x[0] if consp(x) else x
+# def ensure_cons(x, default = None):
+#         return x if consp(x)   else (x, default)
 
-def lisp_list_p(x):
-        return consp(x) or x is None
+# def lisp_list_p(x):
+#         return consp(x) or x is None
 
-def list_len(xs):
-        return 0 if xs is None else 1 + list_len(cdr(xs))
+# def list_len(xs):
+#         return 0 if xs is None else 1 + list_len(cdr(xs))
 
-def list_find(x, xs):
-        if xs is None:
-                return None
-        elif x == car(xs):
-                return True
-        else:
-                return list_find(x, cdr(xs))
+# def list_find(x, xs):
+#         if xs is None:
+#                 return None
+#         elif x == car(xs):
+#                 return True
+#         else:
+#                 return list_find(x, cdr(xs))
 
-def list_append(l, *more_lists):
-        if zerop(len(more_lists)):
-                return l
-        else:
-                def append_2(xs, ys):
-                        return ys if not xs else cons(car(xs), append_2(cdr(xs), ys))
-                result = append_2(l, more_lists[0])
-                if len(more_lists) > 1:
-                        return list_append(result, *more_lists[1:])
-                else:
-                        return result
+# def list_append(l, *more_lists):
+#         if zerop(len(more_lists)):
+#                 return l
+#         else:
+#                 def append_2(xs, ys):
+#                         return ys if not xs else cons(car(xs), append_2(cdr(xs), ys))
+#                 result = append_2(l, more_lists[0])
+#                 if len(more_lists) > 1:
+#                         return list_append(result, *more_lists[1:])
+#                 else:
+#                         return result
         
-def list_upto(x, xs):
-        try:
-                def rec(xs):
-                        if xs is None:
-                                raise Exception()
-                        elif x == car(xs):
-                                return cons(x, None)
-                        else:
-                                return cons(car(xs), rec(cdr(xs)))
-                return rec(xs)
-        except:
-                return None
+# def list_upto(x, xs):
+#         try:
+#                 def rec(xs):
+#                         if xs is None:
+#                                 raise Exception()
+#                         elif x == car(xs):
+#                                 return cons(x, None)
+#                         else:
+#                                 return cons(car(xs), rec(cdr(xs)))
+#                 return rec(xs)
+#         except:
+#                 return None
 
-def mapl(f, xs):
-        if xs != None:
-                f(car(xs))
-                mapl(f, cdr(xs))
+# def mapl(f, xs):
+#         if xs != None:
+#                 f(car(xs))
+#                 mapl(f, cdr(xs))
 
 def list_set(xs):
         acc = [set()]
