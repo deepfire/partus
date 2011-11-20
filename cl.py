@@ -2294,6 +2294,27 @@ def unread_char(x, stream = sys.stdin):
         else:
                 stream.seek(posn - 1)
 
+def peek_char(peek_type = nil, input_stream = None, eof_error_p = nil, eof_value = nil, recursive_p = nil):
+        """PEEK-CHAR obtains the next character in INPUT-STREAM without actually reading it, thus leaving the character to be read at a later time. It can also be used to skip over and discard intervening characters in the INPUT-STREAM until a particular character is found.
+
+If PEEK-TYPE is not supplied or NIL, PEEK-CHAR returns the next character to be read from INPUT-STREAM, without actually removing it from INPUT-STREAM. The next time input is done from INPUT-STREAM, the character will still be there. If PEEK-TYPE is T, then PEEK-CHAR skips over whitespace[2] characters, but not comments, and then performs the peeking operation on the next character. The last character examined, the one that starts an object, is not removed from INPUT-STREAM. If PEEK-TYPE is a character, then PEEK-CHAR skips over input characters until a character that is CHAR= to that character is found; that character is left in INPUT-STREAM.
+
+If an end of file[2] occurs and EOF-ERROR-P is false, EOF-VALUE is returned.
+
+If RECURSIVE-P is true, this call is expected to be embedded in a higher-level call to READ or a similar function used by the Lisp reader.
+
+When INPUT-STREAM is an echo stream, characters that are only peeked at are not echoed. In the case that PEEK-TYPE is not NIL, the characters that are passed by PEEK-CHAR are treated as if by READ-CHAR, and so are echoed unless they have been marked otherwise by UNREAD-CHAR."""
+        criterion = (lambda _: t                if peek_type is nil                           else
+                     lambda c: c not in " \t\n" if peek_type is t                             else
+                     lambda c: c == peek_type   if stringp(peek_type) and len(peek_type) == 1 else
+                     error("Invalid peek-type: '%s'.", peek_type))
+        stream = _defaulted(input_stream, symbol_value("_standard_input_"))
+        while True:
+                char = read_char(stream, eof_error_p, eof_value, recursive_p)
+                if criterion(char):
+                        unread_char(char, stream)
+                        return char
+
 @block
 def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         "Does not conform."
@@ -3226,9 +3247,6 @@ def _init():
 ###
 ### Missing stuff
 ###
-# def peek_char(peek_type, stream = nil, eof_error_p = True, eof_value = None, recursive_p = None):
-#         return "a"
-#
 # def read_sequence(sequence, stream, start = 0, end = None):
 #         return 0
 #
