@@ -552,17 +552,19 @@ def lisp_source_location(code_location):
 
 def emacs_buffer_source_location(code_location, plist):
         if code_location_has_debug_block_info_p(code_location):
-                emacs_buffer, emacs_position, emacs_string = (getf(plist, keyword("emacs-buffer")),
-                                                              getf(plist, keyword("emacs-position")),
-                                                              getf(plist, keyword("emacs-string")))
+                (emacs_buffer,
+                 emacs_position,
+                 emacs_string) = mapcar(lambda k: getf(plist, keyword(k)),
+                                        ["emacs-buffer", "emacs-position", "emacs-string"])
                 pos = string_source_position(code_location, emacs_string)
-                snipped = read_snippet_from_string(emacs_string, pos)
+                snippet = read_snippet_from_string(emacs_string, pos)
                 return make_location([keyword("buffer"),  emacs_buffer],
                                      [keyword("offset"),  emacs_position, pos],
-                                     [keyword("snippet"), snipped])
+                                     [keyword("snippet"), snippet])
         else:
                 return fallback_source_location(code_location)
 
+# CODE-LOCATION -> LOCATION
 def source_file_source_location(code_location):
         code_date = code_location_debug_source_created(code_location)
         filename = code_location_debug_source_name(code_location)
@@ -595,7 +597,119 @@ def code_location_has_debug_block_info_p(code_location):
         return handler_case(lambda: sb_di.code_location_debug_block(code_location) or t,
                             (sb_di.no_debug_blocks,
                              lambda _: nil))
+# mod = Module(stmt* body)
+# 	    | Interactive(stmt* body)
+# 	    | Expression(expr body)
 
+# 	    -- not really an actual node but useful in Jython's typesystem.
+# 	    | Suite(stmt* body)
+
+# 	stmt = FunctionDef(identifier name, arguments args, 
+#                            stmt* body, expr* decorator_list, expr? returns)
+# 	      | ClassDef(identifier name, 
+# 			 expr* bases,
+# 			 keyword* keywords,
+# 			 expr? starargs,
+# 			 expr? kwargs,
+# 			 stmt* body,
+# 			 expr* decorator_list)
+# 	      | Return(expr? value)
+
+# 	      | Delete(expr* targets)
+# 	      | Assign(expr* targets, expr value)
+# 	      | AugAssign(expr target, operator op, expr value)
+
+# 	      -- use 'orelse' because else is a keyword in target languages
+# 	      | For(expr target, expr iter, stmt* body, stmt* orelse)
+# 	      | While(expr test, stmt* body, stmt* orelse)
+# 	      | If(expr test, stmt* body, stmt* orelse)
+# 	      | With(expr context_expr, expr? optional_vars, stmt* body)
+
+# 	      | Raise(expr? exc, expr? cause)
+# 	      | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
+# 	      | TryFinally(stmt* body, stmt* finalbody)
+# 	      | Assert(expr test, expr? msg)
+
+# 	      | Import(alias* names)
+# 	      | ImportFrom(identifier? module, alias* names, int? level)
+
+# 	      | Global(identifier* names)
+# 	      | Nonlocal(identifier* names)
+# 	      | Expr(expr value)
+# 	      | Pass | Break | Continue
+
+# 	      -- XXX Jython will be different
+# 	      -- col_offset is the byte offset in the utf8 string the parser uses
+# 	      attributes (int lineno, int col_offset)
+
+# 	      -- BoolOp() can use left & right?
+# 	expr = BoolOp(boolop op, expr* values)
+# 	     | BinOp(expr left, operator op, expr right)
+# 	     | UnaryOp(unaryop op, expr operand)
+# 	     | Lambda(arguments args, expr body)
+# 	     | IfExp(expr test, expr body, expr orelse)
+# 	     | Dict(expr* keys, expr* values)
+# 	     | Set(expr* elts)
+# 	     | ListComp(expr elt, comprehension* generators)
+# 	     | SetComp(expr elt, comprehension* generators)
+# 	     | DictComp(expr key, expr value, comprehension* generators)
+# 	     | GeneratorExp(expr elt, comprehension* generators)
+# 	     -- the grammar constrains where yield expressions can occur
+# 	     | Yield(expr? value)
+# 	     -- need sequences for compare to distinguish between
+# 	     -- x < 4 < 3 and (x < 4) < 3
+# 	     | Compare(expr left, cmpop* ops, expr* comparators)
+# 	     | Call(expr func, expr* args, keyword* keywords,
+# 			 expr? starargs, expr? kwargs)
+# 	     | Num(object n) -- a number as a PyObject.
+# 	     | Str(string s) -- need to specify raw, unicode, etc?
+# 	     | Bytes(string s)
+# 	     | Ellipsis
+# 	     -- other literals? bools?
+
+# 	     -- the following expression can appear in assignment context
+# 	     | Attribute(expr value, identifier attr, expr_context ctx)
+# 	     | Subscript(expr value, slice slice, expr_context ctx)
+# 	     | Starred(expr value, expr_context ctx)
+# 	     | Name(identifier id, expr_context ctx)
+# 	     | List(expr* elts, expr_context ctx) 
+# 	     | Tuple(expr* elts, expr_context ctx)
+
+# 	      -- col_offset is the byte offset in the utf8 string the parser uses
+# 	      attributes (int lineno, int col_offset)
+
+# 	expr_context = Load | Store | Del | AugLoad | AugStore | Param
+
+# 	slice = Slice(expr? lower, expr? upper, expr? step) 
+# 	      | ExtSlice(slice* dims) 
+# 	      | Index(expr value) 
+
+# 	boolop = And | Or 
+
+# 	operator = Add | Sub | Mult | Div | Mod | Pow | LShift 
+#                  | RShift | BitOr | BitXor | BitAnd | FloorDiv
+
+# 	unaryop = Invert | Not | UAdd | USub
+
+# 	cmpop = Eq | NotEq | Lt | LtE | Gt | GtE | Is | IsNot | In | NotIn
+
+# 	comprehension = (expr target, expr iter, expr* ifs)
+
+# 	-- not sure what to call the first argument for raise and except
+# 	excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
+# 	                attributes (int lineno, int col_offset)
+
+# 	arguments = (arg* args, identifier? vararg, expr? varargannotation,
+#                      arg* kwonlyargs, identifier? kwarg,
+#                      expr? kwargannotation, expr* defaults,
+#                      expr* kw_defaults)
+# 	arg = (identifier arg, expr? annotation)
+
+#         -- keyword arguments supplied to call
+#         keyword = (identifier arg, expr value)
+
+#         -- import name with optional 'as' alias.
+#         alias = (identifier name, identifier? asname)
 def stream_source_position(code_location, stream):
         # (let* ((cloc (sb-debug::maybe-block-start-location code-location))
         #        (tlf-number (sb-di::code-location-toplevel-form-offset cloc))
@@ -629,6 +743,18 @@ def string_source_position(code_location, string):
 
 @defimplementation
 def frame_source_location(n):
+        # emacs_rex
+        #   frame_source_location
+        #     code_location_source_location
+        #       file_source_location
+        #         source_file_source_location
+        #           get_source_code
+        #           stream_source_position
+        #             swank_source_path_parser.read_source_form
+        #             form_number_translations
+        #             swank_source_path_parser.source_path_source_position
+        #       lisp_source_location
+        #         sb_debug.code_location_source_form
         ## Swankr:
         # fun = _frame_fun(sldb_state.frames[n]) # XXX: was [n + 1]
         # name, _, srcfile, line, nlines = _fun_info(fun)[:5]

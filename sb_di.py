@@ -5,7 +5,7 @@ import cl
 from cl       import *
 from pergamum import *
 
-from cl import _keyword as keyword, _intern0 as intern0
+from cl import _keyword as keyword, _intern0 as intern0, _here as here
 
 import ast
 import more_ast
@@ -247,30 +247,40 @@ def debug_block_elsewhere_p(db):
 
 #### CODE-LOCATIONs
 
-code_location = defstruct("code_location",
-                          ## the DEBUG-FUN containing this CODE-LOCATION
-                          "debug_fun",       # nil :type debug-fun
-                          ## This is initially :UNSURE. Upon first trying to access an
-                          ## :UNPARSED slot, if the data is unavailable, then this becomes T,
-                          ## and the code-location is unknown. If the data is available, this
-                          ## becomes NIL, a known location. We can't use a separate type
-                          ## code-location for this since we must return code-locations before
-                          ## we can tell whether they're known or unknown. For example, when
-                          ## parsing the stack, we don't want to unpack all the variables and
-                          ## blocks just to make frames.
-                          "unknown_p",       # :unsure :type (member t nil :unsure)
-                          ## the DEBUG-BLOCK containing CODE-LOCATION. XXX Possibly toss this
-                          ## out and just find it in the blocks cache in DEBUG-FUN.
-                          "debug_block",     # :unparsed :type (or debug-block (member :unparsed))
-                          ## This is the number of forms processed by the compiler or loader
-                          ## before the top level form containing this code-location.
-                          "tlf_offset",      # :unparsed :type (or index (member :unparsed))
-                          ## This is the depth-first number of the node that begins
-                          ## code-location within its top level form.
-                          "form_number",     # :unparsed :type (or index (member :unparsed))
+class code_location():
+        def __init__(self, debug_fun, unknown_p, debug_block, tlf_offset, form_number,
+                     lineno, tlf):
+                ## the DEBUG-FUN containing this CODE-LOCATION
+                (self.debug_fun,
+                 ## This is initially :UNSURE. Upon first trying to access an
+                 ## :UNPARSED slot, if the data is unavailable, then this becomes T,
+                 ## and the code-location is unknown. If the data is available, this
+                 ## becomes NIL, a known location. We can't use a separate type
+                 ## code-location for this since we must return code-locations before
+                 ## we can tell whether they're known or unknown. For example, when
+                 ## parsing the stack, we don't want to unpack all the variables and
+                 ## blocks just to make frames.
+                 self.unknown_p,
+                 ## the DEBUG-BLOCK containing CODE-LOCATION. XXX Possibly toss this
+                 ## out and just find it in the blocks cache in DEBUG-FUN.
+                 self.debug_block,
+                 ## This is the number of forms processed by the compiler or loader
+                 ## before the top level form containing this code-location.
+                 self.tlf_offset,
+                 ## This is the depth-first number of the node that begins
+                 ## code-location within its top level form.
+                 self.form_number,
+                 ## Our cargo-cult imitation..
+                 self.lineno,
+                 ## ...
+                 self.tlf) = (debug_fun,
+                              unknown_p,
+                              debug_block,
+                              tlf_offset,
+                              form_number,
+                              lineno,
+                              tlf)
 
-                          ## Our cargo-cult imitation..
-                          "lineno",)
 def code_location_debug_fun(l): return l.debug_fun
 
 #### DEBUG-SOURCEs
@@ -520,9 +530,9 @@ def code_location_unknown_p(basic_code_location):
                         (no_debug_blocks,
                          lambda _: t))
                 return basic_code_location.unknown_p
-        return ecase(code_location.unknown_p,
-                     ([t],   t),
-                     ([nil], nil),
+        return ecase(basic_code_location.unknown_p,
+                     ([t, True],    t),
+                     ([nil, False], nil),
                      (keyword("unsure"),
                       try_fill_in()))
 
@@ -555,7 +565,7 @@ def code_location_debug_block(basic_code_location):
 #### compute-compiled-code-location-debug-block
 
 ### Return the CODE-LOCATION's DEBUG-SOURCE.
-def code_location_debug_source(l):
+def code_location_debug_source(code_location):
         # (let ((info (compiled-debug-fun-debug-info
         #                (code-location-debug-fun code-location))))
         #     (or (sb!c::debug-info-source info)
@@ -655,7 +665,7 @@ def code_location_debug_source(l):
         ##  c:
         ## 
         ##
-        co = l.debug_fun
+        co = code_location.debug_fun
         namestring = co.co_filename
         _namestring_ast, timestamp = __namestring_asts__[(namestring, 0)]
         exists_p = _namestring_ast
@@ -691,7 +701,7 @@ def code_location_debug_source(l):
                 # a source file), the source form.
                 form = nil,
                 # This is the function whose source is the form.
-                function = l.debug_fun,
+                function = code_location.debug_fun,
                 # the universal time that the source was compiled
                 compiled = compiled,
                 # Additional information from (WITH-COMPILATION-UNIT (:SOURCE-PLIST ...))
@@ -732,7 +742,9 @@ def _make_cloc(co, lineno):
                              form_number = keyword("unparsed"),
                              #
                              # ..our measly substitute..
-                             lineno      = lineno)
+                             lineno      = lineno,
+                             source      = keyword("unparsed"),
+                             tlf         = keyword("unparsed"))
 
 # Issue FRAME-CLOC-AND-RELATED-MAPS-MUST-BE-WEAK
 (__frame_clocs__, _frame_cloc) = cl._make_timestamping_cache(
@@ -741,10 +753,33 @@ def _make_cloc(co, lineno):
 
 frame_code_location = _frame_cloc
 
-def __namestring_ast(namestring):
+# This is blatant overcaching.  Period.
+#  ..all of it in the name of uniformity.
+#
+# Issue SOURCE-LINEMAP-AST-CACHES-NEED-TIMESTAMP-DISCIPLINE
+def __namestring_source(namestring):
         if probe_file(namestring):
-                return more_ast.extract_ast(cl._file_as_string(namestring))
+                return cl._file_as_string(namestring)
+(__namestring_source__, _namestring_source) = cl._make_timestamping_cache(__namestring_source)
+def __code_source(co):
+        source, presentp = cl._evaluated_code_source(co)
+        if presentp:
+                return source
+(__code_source__, _code_source) = cl._make_timestamping_cache(__code_source)
 
+# A kind word of warning: linemap counts from zero, like Dijkstra!
+def __namestring_linemap(namestring):
+        return cl._if_let(_namestring_source(namestring),
+                          string_line_offsets)
+(__namestring_linemap__, _namestring_linemap) = cl._make_timestamping_cache(__namestring_linemap)
+def __code_linemap(co):
+        return cl._if_let(_code_source(co),
+                          string_line_offsets)
+(__code_linemap__, _code_linemap) = cl._make_timestamping_cache(__code_linemap)
+
+def __namestring_ast(namestring):
+        return cl._if_let(_namestring_source(namestring),
+                          more_ast.extract_ast)
 (__namestring_asts__, _namestring_ast) = cl._make_timestamping_cache(__namestring_ast)
 
 def __code_ast(co):
@@ -752,15 +787,13 @@ def __code_ast(co):
         if source_ast:
                 return source_ast
         # Source file missing, the only other place where we could've had
-        # the source is EVAL.
-        co_source, code_source_present_p = cl._evaluated_code_source(co)
-        if code_source_present_p:
-                return more_ast.extract_ast(co_source)
-
+        # the source is EVAL's cache:
+        return cl._if_let(_code_source(co),
+                          more_ast.extract_ast)
 (__code_asts__, _code_ast) = cl._make_timestamping_cache(__code_ast)
 
 ###
-def code_location_toplevel_form_offset(l):
+def code_location_toplevel_form_offset(code_location):
         # Returns the number of top level forms before the one containing
         # CODE-LOCATION as seen by the compiler in some compilation unit. (A
         # compilation unit is not necessarily a single file, see the section
@@ -804,41 +837,52 @@ def sub_compiled_code_location_equal(l1, l2):
         #    (compiled-code-location-pc obj2))
         not_implemented()
 
-def fill_in_code_location(code_location):
+def fill_in_code_location(cloc):
         # Fill in CODE-LOCATION's :UNPARSED slots, returning T or NIL
         # depending on whether the code-location was known in its
         # DEBUG-FUN's debug-block information. This may signal a
         # NO-DEBUG-BLOCKS condition due to DEBUG-FUN-DEBUG-BLOCKS, and
         # it assumes the %UNKNOWN-P slot is already set or going to be set.
-        debug_fun = code_location.debug_fun
+        check_type(cloc, code_location)
+        debug_fun = cloc.debug_fun
         ## Was:
         # blocks = debug_fun_debug_blocks(debug_fun)
         # for i, block in enumerate(blocks):
         #         locations = compiled_debug_block_code_locations(block)
         #         for i, loc in enumerate(locations):
-        #                 if sub_compiled_code_location_equal(code_location, loc):
-        #                         (code_location.debug_block,
-        #                          code_location.tlf_offset,
-        #                          code_location.form_number,
-        #                          code_location.live_set,
-        #                          code_location.kind,
-        #                          code_location.step_info) = (loc.debug_block,
-        #                                                      loc.tlf_offset,
-        #                                                      loc.form_number,
-        #                                                      loc.live_set,
-        #                                                      loc.kind,
-        #                                                      loc.step_info)
+        #                 if sub_compiled_code_location_equal(cloc, loc):
+        #                         (cloc.debug_block,
+        #                          cloc.tlf_offset,
+        #                          cloc.form_number,
+        #                          cloc.live_set,
+        #                          cloc.kind,
+        #                          cloc.step_info) = (loc.debug_block,
+        #                                             loc.tlf_offset,
+        #                                             loc.form_number,
+        #                                             loc.live_set,
+        #                                             loc.kind,
+        #                                             loc.step_info)
         #                          return t
-        def find_toplevel_for_lineno(toplevel_forms, lineno):
+        def find_toplevel_for_lineno(tlfs, lineno):
                 last = nil
-                for i, form in enumerate(toplevel_forms):
+                for i, form in enumerate(tlfs):
                         if form.lineno >= lineno:
                                 return i, last
                 return nil, nil
-        co, lineno = code_location.debug_fun, code_location.lineno
-        module_ast = the(ast.Module, _code_ast(co))
-        code_location.tlf_offset  = find_toplevel_for_lineno(module_ast.body, lineno)[0]
-        code_location.form_number = 0 # XXX!
+def find_first_ast_for_lineno(lineno, form):
+        def rec(form):
+                if form.lineno >= lineno:
+                        return form
+                else:
+                        return find_if(rec, sorted(more_ast.ast_children(form),
+                                                   key = slotting("lineno")))
+        return rec(form)
+        lineno = cloc.lineno
+        module_ast = the(ast.Module, _code_ast(debug_fun))
+        (cloc.tlf_offset,
+         cloc.tlf) = find_toplevel_for_lineno(module_ast.body, lineno)
+        cloc.form_number = 0 # It's borderline impossible to infer this from just the lineno.
+                             # Yes, you know whom the warm gratitude ought to be extended to.
         return t
 
 ### operations on DEBUG-BLOCKs
@@ -969,31 +1013,8 @@ def debug_var_info(var):
 ### The vector elements are in the same format as the compiler's
 ### NODE-SOURCE-PATH# that is, the first element is the form number and
 ### the last is the TOPLEVEL-FORM number.
-def form_number_translations(tlf):
-        # This code produces and uses what we call source-paths. A
-        # source-path is a list whose first element is a form number as
-        # returned by CODE-LOCATION-FORM-NUMBER and whose last element is a
-        # top level form number as returned by
-        # CODE-LOCATION-TOPLEVEL-FORM-NUMBER. The elements from the last to
-        # the first, exclusively, are the numbered subforms into which to
-        # descend. For example:
-        #    (defun foo (x)
-        #      (let ((a (aref x 3)))
-        #     (cons a 3)))
-        # The call to AREF in this example is form number 5. Assuming this
-        # DEFUN is the 11'th top level form, the source-path for the AREF
-        # call is as follows:
-        #    (5 1 0 1 3 11)
-        # Given the DEFUN, 3 gets you the LET, 1 gets you the bindings, 0
-        # gets the first binding, and 1 gets the AREF form.
-        #
-        # This returns a table mapping form numbers to source-paths. A
-        # source-path indicates a descent into the TOPLEVEL-FORM form,
-        # going directly to the subform corressponding to the form number.
-        #
-        # The vector elements are in the same format as the compiler's
-        # NODE-SOURCE-PATH; that is, the first element is the form number and
-        # the last is the TOPLEVEL-FORM number.
+def form_number_translations(form, tlf_number):
+        
         return not_implemented()
 
 #### PREPROCESS-FOR-EVAL
