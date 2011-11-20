@@ -48,6 +48,11 @@ def string_upcase(x):     return x.upper()
 def string_downcase(x):   return x.lower()
 def string_capitalize(x): return x.capitalize()
 
+def char_upcase(x):       return x.upper()
+def char_downcase(x):     return x.lower()
+def upper_case_p(x):      return x.isupper()
+def lower_case_p(x):      return x.islower()
+
 __core_symbol_names__ = [
         "QUOTE",
         "AND", "OR", "MEMBER", "EQL",
@@ -823,9 +828,11 @@ def multiple_value_call(function, *values_forms):
 def cons(x, y):       return (x, y)
 def consp(o):         return type(o) is tuple and len(o) is 2
 def atom(o):          return type(o) is not tuple
-def car(x):           return x[0]
-def cdr(x):           return x[1]
-def cadr(x):          return x[1][0]
+def car(x):           return x[0]   if xs else nil
+def cdr(x):           return x[1:]  if xs else nil
+def first(xs):        return xs[0]  if xs else nil
+def rest(xs):         return xs[1:] if xs else nil
+def nth(n, xs):       return xs[n] if n < len(xs) else nil
 
 def copy_list(x):
         return list(the(list, x))
@@ -863,10 +870,6 @@ def aref(xs, *indices):
         for i in indices:
                 r = r[i]
         return r
-def first(xs):        return xs[0]   # don't confuse with car/cdr
-def rest(xs):         return xs[1:]  # !!!
-
-def nth(n, xs):       return xs[n] if n < len(xs) else nil
 
 def subseq(xs, start, end = None):
         return xs[start:end]
@@ -1318,6 +1321,19 @@ def _lisp_symbol_name_python_name(x):
         # debug_printf("==> Python(Lisp %s) == %s", x, ret)
         return ret
 
+def _python_name_lisp_symbol_name(x):
+        def _sub(cs):
+                acc = ""
+                starred = len(cs) > 1 and (cs[0] == cs[-1] == "_")
+                star, start, end = (("*", 1, len(cs) -1) if starred else
+                                    ("",  0, None))
+                for c in cs[start:end]:
+                        acc += "-" if c == "_" else c
+                return star + acc + star
+        ret = _sub(x).upper()
+        # debug_printf("==> (Lisp (Python %s)) == %s", x, ret)
+        return ret
+
 def _lisp_symbol_python_name(sym):
         return _lisp_symbol_name_python_name(sym.name)
 
@@ -1647,8 +1663,23 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, " {%x}", id(object))
         write_string(">", stream)
 
+class readtable(collections.UserDict):
+        def __init__(self, case = _keyword("upcase")):
+                self.case = the([member_, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")],
+                                case)
+                self.dict = dict()
+
+def readtablep(x):     return typep(x, readtable)
+def readtable_case(x): return the(readtable, x).case
+
+def copy_readtable(x):
+        check_type(x, readtable)
+        new = readtable(case = readtable_case(x))
+        new.dict = dict(x.dict)
+        return new
+
 __standard_pprint_dispatch__ = dict() # XXX: this is crap!
-__standard_readtable__       = dict() # XXX: this is crap!
+__standard_readtable__       = readtable() # XXX: this is crap!
 
 __standard_io_syntax__ = dict(_package_               = find_package("COMMON-LISP-USER"),
                               _print_array_           = t,
