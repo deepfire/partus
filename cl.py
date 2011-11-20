@@ -2279,7 +2279,14 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
         # _here("lastly %s" % (ret,))
         return ret
 
-def read_char(stream = sys.stdin, eof_error_p = True, eof_value = nil, recursivep = nil):
+def read_line(stream = None, eof_error_p = True, eof_value = nil):
+        stream = _defaulted_to_var(stream, "_standard_input_")
+        return handler_case(lambda: stream.readline(),
+                            (error_,
+                             lambda c: error(end_of_file, "end of file on %s" % (stream,))))
+
+def read_char(stream = None, eof_error_p = True, eof_value = nil, recursivep = nil):
+        stream = _defaulted_to_var(stream, "_standard_input_")
         ret = the(_io._IOBase, stream).read(1)
         return (ret       if ret             else
                 eof_value if not eof_error_p else
@@ -2555,6 +2562,9 @@ def close(x):
 
 def file_position(x):
         return x.seek(0, 1)
+
+def setf_file_position(x, posn):
+        return x.seek(posn)
 
 def finish_output(stream = t):
         stream is not nil and _coerce_to_stream(stream).flush()
