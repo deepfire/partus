@@ -1,0 +1,52 @@
+Design of PARTUS, aka GREENSPUN, aka RIP (Rewritten in Python), aka REPLica.
+============================================================================
+
+1. The primary goal is to have as little divergence from Swank/SBCL as
+   possible.
+2. The secondary goal is to serve as support for an underground
+   resistance implementation of Common Lisp.
+
+
+Handling divergence
+-------------------
+
+Obviously, all the CL functionality Swank depends on, must be
+reimplemented with maximisation of completeness and standard
+compliance.
+
+All unavoidable semantic divergence points must be:
+    1. controlled through the means of the evaluator mode switch
+    2. listed here
+
+
+Evaluator mode switch
+---------------------
+
+The variable *EVALUATOR-MODE* (the evaluator mode switch) must contain
+a keyword (in the CL sense), which is either :LISP, or :PYTHON (the
+default).
+
+When the evaluator switch is in CL mode, the behaviour must follow the
+behavior of swank-sbcl.lisp.
+
+Otherwise, the behaviour follows Python semantics.
+
+
+List of divergence points
+-------------------------
+
+This section contains the list of divergence points, with an
+explanation of the reason for the divergence.
+
+* REPL-EVAL
+
+  Different syntaxes.  Not much to do about it.
+  Also, it was the original reason for the evaluator mode switch.
+
+* FIND-DEFINITIONS-FOR-EMACS
+
+  Attribute chain references follow a logic very different from CL's
+  FIND-SYMBOL in *PACKAGE*.
+
+  We still need to reimplement current package tracking on the Emacs
+  side.  Perhaps it is the time.
