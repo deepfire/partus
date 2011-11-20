@@ -203,6 +203,15 @@ def ast_last_lineno(form):
                    [ ast_last_lineno(x)
                      for x in ast_children(form, lineno_only = True)])
 
+def ast_first_subnode_at_lineno(form, lineno):
+        def rec(form):
+                if form.lineno >= lineno:
+                        return form
+                else:
+                        return find_if(rec, sorted(ast_children(form, lineno_only = t),
+                                                   key = slotting("lineno")))
+        return rec(form)
+
 def pp_ast(o, stream = sys.stdout):
     """Pretty-print AST O."""
 

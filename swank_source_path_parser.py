@@ -234,6 +234,7 @@ Return the form and the source-map."""
 
 def _cloc_source_position(cloc) -> values(int, int):
         lines = sb_di._code_linemap(cloc.debug_fun)
-        tlf = cloc.tlf
-        return values(lines[min(len(lines) - 1, tlf.lineno)],
-                      lines[min(len(lines) - 1, more_ast.ast_last_lineno(tlf))])
+        tlf, lineno = cloc.tlf, cloc.lineno
+        subform = more_ast.ast_first_subnode_at_lineno(tlf, lineno)
+        return values(lines[min(len(lines) - 1, lineno)] + subform.col_offset,
+                      lines[min(len(lines) - 1, more_ast.ast_last_lineno(subform))])

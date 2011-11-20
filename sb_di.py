@@ -879,14 +879,6 @@ def fill_in_code_location(cloc) -> t:
                                 return min(0, i - 1), prev
                         prev = tlf
                 return nil, nil
-        def tlf_find_first_node_for_lineno(form, lineno):
-                def rec(form):
-                        if form.lineno >= lineno:
-                                return form
-                        else:
-                                return find_if(rec, sorted(more_ast.ast_children(form),
-                                                           key = slotting("lineno")))
-                return rec(form)
         lineno = cloc.lineno
         module_ast = the(ast.Module, _code_ast(debug_fun))
         cloc.source = _code_source(debug_fun)
