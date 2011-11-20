@@ -3,7 +3,7 @@ import more_ast
 import inspect
 
 from cl import nil, t, _keyword as keyword, functionp, constantly
-from cl import typep
+from cl import typep, defstruct
 from cl import mapcar, remove, member
 from cl import setq, boundp, progv, symbol_value, block
 from cl import return_from, handler_bind, condition, error, error_, _report_condition, warn, _not_implemented
@@ -655,15 +655,18 @@ returns."""
 
 ### Definition finding
 
-#### defstruct location :type list
-##### buffer
-##### position
-   ## Hints is a property list optionally containing:
-   ##   :snippet SOURCE-TEXT
-   ##     This is a snippet of the actual source text at the start of
-   ##     the definition, which could be used in a text search.
-##### hints
-#### make-position
+location = defstruct("location",
+                     "buffer",
+                     "position",
+                     ## Hints is a property list optionally containing:
+                     ##   :snippet SOURCE-TEXT
+                     ##     This is a snippet of the actual source text at the start of
+                     ##     the definition, which could be used in a text search.
+                     "hints")
+
+def make_location(buffer, position, hints = nil):
+        return location(buffer, position, hints)
+
 #### defstruct error
 
 ## Valid content for BUFFER slot
