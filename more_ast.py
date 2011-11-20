@@ -10,11 +10,15 @@ import symtable
 import marshal
 import sys
 
+import cl
+
 from cl         import typep, null, listp, integerp, floatp, boolp, sequencep, stringp, mapcar, mapc,\
-                       remove_if, sort, car, identity, every, find, with_output_to_string, error, reduce
+                       remove_if, sort, car, identity, every, find, with_output_to_string, error, reduce,\
+                       defvar, symbol_value, progv
 from cl         import _ast_rw as ast_rw, _ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
 from cl         import _ast_funcall as ast_funcall, _ast_maybe_normalise_string as ast_maybe_normalise_string
 from cl         import _ast_Expr as ast_Expr, _ast_list as ast_list
+from cl         import _not_implemented as not_implemented
 from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, tuplep, fprintf
 from neutrality import py3p
 
@@ -246,81 +250,142 @@ class NotImplemented(Exception):
         def __str__(self):
                 return "%s %s is not implemented." % (action.capitalize(), x)
 
-def pp_ast_as_code(x):
+defvar("_ast_pp_depth_", 0)
+def pp_ast_as_code(x, tab = " " * 8):
+        def indent():
+                return tab * symbol_value("_ast_pp_depth_")
         def iterate(xs):
-                return mapcar(pp_ast_as_code, xs)
-        def pp_call(x):
-                return "%s(%s%s%s%s)" % (pp_ast_as_code(x.func),
-                                         ", ".join(iterate(x.args)),
-                                         ", ".join(iterate(x.keywords)),
-                                         (", *%s" % pp_ast_as_code(x.starargs)) if x.starargs else "",
-                                         (", **%s" % pp_ast_as_code(x.kwargs)) if x.kwargs else "")
-        def pp_attribute(x):
-                return "%s.%s" % (pp_ast_as_code(x.value), x.attr)
-        def pp_name(x):
-                return x.id
-        def pp_assign(x):
-                return "%s = %s" % (", ".join(iterate(x.targets)),
-                                    pp_ast_as_code(x.value))
-        def pp_keyword(x):
-                return "%s = %s" % (x.arg, pp_ast_as_code(x.value))
-        def pp_subscript(x):
-                return "%s[%s]" % (pp_ast_as_code(x.value),
-                                   pp_ast_as_code(x.slice))
-        def pp_index(x):
-                return "%s" % pp_ast_as_code(x.value)
-        def pp_slice(x):
-                l, u, s = x.lower or "", x.upper or "", x.step
-                if x.step:
-                        return "%s:%s:%s" % tuple(iterate((l, u, s)))
-                else:
-                        return "%s:%s" % tuple(iterate((l, u)))
-        def pp_iterable(x):
-                l, r = { ast.List: ("[", "]"), ast.Tuple: ("(", ")"), ast.Set: ("{", "}"), ast.Dict: ("{", "}"), } [type(x)]
-                return "%s %s%s %s" % (l,
-                                     ", ".join(iterate(x.elts)
-                                               if not ast_dict_p(x) else
-                                               mapcar(lambda k, v: "%s: %s" % (k, v),
-                                                      x.keys,
-                                                      x.values)),
-                                     "," if (ast_tuple_p(x) and len(x.elts) == 1) else "",
-                                     r)
-        def pp_string(x):
-                q = "'''" if find("\n", x.s) else "'"
-                val = with_output_to_string(lambda s: print(x.s, file = s, end = ""))
-                return q + val + q
-        def pp_num(x):     return str(x.n)
-        def pp_module(x):
-                return "\n".join(iterate(x.body))
-        def pp_Expr(x):
-                return pp_ast_as_code(x.value)
-        map = { ast.Module:    pp_module,
-                ast.Expr:      pp_Expr,
-                ast.Call:      pp_call,
-                ast.Attribute: pp_attribute,
-                ast.Name:      pp_name,
-                ast.Assign:    pp_assign,
-                ast.keyword:   pp_keyword,
-                ast.Subscript: pp_subscript,
-                ast.Index:     pp_index,
-                ast.Slice:     pp_slice,
-                ast.List:      pp_iterable,
-                ast.Tuple:     pp_iterable,
-                ast.Set:       pp_iterable,
-                ast.Dict:      pp_iterable,
-                ast.Str:       pp_string,
-                ast.Num:       pp_num,
-                }
-        def fail(x): raise NotImplemented("pretty-printing", "AST node %s" % x)
-        try:
-                return map.get(type(x), fail)(x)
-        except Exception as cond:
-                if typep(cond, NotImplemented):
-                        raise
-                else:
-                        error("ERROR: %s, while pretty-printing %s.  Slots: %s",
-                              cond, x, dir(x))
-
+                return mapcar(rec, xs)
+        def rec(x):
+                def pp_call(x):
+                        return "%s(%s%s%s%s)" % (pp_ast_as_code(x.func),
+                                                 ", ".join(iterate(x.args)),
+                                                 ", ".join(iterate(x.keywords)),
+                                                 (", *%s" % pp_ast_as_code(x.starargs)) if x.starargs else "",
+                                                 (", **%s" % pp_ast_as_code(x.kwargs)) if x.kwargs else "")
+                def pp_attribute(x):
+                        return "%s.%s" % (pp_ast_as_code(x.value), x.attr)
+                def pp_name(x):
+                        return x.id
+                def pp_arg(x):
+                        return x.arg + ((":" + x.annotation) if x.annotation else "")
+                def pp_keyword(x):
+                        return "%s = %s" % (x.arg, pp_ast_as_code(x.value))
+                def pp_subscript(x):
+                        return "%s[%s]" % (pp_ast_as_code(x.value),
+                                           pp_ast_as_code(x.slice))
+                def pp_index(x):
+                        return "%s" % pp_ast_as_code(x.value)
+                def pp_slice(x):
+                        l, u, s = x.lower or "", x.upper or "", x.step
+                        if x.step:
+                                return "%s:%s:%s" % tuple(iterate((l, u, s)))
+                        else:
+                                return "%s:%s" % tuple(iterate((l, u)))
+                def pp_iterable(x):
+                        l, r = { ast.List: ("[", "]"), ast.Tuple: ("(", ")"), ast.Set: ("{", "}"), ast.Dict: ("{", "}"), } [type(x)]
+                        return "%s %s%s %s" % (l,
+                                             ", ".join(iterate(x.elts)
+                                                       if not ast_dict_p(x) else
+                                                       mapcar(lambda k, v: "%s: %s" % (k, v),
+                                                              x.keys,
+                                                              x.values)),
+                                             "," if (ast_tuple_p(x) and len(x.elts) == 1) else "",
+                                             r)
+                def pp_string(x):
+                        q = "'''" if find("\n", x.s) else "'"
+                        val = with_output_to_string(lambda s: print(x.s, file = s, end = ""))
+                        return q + val + q
+                def pp_num(x):     return str(x.n)
+                binop_print_map = dict(Add = "+", Sub = "-", Mult = "*", Div = "/",
+                                       Mod = "%", Pow = "**", LShift = "<<", RShift = ">>",
+                                       BitOr = "|", BitXor = "^", BitAnd = "&",
+                                       FloorDiv = "//")
+                def pp_binop(x):
+                        return (pp_ast_as_code(x.left) +
+                                (" %s " % (binop_print_map[type(x.op).__name__])) +
+                                pp_ast_as_code(x.right))
+                def pp_module(x):
+                        return "\n".join(iterate(x.body))
+                def pp_functiondef(x):
+                        "XXX: ignores __annotations__"
+                        def pp_args(args):
+                                (args, vararg,
+                                 kwonlyargs, kwarg,
+                                 defaults,
+                                 kw_defaults) = mapcar(lambda a: getattr(args, a),
+                                                       ["args", "vararg", "kwonlyargs", "kwarg",
+                                                        "defaults", "kw_defaults"])
+                                fixs = len(args) - len(defaults)
+                                return ", ".join(mapcar(rec, args[:fixs]) +
+                                                 mapcar(lambda var, val: rec(var) + " = " + val,
+                                                        args[fixs:], iterate(defaults)) +
+                                                 ([("*" + rec(vararg))] if vararg else []) +
+                                                 mapcar(lambda var, val: rec(var) + " = " + val,
+                                                        kwonlyargs, iterate(kw_defaults)) +
+                                                 ([("**" + rec(kwarg))] if kwarg else []))
+                        res = indent() + "def " + x.name + "(" + pp_args(x.args) + "):\n"
+                        with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
+                                res += "\n".join(iterate(x.body))
+                        return res + "\n"
+                def pp_for(x):
+                        res = indent() + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n"
+                        with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
+                                res += "\n".join(iterate(x.body))
+                        if x.orelse:
+                                res += indent() + "else:\n"
+                                with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
+                                        res += "\n".join(iterate(x.orelse))
+                        return res + "\n"
+                # def pp_if(x):
+                #         res = indent() + "if " + rec(x.target) + " in " + rec(x.iterator) + ":\n"
+                #         with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
+                #                 res += "\n".join(iterate(x.body))
+                #         if x.orelse:
+                #                 res += indent() = "else:\n"
+                #                 with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
+                #                         res += "\n".join(iterate(x.orelse))
+                #         return res + "\n"
+                def pp_Expr(x):
+                        return indent() + pp_ast_as_code(x.value)
+                def pp_assign(x):
+                        return indent() + "%s = %s" % (", ".join(iterate(x.targets)),
+                                                       pp_ast_as_code(x.value))
+                def pp_return(x): return indent() + "return " + rec(x.value) + "\n"
+                def pp_raise(x):  return indent() + "raise " + rec(x.value) + "\n"
+                map = { ast.Module:      pp_module,
+                        ast.FunctionDef: pp_functiondef,
+                        ast.For:         pp_for,
+                        ast.Expr:        pp_Expr,
+                        ast.Call:        pp_call,
+                        ast.Attribute:   pp_attribute,
+                        ast.Name:        pp_name,
+                        ast.arg:         pp_arg,
+                        ast.Assign:      pp_assign,
+                        ast.keyword:     pp_keyword,
+                        ast.Subscript:   pp_subscript,
+                        ast.Index:       pp_index,
+                        ast.Slice:       pp_slice,
+                        ast.List:        pp_iterable,
+                        ast.Tuple:       pp_iterable,
+                        ast.Set:         pp_iterable,
+                        ast.Dict:        pp_iterable,
+                        ast.Str:         pp_string,
+                        ast.Num:         pp_num,
+                        ast.BinOp:       pp_binop,
+                        ast.Return:      pp_return,
+                        ast.Raise:       pp_raise,
+                        }
+                def fail(x): not_implemented("pretty-printing AST node %s" % (type(x),))
+                try:
+                        return map.get(type(x), fail)(x) if x else ""
+                except Exception as cond:
+                        if typep(cond, NotImplemented):
+                                raise
+                        else:
+                                error("ERROR: %s, while pretty-printing %s.  Slots: %s",
+                                      cond, x, dir(x))
+        return rec(x)
 
 ## symbols
 symbol_attributes = [
