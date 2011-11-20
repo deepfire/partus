@@ -106,13 +106,23 @@ def read_snippet_from_string (string, position = None):
                                       lambda s: read_snippet(s, position))
 
 def skip_comments_and_whitespace(stream):
-        return case(peek_char(nil, stream),
-                    (set([" ", "\t", "\n", "\r", "\p"]),
-                     lambda: (read_char(stream) and
-                              skip_comments_and_whitespace(stream))),
-                    ("#",
-                     lambda: (read_line(stream) and
-                              skip_comments_and_whitespace(stream))))
+        ## Was:
+        # return case(peek_char(nil, stream),
+        #             (set([" ", "\t", "\n", "\r", "\p"]),
+        #              lambda: (read_char(stream) and
+        #                       skip_comments_and_whitespace(stream))),
+        #             ("#",
+        #              lambda: (read_line(stream) and
+        #                       skip_comments_and_whitespace(stream))))
+        done = nil
+        while not done:
+                char = peek_char(nil, stream)
+                if char in " \t\n\r\p":
+                        read_char(stream)
+                elif char == "#":
+                        read_line(stream)
+                else:
+                        return
 
 def read_upto_n_chars(stream, n):
         "Return a string of upto N chars from STREAM."
