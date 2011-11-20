@@ -96,7 +96,7 @@ def read_snippet (stream, position = None):
         """Read a string of upto *SOURCE-SNIPPET-SIZE* characters from STREAM.
 If POSITION is given, set the STREAM's file position first."""
         if position:
-                file_position(stream, position)
+                setf_file_position(stream, position)
         #+sbcl
         skip_comments_and_whitespace(stream)
         return read_upto_n_chars(stream, symbol_value("_source_snippet_size_"))

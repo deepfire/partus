@@ -249,7 +249,7 @@ def debug_block_elsewhere_p(db):
 
 class code_location():
         def __init__(self, debug_fun, unknown_p, debug_block, tlf_offset, form_number,
-                     lineno, tlf):
+                     lineno, source, tlf):
                 ## the DEBUG-FUN containing this CODE-LOCATION
                 (self.debug_fun,
                  ## This is initially :UNSURE. Upon first trying to access an
@@ -272,13 +272,14 @@ class code_location():
                  self.form_number,
                  ## Our cargo-cult imitation..
                  self.lineno,
-                 ## ...
+                 self.source,
                  self.tlf) = (debug_fun,
                               unknown_p,
                               debug_block,
                               tlf_offset,
                               form_number,
                               lineno,
+                              source,
                               tlf)
 
 def code_location_debug_fun(l): return l.debug_fun
@@ -744,12 +745,13 @@ def _make_cloc(co, lineno):
                              # ..our measly substitute..
                              lineno      = lineno,
                              source      = keyword("unparsed"),
-                             tlf         = keyword("unparsed"))
+                             tlf         = keyword("unparsed")
 
-# Issue FRAME-CLOC-AND-RELATED-MAPS-MUST-BE-WEAK
+                             # Issue FRAME-CLOC-AND-RELATED-MAPS-MUST-BE-WEAK
+)
 (__frame_clocs__, _frame_cloc) = cl._make_timestamping_cache(
         lambda frame: _make_cloc(cl._frame_fun(frame),
-                                 cl._frame_lineno(frame)))
+                                 cl._frame_lineno(frame) - 1))
 
 frame_code_location = _frame_cloc
 
@@ -773,6 +775,11 @@ def __namestring_linemap(namestring):
                           string_line_offsets)
 (__namestring_linemap__, _namestring_linemap) = cl._make_timestamping_cache(__namestring_linemap)
 def __code_linemap(co):
+        source_linemap = _namestring_linemap(co.co_filename)
+        if source_linemap:
+                return source_linemap
+        # Source file missing, the only other place where we could've had
+        # the source is EVAL's cache:
         return cl._if_let(_code_source(co),
                           string_line_offsets)
 (__code_linemap__, _code_linemap) = cl._make_timestamping_cache(__code_linemap)
@@ -791,6 +798,8 @@ def __code_ast(co):
         return cl._if_let(_code_source(co),
                           more_ast.extract_ast)
 (__code_asts__, _code_ast) = cl._make_timestamping_cache(__code_ast)
+###
+### XXX: the above begs for structure
 
 ###
 def code_location_toplevel_form_offset(code_location):
@@ -837,7 +846,7 @@ def sub_compiled_code_location_equal(l1, l2):
         #    (compiled-code-location-pc obj2))
         not_implemented()
 
-def fill_in_code_location(cloc):
+def fill_in_code_location(cloc) -> t:
         # Fill in CODE-LOCATION's :UNPARSED slots, returning T or NIL
         # depending on whether the code-location was known in its
         # DEBUG-FUN's debug-block information. This may signal a
@@ -864,25 +873,31 @@ def fill_in_code_location(cloc):
         #                                             loc.step_info)
         #                          return t
         def find_toplevel_for_lineno(tlfs, lineno):
-                last = nil
-                for i, form in enumerate(tlfs):
-                        if form.lineno >= lineno:
-                                return i, last
+                prev = nil
+                for i, tlf in enumerate(tlfs):
+                        if tlf.lineno > lineno:
+                                return min(0, i - 1), prev
+                        prev = tlf
                 return nil, nil
-def find_first_ast_for_lineno(lineno, form):
-        def rec(form):
-                if form.lineno >= lineno:
-                        return form
-                else:
-                        return find_if(rec, sorted(more_ast.ast_children(form),
-                                                   key = slotting("lineno")))
-        return rec(form)
+        def tlf_find_first_node_for_lineno(form, lineno):
+                def rec(form):
+                        if form.lineno >= lineno:
+                                return form
+                        else:
+                                return find_if(rec, sorted(more_ast.ast_children(form),
+                                                           key = slotting("lineno")))
+                return rec(form)
         lineno = cloc.lineno
         module_ast = the(ast.Module, _code_ast(debug_fun))
+        cloc.source = _code_source(debug_fun)
         (cloc.tlf_offset,
          cloc.tlf) = find_toplevel_for_lineno(module_ast.body, lineno)
+        if not cloc.tlf:
+                error("Code location points past end-of-file.")
         cloc.form_number = 0 # It's borderline impossible to infer this from just the lineno.
                              # Yes, you know whom the warm gratitude ought to be extended to.
+                             # XXX: Nevertheless, we could be much more precise with FORM-NUMBER.
+                             #      The only nagging question -- what for?
         return t
 
 ### operations on DEBUG-BLOCKs

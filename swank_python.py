@@ -16,7 +16,10 @@ from cl import _keyword as keyword
 from pergamum import slotting, here, when_let, if_let, mapcar_star
 
 from swank_backend import defimplementation
-from swank_backend import check_slime_interrupts, converting_errors_to_error_location
+from swank_backend import check_slime_interrupts, converting_errors_to_error_location, make_location
+
+import swank_source_path_parser
+import swank_source_file_cache
 
 from swank_source_file_cache import *
 
@@ -556,7 +559,7 @@ def emacs_buffer_source_location(code_location, plist):
                  emacs_position,
                  emacs_string) = mapcar(lambda k: getf(plist, keyword(k)),
                                         ["emacs-buffer", "emacs-position", "emacs-string"])
-                pos = string_source_position(code_location, emacs_string)
+                pos, _ = string_source_position(code_location, emacs_string)
                 snippet = read_snippet_from_string(emacs_string, pos)
                 return make_location([keyword("buffer"),  emacs_buffer],
                                      [keyword("offset"),  emacs_position, pos],
@@ -571,7 +574,7 @@ def source_file_source_location(code_location):
         source_code = get_source_code(filename, code_date)
         with progv(_readtable_ = guess_readtable_for_filename(filename)):
                 def body(s):
-                        pos = stream_source_position(code_location, s)
+                        pos, _ = stream_source_position(code_location, s)
                         snippet = read_snippet(s, pos)
                         return make_location([keyword("file"), filename],
                                              [keyword("position"), pos],
@@ -711,6 +714,10 @@ def code_location_has_debug_block_info_p(code_location):
 #         -- import name with optional 'as' alias.
 #         alias = (identifier name, identifier? asname)
 def stream_source_position(code_location, stream):
+        ## XXX: This seems to suggest "reread the form from this stream, please"
+        ##      Should we, then, bust the intra-cloc caches?
+        ##      Still unclear on the specific meaning..
+        #
         # (let* ((cloc (sb-debug::maybe-block-start-location code-location))
         #        (tlf-number (sb-di::code-location-toplevel-form-offset cloc))
         #        (form-number (sb-di::code-location-form-number cloc)))
@@ -722,17 +729,23 @@ def stream_source_position(code_location, stream):
         #                        (t
         #                         (reverse (cdr (aref path-table form-number)))))))
         #       (source-path-source-position path tlf pos-map))))
-        cloc = sb_debug.maybe_block_start_location(code_location)
-        tlf_number = sb_di.code_location_toplevel_form_offset(cloc)
-        form_number = sb_di.code_location_form_number(cloc)
-        tlf, pos_map = read_source_form(tlf_number, stream)
-        path_table = sb_di.form_number_translations(tlf, 0)
-        if len(path_table) <= form_number:
-                warn("inconsistent form-number-translations")
-                path = [0]
-        else:
-                path = reverse(cdr(aref(path_table, form_number)))
-        return source_path_source_position(path, tlf, pos_map)
+        cloc = sb_debug.maybe_block_start_location(code_location)  # identity transform..
+        tlf_number, form_number = (sb_di.code_location_toplevel_form_offset(cloc),
+                                   sb_di.code_location_form_number(cloc))
+        # fill_in_code_location was called by above..
+        # ..and so, .tlf was filled in likewise.
+        #
+        ## XXX: the below snippet was disabled, because it added essentially
+        #       nothing -- clocs are lineno-only, anyway.
+        # tlf, pos_map = swank_source_path_parser.read_source_form(tlf_number, stream)
+        # path_table = sb_di.form_number_translations(tlf, 0)
+        # if len(path_table) <= form_number:
+        #         warn("inconsistent form-number-translations")
+        #         path = [0]
+        # else:
+        #         path = reverse(cdr(aref(path_table, form_number)))
+        # return swank_source_path_parser.source_path_source_position(path, tlf, pos_map)
+        return swank_source_path_parser._cloc_source_position(cloc)
 
 def string_source_position(code_location, string):
         return with_input_from_string(
@@ -765,9 +778,11 @@ def frame_source_location(n):
         #                 [keyword("file"), srcfile],
         #                 [keyword("line"), line, line + nlines],
         #                 find_symbol0("nil")]
+        cloc = sb_di.frame_code_location(nth_frame(n))
+        here("cloc: lineno: %s, fun: %s", cloc.lineno, cloc.debug_fun)
         return converting_errors_to_error_location(
                 lambda: code_location_source_location(
-                        sb_di.frame_code_location(nth_frame(n))))
+                        cloc))
 
 def frame_debug_vars(frame):
         "Return a vector of debug-variables in frame."

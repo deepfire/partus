@@ -655,17 +655,17 @@ returns."""
 
 ### Definition finding
 
-location = defstruct("location",
-                     "buffer",
-                     "position",
-                     ## Hints is a property list optionally containing:
-                     ##   :snippet SOURCE-TEXT
-                     ##     This is a snippet of the actual source text at the start of
-                     ##     the definition, which could be used in a text search.
-                     "hints")
+## Was: defstruct (location (:type list))
 
 def make_location(buffer, position, hints = nil):
-        return location(buffer, position, hints)
+        return [keyword("location"),
+                buffer,
+                position,
+                ## Hints is a property list optionally containing:
+                ##   :snippet SOURCE-TEXT
+                ##     This is a snippet of the actual source text at the start of
+                ##     the definition, which could be used in a text search.
+                hints]
 
 #### defstruct error
 

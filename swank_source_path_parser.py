@@ -26,7 +26,13 @@
 ### Rewritten in python, by Samium Gromoff
 
 import cl
-from cl import *
+from   cl       import *
+
+import pergamum
+from   pergamum import *
+
+import sb_di
+import more_ast
 
 ## Some test to ensure the required conformance
 # (let ((rt (copy-readtable nil)))
@@ -162,14 +168,15 @@ __ast_atoms__ = mapset(
          "unaryop",
          "cmpop",
          ])
-def _ast_consp(x):
+def _ast_consp(x: ast.AST) -> bool:
         return type(x) in __ast_conses__
 
-def read_source_form(n, stream):
+def read_source_form(n, stream) -> (list, "source_map"):
         """Read the Nth toplevel form number with source location recording.
 Return the form and the source-map."""
-        cloc = symbol_value("_cloc_for_read_source_form_") # Fuck, yeah.
-        form = cloc.form
+        # cloc = symbol_value("_cloc_for_read_source_form_") # Fuck, yeah.
+        # tlf = cloc.tlf
+        not_implemented()
         
 # (defun read-source-form (n stream)
 #   """Read the Nth toplevel form number with source location recording.
@@ -225,3 +232,8 @@ Return the form and the source-map."""
 # 	  finally (destructuring-bind ((start . end)) positions
 # 		    (return (values start end))))))
 
+def _cloc_source_position(cloc) -> values(int, int):
+        lines = sb_di._code_linemap(cloc.debug_fun)
+        tlf = cloc.tlf
+        return values(lines[min(len(lines) - 1, tlf.lineno)],
+                      lines[min(len(lines) - 1, more_ast.ast_last_lineno(tlf))])
