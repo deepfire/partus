@@ -735,6 +735,7 @@ def stream_source_position(code_location, stream):
         # fill_in_code_location was called by above..
         # ..and so, .tlf was filled in likewise.
         #
+        # Issue SOURCE-LOCATION-SUBOPTIMAL-PRECISION
         ## XXX: the below snippet was disabled, because it added essentially
         #       nothing -- clocs are lineno-only, anyway.
         # tlf, pos_map = swank_source_path_parser.read_source_form(tlf_number, stream)
