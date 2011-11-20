@@ -522,6 +522,15 @@ def pp_percentage(x, total, format = "%d"):
         return ((format % npercents + "%") if plusp(npercents) else ("none" if zerop(x) else "<1%"))
 
 ## strings
+def string_line_offsets(string):
+        acc = [0]
+        for i, c in enumerate(string):
+                if c == "\n":
+                        acc.append(i + 1)
+        if acc[-1] == len(string):
+                acc.pop()
+        return acc
+
 def string_to_integer_in_range(x, min_, max_):
         "Return int(X), if X is a string representation of an integer and satisfies MIN <= X <= MAX.  Return None otherwise."
         try:
