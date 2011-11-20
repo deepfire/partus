@@ -181,14 +181,27 @@ def ast_fqn_p(x):
     else:
         return False
 
-def ast_children(x):
+def ast_children(x, ast_only = None, lineno_only = None):
+
+        def passes(x):
+                return (((not lineno_only) or
+                         hasattr(x, "lineno")) and
+                        ((not ast_only) or
+                         isinstance(x, ast.AST)))
         for slot in x._fields:
                 slotval = getattr(x, slot)
                 if isinstance(slotval, list):
                         for elt in slotval:
-                                yield elt
+                                if passes(elt):
+                                        yield elt
                 else:
-                        yield slotval
+                        if passes(slotval):
+                                yield slotval
+
+def ast_last_lineno(form):
+        return max([form.lineno] +
+                   [ ast_last_lineno(x)
+                     for x in ast_children(form, lineno_only = True)])
 
 def pp_ast(o, stream = sys.stdout):
     """Pretty-print AST O."""
@@ -269,6 +282,8 @@ def pp_ast_as_code(x, tab = " " * 8):
                         return x.id
                 def pp_arg(x):
                         return x.arg + ((":" + x.annotation) if x.annotation else "")
+                def pp_alias(x):
+                        return x.name + ((" as " + x.asname) if x.asname else "")
                 def pp_keyword(x):
                         return "%s = %s" % (x.arg, pp_ast_as_code(x.value))
                 def pp_subscript(x):
@@ -351,8 +366,14 @@ def pp_ast_as_code(x, tab = " " * 8):
                 def pp_assign(x):
                         return indent() + "%s = %s" % (", ".join(iterate(x.targets)),
                                                        pp_ast_as_code(x.value))
-                def pp_return(x): return indent() + "return " + rec(x.value) + "\n"
-                def pp_raise(x):  return indent() + "raise " + rec(x.value) + "\n"
+                def make_trivial_pper(x):
+                        return (indent() + x +
+                                      ((" " + rec(x.value))
+                                       if hasattr(x, "value") and x.value else
+                                       "") +
+                                      "\n")
+                def pp_import(x):
+                        return indent() + "import " + ", ".join(iterate(x.names))
                 map = { ast.Module:      pp_module,
                         ast.FunctionDef: pp_functiondef,
                         ast.For:         pp_for,
@@ -361,8 +382,9 @@ def pp_ast_as_code(x, tab = " " * 8):
                         ast.Attribute:   pp_attribute,
                         ast.Name:        pp_name,
                         ast.arg:         pp_arg,
-                        ast.Assign:      pp_assign,
+                        ast.alias:       pp_alias,
                         ast.keyword:     pp_keyword,
+                        ast.Assign:      pp_assign,
                         ast.Subscript:   pp_subscript,
                         ast.Index:       pp_index,
                         ast.Slice:       pp_slice,
@@ -373,8 +395,9 @@ def pp_ast_as_code(x, tab = " " * 8):
                         ast.Str:         pp_string,
                         ast.Num:         pp_num,
                         ast.BinOp:       pp_binop,
-                        ast.Return:      pp_return,
-                        ast.Raise:       pp_raise,
+                        ast.Return:      make_trivial_pper("return"),
+                        ast.Raise:       make_trivial_pper("raise"),
+                        ast.Import:      pp_import,
                         }
                 def fail(x): not_implemented("pretty-printing AST node %s" % (type(x),))
                 try:
