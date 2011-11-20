@@ -177,6 +177,15 @@ def ast_fqn_p(x):
     else:
         return False
 
+def ast_children(x):
+        for slot in x._fields:
+                slotval = getattr(x, slot)
+                if isinstance(slotval, list):
+                        for elt in slotval:
+                                yield elt
+                else:
+                        yield slotval
+
 def pp_ast(o, stream = sys.stdout):
     """Pretty-print AST O."""
 
