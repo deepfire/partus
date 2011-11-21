@@ -63,21 +63,28 @@ def honoring_death_wish():
                 except KeyboardInterrupt:
                         sys.exit()
 
+__coding_systems__ = dict([("utf-8-unix", "utf-8")])
+def _xlate_coding_system(x):
+        return gethash(x, __coding_systems__, x)[0]
+
 def start_server(port_file,
                  style         = symbol_value('_communication_style_'),
                  dont_close    = symbol_value('_dont_close_'),
                  coding_system = symbol_value('_coding_system_')):
         setup_server(0,
                      lambda port: announce_server_port(port_file, port),
-                     style, dont_close, coding_system)
+                     style, dont_close,
+                     _xlate_coding_system(coding_system))
         honoring_death_wish()
 
 def create_server(port          = symbol_value("_default_server_port_"),
                   style         = symbol_value('_communication_style_'),
                   dont_close    = symbol_value('_dont_close_'),
                   coding_system = symbol_value('_coding_system_')):
-        setup_server(port, simple_announce_function,
-                     style, dont_close, coding_system)
+        setup_server(port,
+                     simple_announce_function,
+                     style, dont_close,
+                     _xlate_coding_system(coding_system))
         honoring_death_wish()
 
 def find_external_format_or_lose(fmt):
@@ -163,8 +170,9 @@ def serve_requests(conn):
         conn.serve_requests(conn)
 
 def announce_server_port(file, port):
-        with open(file, "w") as s:
+        with open(file, "w+") as s:
                 format(s, "%s\n", port)
+                finish_output(s)
         simple_announce_function(port)
 
 def simple_announce_function(port):
