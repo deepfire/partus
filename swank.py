@@ -2816,32 +2816,87 @@ def xref_elisp(xref):
         return [to_string(name), loc]
 
 ### Lazy lists: swank.lisp:3377
-#### defstruct lcons
-#### lcons
-#### lcons*
-#### lcons-cdr
-#### llist-range
-#### llist-skip
-#### llist-take
-#### iline
+class lcons(collections.UserList):
+        def __init__(self, car, cdr):
+                self.car, self._cdr = (car, the(function_, cdr))
+                self.forced = nil
+
+def lconsp(x):       return isinstance(x, lcons)
+
+def lcons_star(car, cdr, *more):
+        return (lcons(car, cdr) if not more else
+                lcons(car, lambda: lcons(cdr, more[0], more[1:])))
+
+def lcons_cdr(lcons):
+        if lcons.forced:
+                return lcons._cdr
+        else:
+                value = lcons._cdr()
+                lcons.forced = t
+                lcons._cdr = value
+                return value
+
+def llist_range(llist, start, end):
+        return llist_take(llist_skip(llist, start), end - start)
+
+def llist_skip(lcons, index):
+        i, l = 0, lcons
+        while i != index and l:
+                i += 1
+                l = lcons_cdr(l)
+        return l
+
+def llist_take(lcons, count):
+        result = []
+        i, l = 0, lcons
+        while (i != index and l):
+                result.append(l.car)
+                i += 1
+                l = lcons_cdr(l)
+        result.reverse()
+        return result
+
+def iline(label, value):
+        return [keyword("line"), label, value]
 
 ### Inspecting: swank.lisp:3423
 
-setq("_inspector_verbose_",                     nil)
+defvar("_inspector_verbose_",    nil)
 
-# setq("_inspector_printer_bindings_",            [])
+defvar("_inspector_printer_bindings_",
+       [("_print_lines_",        1),
+        ("_print_right_margin_", 75),
+        ("_print_pretty_",       t),
+        ("_print_readably_",     nil)])
 
-# setq("_inspector_verbose_printer_bindings_",    [])
+defvar("_inspector_verbose_printer_bindings_",
+       [("_print_escape_",       t),
+        ("_print_circle_",       t),
+        ("_print_array_",        nil)])
 
-#### defstruct inspector-state
-#### defstruct istate
+class inspector_state():
+        pass
+class istate(inspector_state):
+        def __init__(self, object = None, verbose = None, previous = None):
+                self.parts  = []
+                self.actions = []
+                self.metadata_plist = []
+                self.content = nil
+                (self.object,
+                 self.next, self.previous,
+                 self.verbose) = (object,
+                                  nil, previous,
+                                  defaulted_to_var(previous, "_inspector_verbose_"))
 
-setq("_istate_",                                 nil)
-# setq("_inspector_history_",              <unbound>)
+def make_istate(**keys):
+        return istate(**keys)
+
+defvar("_istate_",               nil)
+defvar("_inspector_history_")
 
 def reset_inspector():
         setq("_istate_", nil)
-        setq("_inspector_history_", [nil] * 10)
+        setq("_inspector_history_", [])
 
 def init_inspector(string):
         def with_retry_restart_body():
@@ -2851,18 +2906,108 @@ def init_inspector(string):
                 lambda: with_retry_restart(with_retry_restart_body,
                                            msg = "retry SLIME inspection request"))
 
-#### ensure-istate-metadata
-#### inspect-object
-#### emacs-inspect/istate
-#### istate>elisp
-#### prepare-title
-#### prepare-range
-#### prepare-part
-#### value-part
-#### action-part
-#### assign-index
-#### print-part-to-string
-#### content-range
+def ensure_istate_metadata(o, indicator, default):
+        istate = symbol_value("_istate_")
+        assert(istate.object is o)
+        data = getf(istate.metadata_plist, indicator, default)
+        setf_getf(istate.metadata_plist, indicator, data)
+        return data
+
+def inspect_object(o):
+        prev = symbol_value("_istate_")
+        istate = make_istate(object = o, previous = prev,
+                             verbose = (prev.verbose if prev else
+                                        symbol_value("_inspector_verbose_")))
+        setq("_istate_", istate)
+        istate.content = emacs_inspect__istate(istate)
+        if not find(o, symbol_value("_inspector_history_")):
+                symbol_value("_inspector_history_").append(o)
+        previous = istate.previous
+        if previous:
+                previous.next = istate
+        return istate__elisp(istate)
+
+def emacs_inspect__istate(istate):
+        return with_bindings(
+                symbol_value("_inspector_verbose_printer_bindings_" if istate.verbose else
+                             "_inspector_printer_bindings_"),
+                lambda: emacs_inspect(istate.object))
+
+def istate__elisp(istate):
+        return [keyword("title"),   prepare_title(istate),
+                keyword("id"),      assign_index(istate.ibject, istate.parts),
+                keyword("content"), prepare_range(istate, 0, 500)]
+
+
+def prepare_title(istate):
+        return (with_bindings(
+                        symbol_value("_inspector_verbose_printer_bindings_"),
+                        lambda: to_string(istate.object))
+                if istate.verbose else
+                with_string_stream(
+                        lambda stream: print_unreadable_object(istate.object, stream,
+                                                               lambda _: nil,
+                                                               type = t, identity = t),
+                        length = 200,
+                        bindings = symbol_value("_inspector_printer_bindings_")))
+
+def prepare_range(istate, start, end):
+        range = content_range(istate.content, start, end)
+        ps = mapcan(lambda part: prepare_part(part, istate), range)
+        return [ps,
+                (start + len(ps)) if len(ps) < (end - start) else
+                (end + 1000),
+                start, end]
+
+def prepare_part(part, istate):
+        return etypecase(
+                part,
+                (string_, [part]),
+                (list,    destructure_case(
+                                part,
+                                ([keyword("newline")],
+                                 lambda: ["\n"]),
+                                ([keyword("value")],
+                                 lambda obj, str = nil:
+                                         [value_part(obj, str, istate.parts)]),
+                                ([keyword("label")],
+                                 lambda *strs:
+                                         [[keyword("label"),
+                                           "".join(mapcar(string, strs))]]),
+                                ([keyword("action")],
+                                 lambda label, lambda_, refreshp = t:
+                                         [action_part(label, lambda_, refreshp,
+                                                      istate.actions)]),
+                                ([keyword("line")],
+                                 lambda label, value:
+                                         [princ_to_string(label), ": ",
+                                          value_part(value, nil, istate.parts),
+                                          "\n"]))))
+
+def value_part(object, string, parts):
+        return [keyword("value"),
+                string or print_part_to_string(object),
+                assign_index(object, parts)]
+
+def action_part(label, lambda_, refreshp, actions):
+        return [keyword("action"), label, assign_index([lambda_, refreshp], actions)]
+
+def assign_index(object, vector):
+        index = fill_pointer(vector)
+        vector.append(object)
+        return index
+
+def print_part_to_string(value):
+        with progv(_print_readably_ = nil):
+                string = to_line(value)
+                pos = position(value, symbol_value("_inspector_history_"))
+                return (format(nil, "@%d=%s", pos, string) if pos else
+                        string)
+
+def content_rante(list_, start, end):
+        return typecase(list_,
+                        (list,  lambda: subseq(list_, start, min(len(list_), end))),
+                        (lcons, lambda: llist_range(list, start, end)))
 
 def inspector_nth_part(index):
         return symbol_value("_istate_").parts[index]
