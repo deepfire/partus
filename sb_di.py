@@ -914,11 +914,13 @@ def debug_var_symbol_name(debug_var):
 ### Returns the value stored for DEBUG-VAR in frame. The value may be
 ### invalid. This is SETFable.
 def debug_var_value(var, frame):
-        return cl._frame_locals(frame)[var]
+        return sorted(cl._hash_table_alist(cl._frame_locals(frame)),
+                      key = car)[var][1]
 
 def set_debug_var_value(var, frame, new_value):
-        cl._frame_locals(frame)[var] = new_value
-        return new_value
+        not_implemented()
+        # cl._frame_locals(frame)[var] = new_value
+        # return new_value
 
 ### This returns what is stored for the variable represented by
 ### DEBUG-VAR relative to the FRAME. This may be an indirect value

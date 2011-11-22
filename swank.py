@@ -2917,12 +2917,15 @@ def inspect_current_condition(slime_connection, sldb_state):
         return inspect_object(slime_connection, sldb_state.condition)
 
 def inspect_frame_var(frame, var):
-        return with_buffer_syntax(
-                lambda: (reset_inspector() and
-                         inspect_object(frame_var_value(frame, var))))
+        ## Was:
         # frame = sldb_state.frames[index] # XXX: was [index + 1]
         # varname = ordered_frame_locals(frame)[var]
         # return inspect_object(slime_connection, frame_local_value(frame, varname))
+        def body():
+                reset_inspector()
+                return inspect_object(frame_var_value(frame, var))
+        return with_buffer_syntax(body)
+
 ###     ...   : Lists: swank.lisp:3660
 ###     ...   : Hashtables: swank.lisp:3705
 ###     ...   : Arrays: swank.lisp:3741

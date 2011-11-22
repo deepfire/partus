@@ -787,7 +787,9 @@ def frame_source_location(n):
 
 def frame_debug_vars(frame):
         "Return a vector of debug-variables in frame."
-        return cl._frame_locals(frame)
+        # XXX: actually, a sorted alist..
+        return sorted(cl._hash_table_alist(cl._frame_locals(frame)),
+                      key = car)
 
 def debug_var_value(var, frame, location):
         ## Was:
@@ -845,7 +847,7 @@ def frame_locals(index):
         return mapcar_star(lambda name, value: ["name",  name,
                                                 "id",    0,
                                                 "value", value],
-                           vars.items())
+                           vars)
 
 @defimplementation
 def frame_var_value(frame, var):
@@ -870,14 +872,16 @@ def frame_var_value(frame, var):
         if var == len(vars):
                 # If VAR is out of bounds, it must be the fake var we made up for
                 # &MORE.
+                not_implemented() # frame_debug_vars() returns a sorted alist..
                 context_var = find(keyword("more-context"), vars, key = debug_var_info)
                 more_context = debug_var_value(context_var, frame, loc)
                 count_var = find(keyword("more-context"), vars, key = debug_var_info)
                 more_count = debug_var_value(count_var, frame, loc)
                 return multiple_value_list(sb_c._more_arg_values(more_context, 0, more_count))
         else:
-                dvar = vars[var]
-                return debug_var_value(dvar, frame, loc)
+                # dvar = vars[var]
+                # return debug_var_value(dvar, frame, loc)
+                return vars[var]
 
 # def frame_catch_tags(index):			pass
 # def eval_in_frame(form, index):		pass
