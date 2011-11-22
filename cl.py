@@ -90,6 +90,12 @@ def _plist_alist(xs):
                 acc.append((xs[i], xs[i + 1]))
         return acc
 
+def _hash_table_alist(xs):
+        return xs.items()
+
+def _alist_hash_table(xs):
+        return dict(xs)
+
 class _cache(collections.UserDict):
         def __init__(self, filler):
                 self.filler = filler
@@ -828,8 +834,8 @@ def multiple_value_call(function, *values_forms):
 def cons(x, y):       return (x, y)
 def consp(o):         return type(o) is tuple and len(o) is 2
 def atom(o):          return type(o) is not tuple
-def car(x):           return x[0]   if xs else nil
-def cdr(x):           return x[1:]  if xs else nil
+def car(x):           return x[0]   if x  else nil
+def cdr(x):           return x[1:]  if x  else nil
 def first(xs):        return xs[0]  if xs else nil
 def rest(xs):         return xs[1:] if xs else nil
 def nth(n, xs):       return xs[n] if n < len(xs) else nil
@@ -853,12 +859,30 @@ def prog1(val, body):
 ##
 ## Sequences
 ##
-def getf(xs, key):
+def vector_push(vec, x):
+        "XXX: compliance"
+        vec.append(x)
+        return vec
+
+def vector_push_extend(vec, x):
+        "XXX: compliance"
+        vec.append(x)
+        return vec
+
+def getf(xs, key, default = None):
         for i, x in enumerate(xs):
                 if not i%2 and x == key:
                         return xs[i + 1]
         else:
-                return nil
+                return _defaulted(default, nil)
+
+def setf_getf(xs, key, value):
+        for i, x in enumerate(xs):
+                if not i%2 and x == key:
+                        xs[i + 1] = value
+                        return xs
+        else:
+                return [key, value] + xs
 
 def assoc(x, xs, test = equal):
         for k, v in xs:
@@ -1640,9 +1664,9 @@ __type_predicate_map__ = { _keyword("or"):     (nil, some,  typep),
 ##
 ## T/NIL-dependent stuff
 ##
-def defvar(name, value, documentation = nil):
+def defvar(name, value = None, documentation = nil):
         "XXX: documentation, declaring as special"
-        if not boundp(name):
+        if not boundp(name) and value is not None:
                 setq(name, value)
         return name
 
