@@ -75,3 +75,81 @@ DIRECTORY change to this directory before starting the process.
         (when send-eof
           (process-send-eof process))))))
 
+
+;;;
+;;; Symbol bounds: SLIME-BOUNDS-OF-SYMBOL-AT-POINT
+;;;
+(defun partus-beginning-of-symbol ()
+  "Move to the beginning of the CL-style symbol at point."
+  ;; (while (re-search-backward "\\(\\sw\\|\\s_\\|\\w\\.\\|\\s\\\\|[#@|]\\)\\="
+  ;;                            (when (> (point) 2000) (- (point) 2000))
+  ;;                            t))
+  (while (re-search-backward "\\(\\sw\\|\\s_\\|\\w\\.\\|\\s\\\\|[#@|]\\)\\="
+                             (when (> (point) 2000) (- (point) 2000))
+                             t))
+  (re-search-forward "\\.=#[-+<|]" nil t)
+  (when (and (looking-at "@") (eq (char-before) ?\,))
+    (forward-char)))
+
+(defun partus-end-of-symbol ()
+  "Move to the end of the CL-style symbol at point."
+  (re-search-forward "\\=\\(\\sw\\|\\.\\|\\s_\\|#:\\|[@|]\\)*"))
+
+(put 'slime-symbol 'end-op 'partus-end-of-symbol)
+(put 'slime-symbol 'beginning-op 'partus-beginning-of-symbol)
+
+(defun bounds-of-thing-at-point (thing)
+  "Determine the start and end buffer locations for the THING at point.
+THING is a symbol which specifies the kind of syntactic entity you want.
+Possibilities include `symbol', `list', `sexp', `defun', `filename', `url',
+`email', `word', `sentence', `whitespace', `line', `page' and others.
+
+See the file `thingatpt.el' for documentation on how to define
+a symbol as a valid THING.
+
+The value is a cons cell (START . END) giving the start and end positions
+of the textual entity that was found."
+  (if (get thing 'bounds-of-thing-at-point)
+      (funcall (get thing 'bounds-of-thing-at-point))
+      (let ((orig (point)))
+        (condition-case nil
+            (save-excursion
+              ;; Try moving forward, then back.
+              (funcall ;; First move to end.
+               (or (get thing 'end-op)
+                   (lambda () (forward-thing thing 1))))
+              (funcall ;; Then move to beg.
+               (or (get thing 'beginning-op)
+                   (lambda () (forward-thing thing -1))))
+              (let ((beg (point)))
+                (if (not (and beg (> beg orig)))
+                    ;; If that brings us all the way back to ORIG,
+                    ;; it worked.  But END may not be the real end.
+                    ;; So find the real end that corresponds to BEG.
+                    (let ((real-end
+                           (progn
+                             (funcall
+                              (or (get thing 'end-op)
+                                  (lambda () (forward-thing thing 1))))
+                             (point))))
+                      (if (and beg real-end (<= beg orig) (<= orig real-end))
+                          (cons beg real-end)))
+                    (goto-char orig)
+                    ;; Try a second time, moving backward first and then forward,
+                    ;; so that we can find a thing that ends at ORIG.
+                    (funcall ;; First, move to beg.
+                     (or (get thing 'beginning-op)
+                         (lambda () (forward-thing thing -1))))
+                    (funcall ;; Then move to end.
+                     (or (get thing 'end-op)
+                         (lambda () (forward-thing thing 1))))
+                    (let ((end (point))
+                          (real-beg
+                           (progn
+                             (funcall
+                              (or (get thing 'beginning-op)
+                                  (lambda () (forward-thing thing -1))))
+                             (point))))
+                      (if (and real-beg end (<= real-beg orig) (<= orig end))
+                          (cons real-beg end))))))
+          (error nil)))))
