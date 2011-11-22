@@ -2074,7 +2074,7 @@ def write_to_string(object,
                                 string += _print_symbol(object)
                         elif integerp(object) or floatp(object):
                                 string += str(object)
-                        elif object.__hash__ and object in obj2lisp_xform:
+                        elif object is False or object is None or object is True:
                                 string += obj2lisp_xform[object]
                         elif type(object).__name__ == "builtin_function_or_method":
                                 string += "\"#<BUILTIN-FUNCTION-OR-METHOD %s 0x%x>\"" % (object.__name__, id(object))
