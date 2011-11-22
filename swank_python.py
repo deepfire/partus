@@ -847,9 +847,37 @@ def frame_locals(index):
                                                 "value", value],
                            vars.items())
 
-# @defimplementation
-# def frame_var_value(frame, var):
-#         pass
+@defimplementation
+def frame_var_value(frame, var):
+        # (let* ((frame (nth-frame frame))
+        #        (vars (frame-debug-vars frame))
+        #        (loc (sb-di:frame-code-location frame))
+        #        (dvar (if (= var (length vars))
+        #                  ;; If VAR is out of bounds, it must be the fake var we made up for
+        #                  ;; &MORE.
+        #                  (let* ((context-var (find :more-context vars :key #'debug-var-info))
+        #                         (more-context (debug-var-value context-var frame loc))
+        #                         (count-var (find :more-count vars :key #'debug-var-info))
+        #                         (more-count (debug-var-value count-var frame loc)))
+        #                    (return-from frame-var-value
+        #                      (multiple-value-list (sb-c:%more-arg-values more-context
+        #                                                                  0 more-count))))
+        #                  (aref vars var))))
+        #     (debug-var-value dvar frame loc))
+        frame = nth_frame(frame)
+        vars = frame_debug_vars(frame)
+        loc = sb_di.frame_code_location(frame)
+        if var == len(vars):
+                # If VAR is out of bounds, it must be the fake var we made up for
+                # &MORE.
+                context_var = find(keyword("more-context"), vars, key = debug_var_info)
+                more_context = debug_var_value(context_var, frame, loc)
+                count_var = find(keyword("more-context"), vars, key = debug_var_info)
+                more_count = debug_var_value(count_var, frame, loc)
+                return multiple_value_list(sb_c._more_arg_values(more_context, 0, more_count))
+        else:
+                dvar = vars[var]
+                return debug_var_value(dvar, frame, loc)
 
 # def frame_catch_tags(index):			pass
 # def eval_in_frame(form, index):		pass
