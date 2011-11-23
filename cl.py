@@ -1415,7 +1415,7 @@ def _lisp_symbol_name_python_name(x):
         def _sub(cs):
                 acc = ""
                 for c in cs:
-                        acc += "_" if c in "-*" else c
+                        acc += "_" if c in "-*&" else c
                 return acc
         ret = _sub(x).lower()
         # debug_printf("==> Python(Lisp %s) == %s", x, ret)
@@ -1429,14 +1429,17 @@ def coerce(type, x):
                      (t,    type(x))))
 
 def _python_name_lisp_symbol_name(x):
+        "Heuristic to undo the effect of _lisp_symbol_name_python_name()."
         def _sub(cs):
-                acc = ""
-                starred = len(cs) > 1 and (cs[0] == cs[-1] == "_")
-                star, start, end = (("*", 1, len(cs) -1) if starred else
-                                    ("",  0, None))
-                for c in cs[start:end]:
-                        acc += "-" if c == "_" else c
-                return star + acc + star
+                starred = len(cs) > 1 and (cs[0] == cs[-1] == "_") # *very-nice*
+                anded   = len(cs) > 1 and (cs[0] == "_" != cs[-1]) # &something    # This #\& heuristic might bite us quite well..
+                pre, post, start, end = (("*", "*", 1, len(cs) - 1) if starred else
+                                         ("&", "",  1, None)        if anded   else
+                                         ("",  "",  0, None))
+                return (pre +
+                        coerce(string_,
+                               ("-" if c == "_" else c for c in cs[start:end])) +
+                        post)
         ret = _sub(x).upper()
         # debug_printf("==> (Lisp (Python %s)) == %s", x, ret)
         return ret
