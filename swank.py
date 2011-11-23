@@ -1929,26 +1929,25 @@ def shortest_package_nickname(package):
 #                (send-oob-to-emacs `(:ed ,target))))
 #             (t (error "No connection"))))))
 
-# (defslimefun inspect-in-emacs (what &key wait)
-#   "Inspect WHAT in Emacs. If WAIT is true (default NIL) blocks until the
-# inspector has been closed in Emacs."
-#   (flet ((send-it ()
-#            (let ((tag (when wait (make-tag)))
-#                  (thread (when wait (current-thread-id))))
-#              (with-buffer-syntax ()
-#                (reset-inspector)
-#                (send-oob-to-emacs `(:inspect ,(inspect-object what)
-#                                              ,thread
-#                                              ,tag)))
-#              (when wait
-#                (wait-for-event `(:emacs-return ,tag result))))))
-#     (cond
-#       (*emacs-connection*
-#        (send-it))
-#       ((default-connection)
-#        (with-connection ((default-connection))
-#          (send-it))))
-#     what))
+def inspect_in_emacs(what, wait = None):
+        """Inspect WHAT in Emacs. If WAIT is true (default NIL) blocks until the
+inspector has been closed in Emacs."""
+        def send_it():
+                tag, thread = ((make_tag(), current_thread_id()) if wait else
+                               (nil, nil))
+                def body():
+                        reset_inspector()
+                        send_oob_to_emacs([keyword("inspect"), inspect_object(what),
+                                           thread,
+                                           tag])
+                if wait:
+                        return wait_for_event([keyword("emacs-return"), tag, result])
+        if symbol_value("_emacs_connection_"):
+                send_it()
+        elif default_connection():
+                with_connection(default_connection(),
+                                send_it)
+        return what
 
 def value_for_editing(form):
         """Return a readable value of FORM for editing in Emacs.
@@ -1958,13 +1957,18 @@ FORM is expected, but not required, to be SETF'able."""
         with progv(_print_length_ = nil):
                 return prin1_to_string(value)
 
-# (defslimefun commit-edited-value (form value)
-#   "Set the value of a setf'able FORM to VALUE.
-# FORM and VALUE are both strings from Emacs."
-#   (with-buffer-syntax ()
-#     (eval `(setf ,(read-from-string form) 
-#             ,(read-from-string (concatenate 'string "`" value))))
-#     t))
+def commit_edited_value(form, value):
+        """Set the value of a setf'able FORM to VALUE.
+FORM and VALUE are both strings from Emacs."""
+        ## We've got a SETF problem here..
+        not_implemented()
+#         def body():
+#                 with_buffer_syntax(
+#                         lambda:
+# #                         (eval `(setf ,(read-from-string form)
+# #                               ,(read-from-string (concatenate 'string "`" value))))
+#                         )
+#         return t
 
 def background_message(format_string, *args):
         """Display a message in Emacs' echo area.
@@ -2167,7 +2171,7 @@ def frame_to_string(frame):
                                                         lambda _: format(stream, "[error printing frame]"))),
                                   length = ((symbol_value("_print_lines_")        or 1) *
                                             (symbol_value("_print_right_margin_") or 100)),
-                                  bindings = symbol_value("_print_right_margin_"))
+                                  bindings = symbol_value("_backtrace_printer_bindings_"))
 
 def debugger_info_for_emacs(start = 0, end = None):
         """Return debugger state, with stack frames from START to END.
@@ -3072,9 +3076,125 @@ def inspect_frame_var(frame, var):
         return with_buffer_syntax(body)
 
 ###     ...   : Lists: swank.lisp:3660
-###     ...   : Hashtables: swank.lisp:3705
-###     ...   : Arrays: swank.lisp:3741
-###     ...   : Chars: swank.lisp:3758
+
+# @defmethod
+# def emacs_inspect(o: list):
+#         return inspect_list(o)
+
+# @defmethod
+# def emacs_inspect(o: tuple):
+#         return (inspect_cons_list(o) if tuplep(o[1]) else
+#                 inspect_tuple(o))
+
+# (defun inspect-cons (cons)
+#   (label-value-line* 
+#    ('car (car cons))
+#    ('cdr (cdr cons))))
+
+# (defun inspect-list (list)
+#   (multiple-value-bind (length tail) (safe-length list)
+#     (flet ((frob (title list)
+#              (list* title '(:newline) (inspect-list-aux list))))
+#       (cond ((not length)
+#              (frob "A circular list:"
+#                    (cons (car list)
+#                          (ldiff (cdr list) list))))
+#             ((not tail)
+#              (frob "A proper list:" list))
+#             (t
+#              (frob "An improper list:" list))))))
+
+# (defun inspect-list-aux (list)
+#   (loop for i from 0  for rest on list  while (consp rest)  append 
+#         (if (listp (cdr rest))
+#             (label-value-line i (car rest))
+#             (label-value-line* (i (car rest)) (:tail (cdr rest))))))
+
+# (defun safe-length (list)
+#   "Similar to `list-length', but avoid errors on improper lists.
+# Return two values: the length of the list and the last cdr.
+# Return NIL if LIST is circular."
+#   (do ((n 0 (+ n 2))                    ;Counter.
+#        (fast list (cddr fast))          ;Fast pointer: leaps by 2.
+#        (slow list (cdr slow)))          ;Slow pointer: leaps by 1.
+#       (nil)
+#     (cond ((null fast) (return (values n nil)))
+#           ((not (consp fast)) (return (values n fast)))
+#           ((null (cdr fast)) (return (values (1+ n) (cdr fast))))
+#           ((and (eq fast slow) (> n 0)) (return nil))
+#           ((not (consp (cdr fast))) (return (values (1+ n) (cdr fast)))))))
+
+##### Hashtables
+
+#### hash-table-to-alist
+def hash_table_to_alist(ht):
+        return cl._hash_table_alist(ht)
+
+# @defmethod
+# def emacs_inspect(ht: dict):
+#         return label_value_line_star(
+#                                      )
+# (defmethod emacs-inspect ((ht hash-table))
+#   (append
+#    (label-value-line*
+#     ("Count" (hash-table-count ht))
+#     ("Size" (hash-table-size ht))
+#     ("Test" (hash-table-test ht))
+#     ("Rehash size" (hash-table-rehash-size ht))
+#     ("Rehash threshold" (hash-table-rehash-threshold ht)))
+#    (let ((weakness (hash-table-weakness ht)))
+#      (when weakness
+#        (label-value-line "Weakness:" weakness)))
+#    (unless (zerop (hash-table-count ht))
+#      `((:action "[clear hashtable]" 
+#                 ,(lambda () (clrhash ht))) (:newline)
+#        "Contents: " (:newline)))
+#    (let ((content (hash-table-to-alist ht)))
+#      (cond ((every (lambda (x) (typep (first x) '(or string symbol))) content)
+#             (setf content (sort content 'string< :key #'first)))
+#            ((every (lambda (x) (typep (first x) 'number)) content)
+#             (setf content (sort content '< :key #'first))))
+#      (loop for (key . value) in content appending
+#            `((:value ,key) " = " (:value ,value)
+#              " " (:action "[remove entry]"
+#                           ,(let ((key key))
+#                                 (lambda () (remhash key ht))))
+#              (:newline))))))
+
+##### Arrays
+
+# @defmethod
+# def emacs_inspect(char: list):
+# (defmethod emacs-inspect ((array array))
+#   (lcons*
+#    (iline "Dimensions" (array-dimensions array))
+#    (iline "Element type" (array-element-type array))
+#    (iline "Total size" (array-total-size array))
+#    (iline "Adjustable" (adjustable-array-p array))
+#    (iline "Fill pointer" (if (array-has-fill-pointer-p array)
+#                              (fill-pointer array)))
+#    "Contents:" '(:newline)
+#    (labels ((k (i max)
+#               (cond ((= i max) '())
+#                     (t (lcons (iline i (row-major-aref array i))
+#                               (k (1+ i) max))))))
+#      (k 0 (array-total-size array)))))
+
+##### Chars
+
+# @defmethod
+# def emacs_inspect(char: str):
+# (defmethod emacs-inspect ((char character))
+#   (append 
+#    (label-value-line*
+#     ("Char code" (char-code char))
+#     ("Lower cased" (char-downcase char))
+#     ("Upper cased" (char-upcase char)))
+#    (if (get-macro-character char)
+#        `("In the current readtable (" 
+#          (:value ,*readtable*) ") it is a macro character: "
+#          (:value ,(get-macro-character char))))))
+
 ### Thread listing: swank.lisp:3771
 ### Class browser: swank.lisp:3825
 ### Automatically synchronized state: swank.lisp:3847
