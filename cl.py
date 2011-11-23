@@ -141,34 +141,103 @@ def _coerce_to_symbol_name(x):
                 error(simple_type_error, "%s cannot be coerced to string.", x))
 
 def _astp(x):                                return typep(x, ast.AST)
-def _ast_num(n):                             return ast.Num(n = the(int, n))
+def _ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
+
+def _ast_num(n):
+        return ast.Num(n = the(int, n))
+def _ast_string(s):
+        return ast.Str(s = the(str, s))
+def _ast_set(xs,   writep = False):
+        return ast.Set(elts   = the((list_, ast.AST), xs), ctx = _ast_rw(writep))
+def _ast_list(xs,  writep = False):
+        return ast.List(elts  = the((list_, ast.AST), xs), ctx = _ast_rw(writep))
+def _ast_tuple(xs, writep = False):
+        return ast.Tuple(elts = the((list_, ast.AST), xs), ctx = _ast_rw(writep))
+
+############################### recurse? AST-ifier
+__astifier_map__ = { str:       (False, _ast_string),
+                     int:       (False, _ast_num),
+                     list:      (True,  _ast_list),
+                     tuple:     (True,  _ast_tuple),
+                     set:       (True,  _ast_set),
+                     ## symbol: see below
+                     }
+def _register_astifier_for_type(type, recurse, astifier):
+        "Please, list the added astifiers above."
+        __astifier_map__[type] = (recurse, astifier)
+
+def _try_astify_constant(x):
+        (rec, astifier), astifiable = gethash(type_of(x), __astifier_map__,
+                                              ((nil, nil), nil))
+        return (astifier(mapcar(_astify_constant, x) if rec else
+                               x), True) if astifiable else (None, None)
+
+def _astify_constant(x):
+        ast, successp = _try_astify_constant(x)
+        return (ast if successp else
+                error("Cannot convert value %s to AST.  Is it a literal?",
+                      prin1_to_string(x)))
+
+def _coerce_to_ast(x):
+        return (_astify_constant(x) if not _astp(x) else x)
+
 def _ast_alias(name):                        return ast.alias(name = the(str, name), asname = None)
 def _ast_keyword(name, value):               return ast.keyword(arg = the(str, name), value = the(ast.expr, value))
-def _ast_Expr(node):                         return ast.Expr(value = the(ast.expr, node))
-def _ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
-def _ast_string(s):                          return ast.Str(s = the(str, s))
 def _ast_name(name, writep = False):         return ast.Name(id = the(str, name), ctx = _ast_rw(writep))
 def _ast_attribute(x, name, writep = False): return ast.Attribute(attr = name, value = x, ctx = _ast_rw(writep))
 def _ast_index(of, index, writep = False):   return ast.Subscript(value = of, slice = ast.Index(value = index), ctx = _ast_rw(writep))
 def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x) else x)
-def _ast_list(xs):
-        assert every(_astp, the(list, xs))
-        return ast.List(elts = xs, ctx = ast.Load())
+
 def _ast_funcall(name, *args, **keys):
         if not every(lambda x: stringp(x) or _astp(x) or x is None, args):
                 error("AST-FUNCALL: %s: improper arglist %s", name, str(args))
         _here("as: %s, keys: %s", args, keys)
         return ast.Call(func = (_ast_name(name) if stringp(name) else name),
-                        args = mapcar(_ast_maybe_normalise_string, args),
+                        args = mapcar(_coerce_to_ast, args),
                         keywords = _maphash(_ast_keyword, keys),
                         starargs = None,
                         kwargs = None)
-def _ast_import_from(module_name, names):
-        assert every(stringp, the(list, names))
-        return ast.ImportFrom(module = the(str, module_name), names = mapcar(_ast_alias, names), level = 0)
+
+def _ast_Expr(node):
+        return ast.Expr(value = the(ast.expr, node))
 def _ast_module(body):
-        assert every(_astp, the(list, body))
-        return ast.Module(body = body, lineno = 0)
+        return ast.Module(body = the((list_, ast.AST), body), lineno = 0)
+def _ast_import_from(module_name, names):
+        return ast.ImportFrom(module = the(str, module_name),
+                              names = mapcar(_ast_alias, the((list_, str), names)),
+                              level = 0)
+
+# arguments = (arg* args, identifier? vararg, expr? varargannotation,
+#              arg* kwonlyargs, identifier? kwarg,
+#              expr? kwargannotation, expr* defaults,
+#              expr* kw_defaults)
+# arg = (identifier arg, expr? annotation)
+# keyword = (identifier arg, expr value)
+def _argspec_nfixargs(paramspec):
+        return len(paramspec.args) - len(paramspec.defaults or []) # ILTW Python implementors think..
+
+def _argspec_lambda_spec(spec):
+        # args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations
+        nfixargs = _argspec_nfixargs(spec)
+        return (spec.args[:nfixargs],
+                zip(spec.args[nfixargs:],
+                    mapcar(_astify_constant, spec.defaults)),
+                spec.varargs,
+                zip(spec.kwonlyargs,
+                    mapcar(_astify_constant, spec.kwonlydefaults)),
+                spec.varkw)
+def _lambda_spec_arguments(lambda_list_spec):
+        fixed, optional, args, keyword, keys = lambda_list_spec
+        return ast.arguments(args        = mapcar(ast.arg, fixed + mapcar(lambda x: x[0], optional)),
+                             defaults    = mapcar(lambda x: x[1], optional),
+                             vararg      = args,
+                             kwonlyargs  = mapcar(ast.arg,         mapcar(lambda x: x[0], keyword)),
+                             kw_defaults = mapcar(lambda x: x[1], keyword),
+                             kwarg       = keys)
+def _ast_functiondef(name, lambda_list_spec, body):
+        return ast.FunctionDef(name = the(string_, name),
+                               args = _lambda_spec_arguments(lambda_list_spec),
+                               body = the((list_, ast.AST), body), lineno = 0)
 
 ###
 ### Basis
@@ -1508,6 +1577,11 @@ class symbol():
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __bool__(self):
                 return self is not nil
+
+_register_astifier_for_type(symbol, False, (lambda sym:
+                                             _ast_funcall("_find_symbol_or_fail",
+                                                          symbol_name(sym))))
+
 def symbolp(x):                      return typep(x, symbol)
 def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
 def symbol_name(x):                  return x.name.lower()
