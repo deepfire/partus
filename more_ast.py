@@ -17,7 +17,7 @@ from cl         import typep, null, listp, integerp, floatp, boolp, sequencep, s
                        defvar, symbol_value, progv
 from cl         import _ast_rw as ast_rw, _ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
 from cl         import _ast_funcall as ast_funcall, _ast_maybe_normalise_string as ast_maybe_normalise_string
-from cl         import _ast_Expr as ast_Expr, _ast_list as ast_list
+from cl         import _ast_Expr as ast_Expr, _ast_list as ast_list, _ast_tuple as ast_tuple, _ast_set as ast_set
 from cl         import _not_implemented as not_implemented
 from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, tuplep, fprintf
 from neutrality import py3p
@@ -101,10 +101,6 @@ def ast_def(name, args, *body):
 ## expressions
 def ast_bytes(bs):                  return ast.Bytes(s = the(bytes, bs))
 def ast_arg(name):                  return ast.Name(arg = the(str, name), ctx = ast.Param())
-
-def ast_tuple(xs, writep=False):
-    assert listp(xs) and all(mapcar(astp, xs))
-    return ast.Tuple(elts=xs, ctx=ast_rw(writep))
 
 def ast_dict(keys, values):
     return ast.Dict(keys = keys, values = values)
