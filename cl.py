@@ -3242,12 +3242,15 @@ def _eval_python(expr_or_stmt):
                   tuple())
         return values if _tuplep(values) else (values,)
 
+def _function_paramspec_nfixargs(paramspec):
+        return len(paramspec.args) - len(paramspec.defaults or []) # ILTW Python implementors think..
+
 def _callify(form, package = None, quoted = False):
         package = _defaulted_to_var(package, "_package_")
         def callify_call(sym, args):
                 func = function(the(symbol, sym))
                 paramspec = inspect.getfullargspec(func)
-                nfix = len(paramspec.args) - len(paramspec.defaults or []) # ILTW Python implementors think..
+                nfix = _function_paramspec_nfixargs(paramspec)
                 _here("func: %s -> %s, paramspec: %s", sym, func, paramspec)
                 _here("nfix: %s", nfix)
                 _here("args: %s", args)
@@ -3300,6 +3303,20 @@ def _callify(form, package = None, quoted = False):
 def eval_(form):
         package = symbol_value("_package_")
         return _eval_python(_callify(form, package))
+
+def defgeneric(fn):
+        name = fn.__name__
+        paramspec = inspect.getfullargspec(fn)
+        dispatch_arity = _function_paramspec_nfixargs(paramspec)
+        def gfun(*args, **keys):
+                return compute_effective_method()(*args, **keys)
+        gfun.__name__ = name
+        gfun.__methods__ = dict() # keyed by type specifier tuples
+        gfun.__dispatch_arity__ = arity
+        return gfun
+
+def defmethod(fn):
+        pass
 
 ###
 ### Init
