@@ -13,12 +13,14 @@ assert(typep(0x10000000000000000000000000000000, (eql_, 0x1000000000000000000000
 assert(typep(1, (and_, integer, (member_, 1))))
 assert(every(lambda x: typep(x, (or_, str, (member_, 1))),
              [1, "a"]))
+assert(typep([1, 2, 3, "a"], (list_, (or_, int, str))))
 assert(not typep("1", integer))
 assert(not typep(2, (member_, 1)))
 assert(not typep(0x10000000000000000000000000000000, (eql_, 0x10000000000000000000000000000001)))
 assert(not typep(2, (and_, integer, (member_, 1))))
 assert(not every(lambda x: typep(x, (or_, str, (member_, 1))),
                  [1, "a", 2]))
+assert(not typep([1, 2, 3, "a", []], (list_, (or_, int, str))))
 print("TYPEP: passed")
 
 setq("_scope_", 0)
@@ -151,7 +153,7 @@ def f():
                                 "brooage", ("Yay2: %s!", 2.71),
                                 lambda: str(mapcar(lambda x: x.name, compute_restarts())))))
 assert(f() == "['BROOAGE', 'FOOAGE']")
-print("WITH-SIMPLE-RESTARTS: passed")
+print("WITH-SIMPLE-RESTARTS/COMPUTE-RESTARTS: passed")
 
 @block
 def f():
