@@ -654,3 +654,43 @@ Issue FRAME-CLOC-AND-RELATED-MAPS-MUST-BE-WEAK
 Issue SOURCE-LINEMAP-AST-CACHES-NEED-TIMESTAMP-DISCIPLINE
 
 Issue SOURCE-LOCATION-SUBOPTIMAL-PRECISION
+
+Issue SOMEBODY-BINDS-*PACKAGE*-TO-A-KEYWORD
+
+'symbol' object has no attribute 'accessible'
+   [Condition of type AttributeError]
+
+Restarts:
+ 0: [ABORT] Return to sldb level 2.
+ 1: [ABORT] Return to SLIME's top level.
+
+Backtrace:
+  0: swank_python.py   call_with_debugging_environment(debugger_loop_fn)
+  1: swank.py          debug_in_emacs(condition)
+  2: swank.py          <lambda>()
+  3: swank.py          without_slime_interrupts(body)
+  4: swank.py          invoke_slime_debugger(condition)
+  5: swank.py          <lambda>()
+  6: swank_backend.py  call_with_debugger_hook(function, body)
+  7: swank.py          <lambda>()
+  8: cl.py             handler_bind(fn)
+  9: cl.py             <lambda>()
+ 10: cl.py             catch(ball, body)
+ 11: cl.py             handler_case(body)
+ 12: swank.py          swank_debugger_hook(condition, hook)
+ 13: swank_backend.py  <lambda>(cond, hook)
+ 14: cl.py             continuation()
+ 15: cl.py             __cl_condition_handler__(condspec, frame)
+ 16: cl.py             _pytracer(frame, event, arg)
+ 17: cl.py             _find_symbol(x, package)
+      Locals:
+        "package" = :SWANK
+        "x" = "QUOTE"
+ 18: cl.py             find_symbol(x, package)
+      Locals:
+        "package" = nil
+        "x" = "QUOTE"
+ 19: cl.py             _find_symbol0(x, package)
+      Locals:
+        "package" = nil
+        "x" = "QUOTE"
