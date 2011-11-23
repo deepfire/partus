@@ -3341,15 +3341,12 @@ def _eval_python(expr_or_stmt):
                   tuple())
         return values if _tuplep(values) else (values,)
 
-def _function_paramspec_nfixargs(paramspec):
-        return len(paramspec.args) - len(paramspec.defaults or []) # ILTW Python implementors think..
-
 def _callify(form, package = None, quoted = False):
         package = _defaulted_to_var(package, "_package_")
         def callify_call(sym, args):
                 func = function(the(symbol, sym))
                 paramspec = inspect.getfullargspec(func)
-                nfix = _function_paramspec_nfixargs(paramspec)
+                nfix = _argspec_nfixargs(paramspec)
                 _here("func: %s -> %s, paramspec: %s", sym, func, paramspec)
                 _here("nfix: %s", nfix)
                 _here("args: %s", args)
@@ -3403,10 +3400,24 @@ def eval_(form):
         package = symbol_value("_package_")
         return _eval_python(_callify(form, package))
 
+def ensure_generic_function(function_name,
+                            argument_precedence_order = None, declare = None,
+                            documentation = None, environment = None,
+                            generic_function_class = None, lambda_list = None,
+                            method_class = None, method_combination = None):
+        lambda_list = _defaulted(lambda_list, ([], [], nil, [], nil))
+        gfun_ast = ast.fix_missing_locations(
+                       _ast_module([
+                                _ast_functiondef(function_name,
+                                                 lambda_list,
+                                                 [])]))
+        # ..cannot be done in the proper lexenv..
+        exec(compile(gfun_ast, "", "exec"))
+
 def defgeneric(fn):
         name = fn.__name__
         paramspec = inspect.getfullargspec(fn)
-        dispatch_arity = _function_paramspec_nfixargs(paramspec)
+        dispatch_arity = _argspec_nfixargs(paramspec)
         def gfun(*args, **keys):
                 return compute_effective_method()(*args, **keys)
         gfun.__name__ = name
@@ -3415,6 +3426,9 @@ def defgeneric(fn):
         return gfun
 
 def defmethod(fn):
+        gfun = globals()[fn.__name__]
+        paramspec = inspect.getfullargspec(fn)
+        nfixargs = _argspec_nfixargs(paramspec)
         pass
 
 ###
