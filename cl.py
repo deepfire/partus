@@ -734,7 +734,7 @@ def _check_complex_type(type, x):
 
 def typep(x, type):
         return (isinstance(x, type)          if isinstance(type, type_)                      else
-                _check_complex_type(type, x) if (listp(type) and
+                _check_complex_type(type, x) if (_tuplep(type) and
                                                  type and type[0] in __type_predicate_map__) else
                 error(simple_type_error, "%s is not a valid type specifier.", type))
 
@@ -1689,7 +1689,7 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
 
 class readtable(collections.UserDict):
         def __init__(self, case = _keyword("upcase")):
-                self.case = the([member_, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")],
+                self.case = the((member_, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")),
                                 case)
                 self.dict = dict()
 
@@ -2110,7 +2110,7 @@ def write_to_string(object,
                                 string += _print_unreadable_compound(object)
                         elif functionp(object):
                                 string += _print_function(object)
-                        elif (not escape) and typep(object, [or_, restart, condition]):
+                        elif (not escape) and typep(object, (or_, restart, condition)):
                                 string += str(object)
                         else:
                                 string += _print_unreadable(object)
@@ -3223,7 +3223,7 @@ def _coerce_to_expr(x):
 def _eval_python(expr_or_stmt):
         "In AST form, naturally."
         package = symbol_value("_package_")
-        exprp = typep(the(ast.AST, expr_or_stmt), [or_, ast.expr, ast.Expr])
+        exprp = typep(the(ast.AST, expr_or_stmt), (or_, ast.expr, ast.Expr))
         call = ast.fix_missing_locations(_ast_module(
                         [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
                          _ast_Expr(_ast_funcall(_ast_name("__evset__"), _coerce_to_expr(expr_or_stmt)))]
