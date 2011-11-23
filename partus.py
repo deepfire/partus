@@ -29,11 +29,12 @@ def _init_swank_packages():
         defpackage("SWANK",      use = ["CL", "PERGAMUM", "MORE-AST"])
         swank = find_package("SWANK")
 
-        import inspector
-        package("INSPECTOR",     use = ["CL", "PERGAMUM", "SWANK"])
-        inspector.nil_surrogate = cl._intern0("nil_surrogate", "INSPECTOR")
+        ## XXX: junk
+        # import inspector
+        # package("INSPECTOR",     use = ["CL", "PERGAMUM", "SWANK"])
+        # inspector.nil_surrogate = cl._intern0("nil_surrogate", "INSPECTOR")
         # WARNING: circular package use!
-        use_package(swank, "INSPECTOR")
+        # use_package(swank, "INSPECTOR")
 
         # inspector_syms = [
         #         "inspect_object", "lookup_presented_object"
