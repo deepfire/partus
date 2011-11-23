@@ -847,16 +847,6 @@ def etypecase(val, *clauses):
                 error(simple_type_error, "%s fell through ETYPECASE expression. Wanted one of (%s).",
                       val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
 
-def coerce(x, type):
-        if type(x) is type:
-                return x
-        elif type is list:
-                return list(x)
-        elif type is set:
-                return set(x)
-        elif type is dict:
-                return dict.fromkeys(x)
-
 ##
 ## Type predicates
 ##
@@ -1430,6 +1420,13 @@ def _lisp_symbol_name_python_name(x):
         ret = _sub(x).lower()
         # debug_printf("==> Python(Lisp %s) == %s", x, ret)
         return ret
+
+def coerce(type, x):
+        return (x if isinstance(x, type) else
+                case(type,
+                     (str,  "".join(x)),
+                     (dict, dict.fromkeys(x)),
+                     (t,    type(x))))
 
 def _python_name_lisp_symbol_name(x):
         def _sub(cs):
