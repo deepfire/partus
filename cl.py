@@ -57,6 +57,10 @@ __core_symbol_names__ = [
         "QUOTE",
         "AND", "OR", "MEMBER", "EQL",
         "ABORT", "CONTINUE", "BREAK",
+        "LIST",
+        "_KEY", "_REST", "_BODY", "_ALLOW_OTHER_KEYS", "_WHOLE",
+        # Heresy!
+        "TUPLE", "MAYBE",
         ]
 __more_symbol_names__ = [
         "SOME", "EVERY",
@@ -725,10 +729,23 @@ def find_class(x, errorp = True):
 def type_of(x):
         return type(x)
 
+def _of_type(x):
+        return lambda y: typep(y, x)
+
+def _every_of_type(type):
+        "Inlined version of lambda xs: every(of_type(type), xs)"
+        def _every_of_type(xs):
+                for x in xs:
+                        if not typep(x, type): return False
+                return True
+        # contrast this with:
+        #      lambda xs: every(of_type(type), xs)
+        return _every_of_type
+
 # __type_predicate_map__ is declared after the package system is initialised
 def _check_complex_type(type, x):
         zero, test, element_test = __type_predicate_map__[type[0]]
-        return (zero if len(type) is 1 else
+        return (zero if len(type) is 1 else # Should be able to err in this case.
                 test(lambda elem_type: element_test(x, elem_type),
                      type[1:]))
 
@@ -1659,6 +1676,14 @@ __type_predicate_map__ = { _keyword("or"):     (nil, some,  typep),
                            member_:            (nil, some,  eql),
                            _keyword("eql"):    (nil, some,  eql),
                            eql_:               (nil, some,  eql),
+                           _keyword("maybe"):  (nil, some,  lambda x, type: x is None or x is nil or typep(x, type)),
+                           maybe_:             (nil, some,  lambda x, type: x is None or x is nil or typep(x, type)),
+                           # XXX: this is a small lie: this is not a cons-list
+                           # ..but neither CL has a type specifier like this.
+                           _keyword("list"):   (nil, every, lambda x, type: isinstance(x, list) and _every_of_type(type)(x)),
+                           list_:              (nil, every, lambda x, type: isinstance(x, list) and _every_of_type(type)(x)),
+                           # _keyword("tuple"):  (nil, every, lambda x, type: isinstance(x, list) and _every_of_type(type)(x)),
+                           # tuple_:             (nil, every, lambda x, type: isinstance(x, list) and _every_of_type(type)(x)),
                            }
 
 ##
