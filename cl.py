@@ -1175,10 +1175,10 @@ def gethash(key, dict, default = None):
         return (dict.get(key) if inp else default), key in dict
 
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
-def _maphash(f, dict):
+def _maphash(f, dict) -> list:
         return [ f(k, v) for k, v in dict.items() ]
 
-def _map_hash_table(f, hash_table, key_key = _0arg, value_key = _1arg):
+def _map_hash_table(f, hash_table, key_key = _0arg, value_key = _1arg) -> dict:
         acc = dict()
         for old_k, old_v in hash_table.items():
                 k, v = f(old_k, old_v)
