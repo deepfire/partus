@@ -245,20 +245,22 @@ def _ast_functiondef(name, lambda_list_spec, body):
 ##
 ## modules/packages
 ##
-def _load_code_object_as_module(name, x, filename = "", builtins = None, register = True):
-        check_type(x, type(_load_code_object_as_module.__code__))
+def _load_code_object_as_module(name, co, filename = "", builtins = None, globals_ = None, locals_ = None, register = True):
+        check_type(co, type(_load_code_object_as_module.__code__))
         mod = imp.new_module(name)
         mod.__filename__ = filename
         if builtins:
                 mod.__dict__["__builtins__"] = builtins
         if register:
                 sys.modules[name] = mod
-        exec(x, mod.__dict__, mod.__dict__)
+        exec(co,
+             _defaulted(globals_, mod.__dict__),
+             _defaulted(locals_,  mod.__dict__))
         return mod
 
-def _load_text_as_module(name, text, filename = "", builtins = None):
+def _load_text_as_module(name, text, filename = "", **keys):
         return _load_code_object_as_module(name, compile(text, filename, "exec"),
-                                           filename = filename, builtins = builtins)
+                                           filename = filename, **keys)
 
 def _reregister_module_as_package(mod, parent_package = None):
         # this line might need to be performed before exec()
@@ -272,6 +274,16 @@ def _reregister_module_as_package(mod, parent_package = None):
                 mod.__parent__ = parent_package
         if packagep:
                 mod.__children__ = set([])
+
+def _compile_and_load(*body, modname = "", filename = ""):
+        return _load_code_object_as_module(
+                modname,
+                compile(ast.fix_missing_locations(_ast_module(list(body))), filename, "exec"),
+                register = nil)
+
+def _ast_compiled_name(name, *body, modname = "", filename = ""):
+        mod = _compile_and_load(*body, modname = modname, filename = filename)
+        return mod.__dict__[name]
 
 ##
 ## frames
@@ -3391,17 +3403,7 @@ def eval_(form):
         package = symbol_value("_package_")
         return _eval_python(_callify(form, package))
 
-def _compile_and_load(*body, modname = "", filename = ""):
-        return _load_code_object_as_module(
-                modname,
-                compile(ast.fix_missing_locations(_ast_module(list(body))), filename, "exec"),
-                register = nil)
 
-def _ast_compiled_name(name, *body, modname = "", filename = ""):
-        mod = _compile_and_load(*body, modname = modname, filename = filename)
-        return mod.__dict__[name]
-
-__method_combinations__ = dict()
 
 def find_method_combination(generic_function, type, options):
         check_type(generic_function, function_)
