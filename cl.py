@@ -3401,6 +3401,16 @@ def eval_(form):
         package = symbol_value("_package_")
         return _eval_python(_callify(form, package))
 
+def _compile_and_load(*body, modname = "", filename = ""):
+        return _load_code_object_as_module(
+                modname,
+                compile(ast.fix_missing_locations(_ast_module(list(body))), filename, "exec"),
+                register = nil)
+
+def _ast_compiled_name(name, *body, modname = "", filename = ""):
+        mod = _compile_and_load(*body, modname = modname, filename = filename)
+        return mod.__dict__[name]
+
 def ensure_generic_function(function_name,
                             argument_precedence_order = None, declare = None,
                             documentation = None, environment = None,
