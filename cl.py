@@ -188,15 +188,15 @@ def _ast_attribute(x, name, writep = False): return ast.Attribute(attr = name, v
 def _ast_index(of, index, writep = False):   return ast.Subscript(value = of, slice = ast.Index(value = index), ctx = _ast_rw(writep))
 def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x) else x)
 
-def _ast_funcall(name, *args, **keys):
+def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
         if not every(lambda x: stringp(x) or _astp(x) or x is None, args):
                 error("AST-FUNCALL: %s: improper arglist %s", name, str(args))
         _here("as: %s, keys: %s", args, keys)
         return ast.Call(func = (_ast_name(name) if stringp(name) else name),
                         args = mapcar(_coerce_to_ast, args),
                         keywords = _maphash(_ast_keyword, keys),
-                        starargs = None,
-                        kwargs = None)
+                        starargs = starargs,
+                        kwargs = kwargs)
 
 def _ast_Expr(node):
         return ast.Expr(value = the(ast.expr, node))
@@ -245,13 +245,14 @@ def _ast_functiondef(name, lambda_list_spec, body):
 ##
 ## modules/packages
 ##
-def _load_code_object_as_module(name, x, filename = "", builtins = None):
+def _load_code_object_as_module(name, x, filename = "", builtins = None, register = True):
         check_type(x, type(_load_code_object_as_module.__code__))
         mod = imp.new_module(name)
         mod.__filename__ = filename
         if builtins:
                 mod.__dict__["__builtins__"] = builtins
-        sys.modules[name] = mod
+        if register:
+                sys.modules[name] = mod
         exec(x, mod.__dict__, mod.__dict__)
         return mod
 
@@ -1580,7 +1581,7 @@ class symbol():
 
 _register_astifier_for_type(symbol, False, (lambda sym:
                                              _ast_funcall("_find_symbol_or_fail",
-                                                          symbol_name(sym))))
+                                                          [symbol_name(sym)])))
 
 def symbolp(x):                      return typep(x, symbol)
 def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
@@ -3325,7 +3326,7 @@ def _eval_python(expr_or_stmt):
         exprp = typep(the(ast.AST, expr_or_stmt), (or_, ast.expr, ast.Expr))
         call = ast.fix_missing_locations(_ast_module(
                         [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
-                         _ast_Expr(_ast_funcall(_ast_name("__evset__"), _coerce_to_expr(expr_or_stmt)))]
+                         _ast_Expr(_ast_funcall(_ast_name("__evset__"), [_coerce_to_expr(expr_or_stmt)]))]
                         if exprp else
                         [expr_or_stmt]))
         code = handler_case(lambda: compile(call, "", "exec"),
@@ -3365,11 +3366,11 @@ def _callify(form, package = None, quoted = False):
                                         error("unknown &KEY argument: %s", k)
                 return _ast_funcall(
                         _lisp_symbol_ast(sym, package),
-                        *mapcar(lambda x: _callify(x, package),
-                                args),
-                        **_map_hash_table(
-                                lambda k, x: (k, _callify(x, package)),
-                                keyargs))
+                        mapcar(lambda x: _callify(x, package),
+                               args),
+                        _map_hash_table(
+                               lambda k, x: (k, _callify(x, package)),
+                                      keyargs))
         obj2ast_xform = {
                 False : _ast_name("False"),
                 None  : _ast_name("None"),
@@ -3385,8 +3386,8 @@ def _callify(form, package = None, quoted = False):
                 else:
                         return callify_call(form[0], form[1:])
         elif symbolp(form):
-                return (_ast_funcall("_read_symbol",
-                                     _ast_string(form.name), _ast_string(form.package.name))
+                return (_ast_funcall("_read_symbol", [_ast_string(form.name),
+                                                      _ast_string(form.package.name)])
                         if quoted or keywordp(form) else
                         _lisp_symbol_ast(form, package))
         elif constantp(form):
