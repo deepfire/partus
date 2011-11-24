@@ -3411,27 +3411,63 @@ def _ast_compiled_name(name, *body, modname = "", filename = ""):
         mod = _compile_and_load(*body, modname = modname, filename = filename)
         return mod.__dict__[name]
 
+__method_combinations__ = dict()
+
+def find_method_combination(generic_function, type, options):
+        check_type(generic_function, function_)
+        check_type(options, list)
+        combin, presentp = gethash(the(symbol, type), __method_combinations__)
+        if not presentp:
+                # This is implemented in a quite funny manner in real CLOS.
+                error("Undefined method combination: %s.", type)
+        return combin
+
 def ensure_generic_function(function_name,
                             argument_precedence_order = None, declare = None,
                             documentation = None, environment = None,
                             generic_function_class = None, lambda_list = None,
-                            method_class = None, method_combination = None):
+                            method_class = None, method_combination = None,
+                            # Incompatible addition:
+                            filename = None):
+        "Approximates the real thing for the common case."
         lambda_list = _defaulted(lambda_list, ([], [], nil, [], nil))
-        gfun_ast = ast.fix_missing_locations(
-                       _ast_module([
-                                _ast_functiondef(function_name,
-                                                 lambda_list,
-                                                 [])]))
-        # ..cannot be done in the proper lexenv..
-        exec(compile(gfun_ast, "", "exec"))
+        fixed, optional, args, keyword, keys = lambda_list
+        if some(lambda x: x[1] is not None, optional + keyword):
+                error("Generic function arglist cannot specify default parameter values.")
+        if (argument_precedence_order or declare or environment or
+            generic_function_class or method_class or method_combination):
+                error("This is not CLOS.  Yet.  (Read: ARGUMENT-PRECEDENCE-ORDER, DECLARE, ENVIRONMENT, GENERIC-FUNCTION-CLASS, METHOD-CLASS and METHOD-COMBINATION keyword options are not supported.)")
+        gfun, presentp = gethash(function_name, globals())
+        if (not presentp or                       # New generic function?..
+            lambda_list != gfun.__lambda_list__): # ..or an incompatible redefinition?
+                new_gfun = _ast_compiled_name(
+                            function_name,
+                            _ast_import_from("cl", "_compute_effective_method"),
+                            _ast_functiondef(function_name,
+                                             lambda_list,
+                                             # How do we access methods themselves?
+                                             [_ast_funcall(_ast_funcall("_compute_effective_method",
+                                                                        [mapcar(_ast_name, fixed)]),
+                                                           [mapcar(_ast_name, fixed)],
+                                                           dict(optional + keyword))]),
+                            filename = _defaulted(filename, ""))
+                new_gfun.__lambda_list__ = lambda_list
+                globals()[function_name] = gfun = new_gfun
+        gfun.__doc__ = _defaulted(documentation, gfun.__doc__)
+        return gfun
+
+def compute_effective_method(generic_function, combin, applicable_methods):
+        pass
+
+def compute_applicable_methods(generic_function, arguments):
+        pass
 
 def defgeneric(fn):
         name = fn.__name__
         paramspec = inspect.getfullargspec(fn)
         dispatch_arity = _argspec_nfixargs(paramspec)
-        def gfun(*args, **keys):
-                return compute_effective_method()(*args, **keys)
-        gfun.__name__ = name
+        # Pass locals()!
+        gfun = ensure_generic_function(name, lambda_list = _argspec_lambda_spec(paramspec))
         gfun.__methods__ = dict() # keyed by type specifier tuples
         gfun.__dispatch_arity__ = arity
         return gfun
