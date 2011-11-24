@@ -210,6 +210,7 @@ def _ast_import_from(module_name, names):
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
 #              arg* kwonlyargs, identifier? kwarg,
 #              expr? kwargannotation, expr* defaults,
+
 #              expr* kw_defaults)
 # arg = (identifier arg, expr? annotation)
 # keyword = (identifier arg, expr value)
@@ -3403,23 +3404,310 @@ def eval_(form):
         package = symbol_value("_package_")
         return _eval_python(_callify(form, package))
 
+def compute_effective_method(generic_function, combin, applicable_methods):
+        """This generic function is called to determine the effective
+method from a sorted list of method metaobjects.
 
+An effective method is a form that describes how the applicable
+methods are to be combined. Inside of effective method forms are
+CALL-METHOD forms which indicate that a particular method is to be
+called. The arguments to the CALL-METHOD form indicate exactly how the
+method function of the method should be called. (See
+MAKE-METHOD-LAMBDA for more details about method functions.)
 
-def find_method_combination(generic_function, type, options):
-        check_type(generic_function, function_)
-        check_type(options, list)
-        combin, presentp = gethash(the(symbol, type), __method_combinations__)
-        if not presentp:
-                # This is implemented in a quite funny manner in real CLOS.
-                error("Undefined method combination: %s.", type)
-        return combin
+An effective method option has the same interpretation and syntax as
+either the :arguments or the :GENERIC-FUNCTION option in the long form
+of define-method-combination.
+
+More information about the form and interpretation of effective
+methods and effective method options can be found under the
+description of the DEFINE-METHOD-COMBINATION macro in the CLOS
+specification.
+
+This generic function can be called by the user or the
+implementation. It is called by discriminating functions whenever a
+sorted list of applicable methods must be converted to an effective
+method."""
+        pass
+
+# (defun compute-applicable-methods-using-types (generic-function types)
+#   (let ((definite-p t) (possibly-applicable-methods nil))
+#     (dolist (method (if (early-gf-p generic-function)
+#                         (early-gf-methods generic-function)
+#                         (safe-generic-function-methods generic-function)))
+#       (let ((specls (if (consp method)
+#                         (early-method-specializers method t)
+#                         (safe-method-specializers method)))
+#             (types types)
+#             (possibly-applicable-p t) (applicable-p t))
+#         (dolist (specl specls)
+#           (multiple-value-bind (specl-applicable-p specl-possibly-applicable-p)
+#               (specializer-applicable-using-type-p specl (pop types))
+#             (unless specl-applicable-p
+#               (setq applicable-p nil))
+#             (unless specl-possibly-applicable-p
+#               (setq possibly-applicable-p nil)
+#               (return nil))))
+#         (when possibly-applicable-p
+#           (unless applicable-p (setq definite-p nil))
+#           (push method possibly-applicable-methods))))
+#     (multiple-value-bind (nreq applyp metatypes nkeys arg-info)
+#         (get-generic-fun-info generic-function)
+#       (declare (ignore nreq applyp metatypes nkeys))
+#       (let* ((precedence (arg-info-precedence arg-info)))
+#         (values (sort-applicable-methods precedence
+#                                          (nreverse possibly-applicable-methods)
+#                                          types)
+#                 definite-p)))))
+
+# (defun sort-applicable-methods (precedence methods types)
+#   (sort-methods methods
+#                 precedence
+#                 (lambda (class1 class2 index)
+#                   (let* ((class (type-class (nth index types)))
+#                          (cpl (if (eq **boot-state** 'complete)
+#                                   (class-precedence-list class)
+#                                   (early-class-precedence-list class))))
+#                     (if (memq class2 (memq class1 cpl))
+#                         class1 class2)))))
+
+# (defun sort-methods (methods precedence compare-classes-function)
+#   (flet ((sorter (method1 method2)
+#            (dolist (index precedence)
+#              (let* ((specl1 (nth index (if (listp method1)
+#                                            (early-method-specializers method1
+#                                                                       t)
+#                                            (method-specializers method1))))
+#                     (specl2 (nth index (if (listp method2)
+#                                            (early-method-specializers method2
+#                                                                       t)
+#                                            (method-specializers method2))))
+#                     (order (order-specializers
+#                              specl1 specl2 index compare-classes-function)))
+#                (when order
+#                  (return-from sorter (eq order specl1)))))))
+#     (stable-sort methods #'sorter)))
+
+# (defun order-specializers (specl1 specl2 index compare-classes-function)
+#   (let ((type1 (if (eq **boot-state** 'complete)
+#                    (specializer-type specl1)
+#                    (!bootstrap-get-slot 'specializer specl1 '%type)))
+#         (type2 (if (eq **boot-state** 'complete)
+#                    (specializer-type specl2)
+#                    (!bootstrap-get-slot 'specializer specl2 '%type))))
+#     (cond ((eq specl1 specl2)
+#            nil)
+#           ((atom type1)
+#            specl2)
+#           ((atom type2)
+#            specl1)
+#           (t
+#            (case (car type1)
+#              (class    (case (car type2)
+#                          (class (funcall compare-classes-function
+#                                          specl1 specl2 index))
+#                          (t specl2)))
+#              (prototype (case (car type2)
+#                          (class (funcall compare-classes-function
+#                                          specl1 specl2 index))
+#                          (t specl2)))
+#              (class-eq (case (car type2)
+#                          (eql specl2)
+#                          ;; FIXME: This says that all CLASS-EQ
+#                          ;; specializers are equally specific, which
+#                          ;; is fair enough because only one CLASS-EQ
+#                          ;; specializer can ever be appliable.  If
+#                          ;; ORDER-SPECIALIZERS should only ever be
+#                          ;; called on specializers from applicable
+#                          ;; methods, we could replace this with a BUG.
+#                          (class-eq nil)
+#                          (class type1)))
+#              (eql      (case (car type2)
+#                          ;; similarly.
+#                          (eql nil)
+#                          (t specl1))))))))
+
+def compute_applicable_methods_using_classes(generic_functions, classes):
+        """This generic function is called to attempt to determine the
+method applicability of a generic function given only the classes of
+the required arguments.
+
+If it is possible to completely determine the ordered list of
+applicable methods based only on the supplied classes, this generic
+function returns that list as its first value and true as its second
+value. The returned list of method metaobjects is sorted by precedence
+order, the most specific method coming first. If no methods are
+applicable to arguments with the specified classes, the empty list and
+true are returned.
+
+If it is not possible to completely determine the ordered list of
+applicable methods based only on the supplied classes, this generic
+function returns an unspecified first value and false as its second
+value.
+
+When a generic function is invoked, the discriminating function must
+determine the ordered list of methods applicable to the
+arguments. Depending on the generic function and the arguments, this
+is done in one of three ways: using a memoized value; calling
+COMPUTE-APPLICABLE-METHODS-USING-CLASSES; or calling
+COMPUTE-APPLICABLE-METHODS. (Refer to the description of
+COMPUTE-DISCRIMINATING-FUNCTION for the details of this process.)
+
+The following consistency relationship between
+COMPUTE-APPLICABLE-METHODS-USING-CLASSES and
+COMPUTE-APPLICABLE-METHODS must be maintained: for any given generic
+function and set of arguments, if
+COMPUTE-APPLICABLE-METHODS-USING-CLASSES returns a second value of
+true, the first value must be equal to the value that would be
+returned by a corresponding call to COMPUTE-APPLICABLE-METHODS. The
+results are undefined if a portable method on either of these generic
+functions causes this consistency to be violated.
+
+The list returned by this generic function will not be mutated by the
+implementation. The results are undefined if a portable program
+mutates the list returned by this generic function."""
+
+def compute_applicable_methods(generic_function, arguments):
+        """This generic function determines the method applicability
+of a generic function given a list of required ARGUMENTS. The returned
+list of method metaobjects is sorted by precedence order with the most
+specific method appearing first. If no methods are applicable to the
+supplied arguments the empty list is returned.
+
+When a generic function is invoked, the discriminating function must
+determine the ordered list of methods applicable to the
+arguments. Depending on the generic function and the arguments, this
+is done in one of three ways: using a memoized value; calling
+COMPUTE-APPLICABLE-METHODS-USING-CLASSES; or calling
+COMPUTE-APPLICABLE-METHODS. (Refer to the description of
+COMPUTE-DISCRIMINATING-FUNCTION for the details of this process.)
+
+The arguments argument is permitted to contain more elements than the
+generic function accepts required arguments; in these cases the extra
+arguments will be ignored. An error is signaled if arguments contains
+fewer elements than the generic function accepts required arguments.
+
+The list returned by this generic function will not be mutated by the
+implementation. The results are undefined if a portable program
+mutates the list returned by this generic function."""
+
+__sealed_classes__ = set([object,
+                          int, bool, float, complex,
+                          str, tuple, bytes,
+                          list, bytearray,
+                          set, frozenset,
+                          dict,
+                          function_,
+                          stream,
+                          BaseException, Exception] +
+                         mapcar(type_of,
+                                [None,           # NoneType
+                                 Ellipsis,       # ellipsis
+                                 NotImplemented, # NotImplementedType
+                                 int,            # type
+                                 "".find,        # builtin_function_or_method
+                                 ast,            # module
+                                 sys.stdin,      # _io.TextIOWrapper
+                                 car.__code__,   # code object
+                                 _this_frame(),  # frame
+                                 ]))
+
+def _class_sealed_p(x):
+        return x in __sealed_classes__
+
+## A sealed metaclass?
+def _seal_class(x):
+        _not_implemented()
+        # How do we forbid class precedence list modification?
+        __sealed_classes__.add(x)
+
+def compute_discriminating_function(generic_function) -> (lambda *args, **keys: None):
+        """This generic function is called to determine the
+discriminating function for a generic function. When a generic
+function is called, the installed discriminating function is called
+with the full set of arguments received by the generic function, and
+must implement the behavior of calling the generic function:
+determining the ordered set of applicable methods, determining the
+effective method, and running the effective method.
+
+To determine the ordered set of applicable methods, the discriminating
+function first calls COMPUTE-APPLICABLE-METHODS-USING-CLASSES. If
+COMPUTE-APPLICABLE-METHODS-USING-CLASSES returns a second value of
+false, the discriminating function then calls
+COMPUTE-APPLICABLE-METHODS.
+
+When COMPUTE-APPLICABLE-METHODS-USING-CLASSES returns a second value
+of true, the discriminating function is permitted to memoize the first
+returned value as follows. The discriminating function may reuse the
+list of applicable methods without calling
+COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
+
+    (i) the generic function is being called again with required
+        arguments which are instances of the same classes,
+    (ii) the generic function has not been reinitialized,
+    (iii) no method has been added to or removed from the
+          generic function,
+    (iv) for all the specializers of all the generic function's
+         methods which are classes, their class precedence lists
+         have not changed and
+    (v) for any such memoized value, the class precedence list of
+        the class of each of the required arguments has not changed.
+
+Determination of the effective method is done by calling
+COMPUTE-EFFECTIVE-METHOD. When the effective method is run, each
+method's function is called, and receives as arguments: (i) a list of
+the arguments to the generic function, and (ii) whatever other
+arguments are specified in the call-method form indicating that the
+method should be called. (See MAKE-METHOD-LAMBDA for more information
+about how method functions are called.)
+
+The generic function COMPUTE-DISCRIMINATING-FUNCTION is called, and
+its result installed, by ADD-METHOD, REMOVE-METHOD,
+INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
+        def discriminating_function(*args, **keys):
+                # We expect only fixed arguments to be passed here.
+                arity = generic_function.__dispatch_arity__
+                if len(args) < arity:
+                        error("The function %s requires at least %d arguments.", generic_function.__name__, arity)
+                dispatch_args      = args[:arity]
+                dispatch_arg_types = tuple(type(x) for x in dispatch_args)
+                # The discriminating function may reuse the
+                # list of applicable methods without calling
+                # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
+                # (iv) for all the specializers of all the generic function's
+                #      methods which are classes, their class precedence lists
+                #      have not changed and
+                # XXX: not_implemented()
+                # (v) for any such memoized value, the class precedence list of
+                #     the class of each of the required arguments has not changed.
+                unsealed_classes = set(x for x in dispatch_arg_types if not class_sealed_p(x))
+                applicable_method_cache_key = dispatch_arg_types + reduce(lambda acc, x: acc + x.__mro__,
+                                                                          sorted(unsealed_classes, key = lambda type: type.__name__),
+                                                                          tuple())
+                # We pay the high price of (iv) and (v), because we can't hook
+                # into the Python's object system.
+                applicable, hit = gethash(applicable_method_cache_key, generic_function.__applicable_method_cache__)
+                if hit:
+                        # The discriminating function may reuse the
+                        # list of applicable methods without calling
+                        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
+                        # (i) the generic function is being called again with required
+                        #     arguments which are instances of the same classes,
+                        return applicable
+                methods, okayp = compute_applicable_methods_using_classes()
+                if okayp:
+                        generic_function.__applicable_method_cache__[applicable_method_cache_key] = methods
+                        return methods
+                else:
+                        return compute_applicable_methods()
 
 def ensure_generic_function(function_name,
                             argument_precedence_order = None, declare = None,
                             documentation = None, environment = None,
                             generic_function_class = None, lambda_list = None,
                             method_class = None, method_combination = None,
-                            # Incompatible addition:
+                            # Incompatible additions:
+                            verbose = nil,
                             filename = None):
         "Approximates the real thing for the common case."
         lambda_list = _defaulted(lambda_list, ([], [], nil, [], nil))
@@ -3432,37 +3720,63 @@ def ensure_generic_function(function_name,
         gfun, presentp = gethash(function_name, globals())
         if (not presentp or                       # New generic function?..
             lambda_list != gfun.__lambda_list__): # ..or an incompatible redefinition?
+                new_gfun_ast = _ast_functiondef(function_name,
+                                                lambda_list,
+                                                # How do we access methods themselves?
+                                                [_ast_funcall(_ast_funcall("compute_effective_method",
+                                                                           _ast_name(function_name),
+                                                                           nil,
+                                                                           _ast_funcall("compute_applicable_methods",
+                                                                                        _ast_name(function_name),
+                                                                                        mapcar(_ast_name, fixed))
+                                                                           [mapcar(_ast_name, fixed)]),
+                                                                          [mapcar(_ast_name, fixed)],
+                                                                          dict(optional + keyword))])
+                if verbose:
+                        import more_ast # Shall we concede, and import it all?
+                        format(t, "; %sefined a generic function '%s':\n%s\n\n",
+                               ("Red" if presentp else "D"), function_name, more_ast.pp_ast_as_code(new_gfun_ast))
                 new_gfun = _ast_compiled_name(
                             function_name,
-                            _ast_import_from("cl", "_compute_effective_method"),
-                            _ast_functiondef(function_name,
-                                             lambda_list,
-                                             # How do we access methods themselves?
-                                             [_ast_funcall(_ast_funcall("_compute_effective_method",
-                                                                        [mapcar(_ast_name, fixed)]),
-                                                           [mapcar(_ast_name, fixed)],
-                                                           dict(optional + keyword))]),
-                            filename = _defaulted(filename, ""))
-                new_gfun.__lambda_list__ = lambda_list
+                            new_gfun_ast,
+                            filename = _defaulted(filename, ""),
+                            locals_  = dict(compute_effective_method   = compute_effective_method,
+                                            compute_applicable_methods = compute_applicable_methods))
+                new_gfun.__lambda_list__    = lambda_list
+                new_gfun.__dispatch_arity__ = len(fixed)
+                new_gfun.__methods__        = dict() # keyed by type specifier tuples
                 globals()[function_name] = gfun = new_gfun
-        gfun.__doc__ = _defaulted(documentation, gfun.__doc__)
+        gfun.__doc__                     = _defaulted(documentation, gfun.__doc__)
+        # The discriminating function may reuse the
+        # list of applicable methods without calling
+        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
+        # (ii) the generic function has not been reinitialized,
+        gfun.__applicable_method_cache__ = dict() # (list_, type_) -> list;  busted on every defmethod invocation
         return gfun
-
-def compute_effective_method(generic_function, combin, applicable_methods):
-        pass
-
-def compute_applicable_methods(generic_function, arguments):
-        pass
 
 def defgeneric(fn):
-        name = fn.__name__
-        paramspec = inspect.getfullargspec(fn)
-        dispatch_arity = _argspec_nfixargs(paramspec)
-        # Pass locals()!
-        gfun = ensure_generic_function(name, lambda_list = _argspec_lambda_spec(paramspec))
-        gfun.__methods__ = dict() # keyed by type specifier tuples
-        gfun.__dispatch_arity__ = arity
-        return gfun
+        return ensure_generic_function(fn.__name__,
+                                       documentation = fn.__doc__,
+                                       filename      = fn.__code__.co_filename,
+                                       lambda_list   = _argspec_lambda_spec(inspect.getfullargspec(fn)))
+
+def add_method(generic_function, method):
+        # The discriminating function may reuse the
+        # list of applicable methods without calling
+        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
+        # (iii) no method has been added to or removed from the
+        #       generic function,
+        generic_function.__applicable_method_cache__ = dict()
+        pass
+
+def remove_method(generic_function, method):
+        # The discriminating function may reuse the
+        # list of applicable methods without calling
+        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
+        # (iii) no method has been added to or removed from the
+        #       generic function,
+        generic_function.__applicable_method_cache__ = dict()
+        pass
 
 def defmethod(fn):
         gfun = globals()[fn.__name__]
