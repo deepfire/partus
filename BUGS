@@ -694,3 +694,5 @@ Backtrace:
       Locals:
         "package" = nil
         "x" = "QUOTE"
+
+Issue COMPUTE-DISCRIMINATING-FUNCTION-REQUIREMENT-4-UNCLEAR-NOT-IMPLEMENTED

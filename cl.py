@@ -3678,6 +3678,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                 #      methods which are classes, their class precedence lists
                 #      have not changed and
                 # XXX: not_implemented()
+                # Issue COMPUTE-DISCRIMINATING-FUNCTION-REQUIREMENT-4-UNCLEAR-NOT-IMPLEMENTED
                 # (v) for any such memoized value, the class precedence list of
                 #     the class of each of the required arguments has not changed.
                 unsealed_classes = set(x for x in dispatch_arg_types if not class_sealed_p(x))
