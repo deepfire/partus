@@ -2594,7 +2594,6 @@ at which the file specified by PATHSPEC was last written
         #
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # os.path.getmtime() returns microseconds..
-        _here("filename: %s", pathspec)
         return int(os.path.getmtime(pathspec))
 
 ##
@@ -2781,12 +2780,9 @@ def _report_handling_handover(cond, frame, hook):
                prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
 
 def signal(cond):
-        # _here("Signalling: %s", cond)
         for cluster in reversed(env.__handler_clusters__):
-                # format(t, "Analysing cluster %s for %s.\n", cluster, type_of(cond))
                 for type, handler in cluster:
                         if not stringp(type):
-                                # _here("Trying: %s -> %s", type, typep(cond, type))
                                 if typep(cond, type):
                                         hook = symbol_value("_prehandler_hook_")
                                         if hook:
@@ -2794,12 +2790,6 @@ def signal(cond):
                                                 assert(frame)
                                                 hook(cond, frame, hook)
                                         handler(cond)
-                                        # _here("...continuing handling of %s, refugees: |%s|",
-                                        #       cond,
-                                        #       _pp_frame_chain(
-                                        #                 reversed(_frames_calling(
-                                        #                                 assoc("__frame__", cluster),
-                                        #                                 15))))
         return nil
 
 def error(datum, *args, **keys):
