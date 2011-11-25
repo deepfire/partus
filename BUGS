@@ -655,8 +655,6 @@ Issue SOURCE-LINEMAP-AST-CACHES-NEED-TIMESTAMP-DISCIPLINE
 
 Issue SOURCE-LOCATION-SUBOPTIMAL-PRECISION
 
-Issue SOMEBODY-BINDS-*PACKAGE*-TO-A-KEYWORD
-
 'symbol' object has no attribute 'accessible'
    [Condition of type AttributeError]
 

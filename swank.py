@@ -1572,7 +1572,7 @@ Return the package or nil."""
         # STRING comes usually from a (in-package STRING) form.
         def body():
                 with progv(_package_ = symbol_value("_swank_io_package_")):
-                        return read_from_string(string)
+                        return find_package(read_from_string(string))
         return ignore_errors(body)
 
 def unparse_name(string):

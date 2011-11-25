@@ -38,6 +38,11 @@ Issue BUGS-REMOVED-NOT-CLOSED
 ### Meta.
 ###
 
+Issue SOMEBODY-BINDS-*PACKAGE*-TO-A-KEYWORD
+###
+### Mistake in SWANK:PARSE-PACKAGE.
+###
+
 ------------
 ###
 ### CAUSE: 
