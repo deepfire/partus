@@ -933,6 +933,13 @@ def nth(n, xs):       return xs[n] if n < len(xs) else nil
 def copy_list(x):
         return list(the(list, x))
 
+def pop(xs):
+        if xs:
+                x, xs[0:1] = xs[0], []
+                return x
+        else:
+                return nil
+
 ##
 ## Functions
 ##
