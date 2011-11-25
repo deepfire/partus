@@ -1054,6 +1054,14 @@ def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
 def find(elt, xs, **keys):
         return find_if(lambda x: x == elt, xs, **keys)
 
+def memq(item, list):
+        "Return tail of LIST beginning with first element EQ to ITEM."
+        # List views?
+        for i, x in enumerate(xs):
+                if x is elt:
+                        return xs[i:]
+        return []
+
 def member_if(test, xs):
         "XXX: not terribly compliant."
         for i, x in enumerate(xs):
