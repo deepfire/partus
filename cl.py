@@ -143,6 +143,7 @@ def _coerce_to_symbol_name(x):
 def _astp(x):                                return typep(x, ast.AST)
 def _ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
 
+### literals
 def _ast_num(n):
         return ast.Num(n = the(int, n))
 def _ast_string(s):
@@ -181,6 +182,7 @@ def _astify_constant(x):
 def _coerce_to_ast(x):
         return (_astify_constant(x) if not _astp(x) else x)
 
+### expressions
 def _ast_alias(name):                        return ast.alias(name = the(str, name), asname = None)
 def _ast_keyword(name, value):               return ast.keyword(arg = the(str, name), value = the(ast.expr, value))
 def _ast_name(name, writep = False):         return ast.Name(id = the(str, name), ctx = _ast_rw(writep))
@@ -198,15 +200,28 @@ def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
                         starargs = starargs,
                         kwargs = kwargs)
 
+### statements
 def _ast_Expr(node):
         return ast.Expr(value = the(ast.expr, node))
+
 def _ast_module(body):
-        return ast.Module(body = the((list_, ast.AST), body), lineno = 0)
+        return ast.Module(body = the((list_, ast.AST), body),
+                          lineno = 0)
+
+def _ast_import(*names):
+        return ast.Import(names = mapcar(ast_alias, the((list_, str), names)))
 def _ast_import_from(module_name, names):
         return ast.ImportFrom(module = the(str, module_name),
                               names = mapcar(_ast_alias, the((list_, str), names)),
                               level = 0)
 
+def _ast_assign(to, value):
+        return ast.Assign(targets = the((list_, ast.AST), to),
+                          value = the(ast.AST, value))
+def _ast_return(node):
+        return ast.Return(value = the(ast.AST, node))
+
+### lambda lists
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
 #              arg* kwonlyargs, identifier? kwarg,
 #              expr? kwargannotation, expr* defaults,
@@ -3724,8 +3739,8 @@ def _compute_applicable_methods_using_types(generic_function, types_):
 
 def _sort_applicable_methods(precedence, methods, types):
         def sorter(class1, class2, index):
-                class = types[index] # Was: (type-class (nth index types))
-                cpl = class.__mro__  # Was: ..dependent on boot state
+                class_ = types[index] # Was: (type-class (nth index types))
+                cpl = class_.__mro__  # Was: ..dependent on boot state
                 return (class1 if memq(class2, memq(class1, cpl)) else # XXX: our MEMQ is horribly inefficient!
                         class2)
         return _sort_methods(methods,
@@ -3770,7 +3785,7 @@ def _order_specializers(specl1, specl2, index, compare_classes_function):
                      (eql_,  lambda: case(car(type2),
                                           # similarly
                                           (eql_, []),
-                                          (t, specl1))))))
+                                          (t, specl1)))))
 
 def compute_applicable_methods(generic_function, arguments):
         """Arguments:
@@ -3885,7 +3900,7 @@ about how method functions are called.)
 The generic function COMPUTE-DISCRIMINATING-FUNCTION is called, and
 its result installed, by ADD-METHOD, REMOVE-METHOD,
 INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
-        def discriminating_function(*args, **keys):
+        def dfun_compute_applicable_methods(args):
                 arity = generic_function.__dispatch_arity__
                 if len(args) < arity:
                         error("The function %s requires at least %d arguments.", generic_function.__name__, arity)
@@ -3921,6 +3936,31 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                         return methods
                 else:
                         return compute_applicable_methods()
+        ## compute_discriminating_function:
+        new_dfun_ast = _ast_functiondef(
+            function_name,
+            lambda_list,
+            # How do we access methods themselves?
+            [_ast_return(
+                 _ast_funcall(_ast_funcall("compute_effective_method",
+                                           [_ast_name(function_name),
+                                                     nil,
+                                                     _ast_funcall("dfun_compute_applicable_methods",
+                                                                  [mapcar(_ast_name, fixed)])
+                                                     [mapcar(_ast_name, fixed)]]),
+                              [mapcar(_ast_name, fixed)],
+                              dict(optional + keyword)))])
+        if verbose:
+                import more_ast # Shall we concede, and import it all?
+                format(t, "; %sefined a generic function '%s':\n%s\n\n",
+                       ("Red" if presentp else "D"), function_name, more_ast.pp_ast_as_code(new_gfun_ast))
+        new_dfun = _ast_compiled_name(
+                    function_name,
+                    new_dfun_ast,
+                    filename = _defaulted(filename, ""),
+                    locals_  = dict(compute_effective_method        = compute_effective_method,
+                                    dfun_compute_applicable_methods = dfun_compute_applicable_methods))
+        return new_dfun
 
 def ensure_generic_function_using_class(generic_function, function_name,
                                         argument_precedence_order = None, declarations = None, documentation = None,
@@ -4041,28 +4081,7 @@ ENSURE-GENERIC-FUNCTION."""
         gfun, presentp = gethash(function_name, globals())
         if (not presentp or                       # New generic function?..
             lambda_list != gfun.__lambda_list__): # ..or an incompatible redefinition?
-                new_gfun_ast = _ast_functiondef(function_name,
-                                                lambda_list,
-                                                # How do we access methods themselves?
-                                                [_ast_funcall(_ast_funcall("compute_effective_method",
-                                                                           _ast_name(function_name),
-                                                                           nil,
-                                                                           _ast_funcall("compute_applicable_methods",
-                                                                                        _ast_name(function_name),
-                                                                                        mapcar(_ast_name, fixed))
-                                                                           [mapcar(_ast_name, fixed)]),
-                                                                          [mapcar(_ast_name, fixed)],
-                                                                          dict(optional + keyword))])
-                if verbose:
-                        import more_ast # Shall we concede, and import it all?
-                        format(t, "; %sefined a generic function '%s':\n%s\n\n",
-                               ("Red" if presentp else "D"), function_name, more_ast.pp_ast_as_code(new_gfun_ast))
-                new_gfun = _ast_compiled_name(
-                            function_name,
-                            new_gfun_ast,
-                            filename = _defaulted(filename, ""),
-                            locals_  = dict(compute_effective_method   = compute_effective_method,
-                                            compute_applicable_methods = compute_applicable_methods))
+                new_dfun = compute_discriminating_function()
                 new_gfun.__lambda_list__    = lambda_list
                 new_gfun.__dispatch_arity__ = len(fixed)
                 new_gfun.__methods__        = dict() # keyed by type specifier tuples

@@ -18,6 +18,8 @@ from cl         import typep, null, listp, integerp, floatp, boolp, sequencep, s
 from cl         import _ast_rw as ast_rw, _ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
 from cl         import _ast_funcall as ast_funcall, _ast_maybe_normalise_string as ast_maybe_normalise_string
 from cl         import _ast_Expr as ast_Expr, _ast_list as ast_list, _ast_tuple as ast_tuple, _ast_set as ast_set
+from cl         import _ast_return as ast_return, _ast_assign as ast_assign, _ast_import as ast_import
+from cl         import _ast_module as ast_module
 from cl         import _not_implemented as not_implemented
 from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, tuplep, fprintf
 from neutrality import py3p
@@ -74,10 +76,6 @@ def ast_expr_p(x):              return typep(x, ast.expr)
 def ast_Expr_p(x):              return typep(x, ast.Expr)
 
 # top-levels
-def ast_module(body):
-    assert listp(body) and all(mapcar(astp, body))
-    return ast.Module(body = body, lineno = 0)
-
 def ast_expression(expr):
     assert astp(expr)
     return ast.Expression(body = expr, lineno = 0)
@@ -120,19 +118,10 @@ def astlist_prog(*body):
     "WARNING: not an actual node, returns a list!"
     return remove_if(null, body) or [ast.Pass()]
 
-def ast_return(node):     return ast.Return(value = the(ast.AST, node))
 def ast_expression(node): return ast.Expression(body = the(ast.AST, node))
 
-def ast_import(*names):
-    assert all(mapcar(stringp, names))
-    return ast.Import(names=mapcar(ast_alias, names))
-
 def ast_import_all_from(name):
-    return ast.ImportFrom(module = the(str, name), names=[ast.alias(name='*', asname=None)], level=0)
-
-def ast_assign(to, value):
-    assert listp(to) and all(mapcar(astp, to)) and astp(value)
-    return ast.Assign(value=value, targets=to)
+    return ast.ImportFrom(module = the(str, name), names=[ast.alias(name='*', asname=None)])
 
 def ast_assign_var(name, value):
     assert stringp(name) and (integerp(value) or stringp(value) or astp(value))
@@ -200,12 +189,16 @@ def ast_last_lineno(form):
                      for x in ast_children(form, lineno_only = True)])
 
 def ast_first_subnode_at_lineno(form, lineno):
+        """The implied condition is that LINENO definitely points at
+some subform of FORM."""
+        assert(lineno >= form.lineno)
         def rec(form):
-                if form.lineno >= lineno:
-                        return form
-                else:
-                        return find_if(rec, sorted(ast_children(form, lineno_only = t),
-                                                   key = slotting("lineno")))
+                return if_let(find_if(lambda form: lineno >= form.lineno,
+                                             sorted(ast_children(form, lineno_only = t),
+                                                    key = slotting("lineno")),
+                                             from_end = t),
+                              rec,
+                              form)
         return rec(form)
 
 def pp_ast(o, stream = sys.stdout):
