@@ -3419,6 +3419,9 @@ def eval_(form):
         package = symbol_value("_package_")
         return _eval_python(_callify(form, package))
 
+##
+## An attempt at CLOS imitation
+##
 def define_method_combination():
         """Syntax:
 
@@ -3549,6 +3552,7 @@ the method combination is executed no earlier than when the
 DEFINE-METHOD-COMBINATION form is executed, and possibly as late as
 the time that generic functions that use the method combination are
 executed."""
+        _not_implemented()
 
 def make_method_lambda(generic_function, method, lambda_expression, environment):
         """Arguments:
@@ -3602,6 +3606,7 @@ function must be the value of the :FUNCTION initialization
 argument. The additional initialization arguments, returned as the
 second value of this generic function, must also be passed in this
 call to MAKE-INSTANCE."""
+        _not_implemented()
 
 def compute_effective_method(generic_function, combin, applicable_methods):
         """Arguments:
@@ -3638,106 +3643,9 @@ This generic function can be called by the user or the
 implementation. It is called by discriminating functions whenever a
 sorted list of applicable methods must be converted to an effective
 method."""
-        pass
+        _not_implemented()
 
-# (defun compute-applicable-methods-using-types (generic-function types)
-#   (let ((definite-p t) (possibly-applicable-methods nil))
-#     (dolist (method (if (early-gf-p generic-function)
-#                         (early-gf-methods generic-function)
-#                         (safe-generic-function-methods generic-function)))
-#       (let ((specls (if (consp method)
-#                         (early-method-specializers method t)
-#                         (safe-method-specializers method)))
-#             (types types)
-#             (possibly-applicable-p t) (applicable-p t))
-#         (dolist (specl specls)
-#           (multiple-value-bind (specl-applicable-p specl-possibly-applicable-p)
-#               (specializer-applicable-using-type-p specl (pop types))
-#             (unless specl-applicable-p
-#               (setq applicable-p nil))
-#             (unless specl-possibly-applicable-p
-#               (setq possibly-applicable-p nil)
-#               (return nil))))
-#         (when possibly-applicable-p
-#           (unless applicable-p (setq definite-p nil))
-#           (push method possibly-applicable-methods))))
-#     (multiple-value-bind (nreq applyp metatypes nkeys arg-info)
-#         (get-generic-fun-info generic-function)
-#       (declare (ignore nreq applyp metatypes nkeys))
-#       (let* ((precedence (arg-info-precedence arg-info)))
-#         (values (sort-applicable-methods precedence
-#                                          (nreverse possibly-applicable-methods)
-#                                          types)
-#                 definite-p)))))
-
-# (defun sort-applicable-methods (precedence methods types)
-#   (sort-methods methods
-#                 precedence
-#                 (lambda (class1 class2 index)
-#                   (let* ((class (type-class (nth index types)))
-#                          (cpl (if (eq **boot-state** 'complete)
-#                                   (class-precedence-list class)
-#                                   (early-class-precedence-list class))))
-#                     (if (memq class2 (memq class1 cpl))
-#                         class1 class2)))))
-
-# (defun sort-methods (methods precedence compare-classes-function)
-#   (flet ((sorter (method1 method2)
-#            (dolist (index precedence)
-#              (let* ((specl1 (nth index (if (listp method1)
-#                                            (early-method-specializers method1
-#                                                                       t)
-#                                            (method-specializers method1))))
-#                     (specl2 (nth index (if (listp method2)
-#                                            (early-method-specializers method2
-#                                                                       t)
-#                                            (method-specializers method2))))
-#                     (order (order-specializers
-#                              specl1 specl2 index compare-classes-function)))
-#                (when order
-#                  (return-from sorter (eq order specl1)))))))
-#     (stable-sort methods #'sorter)))
-
-# (defun order-specializers (specl1 specl2 index compare-classes-function)
-#   (let ((type1 (if (eq **boot-state** 'complete)
-#                    (specializer-type specl1)
-#                    (!bootstrap-get-slot 'specializer specl1 '%type)))
-#         (type2 (if (eq **boot-state** 'complete)
-#                    (specializer-type specl2)
-#                    (!bootstrap-get-slot 'specializer specl2 '%type))))
-#     (cond ((eq specl1 specl2)
-#            nil)
-#           ((atom type1)
-#            specl2)
-#           ((atom type2)
-#            specl1)
-#           (t
-#            (case (car type1)
-#              (class    (case (car type2)
-#                          (class (funcall compare-classes-function
-#                                          specl1 specl2 index))
-#                          (t specl2)))
-#              (prototype (case (car type2)
-#                          (class (funcall compare-classes-function
-#                                          specl1 specl2 index))
-#                          (t specl2)))
-#              (class-eq (case (car type2)
-#                          (eql specl2)
-#                          ;; FIXME: This says that all CLASS-EQ
-#                          ;; specializers are equally specific, which
-#                          ;; is fair enough because only one CLASS-EQ
-#                          ;; specializer can ever be appliable.  If
-#                          ;; ORDER-SPECIALIZERS should only ever be
-#                          ;; called on specializers from applicable
-#                          ;; methods, we could replace this with a BUG.
-#                          (class-eq nil)
-#                          (class type1)))
-#              (eql      (case (car type2)
-#                          ;; similarly.
-#                          (eql nil)
-#                          (t specl1))))))))
-
-def compute_applicable_methods_using_classes(generic_functions, classes):
+def compute_applicable_methods_using_classes(generic_function, classes):
         """Arguments:
 
 The GENERIC-FUNCTION argument is a generic function metaobject.
@@ -3786,6 +3694,83 @@ functions causes this consistency to be violated.
 The list returned by this generic function will not be mutated by the
 implementation. The results are undefined if a portable program
 mutates the list returned by this generic function."""
+        return _compute_applicable_methods_using_types(generic_function, classes)
+
+def _compute_applicable_methods_using_types(generic_function, types_):
+        definite_p, possibly_applicable_methods = t, []
+        # Not safe against method list modifications by another thread!
+        for method in generic_function_methods(generic_function):
+                specls = method_specializers(method) # Was: if (consp method)
+                types = list(types_)
+                possibly_applicable_p, applicable_p = t, t
+                for specl in specls:
+                        (specl_applicable_p,
+                         specl_possibly_applicable_p) = specializer_applicable_using_type_p(specl, pop(types))
+                        if not specl_applicable_p:
+                                applicable_p = nil
+                        if not specl_possibly_applicable_p:
+                                possibly_applicable_p = nil
+                                break
+                if possibly_applicable_p:
+                        if not applicable_p: definite_p = nil
+                        possibly_applicable_methods[0:0] = [method]
+                nreq, applyp, metatypes, nkeys, arg_info = get_generic_fun_info(generic_function)
+                # (declare (ignore nreq applyp metatypes nkeys))
+                precedence = arg_info_precedence(arg_info)
+                return values(_sort_applicable_methods(precedence,
+                                                       reversed(possibly_applicable_methods),
+                                                       types),
+                              definite_p)
+
+def _sort_applicable_methods(precedence, methods, types):
+        def sorter(class1, class2, index):
+                class = types[index] # Was: (type-class (nth index types))
+                cpl = class.__mro__  # Was: ..dependent on boot state
+                return (class1 if memq(class2, memq(class1, cpl)) else # XXX: our MEMQ is horribly inefficient!
+                        class2)
+        return _sort_methods(methods,
+                             precedence,
+                             sorter)
+
+def _sort_methods(methods, precedence, compare_classes_function):
+        def sorter(method1, method2):
+                for index in precedence:
+                        specl1 = nth(index, method_specializers(method1)) # XXX: Was (if (listp method1)
+                        specl2 = nth(index, method_specializers(method2)) # XXX: Was (if (listp method2)
+                        order  = _order_specializers(specl1, specl2, index, compare_classes_function)
+                        if order:
+                                return order is specl1
+        return stable_sort(methods, sorter)
+
+def _order_specializers(specl1, specl2, index, compare_classes_function):
+        type1 = specializer_type(specl1) # Was: (if (eq **boot-state** 'complete)
+        type2 = specializer_type(specl2) # Was: (if (eq **boot-state** 'complete)
+        return ([]     if specl1 is specl1 else
+                specl2 if atom(type1)      else # is t?
+                specl1 if atom(type2)      else # is t?
+                case(car(type1),
+                     (type_, lambda: case(car(type2),
+                                          (type_, compare_classes_function(specl1, specl2, index)),
+                                          (t, specl2))),
+                     # (prototype (case (car type2)
+                     #             (class (funcall compare-classes-function
+                     #                             specl1 specl2 index))
+                     #             (t specl2)))
+                     # (class-eq (case (car type2)
+                     #             (eql specl2)
+                     #             ;; FIXME: This says that all CLASS-EQ
+                     #             ;; specializers are equally specific, which
+                     #             ;; is fair enough because only one CLASS-EQ
+                     #             ;; specializer can ever be appliable.  If
+                     #             ;; ORDER-SPECIALIZERS should only ever be
+                     #             ;; called on specializers from applicable
+                     #             ;; methods, we could replace this with a BUG.
+                     #             (class-eq nil)
+                     #             (class type1)))
+                     (eql_,  lambda: case(car(type2),
+                                          # similarly
+                                          (eql_, []),
+                                          (t, specl1))))))
 
 def compute_applicable_methods(generic_function, arguments):
         """Arguments:
@@ -3819,6 +3804,7 @@ fewer elements than the generic function accepts required arguments.
 The list returned by this generic function will not be mutated by the
 implementation. The results are undefined if a portable program
 mutates the list returned by this generic function."""
+        _not_implemented()
 
 __sealed_classes__ = set([object,
                           int, bool, float, complex,
@@ -3994,6 +3980,7 @@ Otherwise the generic function GENERIC-FUNCTION is redefined by
 calling the REINITIALIZE-INSTANCE generic function with
 GENERIC-FUNCTION and the initialization arguments. The
 GENERIC-FUNCTION argument is then returned."""
+        _not_implemented()
 
 def ensure_generic_function(function_name,
                             argument_precedence_order = None, declare = None,
