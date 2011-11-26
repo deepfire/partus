@@ -624,8 +624,9 @@ def _example_frame():
 ##
 ## Condition: not_implemented
 ##
-condition = BaseException
-error_    = Exception
+condition         = BaseException
+error_            = Exception
+serious_condition = Exception
 
 def _conditionp(x):
         return typep(x, condition)
@@ -659,12 +660,10 @@ def _not_implemented(x = None):
 ##
 ## Pergamum 0
 ##
-def _if_let(cond, consequent, antecedent = lambda: None):
-        x = cond() if isinstance(cond, function_) else cond
+def _if_let(x, consequent, antecedent = lambda: None):
         return consequent(x) if x else antecedent()
 
-def _when_let(cond, consequent):
-        x = cond() if isinstance(cond, function_) else cond
+def _when_let(x, consequent):
         return consequent(x) if x else None
 
 def _lret(value, body):
@@ -816,7 +815,7 @@ class simple_type_error(simple_condition, type_error):
         pass
 
 type_  = builtins.type     # Should we shadow org.python.type?
-stream = _io._IOBase
+stream_ = stream = _io._IOBase
 
 def find_class(x, errorp = True):
         check_type(x, symbol)
@@ -2764,7 +2763,8 @@ def setf_file_position(x, posn):
         return x.seek(posn)
 
 def finish_output(stream = t):
-        stream is not nil and _coerce_to_stream(stream).flush()
+        check_type(stream, (or_, stream_, (member_, t, nil)))
+        (stream is not nil) and _coerce_to_stream(stream).flush()
 
 def force_output(*args, **keys):
         finish_output(*args, **keys)
@@ -3012,7 +3012,7 @@ def handler_bind(fn, *handlers, no_error = identity):
                 if len(handlers) > 1:
                         error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
                               len(handlers))
-                condition_type_name, handler = handlers.popitem()
+                condition_type_name, handler = handlers[-1]
                 try:
                         value = fn()
                 except find_class(condition_type_name) as cond:

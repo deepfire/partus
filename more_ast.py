@@ -198,7 +198,7 @@ some subform of FORM."""
                                                     key = slotting("lineno")),
                                              from_end = t),
                               rec,
-                              form)
+                              lambda: form)
         return rec(form)
 
 def pp_ast(o, stream = sys.stdout):

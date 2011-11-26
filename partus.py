@@ -29,18 +29,17 @@ def _init_swank_packages():
         defpackage("SWANK",      use = ["CL", "PERGAMUM", "MORE-AST"])
         swank = find_package("SWANK")
 
-        ## XXX: junk
-        # import inspector
-        # package("INSPECTOR",     use = ["CL", "PERGAMUM", "SWANK"])
-        # inspector.nil_surrogate = cl._intern0("nil_surrogate", "INSPECTOR")
+        import inspector
+        package("INSPECTOR",     use = ["CL", "PERGAMUM", "SWANK"])
+        inspector.nil_surrogate = cl._intern0("nil_surrogate", "INSPECTOR")
         # WARNING: circular package use!
-        # use_package(swank, "INSPECTOR")
+        use_package(swank, "INSPECTOR")
 
-        # inspector_syms = [
-        #         "inspect_object", "lookup_presented_object"
-        #         ]
-        # import_(mapcar(lambda s: find_symbol(s, "INSPECTOR"), inspector_syms),
-        #           "SWANK")
+        inspector_syms = [
+                "inspect_object", "lookup_presented_object"
+                ]
+        import_(mapcar(lambda s: cl._find_symbol0(s, "INSPECTOR"), inspector_syms),
+                  "SWANK")
 
 ### TCP Server: swank.lisp:769
 setq('_use_dedicated_output_stream_',       None)

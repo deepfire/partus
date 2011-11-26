@@ -309,7 +309,7 @@ def with_swank_error_handler(conn, body):
 def with_panic_handler(conn, body):
         "Close the connection on unhandled `serious-condition's."
         return handler_bind(body,
-                            (error_,
+                            (serious_condition,
                              (lambda condition:
                                close_connection(conn,
                                                 condition,
@@ -1080,6 +1080,7 @@ def cleanup_connection_threads(conn):
                    conn.control_thread,
                    conn.auto_flush_thread]
         for thread in threads:
+                here("killing %s", thread)
                 if (thread and
                     thread_alive_p(thread) and
                     thread is not current_thread()):
