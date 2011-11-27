@@ -1,3 +1,36 @@
+Issue PYTHON-AUTO-STRING-COALESCENCE
+
+This:
+"form_number"      # :unparsed :type (or index (member :unparsed))
+## Our cargo-cult imitation..
+"lineno"
+
+..is awfully close to:
+"form_number",     # :unparsed :type (or index (member :unparsed))
+## Our cargo-cult imitation..
+"lineno"
+
+..and it can be really hard to catch in a vararg situation.
+
+Issue SLDB-AUTOCLOSE-BADLY-NEEDED
+
+Issue AFTER-INIT-HOOK-NEVER-ACTIVATED
+
+Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
+
+python neutrality: initialised for version 3
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+  File "cl.py", line 1276, in <module>
+    _init_package_system_0() ########### _keyword() is now available
+  File "cl.py", line 1264, in _init_package_system_0
+    __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
+  File "cl.py", line 1068, in __init__
+    coercer = (__coerce_to_package if boot else
+NameError: global name '_package__coerce_to_package' is not defined
+
+..renaming __coerce_to_package function to _ccoerce_to_package solves the issue.
+
 Issue MUST-BIND-PARTUS-TO-PYTHON-BUFFERS-ONLY:
       <- 00013a (:emacs-rex (swank:autodoc (quote ("defun" "save-presented-object" ("object") "\"Save OBJECT and return the assigned id.
 If OBJECT was saved previously return the old id.\"" ("let" (("object" ("if" ("null" "object") "*nil-surrogate*" "object"))) "" swank::%cursor-marker%))) :print-right-margin 190) ":swank" t 6)
@@ -12,8 +45,6 @@ Issue SPECIAL-BINDINGS-ARE-PACKAGE-LESS
 Issue REQUIRE-NOT-IMPLEMENTED
 
 Issue SWANK-RPC-SHORT-READS-NOT-HANDLED
-
-Issue SLDB-AUTOCLOSE-BADLY-NEEDED
 
 Issue SWANK-EVENT-LOGGING-DOESNT-SEEM-TO-WORK
 
@@ -159,8 +190,6 @@ Issue DEINIT-LOG-OUPUT-NOT-DONE-PROBABLY-CRITICAL
 
 Issue THREAD-ALIVE-P-DEFAULT-IMPLEMENTATION-POSSIBLE-BUG
 
-Issue AFTER-INIT-HOOK-NEVER-ACTIVATED
-
 Issue TRACING-NEEDED
 
 Manual addition of
@@ -169,21 +198,6 @@ Manual addition of
 
 ..loses its novelty after a while, and python's facilities are not
 terribly usable eiter.
-
-Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
-
-python neutrality: initialised for version 3
-Traceback (most recent call last):
-  File "<string>", line 1, in <module>
-  File "cl.py", line 1276, in <module>
-    _init_package_system_0() ########### _keyword() is now available
-  File "cl.py", line 1264, in _init_package_system_0
-    __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
-  File "cl.py", line 1068, in __init__
-    coercer = (__coerce_to_package if boot else
-NameError: global name '_package__coerce_to_package' is not defined
-
-..renaming __coerce_to_package function to _ccoerce_to_package solves the issue.
 
 Issue NESTED-SWANK-ERRORS-PASS-STEALTHILY
 
@@ -618,20 +632,6 @@ Issue PRINC-PRINTS-ESCAPED-STANDARD-COMPLIANCE
              callers = 15)
   --> (note the double quotes around the AttributeError):
        Condition Upgrader: "'list' object has no attribute '__name__'"(<class 'str'>) -> "#<AttributeError  {1373e10}>"(<class 'AttributeError'>)
-
-Issue PYTHON-AUTO-STRING-COALESCENCE
-
-This:
-"form_number"      # :unparsed :type (or index (member :unparsed))
-## Our cargo-cult imitation..
-"lineno"
-
-..is awfully close to:
-"form_number",     # :unparsed :type (or index (member :unparsed))
-## Our cargo-cult imitation..
-"lineno"
-
-..and it can be really hard to catch in a vararg situation.
 
 Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
 
