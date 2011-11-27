@@ -55,13 +55,16 @@ setq('_default_server_port_',               4005)
 
 defvar("_shutdown_", nil) # XXX: python-specific invention..
 def honoring_death_wish():
+        def do_quit_lisp():
+                # quit_lisp() # This hangs..
+                os._exit(0)
         while True:
                 if symbol_value("_shutdown_"):
-                        sys.exit()
+                        do_quit_lisp()
                 try:
                         sleep(1)
                 except KeyboardInterrupt:
-                        sys.exit()
+                        do_quit_lisp()
 
 __coding_systems__ = dict([("utf-8-unix", "utf-8")])
 def _xlate_coding_system(x):

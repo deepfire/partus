@@ -43,6 +43,11 @@ Issue SOMEBODY-BINDS-*PACKAGE*-TO-A-KEYWORD
 ### Mistake in SWANK:PARSE-PACKAGE.
 ###
 
+Issue CANNOT-QUIT-LISP
+###
+### exit() was being stuck in some handlers, os._exit() was employed instead.
+###
+
 ------------
 ###
 ### CAUSE: 
