@@ -48,6 +48,11 @@ Issue CANNOT-QUIT-LISP
 ### exit() was being stuck in some handlers, os._exit() was employed instead.
 ###
 
+Issue SEMI-HANDLED-ERROR-MISSING-DEBUGGER
+###
+### Not a bug: was handled by converting_errors_to_error_location().
+###
+
 ------------
 ###
 ### CAUSE: 

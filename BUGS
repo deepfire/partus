@@ -608,16 +608,6 @@ Oh damn, right, we're not re-enabling the condition system.
 
 Issue RESTART-NAMING-STRING-VS-SYMBOL
 
-Issue SEMI-HANDLED-ERROR-MISSING-DEBUGGER
-
---> 000044, '(:emacs-rex (swank:frame-source-location 0) "COMMON-LISP-USER" 1 6)
-'
-==> [:EMACS-REX, [SWANK::FRAME-SOURCE-LOCATION, 0], 'COMMON-LISP-USER', 1, 6]
-    (REPL-THREAD)  handler_bind..<lambda>.._pytracer..__cl_condition_handler__..continuation:
-      Condition Upgrader: global name 'code_location_source_location' is not defined(<class 'str'>) -> global name 'code_location_source_location' is not defined(<class 'NameError'>)
-<== [:RETURN, [:OK, [:ERROR, "Error: global name 'code_location_source_location' is not defined"]], 6]
-<-- 00005e, '(:return (:ok (:error "Error: global name 'code_location_source_location' is not defined")) 6)'
-
 Issue BUGS-STALE
 
 Issue PRINC-PRINTS-ESCAPED-STANDARD-COMPLIANCE
