@@ -39,7 +39,7 @@ def _init_swank_packages():
                 "inspect_object", "lookup_presented_object"
                 ]
         import_(mapcar(lambda s: cl._find_symbol0(s, "INSPECTOR"), inspector_syms),
-                  "SWANK")
+                "SWANK")
 
 ### TCP Server: swank.lisp:769
 setq('_use_dedicated_output_stream_',       None)

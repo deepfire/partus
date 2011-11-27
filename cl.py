@@ -251,9 +251,20 @@ def _lambda_spec_arguments(lambda_list_spec):
                              kw_defaults = mapcar(lambda x: x[1], keyword),
                              kwarg       = keys)
 def _ast_functiondef(name, lambda_list_spec, body):
-        return ast.FunctionDef(name = the(string_, name),
-                               args = _lambda_spec_arguments(lambda_list_spec),
-                               body = the((list_, ast.AST), body), lineno = 0)
+        fixed, optional, args, keyword, keys = lambda_list_spec
+        return ast.FunctionDef(
+                name = the(string_, name),
+                args = _lambda_spec_arguments(lambda_list_spec),
+                lineno = 0,
+                body = etypecase(body,
+                                 ((list_, ast.AST),
+                                  body)
+                                 (function_,
+                                  body(*mapcar(_ast_name, fixed),
+                                       **_map_into_hash(lambda x: (x, _ast_name),
+                                                        (optional + keyword +
+                                                         ([args] if args else []) +
+                                                         ([keys] if keys else [])))))))
 
 ###
 ### Basis
@@ -1220,32 +1231,31 @@ def gethash(key, dict, default = None):
 def _maphash(f, dict) -> list:
         return [ f(k, v) for k, v in dict.items() ]
 
-def _map_hash_table(f, hash_table, key_key = _0arg, value_key = _1arg) -> dict:
+def _remap_hash_table(f, xs: dict) -> dict:
+        return { k: f(k, v) for k, v in xs.items() }
+
+def _map_into_hash(f, xs,
+                   key_test = lambda k: k is not None,
+                   value_test = lambda _: True) -> dict:
         acc = dict()
-        for old_k, old_v in hash_table.items():
-                k, v = f(old_k, old_v)
-                k, v = key_key(k, v), value_key(k, v)
-                if k is not None:
+        for x in xs:
+                k, v = f(x)
+                if key_test(k) and value_test(v):
                         acc[k] = v
         return acc
 
-def _remap_hash_table(f, xs):
-        return { k: f(k, v) for k, v in xs.items() }
-
-def _map_into_hash(f, xs, key = identity):
+def _map_into_hash_star(f, xs,
+                        key_test = lambda k: k is not None,
+                        value_test = lambda _: t) -> dict:
         acc = dict()
         for x in xs:
-                k, v = f(key(x))
-                acc[k] = v
+                k, v = f(*x)
+                if key_test(k) and value_test(v):
+                        acc[k] = v
         return acc
 
-def _map_into_hash_star(f, xs, key = identity):
-        "This is, actually, more generic than MAP-HASH-TABLE."
-        acc = dict()
-        for x in xs:
-                k, v = f(*key(x))
-                acc[k] = v
-        return acc
+def _map_hash_table(f, hash_table, **keys) -> dict:
+        return _map_into_hash_star(f, hash_table.items(), **keys)
 
 ##
 ## Non-local control transfers
@@ -1695,8 +1705,10 @@ def import_(symbols, package = None, populate_module = True):
         module = _find_module(_lisp_symbol_name_python_name(package_name(p)),
                               if_does_not_exist = "continue")
         for s in symbols:
-                ps = p.get(s.name) if s.name in p else None
-                if ps is not None: # conflict
+                ps, accessible = gethash(s.name, p.accessible)
+                if ps is s:
+                        continue
+                elif accessible: # conflict
                         symbol_conflict_error("IMPORT", s, p, s, ps)
                 else:
                         p.imported.add(s)
@@ -3900,11 +3912,18 @@ about how method functions are called.)
 The generic function COMPUTE-DISCRIMINATING-FUNCTION is called, and
 its result installed, by ADD-METHOD, REMOVE-METHOD,
 INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
+        return _do_compute_discriminating_function(
+                generic_function.__name__,
+                generic_function.__lambda_list__,
+                generic_function.__applicable_method_cache__)
+
+def _do_compute_discriminating_function(function_name, lambda_list, applicable_method_cache):
+        fixed, optional, args, keyword, keys = lambda_list
+        nfixed = len(fixed)
         def dfun_compute_applicable_methods(args):
-                arity = generic_function.__dispatch_arity__
-                if len(args) < arity:
-                        error("The function %s requires at least %d arguments.", generic_function.__name__, arity)
-                dispatch_args      = args[:arity]
+                if len(args) < nfixed:
+                        error("The function %s requires at least %d arguments.", function_name, nfixed)
+                dispatch_args      = args[:nfixed]
                 dispatch_arg_types = tuple(type(x) for x in dispatch_args)
                 # The discriminating function may reuse the
                 # list of applicable methods without calling
@@ -3922,7 +3941,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                                                                           tuple())
                 # We pay the high price of (iv) and (v), because we can't hook
                 # into the Python's object system.
-                applicable, hit = gethash(applicable_method_cache_key, generic_function.__applicable_method_cache__)
+                applicable, hit = gethash(applicable_method_cache_key, applicable_method_cache)
                 if hit:
                         # The discriminating function may reuse the
                         # list of applicable methods without calling
@@ -3932,11 +3951,13 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                         return applicable
                 methods, okayp = compute_applicable_methods_using_classes()
                 if okayp:
-                        generic_function.__applicable_method_cache__[applicable_method_cache_key] = methods
+                        applicable_method_cache[applicable_method_cache_key] = methods
                         return methods
                 else:
                         return compute_applicable_methods()
-        ## compute_discriminating_function:
+        ## compute_discriminating_function(generic_function, function_name, lambda_list,
+        ##                                 fixed, optional, args, keyword, keys,
+        ##                                 nfixed):
         new_dfun_ast = _ast_functiondef(
             function_name,
             lambda_list,
@@ -3944,23 +3965,24 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
             [_ast_return(
                  _ast_funcall(_ast_funcall("compute_effective_method",
                                            [_ast_name(function_name),
-                                                     nil,
-                                                     _ast_funcall("dfun_compute_applicable_methods",
-                                                                  [mapcar(_ast_name, fixed)])
-                                                     [mapcar(_ast_name, fixed)]]),
-                              [mapcar(_ast_name, fixed)],
-                              dict(optional + keyword)))])
+                                            nil, # method combination
+                                            _ast_funcall("dfun_compute_applicable_methods",
+                                                         [mapcar(_ast_name, fixed)])]),
+                              [mapcar(_ast_name, fixed + mapcar(car, optional))],
+                              _map_into_hash_star(lambda key, default: (key, _ast_name(default)),
+                                                   keyword),
+                              starargs = _ast_name(args) if args else None,
+                              kwargs   = _ast_name(keys) if keys else None))])
         if verbose:
                 import more_ast # Shall we concede, and import it all?
                 format(t, "; %sefined a generic function '%s':\n%s\n\n",
                        ("Red" if presentp else "D"), function_name, more_ast.pp_ast_as_code(new_gfun_ast))
-        new_dfun = _ast_compiled_name(
+        return _ast_compiled_name(
                     function_name,
                     new_dfun_ast,
                     filename = _defaulted(filename, ""),
                     locals_  = dict(compute_effective_method        = compute_effective_method,
                                     dfun_compute_applicable_methods = dfun_compute_applicable_methods))
-        return new_dfun
 
 def ensure_generic_function_using_class(generic_function, function_name,
                                         argument_precedence_order = None, declarations = None, documentation = None,
@@ -4076,17 +4098,18 @@ ENSURE-GENERIC-FUNCTION."""
         if some(lambda x: x[1] is not None, optional + keyword):
                 error("Generic function arglist cannot specify default parameter values.")
         if (argument_precedence_order or declare or environment or
-            generic_function_class or method_class or method_combination):
+            generic_function_class or lambda_list or method_class or method_combination):
                 error("This is not CLOS.  Yet.  (Read: ARGUMENT-PRECEDENCE-ORDER, DECLARE, ENVIRONMENT, GENERIC-FUNCTION-CLASS, METHOD-CLASS and METHOD-COMBINATION keyword options are not supported.)")
         gfun, presentp = gethash(function_name, globals())
         if (not presentp or                       # New generic function?..
             lambda_list != gfun.__lambda_list__): # ..or an incompatible redefinition?
-                new_dfun = compute_discriminating_function()
-                new_gfun.__lambda_list__    = lambda_list
-                new_gfun.__dispatch_arity__ = len(fixed)
-                new_gfun.__methods__        = dict() # keyed by type specifier tuples
-                globals()[function_name] = gfun = new_gfun
-        gfun.__doc__                     = _defaulted(documentation, gfun.__doc__)
+                new_gfun = compute_discriminating_function()
+                new_gfun.__name__                      = function_name
+                new_gfun.__lambda_list__               = lambda_list
+                # new_gfun.__applicable_method_cache__ = ..see below
+                new_gfun.__methods__                   = dict() # keyed by type specifier tuples... busted?
+                globals()[function_name]        = gfun = new_gfun
+        gfun.__doc__ = _defaulted(documentation, gfun.__doc__)
         # The discriminating function may reuse the
         # list of applicable methods without calling
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
@@ -4097,8 +4120,8 @@ ENSURE-GENERIC-FUNCTION."""
 def defgeneric(fn):
         return ensure_generic_function(fn.__name__,
                                        documentation = fn.__doc__,
-                                       filename      = fn.__code__.co_filename,
-                                       lambda_list   = _argspec_lambda_spec(inspect.getfullargspec(fn)))
+                                       lambda_list   = _argspec_lambda_spec(inspect.getfullargspec(fn)),
+                                       filename      = fn.__code__.co_filename)
 
 def add_method(generic_function, method):
         """Arguments:
