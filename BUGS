@@ -684,3 +684,23 @@ Backtrace:
         "x" = "QUOTE"
 
 Issue COMPUTE-DISCRIMINATING-FUNCTION-REQUIREMENT-4-UNCLEAR-NOT-IMPLEMENTED
+
+Issue UNHANDLED-CONDITIONS-NOT-REALLY
+
+    (MAINTHREAD)  <module>..defgeneric..ensure_generic_function.._do_compute_discriminating_function.._ast_compiled_name.._compile_and_load..fix_missing_locations.._fix.._fix..iter_child_nodes..iter_fields@/usr/lib64/python3.2/ast.py:175:
+      Condition Upgrader: "'FunctionDef' object has no attribute 'returns'"(<class 'str'>) -> #<AttributeError  {2840ba8}>(<class 'AttributeError'>)
+    (MAINTHREAD)  <module>..defgeneric..ensure_generic_function.._do_compute_discriminating_function.._ast_compiled_name.._compile_and_load..fix_missing_locations.._fix.._fix..iter_child_nodes..iter_fields.._pytracer..__cl_condition_handler__@/little/home/deepfire/src/partus/cl.py:3012:
+      In thread 'MainThread': unhandled condition : #<AttributeError  {2840ba8}>
+; Disabling CL condition system.
+Traceback (most recent call last):
+  File "cl-tests.py", line 268, in <module>
+    @defgeneric
+  File "/little/home/deepfire/src/partus/cl.py", line 4149, in defgeneric
+    filename      = fn.__code__.co_filename)
+  File "/little/home/deepfire/src/partus/cl.py", line 4131, in ensure_generic_function
+    filename)
+  File "/little/home/deepfire/src/partus/cl.py", line 4005, in _do_compute_discriminating_function
+    dfun_compute_applicable_methods = dfun_compute_applicable_methods))
+  File "/little/home/deepfire/src/partus/cl.py", line 322, in _ast_compiled_name
+    mod = _compile_and_load(*body, **keys)
+KeyError: 'gfun'
