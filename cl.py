@@ -55,7 +55,7 @@ def lower_case_p(x):      return x.islower()
 
 __core_symbol_names__ = [
         "QUOTE",
-        "AND", "OR", "MEMBER", "EQL",
+        "AND", "OR", "MEMBER", "EQL", "SATISFIES",
         "ABORT", "CONTINUE", "BREAK",
         "LIST",
         "_KEY", "_REST", "_BODY", "_ALLOW_OTHER_KEYS", "_WHOLE",
@@ -140,12 +140,14 @@ def _coerce_to_symbol_name(x):
                 _read_case_xformed(x) if stringp(x) else
                 error(simple_type_error, "%s cannot be coerced to string.", x))
 
-def _astp(x):                                return typep(x, ast.AST)
-def _ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
+def _astp(x):        return typep(x, ast.AST)
+def _ast_rw(writep): return (ast.Store() if writep else ast.Load())
 
 ### literals
 def _ast_num(n):
         return ast.Num(n = the(int, n))
+def _ast_bool(n):
+        return ast.Bool(n = the(int, n))
 def _ast_string(s):
         return ast.Str(s = the(str, s))
 def _ast_set(xs,   writep = False):
@@ -156,22 +158,29 @@ def _ast_tuple(xs, writep = False):
         return ast.Tuple(elts = the((list_, ast.AST), xs), ctx = _ast_rw(writep))
 
 ############################### recurse? AST-ifier
-__astifier_map__ = { str:       (False, _ast_string),
-                     int:       (False, _ast_num),
-                     list:      (True,  _ast_list),
-                     tuple:     (True,  _ast_tuple),
-                     set:       (True,  _ast_set),
+__astifier_map__ = { str:             (False, _ast_string),
+                     int:             (False, _ast_num),
+                     bool:            (False, _ast_num),
+                     type(None):      (False, lambda x: _ast_name("None")),
+                     list:            (True,  _ast_list),
+                     tuple:           (True,  _ast_tuple),
+                     set:             (True,  _ast_set),
                      ## symbol: see below
                      }
 def _register_astifier_for_type(type, recurse, astifier):
         "Please, list the added astifiers above."
         __astifier_map__[type] = (recurse, astifier)
 
+def _astifiable_p(x):
+        return type(x) in __astifier_map__
+
 def _try_astify_constant(x):
+        if _astp(x):
+                return x, True
         (rec, astifier), astifiable = gethash(type_of(x), __astifier_map__,
                                               ((nil, nil), nil))
-        return (astifier(mapcar(_astify_constant, x) if rec else
-                               x), True) if astifiable else (None, None)
+        return (astifier(mapcar(lambda x: _astify_constant(x), x) if rec else
+                         x), True) if astifiable else (None, None)
 
 def _astify_constant(x):
         ast, successp = _try_astify_constant(x)
@@ -180,7 +189,7 @@ def _astify_constant(x):
                       prin1_to_string(x)))
 
 def _coerce_to_ast(x):
-        return (_astify_constant(x) if not _astp(x) else x)
+        return _astify_constant(x) if not _astp(x) else x
 
 ### expressions
 def _ast_alias(name):                        return ast.alias(name = the(str, name), asname = None)
@@ -191,9 +200,7 @@ def _ast_index(of, index, writep = False):   return ast.Subscript(value = of, sl
 def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x) else x)
 
 def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
-        if not every(lambda x: stringp(x) or _astp(x) or x is None, args):
-                error("AST-FUNCALL: %s: improper arglist %s", name, str(args))
-        _here("as: %s, keys: %s", args, keys)
+        check_type(args, (list_, (or_, ast.AST, type(None), (satisfies_, _astifiable_p))))
         return ast.Call(func = (_ast_name(name) if stringp(name) else name),
                         args = mapcar(_coerce_to_ast, args),
                         keywords = _maphash(_ast_keyword, keys),
@@ -204,9 +211,9 @@ def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
 def _ast_Expr(node):
         return ast.Expr(value = the(ast.expr, node))
 
-def _ast_module(body):
+def _ast_module(body, lineno = 0):
         return ast.Module(body = the((list_, ast.AST), body),
-                          lineno = 0)
+                          lineno = lineno)
 
 def _ast_import(*names):
         return ast.Import(names = mapcar(ast_alias, the((list_, str), names)))
@@ -237,32 +244,39 @@ def _argspec_lambda_spec(spec):
         nfixargs = _argspec_nfixargs(spec)
         return (spec.args[:nfixargs],
                 zip(spec.args[nfixargs:],
-                    mapcar(_astify_constant, spec.defaults)),
+                    mapcar(_astify_constant, spec.defaults or [])),
                 spec.varargs,
                 zip(spec.kwonlyargs,
-                    mapcar(_astify_constant, spec.kwonlydefaults)),
+                    mapcar(_astify_constant, spec.kwonlydefaults or [])),
                 spec.varkw)
 def _lambda_spec_arguments(lambda_list_spec):
         fixed, optional, args, keyword, keys = lambda_list_spec
-        return ast.arguments(args        = mapcar(ast.arg, fixed + mapcar(lambda x: x[0], optional)),
+        return ast.arguments(args        = mapcar(lambda x: ast.arg(x, None),
+                                                  fixed + mapcar(lambda x: x[0], optional)),
                              defaults    = mapcar(lambda x: x[1], optional),
                              vararg      = args,
-                             kwonlyargs  = mapcar(ast.arg,         mapcar(lambda x: x[0], keyword)),
+                             kwonlyargs  = mapcar(lambda x: ast.arg(x, None),
+                                                  mapcar(lambda x: x[0], keyword)),
                              kw_defaults = mapcar(lambda x: x[1], keyword),
-                             kwarg       = keys)
+                             kwarg       = keys,
+                             varargannotation = None,
+                             kwargannotation  = None)
 def _ast_functiondef(name, lambda_list_spec, body):
         fixed, optional, args, keyword, keys = lambda_list_spec
         return ast.FunctionDef(
                 name = the(string_, name),
                 args = _lambda_spec_arguments(lambda_list_spec),
                 lineno = 0,
+                decorator_list = [],
+                returns = None,
                 body = etypecase(body,
                                  ((list_, ast.AST),
-                                  body)
+                                  body),
                                  (function_,
+                                  lambda: 
                                   body(*mapcar(_ast_name, fixed),
                                        **_map_into_hash(lambda x: (x, _ast_name),
-                                                        (optional + keyword +
+                                                        (list(optional) + list(keyword) +
                                                          ([args] if args else []) +
                                                          ([keys] if keys else [])))))))
 
@@ -280,14 +294,16 @@ def _load_code_object_as_module(name, co, filename = "", builtins = None, global
                 mod.__dict__["__builtins__"] = builtins
         if register:
                 sys.modules[name] = mod
+        globals_ = _defaulted(globals_, mod.__dict__)
+        locals_  = _defaulted(locals_, mod.__dict__)
         exec(co,
-             _defaulted(globals_, mod.__dict__),
-             _defaulted(locals_,  mod.__dict__))
-        return mod
+             globals_,
+             locals_)
+        return mod, globals_, locals_
 
 def _load_text_as_module(name, text, filename = "", **keys):
         return _load_code_object_as_module(name, compile(text, filename, "exec"),
-                                           filename = filename, **keys)
+                                           filename = filename, **keys)[0]
 
 def _reregister_module_as_package(mod, parent_package = None):
         # this line might need to be performed before exec()
@@ -302,15 +318,17 @@ def _reregister_module_as_package(mod, parent_package = None):
         if packagep:
                 mod.__children__ = set([])
 
-def _compile_and_load(*body, modname = "", filename = ""):
+def _compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
         return _load_code_object_as_module(
                 modname,
-                compile(ast.fix_missing_locations(_ast_module(list(body))), filename, "exec"),
-                register = nil)
+                compile(ast.fix_missing_locations(_ast_module(list(body), lineno = lineno)), filename, "exec"),
+                register = nil,
+                filename = filename,
+                **keys)
 
-def _ast_compiled_name(name, *body, modname = "", filename = ""):
-        mod = _compile_and_load(*body, modname = modname, filename = filename)
-        return mod.__dict__[name]
+def _ast_compiled_name(name, *body, **keys):
+        mod, globals, locals = _compile_and_load(*body, **keys)
+        return locals[name]
 
 ##
 ## frames
@@ -437,15 +455,25 @@ def _pp_chain_of_frame(x, callers = 5, *args, **keys):
         return _pp_frame_chain(fs, *args, **keys)
 
 def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
-        return write_line("    (%s)  %s:\n      %s" % (threading.current_thread().name.upper(),
-                                                       _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
-                                                                          callers = callers - 1,
-                                                                          print_fun_line = print_fun_line,
-                                                                          all_pretty = all_pretty),
-                                                       (""           if not note else
-                                                        " - " + note if not args else
-                                                        (note % args))),
-                          _defaulted(stream, default_stream))
+        return _debug_printf("    (%s)  %s:\n      %s" % (threading.current_thread().name.upper(),
+                                                          _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
+                                                                             callers = callers - 1,
+                                                                             print_fun_line = print_fun_line,
+                                                                             all_pretty = all_pretty),
+                                                          (""           if not note else
+                                                           " - " + note if not args else
+                                                           (note % args))),
+                            # _defaulted(stream, default_stream)
+                             )
+
+def _fprintf(stream, format_control, *format_args):
+        try:
+                return _write_string(format_control % format_args, stream)
+        except UnicodeEncodeError:
+                return _write_string((format_control % format_args).encode("utf-8"), stream)
+
+def _debug_printf(format_control, *format_args):
+        _fprintf(sys.stderr, format_control + "\n", *format_args)
 
 # >>> dir(f)
 # ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
@@ -825,8 +853,9 @@ class type_error(error_):
 class simple_type_error(simple_condition, type_error):
         pass
 
-type_  = builtins.type     # Should we shadow org.python.type?
+type_   = builtins.type    # Should we shadow org.python.type?
 stream_ = stream = _io._IOBase
+string_ = str
 
 def find_class(x, errorp = True):
         check_type(x, symbol)
@@ -859,12 +888,18 @@ def _check_complex_type(type, x):
 
 def typep(x, type):
         return (isinstance(x, type)          if isinstance(type, type_)                      else
+                t                            if type is t                                    else
                 _check_complex_type(type, x) if (_tuplep(type) and
                                                  type and type[0] in __type_predicate_map__) else
                 error(simple_type_error, "%s is not a valid type specifier.", type))
 
 def subtypep(sub, super):
-        return issubclass(sub, super)
+        return (issubclass(sub, super)              if super is not t                 else
+                _not_implemented("complex type relatioships: %s vs. %s.",
+                                 sub, super)        if _tuplep(sub) or _tuplep(super) else
+                error("%s is not a type specifier") if not (typep(sub, (or_, type_, (eql_, t))) and
+                                                            typep(sub, (or_, type_, (eql_, t)))) else
+                sub is super or super is t)
 
 def the(type, x):
         return (x if typep(x, type) else
@@ -1281,7 +1316,7 @@ def catch(ball, body):
                 # format(t, "catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
                 if ct.ball is ball:
                         if ct.reenable_pytracer:
-                                _enable_pytracer()
+                                _enable_pytracer(reason = "ball caught")
                         return ct.value
                 else:
                         raise
@@ -1742,13 +1777,13 @@ def string(x):
 def _init_condition_system():
         _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
 
-def _without_condition_system(body):
+def _without_condition_system(body, reason = ""):
         if _pytracer_enabled_p():
                 try:
-                        _disable_pytracer()
+                        _disable_pytracer(reason = reason)
                         return body()
                 finally:
-                        _enable_pytracer()
+                        _enable_pytracer(reason = "%s done" % reason)
         else:
                 return body()
 
@@ -1805,6 +1840,8 @@ __type_predicate_map__ = { _keyword("or"):     (nil, some,  typep),
                            member_:            (nil, some,  eql),
                            _keyword("eql"):    (nil, some,  eql),
                            eql_:               (nil, some,  eql),
+                           _keyword("satisfies"): (nil, every,  lambda x, test: test(x)),
+                           satisfies_:            (nil, every,  lambda x, test: test(x)),
                            _keyword("maybe"):  (nil, some,  lambda x, type: x is None or x is nil or typep(x, type)),
                            maybe_:             (nil, some,  lambda x, type: x is None or x is nil or typep(x, type)),
                            # XXX: this is a small lie: this is not a cons-list
@@ -2155,7 +2192,8 @@ elements of the string are printed."""
         escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
         return (x if not escape else
                 ("\"" + _without_condition_system(
-                                lambda: re.sub(r"([\"\\])", r"\\\1", x)) +
+                                lambda: re.sub(r"([\"\\])", r"\\\1", x),
+                                reason = "re.sub") +
                  "\""))
 
 def _print_function(x):
@@ -2452,9 +2490,11 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
         def read_number_or_symbol():
                 token = read_token()
                 handle_short_read_if(not token)
-                if _without_condition_system(lambda: re.match("^[0-9]+$", token)):
+                if _without_condition_system(lambda: re.match("^[0-9]+$", token),
+                                             reason = "re.match"):
                         ret = int(token)
-                elif _without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token)):
+                elif _without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token),
+                                               reason = "re.match"):
                         ret = float(token)
                 else:
                         ret = _read_symbol(token)
@@ -2589,9 +2629,11 @@ def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_white
                 return ret
         def read_number_or_symbol():
                 token = read_token()
-                if _without_condition_system(lambda: re.match("^[0-9]+$", token)):
+                if _without_condition_system(lambda: re.match("^[0-9]+$", token),
+                                             reason = "re.match"):
                         ret = int(token)
-                elif _without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token)):
+                elif _without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token),
+                                               reason = "re.match"):
                         ret = float(token)
                 else:
                         ret = _read_symbol(token)
@@ -2625,7 +2667,8 @@ def probe_file(pathname):
         "No, no real pathnames, just namestrings.."
         assert(stringp(pathname))
         return _without_condition_system(
-                lambda: os.path.exists(pathname))
+                lambda: os.path.exists(pathname),
+                reason = "os.path.exists")
 
 def namestring(pathname):
         return pathname
@@ -2750,7 +2793,8 @@ def write_string(string, stream = t):
                                       stream, ("output" if cond.args[0] == "not writable" else
                                                "adequate"),
                                       cond.args[0])
-                _without_condition_system(handler)
+                _without_condition_system(handler,
+                                          reason = "_write_string")
         return string
 
 def write_line(string, stream = t):
@@ -2795,8 +2839,10 @@ def _pytracer(frame, event, arg):
         return _pytracer
 
 def _pytracer_enabled_p(): return sys.gettrace() is _pytracer
-def _enable_pytracer():    sys.settrace(_pytracer); return True
-def _disable_pytracer():   sys.settrace(None);      return True
+def _enable_pytracer(reason = "", report = None):
+        sys.settrace(_pytracer); report and _debug_printf("_ENABLE (%s)", reason);  return True
+def _disable_pytracer(reason = "", report = None):
+        sys.settrace(None);      report and _debug_printf("_DISABLE (%s)", reason); return True
 
 def _set_condition_handler(fn):
         _set_tracer_hook("exception", fn)
@@ -2950,7 +2996,8 @@ def _dump_thread_state():
                         val = getattr(o, slot)
                         type_ = type(val)
                         print(("%25s: " + ("%x" if type_ is int else "%s")) % (slot, val))
-        _without_condition_system(body)
+        _without_condition_system(body,
+                                  reason = "_dump_thread_state")
 
 __not_even_conditions__ = frozenset([SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
@@ -2962,14 +3009,14 @@ def __cl_condition_handler__(condspec, frame):
                 if type_of(raw_cond) not in __not_even_conditions__:
                         def _maybe_upgrade_condition(cond):
                                 "Fix up the shit routinely being passed around."
-                                return (cond if typep(cond, condition) else
-                                        condspec[0](*([cond] if stringp(cond) else
-                                                      cond)))
+                                return ((cond, False) if typep(cond, condition) else
+                                        (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
+                                                       cond)), True))
                                        # typecase(cond,
                                        #          (BaseException, lambda: cond),
                                        #          (str,       lambda: error_(cond)))
-                        cond = _maybe_upgrade_condition(raw_cond)
-                        if cond is not raw_cond:
+                        cond, upgradedp = _maybe_upgrade_condition(raw_cond)
+                        if upgradedp:
                                 _here("Condition Upgrader: %s(%s) -> %s(%s)",
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
@@ -2991,9 +3038,15 @@ def __cl_condition_handler__(condspec, frame):
         with progv(_stack_top_hint_ = _caller_frame(caller_relative = 1)):
                 cond = sys.call_tracing(continuation, tuple())
         if type_of(cond) not in __not_even_conditions__:
-                _here("In thread '%s': unhandled condition : %s",
+                is_not_ball = type_of(cond) is not __catcher_throw__
+                _here("In thread '%s': unhandled condition : %s%s",
                       threading.current_thread().name, prin1_to_string(cond),
+                      ("\n; Disabling CL condition system." if is_not_ball else
+                       ""),
                       callers = 15)
+                if is_not_ball:
+                        _disable_pytracer(reason = "unhandled condition")
+        ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
         #
@@ -3340,7 +3393,8 @@ def lisp_implementation_type():    return "CPython"
 def lisp_implementation_version(): return sys.version
 
 def machine_instance():            return socket.gethostname()
-def machine_type():                return _without_condition_system(lambda: platform.machine())
+def machine_type():                return _without_condition_system(lambda: platform.machine(),
+                                                                    reason = "platform.machine")
 def machine_version():             return "Unknown"
 
 ##
@@ -3449,6 +3503,9 @@ def eval_(form):
 ##
 ## An attempt at CLOS imitation
 ##
+def _generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")
+def _method_p(x):           return functionp(x) and hasattr(x, "__specializers__")
+
 def define_method_combination():
         """Syntax:
 
@@ -3912,12 +3969,15 @@ about how method functions are called.)
 The generic function COMPUTE-DISCRIMINATING-FUNCTION is called, and
 its result installed, by ADD-METHOD, REMOVE-METHOD,
 INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
-        return _do_compute_discriminating_function(
-                generic_function.__name__,
-                generic_function.__lambda_list__,
-                generic_function.__applicable_method_cache__)
-
-def _do_compute_discriminating_function(function_name, lambda_list, applicable_method_cache):
+        (function_name,
+         lambda_list,
+         applicable_method_cache,
+         filename,
+         lineno) = (generic_function.__name__,
+                    generic_function.__lambda_list__,
+                    generic_function.__applicable_method_cache__,
+                    generic_function.__code__.co_filename,
+                    generic_function.__code__.co_lineno)
         fixed, optional, args, keyword, keys = lambda_list
         nfixed = len(fixed)
         def dfun_compute_applicable_methods(args):
@@ -3935,7 +3995,7 @@ def _do_compute_discriminating_function(function_name, lambda_list, applicable_m
                 # Issue COMPUTE-DISCRIMINATING-FUNCTION-REQUIREMENT-4-UNCLEAR-NOT-IMPLEMENTED
                 # (v) for any such memoized value, the class precedence list of
                 #     the class of each of the required arguments has not changed.
-                unsealed_classes = set(x for x in dispatch_arg_types if not class_sealed_p(x))
+                unsealed_classes = set(x for x in dispatch_arg_types if not _class_sealed_p(x))
                 applicable_method_cache_key = dispatch_arg_types + reduce(lambda acc, x: acc + x.__mro__,
                                                                           sorted(unsealed_classes, key = lambda type: type.__name__),
                                                                           tuple())
@@ -3949,7 +4009,8 @@ def _do_compute_discriminating_function(function_name, lambda_list, applicable_m
                         # (i) the generic function is being called again with required
                         #     arguments which are instances of the same classes,
                         return applicable
-                methods, okayp = compute_applicable_methods_using_classes()
+                methods, okayp = compute_applicable_methods_using_classes(generic_function,
+                                                                          dispatch_arg_types)
                 if okayp:
                         applicable_method_cache[applicable_method_cache_key] = methods
                         return methods
@@ -3965,29 +4026,42 @@ def _do_compute_discriminating_function(function_name, lambda_list, applicable_m
             [_ast_return(
                  _ast_funcall(_ast_funcall("compute_effective_method",
                                            [_ast_name(function_name),
-                                            nil, # method combination
+                                            None, # method combination
                                             _ast_funcall("dfun_compute_applicable_methods",
                                                          [mapcar(_ast_name, fixed)])]),
-                              [mapcar(_ast_name, fixed + mapcar(car, optional))],
+                              mapcar(_ast_name, fixed + mapcar(car, optional)),
                               _map_into_hash_star(lambda key, default: (key, _ast_name(default)),
                                                    keyword),
                               starargs = _ast_name(args) if args else None,
                               kwargs   = _ast_name(keys) if keys else None))])
-        if verbose:
+        if True:
                 import more_ast # Shall we concede, and import it all?
-                format(t, "; %sefined a generic function '%s':\n%s\n\n",
-                       ("Red" if presentp else "D"), function_name, more_ast.pp_ast_as_code(new_gfun_ast))
+                format(t, "; generic function '%s':\n%s",
+                       function_name, more_ast.pp_ast_as_code(new_dfun_ast))
+        env = dict(compute_effective_method        = compute_effective_method,
+                   _find_symbol_or_fail            = _find_symbol_or_fail,
+                   dfun_compute_applicable_methods = dfun_compute_applicable_methods)
         return _ast_compiled_name(
                     function_name,
                     new_dfun_ast,
                     filename = _defaulted(filename, ""),
-                    locals_  = dict(compute_effective_method        = compute_effective_method,
-                                    dfun_compute_applicable_methods = dfun_compute_applicable_methods))
+                    lineno   = lineno,
+                    globals_ = env,
+                    locals_  = env)
 
 def ensure_generic_function_using_class(generic_function, function_name,
-                                        argument_precedence_order = None, declarations = None, documentation = None,
-                                        generic_function_class = None, lambda_list = None, method_class = None,
-                                        method_combination = None, name = None, **keys):
+                                        argument_precedence_order = None,
+                                        declarations = None,
+                                        documentation = None,
+                                        generic_function_class = None,
+                                        lambda_list = None,
+                                        method_class = None,
+                                        method_combination = None,
+                                        name = nil,
+                                        # incompatible..
+                                        filename = None,
+                                        lineno = None,
+                                        **keys):
         """Arguments:
 
 The GENERIC-FUNCTION argument is a generic function metaobject or NIL.
@@ -4041,17 +4115,112 @@ signaled.
 Otherwise the generic function GENERIC-FUNCTION is redefined by
 calling the REINITIALIZE-INSTANCE generic function with
 GENERIC-FUNCTION and the initialization arguments. The
-GENERIC-FUNCTION argument is then returned."""
-        _not_implemented()
+GENERIC-FUNCTION argument is then returned.
 
-def ensure_generic_function(function_name,
-                            argument_precedence_order = None, declare = None,
-                            documentation = None, environment = None,
-                            generic_function_class = None, lambda_list = None,
-                            method_class = None, method_combination = None,
-                            # Incompatible additions:
-                            verbose = nil,
-                            filename = None):
+Unless there is a specific note to the contrary, then during
+reinitialization, if an initialization argument is not supplied, the
+previously stored value is left unchanged.
+
+The :ARGUMENT-PRECEDENCE-ORDER argument is a list of symbols.
+
+An error is signaled if this argument appears but the :LAMBDA-LIST
+argument does not appear. An error is signaled if this value is not a
+proper list or if this value is not a permutation of the symbols from
+the required arguments part of the :LAMBDA-LIST initialization
+argument.
+
+When the generic function is being initialized or reinitialized, and
+this argument is not supplied, but the :LAMBDA-LIST argument is
+supplied, this value defaults to the symbols from the required
+arguments part of the :LAMBDA-LIST argument, in the order they appear
+in that argument. If neither argument is supplied, neither are
+initialized (see the description of :LAMBDA-LIST.)
+
+The :DECLARATIONS argument is a list of declarations.
+
+An error is signaled if this value is not a proper list or if each of
+its elements is not a legal declaration.
+
+When the generic function is being initialized, and this argument is
+not supplied, it defaults to the empty list.
+
+The :DOCUMENTATION argument is a string or NIL.
+
+An error is signaled if this value is not a string or NIL.
+
+If the generic function is being initialized, this argument defaults
+to NIL.
+
+The :LAMBDA-LIST argument is a lambda list.
+
+An error is signaled if this value is not a proper generic function
+lambda list.
+
+When the generic function is being initialized, and this argument is
+not supplied, the generic function's lambda list is not
+initialized. The lambda list will be initialized later, either when
+the first method is added to the generic function, or a later
+reinitialization of the generic function.
+
+The :METHOD-COMBINATION argument is a method combination metaobject.
+
+The :METHOD-CLASS argument is a class metaobject.
+
+An error is signaled if this value is not a subclass of the class
+METHOD.
+
+When the generic function is being initialized, and this argument is
+not supplied, it defaults to the class STANDARD-METHOD.
+
+The :NAME argument is an object.
+
+If the generic function is being initialized, this argument defaults
+to NIL."""
+        lambda_list = _defaulted(lambda_list, ([], [], nil, [], nil))
+        fixed, optional, args, keyword, keys = lambda_list
+        if some(lambda x: x[1] is not None, list(optional) + list(keyword)):
+                error("Generic function arglist cannot specify default parameter values.")
+        if (argument_precedence_order or declarations or
+            generic_function_class or method_class or method_combination):
+                error("This is not CLOS.  Yet.  (Read: ARGUMENT-PRECEDENCE-ORDER, DECLARE, ENVIRONMENT, GENERIC-FUNCTION-CLASS, METHOD-CLASS and METHOD-COMBINATION keyword options are not supported.)")
+        gfun, presentp = gethash(function_name, globals())
+        applicable_method_cache = dict()
+        if (not presentp or                       # New generic function?..
+            lambda_list != gfun.__lambda_list__): # ..or an incompatible redefinition?
+                new_gfun = function()
+                (new_gfun.__name__,
+                 new_gfun.__lambda_list__,
+                 new_gfun.__applicable_method_cache__,
+                 new_gfun.__code__.co_filename,
+                 new_gfun.__code__.co_lineno) = (function_name,
+                                                 lambda_list,
+                                                 applicable_method_cache,
+                                                 filename,
+                                                 _defaulted(lineno, 0))
+                dfun = compute_discriminating_function(new_gfun)
+                new_gfun.__code__ = dfun.__code__
+                # new_gfun.__applicable_method_cache__ = ..see below
+                new_gfun.__methods__                   = dict() # keyed by type specifier tuples... busted?
+                globals()[function_name]        = gfun = new_gfun
+        else:
+                gfun.__code__.co_filename    = filename
+                gfun.__code__.co_firstlineno = lineno
+        gfun.__doc__ = _defaulted(documentation, gfun.__doc__)
+        # The discriminating function may reuse the
+        # list of applicable methods without calling
+        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
+        # (ii) the generic function has not been reinitialized,
+        gfun.__applicable_method_cache__ = applicable_method_cache # (list_, type_) -> list;  busted on every defmethod invocation
+        return gfun
+
+def generic_function_argument_precedence_order(x): return _not_implemented()
+def generic_function_declarations(x):              return _not_implemented()
+def generic_function_lambda_list(x):               return x.__lambda_list__
+def generic_function_method_combination(x):        return _not_implemented()
+def generic_function_method_class(x):              return _not_implemented()
+def generic_function_name(x):                      return x.__name__
+
+def ensure_generic_function(function_name, **keys):
         """Arguments:
 
 The FUNCTION-NAME argument is a symbol or a list of the form (SETF
@@ -4093,35 +4262,17 @@ as follows:
 The second argument is FUNCTION-NAME. The remaining arguments are the
 complete set of keyword arguments received by
 ENSURE-GENERIC-FUNCTION."""
-        lambda_list = _defaulted(lambda_list, ([], [], nil, [], nil))
-        fixed, optional, args, keyword, keys = lambda_list
-        if some(lambda x: x[1] is not None, optional + keyword):
-                error("Generic function arglist cannot specify default parameter values.")
-        if (argument_precedence_order or declare or environment or
-            generic_function_class or lambda_list or method_class or method_combination):
-                error("This is not CLOS.  Yet.  (Read: ARGUMENT-PRECEDENCE-ORDER, DECLARE, ENVIRONMENT, GENERIC-FUNCTION-CLASS, METHOD-CLASS and METHOD-COMBINATION keyword options are not supported.)")
-        gfun, presentp = gethash(function_name, globals())
-        if (not presentp or                       # New generic function?..
-            lambda_list != gfun.__lambda_list__): # ..or an incompatible redefinition?
-                new_gfun = compute_discriminating_function()
-                new_gfun.__name__                      = function_name
-                new_gfun.__lambda_list__               = lambda_list
-                # new_gfun.__applicable_method_cache__ = ..see below
-                new_gfun.__methods__                   = dict() # keyed by type specifier tuples... busted?
-                globals()[function_name]        = gfun = new_gfun
-        gfun.__doc__ = _defaulted(documentation, gfun.__doc__)
-        # The discriminating function may reuse the
-        # list of applicable methods without calling
-        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
-        # (ii) the generic function has not been reinitialized,
-        gfun.__applicable_method_cache__ = dict() # (list_, type_) -> list;  busted on every defmethod invocation
-        return gfun
+        x, definedp = gethash(the(str, function_name), globals(), nil)
+        if functionp(x) and not _generic_function_p(x):
+                error("%s already names an ordinary function.", function_name)
+        return ensure_generic_function_using_class(x, function_name, **keys)
 
 def defgeneric(fn):
         return ensure_generic_function(fn.__name__,
                                        documentation = fn.__doc__,
                                        lambda_list   = _argspec_lambda_spec(inspect.getfullargspec(fn)),
-                                       filename      = fn.__code__.co_filename)
+                                       filename      = fn.__code__.co_filename,
+                                       lineno        = fn.__code__.co_firstlineno)
 
 def add_method(generic_function, method):
         """Arguments:
@@ -4162,8 +4313,23 @@ implementation."""
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
         # (iii) no method has been added to or removed from the
         #       generic function,
+        # XXX: validate GF
+        lambda_list = _argspec_lambda_spec(inspect.getfullargspec(the(function_, method)))
+        fixed, optional, args, keyword, keys = lambda_list
+        method.__qualifiers__ = []
+        method.__lambda_list__ = lambda_list
+        method.__specializers__ = tuple(mapcar(lambda name: gethash(name, method.__annotations__, t), fixed))
+        method.__slot_definition__ = None
+        generic_function.__methods__[method.__specializers__] = method
         generic_function.__applicable_method_cache__ = dict()
         return generic_function
+
+def method_qualifiers(x):      return x.__qualifiers___
+def method_lambda_list(x):     return x.__lambda_list__
+def method_specializers(x):    return x.__specializers__
+def method_function(x):        return x
+def method_slot_definition(x): return x.__slot_definition__
+def method_documentation(x):   return x.__doc__
 
 def remove_method(generic_function, method):
         """Arguments:
@@ -4199,10 +4365,321 @@ implementation."""
         return generic_function
 
 def defmethod(fn):
-        gfun = globals()[fn.__name__]
-        paramspec = inspect.getfullargspec(fn)
-        nfixargs = _argspec_nfixargs(paramspec)
-        pass
+        """defmethod function-name {method-qualifier}* specialized-lambda-list [[declaration* | documentation]] form*
+
+=> new-method
+
+function-name::= {symbol | (setf symbol)}
+
+method-qualifier::= non-list
+
+specialized-lambda-list::= ({var | (var parameter-specializer-name)}* 
+                            [&optional {var | (var [initform [supplied-p-parameter] ])}*] 
+                            [&rest var] 
+                            [&key{var | ({var | (keywordvar)} [initform [supplied-p-parameter] ])}*
+                                 [&allow-other-keys] ] 
+                            [&aux {var | (var [initform] )}*] ) 
+parameter-specializer-name::= symbol | (eql eql-specializer-form)
+
+Arguments and Values:
+
+declaration---a declare expression; not evaluated.
+
+documentation---a string; not evaluated.
+
+var---a variable name.
+
+eql-specializer-form---a form.
+
+Form---a form.
+
+Initform---a form.
+
+Supplied-p-parameter---variable name.
+
+new-method---the new method object.
+
+Description:
+
+The macro DEFMETHOD defines a method on a generic function.
+
+If (FBOUNDP FUNCTION-NAME) is NIL, a generic function is created with
+default values for the argument precedence order (each argument is
+more specific than the arguments to its right in the argument list),
+for the generic function class (the class STANDARD-GENERIC-FUNCTION),
+for the method class (the class STANDARD-METHOD), and for the method
+combination type (the standard method combination type). The lambda
+list of the generic function is congruent with the lambda list of the
+method being defined; if the DEFMETHOD form mentions keyword
+arguments, the lambda list of the generic function will mention
+..... key (but no keyword arguments). If FUNCTION-NAME names an
+ordinary function, a macro, or a special operator, an error is
+signaled.
+
+If a generic function is currently named by FUNCTION-NAME, the lambda
+list of the method must be congruent with the lambda list of the
+generic function. If this condition does not hold, an error is
+signaled. For a definition of congruence in this context, see Section
+7.6.4 (Congruent Lambda-lists for all Methods of a Generic Function).
+
+Each METHOD-QUALIFIER argument is an object that is used by method
+combination to identify the given method. The method combination type
+might further restrict what a method qualifier can be. The standard
+method combination type allows for unqualified methods and methods
+whose sole qualifier is one of the keywords :BEFORE, :AFTER,
+or :AROUND.
+
+The SPECIALIZED-LAMBDA-LIST argument is like an ordinary lambda list
+except that the names of required parameters can be replaced by
+specialized parameters. A specialized parameter is a list of the
+form (VAR PARAMETER-SPECIALIZER-NAME). Only required parameters can be
+specialized. If PARAMETER-SPECIALIZER-NAME is a symbol it names a
+class; if it is a list, it is of the form (EQL
+EQL-SPECIALIZER-FORM). The parameter specializer name (EQL
+EQL-SPECIALIZER-FORM) indicates that the corresponding argument must
+be EQL to the object that is the value of EQL-SPECIALIZER-FORM for the
+method to be applicable. The EQL-SPECIALIZER-FORM is evaluated at the
+time that the expansion of the DEFMETHOD macro is evaluated. If no
+parameter specializer name is specified for a given required
+parameter, the parameter specializer defaults to the class t. For
+further discussion, see Section 7.6.2 (Introduction to Methods).
+
+The FORM arguments specify the method body. The body of the method is
+enclosed in an implicit block. If FUNCTION-NAME is a symbol, this
+block bears the same name as the generic function. If FUNCTION-NAME is
+a list of the form (SETF SYMBOL), the name of the block is symbol.
+
+The class of the method object that is created is that given by the
+method class option of the generic function on which the method is
+defined.
+
+If the generic function already has a method that agrees with the
+method being defined on parameter specializers and qualifiers,
+DEFMETHOD replaces the existing method with the one now being
+defined. For a definition of agreement in this context. see Section
+7.6.3 (Agreement on Parameter Specializers and Qualifiers).
+
+The parameter specializers are derived from the parameter specializer
+names as described in Section 7.6.2 (Introduction to Methods).
+
+The expansion of the DEFMETHOD macro ``refers to'' each specialized
+parameter (see the description of ignore within the description of
+declare). This includes parameters that have an explicit parameter
+specializer name of T. This means that a compiler warning does not
+occur if the body of the method does not refer to a specialized
+parameter, while a warning might occur if the body of the method does
+not refer to an unspecialized parameter. For this reason, a parameter
+that specializes on T is not quite synonymous with an unspecialized
+parameter in this context.
+
+Declarations at the head of the method body that apply to the method's
+lambda variables are treated as bound declarations whose scope is the
+same as the corresponding bindings.
+
+Declarations at the head of the method body that apply to the
+functional bindings of CALL-NEXT-METHOD or NEXT-METHOD-P apply to
+references to those functions within the method body forms. Any outer
+bindings of the function names CALL-NEXT-METHOD and NEXT-METHOD-P, and
+declarations associated with such bindings are shadowed[2] within the
+method body forms.
+
+The scope of free declarations at the head of the method body is the
+entire method body, which includes any implicit local function
+definitions but excludes initialization forms for the lambda
+variables.
+
+DEFMETHOD is not required to perform any COMPILE-TIME side effects. In
+particular, the methods are not installed for invocation during
+compilation. An implementation may choose to store information about
+the generic function for the purposes of COMPILE-TIME
+error-checking (such as checking the number of arguments on calls, or
+noting that a definition for the function name has been seen).
+
+Documentation is attached as a documentation string to the method
+object."""
+## 7.6.2 Introduction to Methods
+#
+# Methods define the class-specific or identity-specific behavior and
+# operations of a generic function.
+#
+# A method object is associated with code that implements the method's
+# behavior, a sequence of parameter specializers that specify when the
+# given method is applicable, a lambda list, and a sequence of
+# qualifiers that are used by the method combination facility to
+# distinguish among methods.
+#
+# A method object is not a function and cannot be invoked as a
+# function. Various mechanisms in the object system take a method
+# object and invoke its method function, as is the case when a generic
+# function is invoked. When this occurs it is said that the method is
+# invoked or called.
+#
+# A method-defining form contains the code that is to be run when the
+# arguments to the generic function cause the method that it defines
+# to be invoked. When a method-defining form is evaluated, a method
+# object is created and one of four actions is taken:
+#
+# * If a generic function of the given name already exists and if a
+#   method object already exists that agrees with the new one on
+#   parameter specializers and qualifiers, the new method object
+#   replaces the old one. For a definition of one method agreeing with
+#   another on parameter specializers and qualifiers, see Section
+#   7.6.3 (Agreement on Parameter Specializers and Qualifiers).
+#
+# * If a generic function of the given name already exists and if
+#   there is no method object that agrees with the new one on
+#   parameter specializers and qualifiers, the existing generic
+#   function object is modified to contain the new method object.
+#
+# * If the given name names an ordinary function, a macro, or a
+#   special operator, an error is signaled.
+#
+# * Otherwise a generic function is created with the method specified
+#   by the method-defining form.
+#
+# If the lambda list of a new method is not congruent with the lambda
+# list of the generic function, an error is signaled. If a
+# method-defining operator that cannot specify generic function
+# options creates a new generic function, a lambda list for that
+# generic function is derived from the lambda list of the method in
+# the method-defining form in such a way as to be congruent with
+# it. For a discussion of congruence, see Section 7.6.4 (Congruent
+# Lambda-lists for all Methods of a Generic Function).
+#
+# Each method has a specialized lambda list, which determines when
+# that method can be applied. A specialized lambda list is like an
+# ordinary lambda list except that a specialized parameter may occur
+# instead of the name of a required parameter. A specialized parameter
+# is a list (variable-name parameter-specializer-name), where
+# parameter-specializer-name is one of the following:
+#
+# a symbol
+#
+#     denotes a parameter specializer which is the class named by that
+#     symbol.
+#
+# a class
+#
+#     denotes a parameter specializer which is the class itself.
+#
+# (eql form)
+#
+#     denotes a parameter specializer which satisfies the type
+#     specifier (eql object), where object is the result of evaluating
+#     form. The form form is evaluated in the lexical environment in
+#     which the method-defining form is evaluated. Note that form is
+#     evaluated only once, at the time the method is defined, not each
+#     time the generic function is called.
+#
+# Parameter specializer names are used in macros intended as the
+# user-level interface (defmethod), while parameter specializers are
+# used in the functional interface.
+#
+# Only required parameters may be specialized, and there must be a
+# parameter specializer for each required parameter. For notational
+# simplicity, if some required parameter in a specialized lambda list
+# in a method-defining form is simply a variable name, its parameter
+# specializer defaults to the class t.
+#
+# Given a generic function and a set of arguments, an applicable
+# method is a method for that generic function whose parameter
+# specializers are satisfied by their corresponding arguments. The
+# following definition specifies what it means for a method to be
+# applicable and for an argument to satisfy a parameter specializer.
+#
+# Let <A1, ..., An> be the required arguments to a generic function in
+# order. Let <P1, ..., Pn> be the parameter specializers corresponding
+# to the required parameters of the method M in order. The method M is
+# applicable when each Ai is of the type specified by the type
+# specifier Pi. Because every valid parameter specializer is also a
+# valid type specifier, the function typep can be used during method
+# selection to determine whether an argument satisfies a parameter
+# specializer.
+#
+# A method all of whose parameter specializers are the class t is
+# called a default method; it is always applicable but may be shadowed
+# by a more specific method.
+#
+# Methods can have qualifiers, which give the method combination
+# procedure a way to distinguish among methods. A method that has one
+# or more qualifiers is called a qualified method. A method with no
+# qualifiers is called an unqualified method. A qualifier is any
+# non-list. The qualifiers defined by the standardized method
+# combination types are symbols.
+#
+# In this specification, the terms ``primary method'' and ``auxiliary
+# method'' are used to partition methods within a method combination
+# type according to their intended use. In standard method
+# combination, primary methods are unqualified methods and auxiliary
+# methods are methods with a single qualifier that is one of :around,
+# :before, or :after. Methods with these qualifiers are called around
+# methods, before methods, and after methods, respectively. When a
+# method combination type is defined using the short form of
+# define-method-combination, primary methods are methods qualified
+# with the name of the type of method combination, and auxiliary
+# methods have the qualifier :around. Thus the terms ``primary
+# method'' and ``auxiliary method'' have only a relative definition
+# within a given method combination type.
+#
+## 7.6.3 Agreement on Parameter Specializers and Qualifiers
+#
+# Two methods are said to agree with each other on parameter
+# specializers and qualifiers if the following conditions hold:
+#
+# 1. Both methods have the same number of required parameters. Suppose
+# the parameter specializers of the two methods are P1,1...P1,n and
+# P2,1...P2,n.
+#
+# 2. For each 1<=i<=n, P1,i agrees with P2,i. The parameter
+# specializer P1,i agrees with P2,i if P1,i and P2,i are the same
+# class or if P1,i=(eql object1), P2,i=(eql object2), and (eql object1
+# object2). Otherwise P1,i and P2,i do not agree.
+#
+# 3. The two lists of qualifiers are the same under equal.
+#
+## 7.6.4 Congruent Lambda-lists for all Methods of a Generic Function
+#
+# These rules define the congruence of a set of lambda lists,
+# including the lambda list of each method for a given generic
+# function and the lambda list specified for the generic function
+# itself, if given.
+#
+# 1. Each lambda list must have the same number of required
+# parameters.
+#
+# 2. Each lambda list must have the same number of optional
+# parameters. Each method can supply its own default for an optional
+# parameter.
+#
+# 3. If any lambda list mentions &rest or &key, each lambda list must
+# mention one or both of them.
+#
+# 4. If the generic function lambda list mentions &key, each method
+# must accept all of the keyword names mentioned after &key, either by
+# accepting them explicitly, by specifying &allow-other-keys, or by
+# specifying &rest but not &key. Each method can accept additional
+# keyword arguments of its own. The checking of the validity of
+# keyword names is done in the generic function, not in each method. A
+# method is invoked as if the keyword argument pair whose name is
+# :allow-other-keys and whose value is true were supplied, though no
+# such argument pair will be passed.
+#
+# 5. The use of &allow-other-keys need not be consistent across lambda
+# lists. If &allow-other-keys is mentioned in the lambda list of any
+# applicable method or of the generic function, any keyword arguments
+# may be mentioned in the call to the generic function.
+#
+# 6. The use of &aux need not be consistent across methods.
+#
+# If a method-defining operator that cannot specify generic function
+# options creates a generic function, and if the lambda list for the
+# method mentions keyword arguments, the lambda list of the generic
+# function will mention &key (but no keyword arguments).
+        gfun, definedp = gethash(fn.__name__, globals())
+        if not definedp:
+                gfun = ensure_generic_function(fn.__name__)
+        add_method(gfun, fn)
+        return gfun
 
 ###
 ### Init

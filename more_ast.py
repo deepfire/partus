@@ -365,11 +365,11 @@ def pp_ast_as_code(x, tab = " " * 8):
                         return indent() + "%s = %s" % (", ".join(iterate(x.targets)),
                                                        pp_ast_as_code(x.value))
                 def make_trivial_pper(x):
-                        return (indent() + x +
-                                      ((" " + rec(x.value))
-                                       if hasattr(x, "value") and x.value else
-                                       "") +
-                                      "\n")
+                        return lambda y: (indent() + x +
+                                          ((" " + rec(y.value))
+                                           if hasattr(y, "value") and y.value else
+                                           "") +
+                                          "\n")
                 def pp_import(x):
                         return indent() + "import " + ", ".join(iterate(x.names))
                 map = { ast.Module:      pp_module,

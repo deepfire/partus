@@ -248,3 +248,50 @@ print("READ: passed")
 assert(with_input_from_string("", lambda s: read(s, nil, nil)) ==
        nil)
 print("READ-EOF-ERROR-P-NIL: passed")
+
+# Issue CONDITIONS-AT-TOP-LEVEL-CANNOT-BE-HANDLED
+# def this_is_handled():
+#         ""[1]
+# this_is_handled()
+# this_is_not_handled()
+
+# Issue DOUBLE-UNHANDLED-FAULT-REPRO
+## double fault repro
+# def err_twice(f):
+#         ""[1]
+#         ""[2]
+# err_twice(1)
+# @err_twice
+# def foo():
+#         pass
+
+@defgeneric
+def gfun(x):
+        pass
+
+@defmethod
+def gfun(x):
+        return "generic: %s" % x
+
+@defmethod
+def gfun(x: int):
+        return "int: %s" % x
+
+@defmethod
+def gfun(x: str):
+        return "str: %s" % x
+
+@defmethod
+def gfun(x: X):
+        return "X: %s" % x
+
+@defmethod
+def gfun(x: X1):
+        return "X1: %s, %s" % (x, call_next_method())
+
+print("gfun(%s): %s", 1, gfun(1))
+print("gfun(%s): %s", "one", gfun("one"))
+print("gfun(%s): %s", X(), gfun(X()))
+print("gfun(%s): %s", X1(), gfun(X1()))
+print("gfun(%s): %s", [], gfun([]))
+# print("DEFGENERIC: passed")

@@ -952,7 +952,8 @@ setq("_thread_id_map_", dict())
 @defimplementation
 def spawn(fn, name = "<unnamed-thread>"):
         thread = cl._without_condition_system(
-                lambda: threading.Thread(name = name))
+                lambda: threading.Thread(name = name),
+                reason = "threading.Thread")
         thread.run = lambda: cl._enable_pytracer() and fn()
         thread.start()
         return thread
@@ -1057,7 +1058,8 @@ class _mailbox():
         def __init__(self, thread):
                 self.thread = thread
                 self.mutex = threading.Lock()
-                self.waitqueue = cl._without_condition_system(lambda: threading.Condition(self.mutex))
+                self.waitqueue = cl._without_condition_system(lambda: threading.Condition(self.mutex),
+                                                              reason = "threading.Condition")
                 self.queue = []
 
 def mailbox(thread):
@@ -1092,7 +1094,8 @@ def condition_timed_wait(waitqueue, mutex, timeout):
         #         (sb-thread:condition-wait waitqueue mutex) t))
         #   (sb-ext:timeout ()
         #     nil)))
-        cl._without_condition_system(lambda: waitqueue.wait(timeout))
+        cl._without_condition_system(lambda: waitqueue.wait(timeout),
+                                     reason = "waitqueue.wait")
 
 ## FIXME: with-timeout doesn't work properly on Darwin
 #+sb-lutex
@@ -1140,6 +1143,7 @@ def receive_if(test, timeout = nil):
 
 @defimplementation
 def quit_lisp():
+        # cl._disable_pytracer()
         exit()
 
 ### Trace implementations

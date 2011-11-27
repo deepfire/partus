@@ -19,6 +19,7 @@ from cl           import _prognf as prognf
 from cl           import _destructuring_bind_keys as destructuring_bind_keys
 from cl           import _servile as servile
 from cl           import _stream_as_string as stream_as_string, _file_as_string as file_as_string
+from cl           import _fprintf as fprintf, _debug_printf as debug_printf
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]
@@ -579,18 +580,9 @@ def chunkify(n, size, overlap):
         return acc
 
 ## printing
-def fprintf(stream, format_control, *format_args):
-        try:
-                return neutrality._write_string(format_control % format_args, stream)
-        except UnicodeEncodeError:
-                return neutrality._write_string((format_control % format_args).encode("utf-8"), stream)
-
 def printf(format_control, *format_args):
         fprintf(sys.stdout, format_control, *format_args)
 
 def syncprintf(format_control, *format_args):
         fprintf(sys.stdout, format_control, *format_args)
         sys.stdout.flush()
-
-def debug_printf(format_control, *format_args):
-        fprintf(sys.stderr, format_control + "\n", *format_args)

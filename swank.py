@@ -1645,6 +1645,7 @@ Errors are trapped and invoke our debugger."""
                                 try:
                                         return nth_value(0, eval_(form))
                                 except SystemExit:
+                                        here("was asked to quit")
                                         setq("_shutdown_", t)
                         handler_bind(lambda: set_result(with_slime_interrupts(with_slime_interrupts_body)),
                                      (error_,
