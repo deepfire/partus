@@ -38,6 +38,8 @@ If OBJECT was saved previously return the old id.\"" ("let" (("object" ("if" ("n
 Issue MUST-PATCH-IMPLEMENTATION-TO-DISABLE-CONDITION-HANDLING-AROUND-NON-BOSLY-CLEAN-CODE:
       file.exists(), builtins.dict.get(), re.match()..
 
+Issue QUIT-LISP-DOES-NOT-EXECUTE-UNWIND-CODE
+
 Issue SWANK-BUG-PARSE-PACKAGE-VALUE-CONFLICTS-WITH-EVAL-FOR-EMACS-ASSERT
 
 Issue SPECIAL-BINDINGS-ARE-PACKAGE-LESS
