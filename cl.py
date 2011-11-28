@@ -310,7 +310,7 @@ def _reregister_module_as_package(mod, parent_package = None):
         mod.__path__ = (parent_package.__path__ if parent_package else []) + [ mod.name.split(".")[-1] ]
         if parent_package:
                 dotpos = mod.name.rindex(".")
-                assert (dotpos)
+                assert(dotpos)
                 postdot_name = mod.name[dotpos + 1:]
                 setattr(parent_package, postdot_name, mod)
                 parent_package.__children__.add(mod)
@@ -886,8 +886,10 @@ def _every_of_type(type):
 
 # __type_predicate_map__ is declared after the package system is initialised
 def _check_complex_type(x, type):
-        zero, test, element_test = __type_predicate_map__[type[0]]
-        return (zero if len(type) is 1 else # Should be able to err in this case.
+        fast_test, zero, test, element_test = __type_predicate_map__[type[0]]
+        return (fast_test(x, type)                                        if fast_test      else
+                (zero if zero is not None else
+                 error("Type specifier %s requires arguments.", type[0])) if len(type) is 1 else
                 test(lambda elem_type: element_test(x, elem_type),
                      type[1:]))
 
@@ -1853,25 +1855,43 @@ def _init_package_system_1():
 
 _init_package_system_1()
 
-__type_predicate_map__ = { _keyword("or"):     (nil, some,  typep),
-                           or_:                (nil, some,  typep),
-                           _keyword("and"):    (t,   every, typep),
-                           and_:               (t,   every, typep),
-                           _keyword("member"): (nil, some,  eql),
-                           member_:            (nil, some,  eql),
-                           _keyword("eql"):    (nil, some,  eql),
-                           eql_:               (nil, some,  eql),
-                           _keyword("satisfies"): (nil, every,  lambda x, test: test(x)),
-                           satisfies_:            (nil, every,  lambda x, test: test(x)),
-                           _keyword("maybe"):  (nil, some,  lambda x, type: x is None or x is nil or typep(x, type)),
-                           maybe_:             (nil, some,  lambda x, type: x is None or x is nil or typep(x, type)),
-                           # XXX: this is a small lie: this is not a cons-list
-                           # ..but neither CL has a type specifier like this.
-                           _keyword("list"):   (nil, every, lambda x, type: isinstance(x, list) and _every_of_type(type)(x)),
-                           list_:              (nil, every, lambda x, type: isinstance(x, list) and _every_of_type(type)(x)),
-                           # _keyword("tuple"):  (nil, every, lambda x, type: isinstance(x, list) and _every_of_type(type)(x)),
-                           # tuple_:             (nil, every, lambda x, type: isinstance(x, list) and _every_of_type(type)(x)),
-                           }
+defun(maybe_,     lambda x, type:
+                  x is None or x is nil or typep(x, type[1]))
+
+defun(list_,      lambda x, type:
+                  isinstance(x, list) and _every_of_type(type[1])(x))
+
+defun(satisfies_, lambda x, type:
+                  type[1](x))
+
+defun(eql_,       lambda x, type:
+                  eql(x, type[1]))
+
+defun(tuple_,     lambda x, type:
+                  _tuplep(x)                and
+                  len(x) == (len(type) - 1) and
+                  every(typep, x, type[1:]))
+
+__type_predicate_map__ = {
+        _keyword("or"):        (nil, nil, some,  typep),
+        or_:                   (nil, nil, some,  typep),
+        _keyword("and"):       (nil, t,   every, typep),
+        and_:                  (nil, t,   every, typep),
+        _keyword("member"):    (nil, nil, some,  eql),
+        member_:               (nil, nil, some,  eql),
+        _keyword("eql"):       (eql_, nil, nil, nil),
+        eql_:                  (eql_, nil, nil, nil),
+        _keyword("satisfies"): (satisfies_, nil, nil, nil),
+        satisfies_:            (satisfies_, nil, nil, nil),
+        _keyword("maybe"):     (maybe_, nil, nil, nil),
+        maybe_:                (maybe_, nil, nil, nil),
+        # XXX: this is a small lie: this is not a cons-list
+        # ..but neither CL has a type specifier like this.
+        _keyword("list"):      (list_, nil, nil, nil),
+        list_:                 (list_, nil, nil, nil),
+        _keyword("tuple"):     (tuple_, nil, nil, nil),
+        tuple_:                (tuple_, nil, nil, nil),
+        }
 
 ##
 ## T/NIL-dependent stuff
