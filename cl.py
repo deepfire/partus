@@ -829,19 +829,24 @@ def ecase(val, *clauses):
                         return body() if isinstance(body, function_) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
-def every(fn, xs):
-        for x in xs:
-                if not fn(x): return False
+def every(fn, *xss):
+        for xs in zip(*xss):
+                if not fn(*xs): return False
         return True
 
-def some(fn, xs):
-        for x in xs:
-                if fn(x): return True
+def _some_not(fn, *xss):
+        for xs in zip(*xss):
+                if not fn(*xs): return True
         return False
 
-def none(fn, xs):
-        for x in xs:
-                if fn(x): return False
+def some(fn, *xss):
+        for xs in zip(*xss):
+                if fn(*xs): return True
+        return False
+
+def none(fn, *xss):
+        for xs in zip(xss):
+                if fn(*xs): return False
         return True
 
 ##
