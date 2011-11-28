@@ -3549,6 +3549,8 @@ def eval_(form):
 ##
 def _generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")
 def _method_p(x):           return functionp(x) and hasattr(x, "__specializers__")
+def _specializerp(x):       return ((x is t)        or
+                                    typep(x, (or_, type_, (tuple_, (eql_, eql_), t))))
 
 def _get_generic_fun_info(generic_function):
         return values(len(generic_function.__lambda_list__[0]), # nreq
@@ -3850,6 +3852,9 @@ def _types_from_args(generic_function, arguments, type_modifier = None):
                                          arg)
         return values(types_rev, arg_info)
 
+def _arg_info_precedence(arg_info: "lambda list, actually.."):
+        return range(len(arg_info[0]))
+
 def _compute_applicable_methods_using_types(generic_function, types_):
         definite_p, possibly_applicable_methods = t, []
         # Not safe against method list modifications by another thread!
@@ -3869,9 +3874,9 @@ def _compute_applicable_methods_using_types(generic_function, types_):
                 if possibly_applicable_p:
                         if not applicable_p: definite_p = nil
                         possibly_applicable_methods[0:0] = [method]
-                nreq, applyp, metatypes, nkeys, arg_info = get_generic_fun_info(generic_function)
+                nreq, applyp, metatypes, nkeys, arg_info = _get_generic_fun_info(generic_function)
                 # (declare (ignore nreq applyp metatypes nkeys))
-                precedence = arg_info_precedence(arg_info)
+                precedence = _arg_info_precedence(arg_info)
                 return values(_sort_applicable_methods(precedence,
                                                        reversed(possibly_applicable_methods),
                                                        types),
@@ -4436,7 +4441,9 @@ implementation."""
         fixed, optional, args, keyword, keys = lambda_list
         method.__qualifiers__ = []
         method.__lambda_list__ = lambda_list
-        method.__specializers__ = tuple(mapcar(lambda name: gethash(name, method.__annotations__, t), fixed))
+        method.__specializers__ = tuple(make_method_specializers(
+                        mapcar(lambda name: gethash(name, method.__annotations__, t)[0],
+                               fixed)))
         method.__slot_definition__ = None
         generic_function.__methods__[method.__specializers__] = method
         generic_function.__applicable_method_cache__ = dict()
@@ -4448,6 +4455,20 @@ def method_specializers(x):    return x.__specializers__
 def method_function(x):        return x
 def method_slot_definition(x): return x.__slot_definition__
 def method_documentation(x):   return x.__doc__
+
+def make_method_specializers(specializers):
+        def parse(name):
+                return (# name                                                    if specializerp(name) else
+                        name                                                      if name is t          else
+                                                                  # ..special-case, since T isn't a type..
+                        name                                                      if typep(name, type_) else
+                                                                  # Was: ((symbolp name) `(find-class ',name))
+                        ecase(car(name),
+                              (eql_,      lambda: intern_eql_specializer(name[1])),
+                              (class_eq_, lambda: class_eq_specializer(name[1]))) if _tuplep(name)      else
+                        ## Was: FIXME: Document CLASS-EQ specializers.
+                        error("%s is not a valid parameter specializer name.", name))
+        return mapcar(parse, specializers)
 
 def remove_method(generic_function, method):
         """Arguments:
