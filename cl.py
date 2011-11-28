@@ -1019,6 +1019,9 @@ def prog1(val, body):
 ##
 ## Sequences
 ##
+def stable_sort(xs, predicate):
+        return sorted(xs, key = functools.cmp_to_key(predicate))
+
 def vector_push(vec, x):
         "XXX: compliance"
         vec.append(x)
