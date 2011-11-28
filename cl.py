@@ -938,10 +938,6 @@ __function_types__ = frozenset([types.BuiltinFunctionType,
 function_ = types.FunctionType.__mro__[0]
 integer   = int
 
-def function(name):
-        pyname, module = _lisp_symbol_python_addr(name)
-        return the(function_, _lisp_symbol_python_value(name))
-
 def functionp(o):     return isinstance(o, function_)
 def integerp(o):      return type(o) is int
 def floatp(o):        return type(o) is float
@@ -1659,6 +1655,24 @@ def defpackage(name, use = [], export = []):
 def in_package(name):
         setq("_package_", _coerce_to_package(name))
 
+def fboundp(x):
+        return hasattr(the(symbol, x), "__call__")
+
+def function(name):
+        pyname, module = _lisp_symbol_python_addr(name)
+        return the(function_, _lisp_symbol_python_value(name))
+
+def symbol_function(x):
+        check_type(x, symbol)
+        func, fboundp = gethash("function", x.__dict__)
+        if not fboundp:
+                error("The function %s is undefined.", x)
+        return func
+
+def defun(name, function):
+        the(symbol, name).function = function
+        return name
+
 class symbol():
         def __str__(self):
                 return _print_symbol(self)
@@ -1668,6 +1682,8 @@ class symbol():
                 self.name, self.package, self.value, self.function = name, None, None, None
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
+        def __call__(self, *args, **keys):
+                return symbol_function(self)(*args, **keys)
         def __bool__(self):
                 return self is not nil
 
