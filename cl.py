@@ -60,7 +60,7 @@ __core_symbol_names__ = [
         "LIST",
         "_KEY", "_REST", "_BODY", "_ALLOW_OTHER_KEYS", "_WHOLE",
         # Heresy!
-        "TUPLE", "MAYBE",
+        "TUPLE", "MAYBE", "CLASS", "CLASS_EQ"
         ]
 __more_symbol_names__ = [
         "SOME", "EVERY",
@@ -204,8 +204,8 @@ def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
         return ast.Call(func = (_ast_name(name) if stringp(name) else name),
                         args = mapcar(_coerce_to_ast, args),
                         keywords = _maphash(_ast_keyword, keys),
-                        starargs = starargs,
-                        kwargs = kwargs)
+                        starargs = starargs or None,
+                        kwargs = kwargs or None)
 
 ### statements
 def _ast_Expr(node):
@@ -243,11 +243,11 @@ def _argspec_lambda_spec(spec):
         # args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations
         nfixargs = _argspec_nfixargs(spec)
         return (spec.args[:nfixargs],
-                zip(spec.args[nfixargs:],
-                    mapcar(_astify_constant, spec.defaults or [])),
+                list(zip(spec.args[nfixargs:],
+                         mapcar(_astify_constant, spec.defaults or []))),
                 spec.varargs,
-                zip(spec.kwonlyargs,
-                    mapcar(_astify_constant, spec.kwonlydefaults or [])),
+                list(zip(spec.kwonlyargs,
+                     mapcar(_astify_constant, spec.kwonlydefaults or []))),
                 spec.varkw)
 def _lambda_spec_arguments(lambda_list_spec):
         fixed, optional, args, keyword, keys = lambda_list_spec
@@ -3506,6 +3506,16 @@ def eval_(form):
 def _generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")
 def _method_p(x):           return functionp(x) and hasattr(x, "__specializers__")
 
+def _get_generic_fun_info(generic_function):
+        return values(len(generic_function.__lambda_list__[0]), # nreq
+                      nil,
+                      [],
+                      len(generic_function.__lambda_list__[3]),
+                      generic_function.__lambda_list__)
+
+def generic_function_methods(x): return x.__methods__.values()
+# def generic_function_(x):       return x.____
+
 def define_method_combination():
         """Syntax:
 
@@ -3778,7 +3788,23 @@ functions causes this consistency to be violated.
 The list returned by this generic function will not be mutated by the
 implementation. The results are undefined if a portable program
 mutates the list returned by this generic function."""
-        return _compute_applicable_methods_using_types(generic_function, classes)
+        return _compute_applicable_methods_using_types(generic_function,
+                                                       _types_from_args(generic_function,
+                                                                        classes,
+                                                                        class_eq_))
+
+def _types_from_args(generic_function, arguments, type_modifier = None):
+        nreq, applyp, metatypes, nkeys, arg_info = _get_generic_fun_info(generic_function)
+        # (declare (ignore applyp metatypes nkeys))
+        types_rev = []
+        for i in range(nreq):
+                if not arguments:
+                        error_need_at_least_n_args(generic_function_name(generic_function),
+                                                   nreq)
+                        arg = arguments.pop()
+                        types_rev.append([type_modifier, arg] if type_modifier else
+                                         arg)
+        return values(types_rev, arg_info)
 
 def _compute_applicable_methods_using_types(generic_function, types_):
         definite_p, possibly_applicable_methods = t, []
@@ -3788,6 +3814,7 @@ def _compute_applicable_methods_using_types(generic_function, types_):
                 types = list(types_)
                 possibly_applicable_p, applicable_p = t, t
                 for specl in specls:
+                        _here("specl: %s", specl)
                         (specl_applicable_p,
                          specl_possibly_applicable_p) = specializer_applicable_using_type_p(specl, pop(types))
                         if not specl_applicable_p:
@@ -3805,6 +3832,47 @@ def _compute_applicable_methods_using_types(generic_function, types_):
                                                        reversed(possibly_applicable_methods),
                                                        types),
                               definite_p)
+
+def _type_from_specializer(specl):
+        if specl is t:
+                return t
+        elif _tuplep(specl):
+                if not member(car(specl), [class_, class_eq_, eql_]): # protoype_
+                        error("%s is not a legal specializer type.", specl)
+                return specl
+        elif specializerp(specl): # Was a little bit more involved.
+                return specializer_type(specl)
+        else:
+                error("%s is neither a type nor a specializer.", specl)
+
+def specializer_applicable_using_type_p(specl, type):
+        specl = _type_from_specializer(specl)
+        if specl is t:
+                return values(t, t)
+        ## This is used by C-A-M-U-T and GENERATE-DISCRIMINATION-NET-INTERNAL,
+        ## and has only what they need.
+        return (values(nil, t) if atom(type) or car(type) is t else
+                case(car(type),
+                     # (and    (saut-and specl type)),
+                     # (not    (saut-not specl type)),
+                     # (class,      saut_class(specl, type)),
+                     # (prototype  (saut-prototype specl type)),
+                     (class_eq_,   lambda: saut_class_eq(specl, type)),
+                     # (class-eq   (saut-class-eq specl type)),
+                     # (eql    (saut-eql specl type)),
+                     (t,       lambda: error("%s cannot handle the second argument %s.",
+                                             "specializer-applicable-using-type-p",
+                                             type))))
+
+def saut_class_eq(specl, type):
+       if car(specl) is eql_:
+               return values(nil, type_of(specl[1]) is type[1])
+       else:
+               pred = case(car(specl),
+                           (class_eq_, lambda: specl[1] is type[1]),
+                           (class_,    lambda: (specl[1] is type[1] or
+                                                memq(specl[1], cpl_or_nil(type[1])))))
+               return values(pred, pred)
 
 def _sort_applicable_methods(precedence, methods, types):
         def sorter(class1, class2, index):
@@ -3888,7 +3956,10 @@ fewer elements than the generic function accepts required arguments.
 The list returned by this generic function will not be mutated by the
 implementation. The results are undefined if a portable program
 mutates the list returned by this generic function."""
-        _not_implemented()
+        return _compute_applicable_methods_using_types(generic_function,
+                                                       _types_from_args(generic_function,
+                                                                        arguments,
+                                                                        eql_))
 
 __sealed_classes__ = set([object,
                           int, bool, float, complex,
@@ -3969,20 +4040,26 @@ about how method functions are called.)
 The generic function COMPUTE-DISCRIMINATING-FUNCTION is called, and
 its result installed, by ADD-METHOD, REMOVE-METHOD,
 INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
-        (function_name,
-         lambda_list,
-         applicable_method_cache,
-         filename,
-         lineno) = (generic_function.__name__,
-                    generic_function.__lambda_list__,
-                    generic_function.__applicable_method_cache__,
-                    generic_function.__code__.co_filename,
-                    generic_function.__code__.co_lineno)
+        return _do_compute_discriminating_function(
+                 generic_function.__name__,
+                 generic_function.__lambda_list__,
+                 generic_function.__applicable_method_cache__,
+                 generic_function.__code__.co_filename,
+                 generic_function.__code__.co_lineno)
+
+def error_need_at_least_n_args(function, n):
+        error("The function %s requires at least %d arguments.", function, n)
+
+def _do_compute_discriminating_function(function_name,
+                                        lambda_list,
+                                        applicable_method_cache,
+                                        filename,
+                                        lineno) -> (lambda *args, **keys: None):
         fixed, optional, args, keyword, keys = lambda_list
         nfixed = len(fixed)
-        def dfun_compute_applicable_methods(args):
+        def dfun_compute_applicable_methods(generic_function, args):
                 if len(args) < nfixed:
-                        error("The function %s requires at least %d arguments.", function_name, nfixed)
+                        error_need_at_least_n_args(function_name, nfixed)
                 dispatch_args      = args[:nfixed]
                 dispatch_arg_types = tuple(type(x) for x in dispatch_args)
                 # The discriminating function may reuse the
@@ -4009,13 +4086,15 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                         # (i) the generic function is being called again with required
                         #     arguments which are instances of the same classes,
                         return applicable
+                _here("gf: %s, ll: %s", generic_function, generic_function.__lambda_list__)
                 methods, okayp = compute_applicable_methods_using_classes(generic_function,
                                                                           dispatch_arg_types)
                 if okayp:
                         applicable_method_cache[applicable_method_cache_key] = methods
                         return methods
                 else:
-                        return compute_applicable_methods()
+                        return compute_applicable_methods(generic_function,
+                                                          dispatch_args)
         ## compute_discriminating_function(generic_function, function_name, lambda_list,
         ##                                 fixed, optional, args, keyword, keys,
         ##                                 nfixed):
@@ -4028,7 +4107,8 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                                            [_ast_name(function_name),
                                             None, # method combination
                                             _ast_funcall("dfun_compute_applicable_methods",
-                                                         [mapcar(_ast_name, fixed)])]),
+                                                         [_ast_name(function_name),
+                                                          mapcar(_ast_name, fixed)])]),
                               mapcar(_ast_name, fixed + mapcar(car, optional)),
                               _map_into_hash_star(lambda key, default: (key, _ast_name(default)),
                                                    keyword),
@@ -4187,21 +4267,15 @@ to NIL."""
         applicable_method_cache = dict()
         if (not presentp or                       # New generic function?..
             lambda_list != gfun.__lambda_list__): # ..or an incompatible redefinition?
-                new_gfun = function()
-                (new_gfun.__name__,
-                 new_gfun.__lambda_list__,
-                 new_gfun.__applicable_method_cache__,
-                 new_gfun.__code__.co_filename,
-                 new_gfun.__code__.co_lineno) = (function_name,
-                                                 lambda_list,
-                                                 applicable_method_cache,
-                                                 filename,
-                                                 _defaulted(lineno, 0))
-                dfun = compute_discriminating_function(new_gfun)
-                new_gfun.__code__ = dfun.__code__
+                new_gfun = _do_compute_discriminating_function(function_name,
+                                                               lambda_list,
+                                                               applicable_method_cache,
+                                                               filename,
+                                                               _defaulted(lineno, 0))
                 # new_gfun.__applicable_method_cache__ = ..see below
-                new_gfun.__methods__                   = dict() # keyed by type specifier tuples... busted?
-                globals()[function_name]        = gfun = new_gfun
+                new_gfun.__methods__            = dict() # keyed by type specifier tuples... busted?
+                new_gfun.__lambda_list__        = lambda_list
+                globals()[function_name] = gfun = new_gfun
         else:
                 gfun.__code__.co_filename    = filename
                 gfun.__code__.co_firstlineno = lineno
