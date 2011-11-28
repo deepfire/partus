@@ -885,7 +885,7 @@ def _every_of_type(type):
         return _every_of_type
 
 # __type_predicate_map__ is declared after the package system is initialised
-def _check_complex_type(type, x):
+def _check_complex_type(x, type):
         zero, test, element_test = __type_predicate_map__[type[0]]
         return (zero if len(type) is 1 else # Should be able to err in this case.
                 test(lambda elem_type: element_test(x, elem_type),
@@ -894,7 +894,7 @@ def _check_complex_type(type, x):
 def typep(x, type):
         return (isinstance(x, type)          if isinstance(type, type_)                      else
                 t                            if type is t                                    else
-                _check_complex_type(type, x) if (_tuplep(type) and
+                _check_complex_type(x, type) if (_tuplep(type) and
                                                  type and type[0] in __type_predicate_map__) else
                 error(simple_type_error, "%s is not a valid type specifier.", type))
 
