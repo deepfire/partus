@@ -21,6 +21,12 @@ assert(not typep(2, (and_, integer, (member_, 1))))
 assert(not every(lambda x: typep(x, (or_, str, (member_, 1))),
                  [1, "a", 2]))
 assert(not typep([1, 2, 3, "a", []], (list_, (or_, int, str))))
+assert(    typep((1, 2, 3, "a", []), (partuple_, int, int, int)))
+assert(not typep((1, 2, "a", []),    (partuple_, int, int, int)))
+assert(not typep((1, 2),             (partuple_, int, int, int)))
+assert(    typep((1, 2, 3, "a", []),      (varituple_, int, int, int, (maybe_, str), (maybe_, list))))
+assert(not typep((1, 2, 3, "a", [], {}),  (varituple_, int, int, int, (maybe_, str), (maybe_, list))))
+assert(not typep((1, 2, {}, "a", [], {}), (varituple_, int, int, int, (maybe_, str), (maybe_, list))))
 print("TYPEP: passed")
 
 setq("_scope_", 0)

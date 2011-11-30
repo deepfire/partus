@@ -60,7 +60,7 @@ __core_symbol_names__ = [
         "LIST",
         "_KEY", "_REST", "_BODY", "_ALLOW_OTHER_KEYS", "_WHOLE",
         # Heresy!
-        "TUPLE", "MAYBE", "CLASS", "CLASS_EQ"
+        "TUPLE", "PARTUPLE", "VARITUPLE", "MAYBE", "CLASS", "CLASS_EQ", "LAMBDA_LIST"
         ]
 __more_symbol_names__ = [
         "SOME", "EVERY",
@@ -879,20 +879,20 @@ def type_of(x):
 def _of_type(x):
         return lambda y: typep(y, x)
 
-def _every_of_type(type):
-        "Inlined version of lambda xs: every(of_type(type), xs)"
-        def _every_of_type(xs):
-                for x in xs:
-                        if not typep(x, type): return False
-                return True
-        # contrast this with:
-        #      lambda xs: every(of_type(type), xs)
-        return _every_of_type
+def _every_typep(xs, type):
+        for x in xs:
+                if not typep(x, type): return False
+        return True
+
+def _invalid_type_specifier(x):
+        error(simple_type_error, "%s is not a valid type specifier.", x)
 
 # __type_predicate_map__ is declared after the package system is initialised
 def _check_complex_type(x, type):
         fast_test, zero, test, element_test = __type_predicate_map__[type[0]]
-        return (fast_test(x, type)                                        if fast_test      else
+        return (let(fast_test(x, type),
+                    lambda ret: (ret if ret is not None else
+                                 _invalid_type_specifier(type)))          if fast_test      else
                 (zero if zero is not None else
                  error("Type specifier %s requires arguments.", type[0])) if len(type) is 1 else
                 test(lambda elem_type: element_test(x, elem_type),
@@ -903,7 +903,7 @@ def typep(x, type):
                 t                            if type is t                                    else
                 _check_complex_type(x, type) if (_tuplep(type) and
                                                  type and type[0] in __type_predicate_map__) else
-                error(simple_type_error, "%s is not a valid type specifier.", type))
+                _invalid_type_specifier(type))
 
 def subtypep(sub, super):
         return (issubclass(sub, super)              if super is not t                 else
@@ -1886,7 +1886,7 @@ assert(symbolp(maybe_))
 
 @defun
 def list_(x, type):
-        return isinstance(x, list) and _every_of_type(type[1])(x)
+        return isinstance(x, list) and _every_typep(x, type[1])
 
 @defun
 def satisfies_(x, type):
@@ -1898,9 +1898,27 @@ def eql_(x, type):
 
 @defun
 def tuple_(x, type):
-        return (_tuplep(x)                and
-                len(x) == (len(type) - 1) and
+        return (_tuplep(x)              and
+                len(x) == len(type) - 1 and
                 every(typep, x, type[1:]))
+
+@defun
+def partuple_(x, type):
+        return (_tuplep(x)              and
+                len(x) >= len(type) - 1 and
+                every(typep, x, type[1:]))
+
+__variseq__ = (tuple_, (eql_, maybe_), t) # Meta-type, heh..
+@defun
+def varituple_(x, type):
+        # correctness enforcement over speed?
+        fixed_t, maybes_t = _prefix_suffix_if_not(_of_type(__variseq__), type[1:])
+        if not every(_of_type(__variseq__), maybes_t):
+                return None # fail
+        fixlen = len(fixed_t)
+        return (len(x) >= fixlen                  and
+                every(typep, x[:fixlen], fixed_t) and
+                _every_typep(x[fixlen:], (or_,) + tuple(t[1] for t in maybes_t)))
 
 __type_predicate_map__ = {
         or_:            (nil,          nil, some,  typep),
@@ -1913,6 +1931,8 @@ __type_predicate_map__ = {
         # ..but neither CL has a type specifier like this and the others, that follow..
         list_:          (list_,        nil, nil, nil),
         tuple_:         (tuple_,       nil, nil, nil),
+        partuple_:      (partuple_,    nil, nil, nil),
+        varituple_:     (varituple_,   nil, nil, nil),
         }
 
 ##
