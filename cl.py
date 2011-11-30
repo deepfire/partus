@@ -1858,42 +1858,56 @@ def _init_package_system_1():
 
 _init_package_system_1()
 
-defun(maybe_,     lambda x, type:
-                  x is None or x is nil or typep(x, type[1]))
+def setf_fdefinition(symbol_name, function):
+        symbol_name = string(symbol_name)
+        symbol, therep = gethash(symbol_name, globals())
+        if not therep:
+                globals()[symbol_name] = symbol = _intern0(symbol_name)
+        symbol.function = f
+        symbol.__name__        = symbol_name
+        symbol.__annotations__ = {}
+        symbol.__code__        = f.__code__
+        return function
 
-defun(list_,      lambda x, type:
-                  isinstance(x, list) and _every_of_type(type[1])(x))
+def defun(f):
+        symbol_name = f.__name__
+        setf_fdefinition(symbol_name, f)
+        return globals()[symbol_name] # guaranteed to exist at this point
 
-defun(satisfies_, lambda x, type:
-                  type[1](x))
+@defun
+def maybe_(x, type):
+        return x is None or x is nil or typep(x, type[1])
+assert(symbolp(maybe_))
 
-defun(eql_,       lambda x, type:
-                  eql(x, type[1]))
+@defun
+def list_(x, type):
+        return isinstance(x, list) and _every_of_type(type[1])(x)
 
-defun(tuple_,     lambda x, type:
-                  _tuplep(x)                and
-                  len(x) == (len(type) - 1) and
-                  every(typep, x, type[1:]))
+@defun
+def satisfies_(x, type):
+        return type[1](x)
+
+@defun
+def eql_(x, type):
+        return eql(x, type[1])
+
+@defun
+def tuple_(x, type):
+        return (_tuplep(x)                and
+                len(x) == (len(type) - 1) and
+                every(typep, x, type[1:]))
 
 __type_predicate_map__ = {
-        _keyword("or"):        (nil, nil, some,  typep),
-        or_:                   (nil, nil, some,  typep),
-        _keyword("and"):       (nil, t,   every, typep),
-        and_:                  (nil, t,   every, typep),
-        _keyword("member"):    (nil, nil, some,  eql),
-        member_:               (nil, nil, some,  eql),
-        _keyword("eql"):       (eql_, nil, nil, nil),
-        eql_:                  (eql_, nil, nil, nil),
-        _keyword("satisfies"): (satisfies_, nil, nil, nil),
-        satisfies_:            (satisfies_, nil, nil, nil),
-        _keyword("maybe"):     (maybe_, nil, nil, nil),
-        maybe_:                (maybe_, nil, nil, nil),
+        or_:            (nil,          nil, some,  typep),
+        and_:           (nil,          t,   every, typep),
+        member_:        (nil,          nil, some,  eql),
+        eql_:           (eql_,         nil, nil, nil),
+        satisfies_:     (satisfies_,   nil, nil, nil),
+        maybe_:         (maybe_,       nil, nil, nil),
         # XXX: this is a small lie: this is not a cons-list
-        # ..but neither CL has a type specifier like this.
-        _keyword("list"):      (list_, nil, nil, nil),
-        list_:                 (list_, nil, nil, nil),
-        _keyword("tuple"):     (tuple_, nil, nil, nil),
-        tuple_:                (tuple_, nil, nil, nil),
+        # ..but neither CL has a type specifier like this and the others, that follow..
+        list_:          (list_,        nil, nil, nil),
+        tuple_:         (tuple_,       nil, nil, nil),
         }
 
 ##
