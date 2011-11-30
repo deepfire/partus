@@ -1847,6 +1847,9 @@ def _init_package_system_0():
                 return x.lower() + "_"
         for sym in __core_symbol_names__:
                 sys.modules['cl'].__dict__[pythonise_core_symbol_name(sym)] = _find_symbol_or_fail(sym, cl)
+        # secondary
+        global star
+        star = _intern0("*", cl)
         package("COMMON-LISP-USER", use = ["CL", "BUILTINS"], boot = True)
 _init_package_system_0() ########### _keyword(), quote_, and_, or_, abort_, continue_, break_ are now available
 
@@ -1868,10 +1871,10 @@ def setf_fdefinition(symbol_name, function):
         symbol, therep = gethash(symbol_name, globals())
         if not therep:
                 globals()[symbol_name] = symbol = _intern0(symbol_name)
-        symbol.function = f
+        symbol.function = function
         symbol.__name__        = symbol_name
         symbol.__annotations__ = {}
-        symbol.__code__        = f.__code__
+        symbol.__code__        = function.__code__
         return function
 
 def defun(f):
@@ -3598,10 +3601,22 @@ def _get_generic_fun_info(generic_function):
                       len(generic_function.__lambda_list__[3]),
                       generic_function.__lambda_list__)
 
+def generic_function_name(x):    return x.__name__
 def generic_function_methods(x): return x.__methods__.values()
 # def generic_function_(x):       return x.____
 
-def define_method_combination():
+__method_combinations__ = dict()
+def _find_method_combination(name):
+        combin, therep = gethash(name, __method_combinations__)
+        if not therep:
+                error("Undefined method combination: %s", name)
+        return combin
+
+def _qualifier_pattern_p(x):
+        return _not_implemented()
+
+def define_method_combination(name, method_group_specifiers, emf_form_lambda,
+                              arguments = None, generic_function = None):
         """Syntax:
 
 define-method-combination name [[short-form-option]]
@@ -3722,7 +3737,190 @@ Short Form
     7.6.6.4 (Built-in Method Combination Types).
 
 Long form (snipped)
-...
+
+    The long form syntax of DEFINE-METHOD-COMBINATION is recognized
+    when the second subform is a list.
+
+    The LAMBDA-LIST receives any arguments provided after the name of
+    the method combination type in the :METHOD-COMBINATION option to
+    DEFGENERIC.
+
+    A list of method group specifiers follows. Each specifier selects
+    a subset of the applicable methods to play a particular role,
+    either by matching their qualifiers against some patterns or by
+    testing their qualifiers with a predicate. These method group
+    specifiers define all method qualifiers that can be used with this
+    type of method combination.
+
+    The car of each METHOD-GROUP-SPECIFIER is a symbol which names a
+    variable. During the execution of the forms in the body of
+    DEFINE-METHOD-COMBINATION, this variable is bound to a list of the
+    methods in the method group. The methods in this list occur in the
+    order specified by the :order option.
+
+    If QUALIFIER-PATTERN is a symbol it must be *. A method matches a
+    qualifier-pattern if the method's list of qualifiers is equal to
+    the QUALIFIER-PATTERN (except that the symbol * in a
+    qualifier-pattern matches anything). Thus a qualifier-pattern can
+    be one of the following: the empty list, which matches unqualified
+    methods; the symbol *, which matches all methods; a true list,
+    which matches methods with the same number of qualifiers as the
+    length of the list when each qualifier matches the corresponding
+    list element; or a dotted list that ends in the symbol * (the *
+    matches any number of additional qualifiers).
+
+    Each applicable method is tested against the qualifier-patterns
+    and predicates in left-to-right order. As soon as a
+    qualifier-pattern matches or a predicate returns true, the method
+    becomes a member of the corresponding method group and no further
+    tests are made. Thus if a method could be a member of more than
+    one method group, it joins only the first such group. If a method
+    group has more than one qualifier-pattern, a method need only
+    satisfy one of the qualifier-patterns to be a member of the group.
+
+    The name of a predicate function can appear instead of
+    qualifier-patterns in a method group specifier. The predicate is
+    called for each method that has not been assigned to an earlier
+    method group; it is called with one argument, the method's
+    qualifier list. The predicate should return true if the method is
+    to be a member of the method group. A predicate can be
+    distinguished from a qualifier-pattern because it is a symbol
+    other than nil or *.
+
+    If there is an applicable method that does not fall into any
+    method group, the function invalid-method-error is called.
+
+    Method group specifiers can have keyword options following the
+    qualifier patterns or predicate. Keyword options can be
+    distinguished from additional qualifier patterns because they are
+    neither lists nor the symbol *. The keyword options are as
+    follows:
+
+        The :DESCRIPTION option is used to provide a description of
+        the role of methods in the method group. Programming
+        environment tools use (APPLY #'FORMAT STREAM FORMAT-CONTROL
+        (METHOD-QUALIFIERS METHOD)) to print this description, which
+        is expected to be concise. This keyword option allows the
+        description of a method qualifier to be defined in the same
+        module that defines the meaning of the method qualifier. In
+        most cases, FORMAT-CONTROL will not contain any format
+        directives, but they are available for generality. If
+        :DESCRIPTION is not supplied, a default description is
+        generated based on the variable name and the qualifier
+        patterns and on whether this method group includes the
+        unqualified methods.
+
+        The :ORDER option specifies the order of methods. The order
+        argument is a form that evaluates to :MOST-SPECIFIC-FIRST or
+        :MOST-SPECIFIC-LAST. If it evaluates to any other value, an
+        error is signaled. If :ORDER is not supplied, it defaults to
+        :MOST-SPECIFIC-FIRST.
+
+        The :REQUIRED option specifies whether at least one method in
+        this method group is required. If its value is true and the
+        method group is empty (that is, no applicable methods match
+        the qualifier patterns or satisfy the predicate), an error is
+        signaled. If :REQUIRED is not supplied, it defaults to NIL.
+
+    The use of method group specifiers provides a convenient syntax to
+    select methods, to divide them among the possible roles, and to
+    perform the necessary error checking. It is possible to perform
+    further filtering of methods in the body forms by using normal
+    list-processing operations and the functions method-qualifiers and
+    invalid-method-error. It is permissible to use setq on the
+    variables named in the method group specifiers and to bind
+    additional variables. It is also possible to bypass the method
+    group specifier mechanism and do everything in the body
+    forms. This is accomplished by writing a single method group with
+    * as its only qualifier-pattern; the variable is then bound to a
+    list of all of the applicable methods, in most-specific-first
+    order.
+
+    The body forms compute and return the form that specifies how the
+    methods are combined, that is, the effective method. The effective
+    method is evaluated in the null lexical environment augmented with
+    a local macro definition for call-method and with bindings named
+    by symbols not accessible from the COMMON-LISP-USER package. Given
+    a method object in one of the lists produced by the method group
+    specifiers and a list of next methods, call-method will invoke the
+    method such that call-next-method has available the next methods.
+
+    When an effective method has no effect other than to call a single
+    method, some implementations employ an optimization that uses the
+    single method directly as the effective method, thus avoiding the
+    need to create a new effective method. This optimization is active
+    when the effective method form consists entirely of an invocation
+    of the call-method macro whose first subform is a method object
+    and whose second subform is nil or unsupplied. Each
+    define-method-combination body is responsible for stripping off
+    redundant invocations of progn, and, multiple-value-prog1, and the
+    like, if this optimization is desired.
+
+    The list (:arguments . lambda-list) can appear before any
+    declarations or documentation string. This form is useful when the
+    method combination type performs some specific behavior as part of
+    the combined method and that behavior needs access to the
+    arguments to the generic function. Each parameter variable defined
+    by lambda-list is bound to a form that can be inserted into the
+    effective method. When this form is evaluated during execution of
+    the effective method, its value is the corresponding argument to
+    the generic function; the consequences of using such a form as the
+    place in a setf form are undefined. Argument correspondence is
+    computed by dividing the :arguments lambda-list and the generic
+    function lambda-list into three sections: the required parameters,
+    the optional parameters, and the keyword and rest parameters. The
+    arguments supplied to the generic function for a particular call
+    are also divided into three sections; the required arguments
+    section contains as many arguments as the generic function has
+    required parameters, the optional arguments section contains as
+    many arguments as the generic function has optional parameters,
+    and the keyword/rest arguments section contains the remaining
+    arguments. Each parameter in the required and optional sections of
+    the :arguments lambda-list accesses the argument at the same
+    position in the corresponding section of the arguments. If the
+    section of the :arguments lambda-list is shorter, extra arguments
+    are ignored. If the section of the :arguments lambda-list is
+    longer, excess required parameters are bound to forms that
+    evaluate to nil and excess optional parameters are bound to their
+    initforms. The keyword parameters and rest parameters in the
+    :arguments lambda-list access the keyword/rest section of the
+    arguments. If the :arguments lambda-list contains &key, it behaves
+    as if it also contained &allow-other-keys.
+
+    In addition, &whole var can be placed first in the :arguments
+    lambda-list. It causes var to be bound to a form that evaluates to
+    a list of all of the arguments supplied to the generic
+    function. This is different from &rest because it accesses all of
+    the arguments, not just the keyword/rest arguments.
+
+    Erroneous conditions detected by the body should be reported with
+    method-combination-error or invalid-method-error; these functions
+    add any necessary contextual information to the error message and
+    will signal the appropriate error.
+
+    The body forms are evaluated inside of the bindings created by the
+    lambda list and method group specifiers. Declarations at the head
+    of the body are positioned directly inside of bindings created by
+    the lambda list and outside of the bindings of the method group
+    variables. Thus method group variables cannot be declared in this
+    way. locally may be used around the body, however.
+
+    Within the body forms, generic-function-symbol is bound to the
+    generic function object.
+
+    Documentation is attached as a documentation string to name (as
+    kind method-combination) and to the method combination object.
+
+    Note that two methods with identical specializers, but with
+    different qualifiers, are not ordered by the algorithm described
+    in Step 2 of the method selection and combination process
+    described in Section 7.6.6 (Method Selection and
+    Combination). Normally the two methods play different roles in the
+    effective method because they have different qualifiers, and no
+    matter how they are ordered in the result of Step 2, the effective
+    method is the same. If the two methods play the same role and
+    their order matters, an error is signaled. This happens as part of
+    the qualifier pattern matching in define-method-combination.
 
 If a DEFINE-METHOD-COMBINATION form appears as a top level form, the
 compiler must make the method combination name be recognized as a
@@ -3731,7 +3929,88 @@ the method combination is executed no earlier than when the
 DEFINE-METHOD-COMBINATION form is executed, and possibly as late as
 the time that generic functions that use the method combination are
 executed."""
-        _not_implemented()
+        ## define_method_combination(name, method_group_specifiers, emf_form_lambda,
+        #                            arguments = None, generic_function = None)
+        check_type(method_group_specifiers,
+                  (list_,
+                   (varituple_,
+                    symbol,     # group name
+                    (or_, (list_, (or_, star, list)),
+                          function),
+                    # the rest is actually a plist, but we cannot (yet) describe it
+                    # in terms of a type.
+                    (maybe_, (tuple_,
+                              (eql_, keyword("description")),
+                              str)),
+                    (maybe_, (tuple_,
+                              (eql_, keyword("order")),
+                              (member_,
+                               keyword("most-specific-first"),
+                               keyword("most-specific-last"))))
+                    (maybe_, (tuple_,
+                              (eql_, keyword("required")),
+                              (member_, t, nil))))))
+        ### VARI-BIND, anyone?
+        # def vari_bind(x, body):
+        #         # don't lambda lists actually rule this, hands down?
+        #         posnal, named = argspec_value_varivals(inspect.getfullargspec(body), x)
+        #         return body()
+        method_group = defstruct("method_group",
+                                 "name",
+                                 "qualifier_spec"
+                                 "description",
+                                 "most_specific_first",
+                                 "required")
+        groups = dict()
+        for mgspec in method_group_specifiers:
+                name, qualifier_spec = mgspec[:2]
+                options = mgspec[2:]
+                options_dict = _map_into_hash_star(lambda keyword, v: (symbol_name(keyword), v), options)
+                (lambda DESCRIPTION = "Method group %s.",
+                        REQUIRED = nil,
+                        ORDER = keyword("most_specific_first"):
+                        groups.update({name: method_group(name, qualifier_spec,
+                                                          DESCRIPTION,
+                                                          ORDER is keyword("most_specific_first"),
+                                                          REQUIRED)}))(**options_dict)
+        def method_combination(applicable_methods, *args, **keys):
+               # The LAMBDA-LIST receives any arguments provided after the name of
+               # the method combination type in the :METHOD-COMBINATION option to
+               # DEFGENERIC.
+               ## .. this means, that the EMF-computing form must be evaluated in
+               ## the context, where the values bound by the lambda list are available.
+               def method_qualifiers_match_pattern_p(qualifiers, pattern):
+                       return (t if pattern is star else
+                               qualifiers == pattern)
+               grouped_methods = defaultdict(list)
+               for method in applicable_methods:
+                       qualifiers = method_qualifiers(method)
+                       for group in groups.values():
+                               qualifier_spec = group.qualifier_spec
+                               ## qualifier_spec:
+                               # (or_, (list_, (or_, star, list)),
+                               #       function),
+                               if ((listp(qualifier_spec) and
+                                    some(curry(method_qualifiers_match_pattern_p, qualifiers),
+                                               qualifier_spec))
+                                   # must be an fbound symbol, as per the above TYPEP
+                                   or qualifier_spec(qualifiers)):
+                                       grouped_methods[group.name].append(method)
+                       else:
+                               ## XXX: ought to be a call to INVALID-METHOD-ERROR
+                               error("Applicable method %s with qualifiers %s does not fall into any method group.",
+                                     method, qualifiers)
+               for group in groups.values():
+                       if group.required and not grouped_methods[group.name]:
+                               error("Method group %s requires at least one method.", group.name)
+                       if not group.most_specific_first:
+                               grouped_methods[group.name].reverse()
+               return emf_form_lambda()
+        method_combination.__name__                    = the(symbol, name)
+        method_combination.__method_group_specifiers__ = method_group_specifiers
+        # Unregistered Issue SPECIAL-CASE-(APPLY #'FORMAT STREAM FORMAT-CONTROL (METHOD-QUALIFIERS METHOD))-NOT-IMPLEMENTED
+        # 
+        return method_combination
 
 def make_method_lambda(generic_function, method, lambda_expression, environment):
         """Arguments:
@@ -3756,10 +4035,10 @@ function and method the method function will be used with are not
 required to be the given ones. Moreover, the METHOD metaobject may be
 uninitialized.
 
-Either the function compile, the special form function or the function
-coerce must be used to convert the lambda expression to a method
+Either the function COMPILE, the special form FUNCTION or the function
+COERCE must be used to convert the lambda expression to a method
 function. The method function itself can be applied to arguments with
-apply or funcall.
+APPLY or FUNCALL.
 
 When a method is actually called by an effective method, its first
 argument will be a list of the arguments to the generic function. Its
@@ -3810,8 +4089,8 @@ method function of the method should be called. (See
 MAKE-METHOD-LAMBDA for more details about method functions.)
 
 An effective method option has the same interpretation and syntax as
-either the :arguments or the :GENERIC-FUNCTION option in the long form
-of define-method-combination.
+either the :ARGUMENTS or the :GENERIC-FUNCTION option in the long form
+of DEFINE-METHOD-COMBINATION.
 
 More information about the form and interpretation of effective
 methods and effective method options can be found under the
