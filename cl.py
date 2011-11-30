@@ -749,13 +749,18 @@ def _file_as_string(filename):
         with open(filename, "r") as f:
                 return _stream_as_string(f)
 
+def _prefix_suffix_if(f, xs, key = identity):
+        for i, x in enumerate(xs):
+                if not f(key(x)):
+                        return xs[:i], xs[i:]
+        return xs, []
+
+def _prefix_suffix_if_not(f, xs, key = identity):
+        return _prefix_suffix_if(lambda x: not f(x), xs, key = key)
+
 ##
 ## Lesser non-CL tools
 ##
-def ___(str, expr):
-        write_string("%s: %s" % (str, expr))
-        return expr
-
 class _servile():
         def __repr__(self):
                 return "#%s(%s)" % (type(self).__name__,

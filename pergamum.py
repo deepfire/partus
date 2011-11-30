@@ -6,6 +6,7 @@ from cl           import write_string, write_line, evenp
 from functools    import reduce, partial
 from cl           import _of_type as of_type, _tuplep as tuplep, _setp as setp, _frozensetp as frozensetp
 from cl           import _if_let as if_let, _when_let as when_let, _lret as lret
+from cl           import _prefix_suffix_if as prefix_suffix_if, _prefix_suffix_if_not as prefix_suffix_if_not
 from cl           import _map_into_hash as map_into_hash, _remap_hash_table as remap_hash_table
 from cl           import _not_implemented_error as not_implemented_error, _not_implemented as not_implemented
 from cl           import _curry as curry, _compose as compose
