@@ -3586,9 +3586,31 @@ def eval_(form):
         package = symbol_value("_package_")
         return _eval_python(_callify(form, package))
 
+def _compile_list(body):
+        
+
+# Unregistered Issue C-J-COULD-BE-EXTENDED-TO-FOLLOW-M-J-WITHIN-COMMENTS
 ##
 ## An attempt at CLOS imitation
 ##
+class standard_object():
+        pass
+
+def make_instance(class, **keys):
+        "XXX: compliance?"
+        return class(***keys)
+
+class standard_method(standard_object):
+        def __init__(self, function = None, **key):
+                if not functionp(function):
+                        # When the method metaobject is created with MAKE-INSTANCE,
+                        # the method function must be the value of the :FUNCTION
+                        # initialization argument.
+                        error("MAKE-INSTANCE for method metaobjects requires the :FUNCTION keyword to name a function.")
+                self.function = function
+        def __call__(self, gfun_args, next_methods):
+                return self.function(gfun_args, next_methods)
+
 def _generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")
 def _method_p(x):           return functionp(x) and hasattr(x, "__specializers__")
 def _specializerp(x):       return ((x is t)        or
@@ -3615,7 +3637,7 @@ def _find_method_combination(name):
 def _qualifier_pattern_p(x):
         return _not_implemented()
 
-def define_method_combination(name, method_group_specifiers, emf_form_lambda,
+def define_method_combination(name, method_group_specifiers, body,
                               arguments = None, generic_function = None):
         """Syntax:
 
@@ -3826,37 +3848,37 @@ Long form (snipped)
     select methods, to divide them among the possible roles, and to
     perform the necessary error checking. It is possible to perform
     further filtering of methods in the body forms by using normal
-    list-processing operations and the functions method-qualifiers and
-    invalid-method-error. It is permissible to use setq on the
+    list-processing operations and the functions METHOD-QUALIFIERS and
+    INVALID-METHOD-ERROR. It is permissible to use SETQ on the
     variables named in the method group specifiers and to bind
     additional variables. It is also possible to bypass the method
     group specifier mechanism and do everything in the body
     forms. This is accomplished by writing a single method group with
     * as its only qualifier-pattern; the variable is then bound to a
-    list of all of the applicable methods, in most-specific-first
+    list of all of the applicable methods, in MOST-SPECIFIC-FIRST
     order.
 
-    The body forms compute and return the form that specifies how the
+    The BODY forms compute and return the form that specifies how the
     methods are combined, that is, the effective method. The effective
     method is evaluated in the null lexical environment augmented with
-    a local macro definition for call-method and with bindings named
+    a local macro definition for CALL-METHOD and with bindings named
     by symbols not accessible from the COMMON-LISP-USER package. Given
     a method object in one of the lists produced by the method group
-    specifiers and a list of next methods, call-method will invoke the
-    method such that call-next-method has available the next methods.
+    specifiers and a list of next methods, CALL-METHOD will invoke the
+    method such that CALL-NEXT-METHOD has available the next methods.
 
     When an effective method has no effect other than to call a single
     method, some implementations employ an optimization that uses the
     single method directly as the effective method, thus avoiding the
     need to create a new effective method. This optimization is active
     when the effective method form consists entirely of an invocation
-    of the call-method macro whose first subform is a method object
-    and whose second subform is nil or unsupplied. Each
-    define-method-combination body is responsible for stripping off
-    redundant invocations of progn, and, multiple-value-prog1, and the
+    of the CALL-METHOD macro whose first subform is a method object
+    and whose second subform is NIL or unsupplied. Each
+    DEFINE-METHOD-COMBINATION body is responsible for stripping off
+    redundant invocations of PROGN, AND, MULTIPLE-VALUE-PROG1, and the
     like, if this optimization is desired.
 
-    The list (:arguments . lambda-list) can appear before any
+    The list (:ARGUMENTS . LAMBDA-LIST) can appear before any
     declarations or documentation string. This form is useful when the
     method combination type performs some specific behavior as part of
     the combined method and that behavior needs access to the
@@ -3929,7 +3951,7 @@ the method combination is executed no earlier than when the
 DEFINE-METHOD-COMBINATION form is executed, and possibly as late as
 the time that generic functions that use the method combination are
 executed."""
-        ## define_method_combination(name, method_group_specifiers, emf_form_lambda,
+        ## define_method_combination(name, method_group_specifiers, body,
         #                            arguments = None, generic_function = None)
         check_type(method_group_specifiers,
                   (list_,
@@ -4005,7 +4027,27 @@ executed."""
                                error("Method group %s requires at least one method.", group.name)
                        if not group.most_specific_first:
                                grouped_methods[group.name].reverse()
-               return emf_form_lambda()
+               # The effective method is evaluated in the null lexical
+               # environment augmented with a local macro definition
+               # for CALL-METHOD and with bindings named by symbols not
+               # accessible from the COMMON-LISP-USER package.
+               ## So: must bind group names and CALL-METHOD, which, in turn
+               ## must bind CALL-NEXT-METHOD and NEXT-METHOD-P.  I presume.
+               # BODY must, therefore, return some kind of an AST representation?
+               # I guess, well, that we could play the CL games with that.
+               # Yes, I'm thinking of real macros..
+               # Maybe just arg it?
+               body_args = dict(grouped_methods)
+               def call_method(method, next_methods = None):
+                       next_methods = _defaulted(next_methods, [])
+                       # sounds like we ought to look up the compiled METHOD-LAMBDA?
+                       # Given a method object in one of the lists produced
+                       # by the method group specifiers and a list of next
+                       # methods, CALL-METHOD will invoke the method such that
+                       # CALL-NEXT-METHOD has available the next methods.
+                       method_lambda
+               body_args.update({ "call_method": })
+               return body(**body_args)
         method_combination.__name__                    = the(symbol, name)
         method_combination.__method_group_specifiers__ = method_group_specifiers
         # Unregistered Issue SPECIAL-CASE-(APPLY #'FORMAT STREAM FORMAT-CONTROL (METHOD-QUALIFIERS METHOD))-NOT-IMPLEMENTED
@@ -4013,6 +4055,7 @@ executed."""
         return method_combination
 
 def make_method_lambda(generic_function, method, lambda_expression, environment):
+# gfun -> method -> sexp -> env -> (sexp -> function)
         """Arguments:
 
 The GENERIC-FUNCTION argument is a generic function metaobject.
@@ -4065,6 +4108,12 @@ argument. The additional initialization arguments, returned as the
 second value of this generic function, must also be passed in this
 call to MAKE-INSTANCE."""
         _not_implemented()
+        "Return an expression compileable (by whom? compute-effective-method?)
+        down to a function, accepting (gf-arglist &rest (subseq c-m-args 1)),
+        responsible to invoke the method and ."
+        # (defmacro call-method (method &rest c-m-args)
+        #   (apply method.function
+        #          gf-arglist (subseq c-m-args 1)))
 
 def compute_effective_method(generic_function, combin, applicable_methods):
         """Arguments:
@@ -5135,8 +5184,13 @@ object."""
         gfun, definedp = gethash(fn.__name__, globals())
         if not definedp:
                 gfun = ensure_generic_function(fn.__name__)
-        add_method(gfun, fn)
-        return gfun
+        methfun_lambda, methfun_args = make_method_lambda(gfun, class_prototype(class_of()),
+                                                          fn, <env>)
+        method = make_instance(standard_method,
+                               function = _not_implemented("somehow compile", methfun_lambda),
+                               **methfun_args)
+        add_method(gfun, method)
+        return method
 
 ###
 ### Init
