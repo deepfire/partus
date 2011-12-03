@@ -126,11 +126,19 @@ def _make_timestamping_cache(map_computer):
                 return res[0] if res is not None else None
         return cache, cache_getter
 
-def _defaulted(x, value):
+def _specifiedp(x):
+        return x is not None
+
+def _defaulted(x, value, type = None):
+        if type is not None:
+                check_type(x, type) # Not a macro, so cannot access the actual defaulted name..
         return x if x is not None else value
 
-def _defaulted_to_var(x, variable):
-        return _defaulted(x, symbol_value(variable))
+def _defaulted_to_var(x, variable, type = None):
+        return _defaulted(x, symbol_value(variable), type = type)
+
+def _specified_keys(**keys):
+        return dict(k, v for k, v in keys if _specifiedp(k))
 
 def _read_case_xformed(x):
         return _case_xform(_symbol_value("_READ_CASE_"), x)
@@ -286,6 +294,14 @@ def _ast_functiondef(name, lambda_list_spec, body):
 ##
 ## modules/packages
 ##
+# Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+def _setf_global(name, value):
+        globals()[name] = value
+        return value
+
+def _global(name):
+        return gethash(name, globals())
+
 def _load_code_object_as_module(name, co, filename = "", builtins = None, globals_ = None, locals_ = None, register = True):
         check_type(co, type(_load_code_object_as_module.__code__))
         mod = imp.new_module(name)
@@ -1868,9 +1884,11 @@ _init_package_system_1()
 
 def setf_fdefinition(symbol_name, function):
         symbol_name = string(symbol_name)
-        symbol, therep = gethash(symbol_name, globals())
+        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+        symbol, therep = _global(symbol_name)
         if not therep:
-                globals()[symbol_name] = symbol = _intern0(symbol_name)
+                symbol = _intern0(symbol_name)
+                _setf_global(symbol_name, symbol)
         symbol.function = function
         symbol.__name__        = symbol_name
         symbol.__annotations__ = {}
@@ -1880,7 +1898,8 @@ def setf_fdefinition(symbol_name, function):
 def defun(f):
         symbol_name = f.__name__
         setf_fdefinition(symbol_name, f)
-        return globals()[symbol_name] # guaranteed to exist at this point
+        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+        return _global(symbol_name) # guaranteed to exist at this point
 
 @defun
 def maybe_(x, type):
@@ -3600,7 +3619,14 @@ def make_instance(class, **keys):
         "XXX: compliance?"
         return class(***keys)
 
-class standard_method(standard_object):
+class method():
+        "All methods are of this type."
+class generic_function():
+        "All generic functions are of this type."
+class method_combination():
+        "All method combinations are of this type."
+
+class standard_method(method):
         def __init__(self, function = None, **key):
                 if not functionp(function):
                         # When the method metaobject is created with MAKE-INSTANCE,
@@ -3611,21 +3637,170 @@ class standard_method(standard_object):
         def __call__(self, gfun_args, next_methods):
                 return self.function(gfun_args, next_methods)
 
+def _valid_declaration_p(x):
+        return nil
+
+class standard_generic_function(generic_function):
+        """Initialization of Generic Function Metaobjects
+
+A generic function metaobject can be created by calling
+make-instance. The initialization arguments establish the definition
+of the generic function. A generic function metaobject can be
+redefined by calling reinitialize-instance. Some classes of generic
+function metaobject do not support redefinition; in these cases,
+reinitialize-instance signals an error.
+
+Initialization of a generic function metaobject must be done by
+calling make-instance and allowing it to call
+initialize-instance. Reinitialization of a generic-function metaobject
+must be done by calling reinitialize-instance. Portable programs must
+not call initialize-instance directly to initialize a generic function
+metaobject. Portable programs must not call shared-initialize directly
+to initialize or reinitialize a generic function metaobject. Portable
+programs must not call change-class to change the class of any generic
+function metaobject or to turn a non-generic-function object into a
+generic function metaobject.
+
+Since metaobject classes may not be redefined, no behavior is
+specified for the result of calls to
+update-instance-for-redefined-class on generic function
+metaobjects. Since the class of a generic function metaobject may not
+be changed, no behavior is specified for the results of calls to
+update-instance-for-different-class on generic function metaobjects.
+
+During initialization or reinitialization, each initialization
+argument is checked for errors and then associated with the generic
+function metaobject. The value can then be accessed by calling the
+appropriate accessor as shown in Table 3.
+
+This section begins with a description of the error checking and
+processing of each initialization argument. This is followed by a
+table showing the generic functions that can be used to access the
+stored initialization arguments. The section ends with a set of
+restrictions on portable methods affecting generic function metaobject
+initialization and reinitialization.
+
+In these descriptions, the phrase ``this argument defaults to value''
+means that when that initialization argument is not supplied,
+initialization or reinitialization is performed as if value had been
+supplied. For some initialization arguments this could be done by the
+use of default initialization arguments, but whether it is done this
+way is not specified. Implementations are free to define default
+initialization arguments for specified generic function metaobject
+classes. Portable programs are free to define default initialization
+arguments for portable subclasses of the class generic-function.
+
+Unless there is a specific note to the contrary, then during
+reinitialization, if an initialization argument is not supplied, the
+previously stored value is left unchanged.
+
+    The :ARGUMENT-PRECEDENCE-ORDER argument is a list of symbols.
+
+    An error is signaled if this argument appears but the :LAMBDA-LIST
+    argument does not appear. An error is signaled if this value is
+    not a proper list or if this value is not a permutation of the
+    symbols from the required arguments part of the :LAMBDA-LIST
+    initialization argument.
+
+    When the generic function is being initialized or reinitialized,
+    and this argument is not supplied, but the :LAMBDA-LIST argument
+    is supplied, this value defaults to the symbols from the required
+    arguments part of the :LAMBDA-LIST argument, in the order they
+    appear in that argument. If neither argument is supplied, neither
+    are initialized (see the description of :LAMBDA-LIST.)
+
+    The :DECLARATIONS argument is a list of declarations.
+
+    An error is signaled if this value is not a proper list or if each
+    of its elements is not a legal declaration.
+
+    When the generic function is being initialized, and this argument
+    is not supplied, it defaults to the empty list.
+
+    The :DOCUMENTATION argument is a string or NIL.
+
+    An error is signaled if this value is not a string or NIL.
+
+    If the generic function is being initialized, this argument
+    defaults to NIL.
+
+    The :LAMBDA-LIST argument is a lambda list.
+
+    An error is signaled if this value is not a proper generic
+    function lambda list.
+
+    When the generic function is being initialized, and this argument
+    is not supplied, the generic function's lambda list is not
+    initialized. The lambda list will be initialized later, either
+    when the first method is added to the generic function, or a later
+    reinitialization of the generic function.
+
+    The :METHOD-COMBINATION argument is a method combination
+    metaobject.
+
+    The :METHOD-CLASS argument is a class metaobject.
+
+    An error is signaled if this value is not a subclass of the class
+    METHOD.
+
+    When the generic function is being initialized, and this argument
+    is not supplied, it defaults to the class STANDARD-METHOD.
+
+    The :NAME argument is an object.
+
+    If the generic function is being initialized, this argument
+    defaults to NIL."""
+        def __init__(self,
+                     argument_precedence_order = None,
+                     declarations = None,
+                     documentation = None,
+                     lambda_list = None,
+                     method_combination = None,
+                     method_class = None,
+                     name = None): # Nihil ex nihil.
+                if _specifiedp(argument_precedence_order):
+                        if not _specifiedp(lambda_list):
+                                error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER "
+                                      "was provided, but :LAMBDA-LIST was not.")
+                        elif not (listp(argument) and
+                                  set(argument_precedence_order) == set(lambda_list[0])):
+                                error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER, "
+                                      "when specified, must be a permutation of fixed arguments in :LAMBDA-LIST.")
+                        self.argument_precedence_order = tuple(argument_precedence_order)
+                elif _specifiedp(lambda_list):
+                        self.argument_precedence_order = tuple(lambda_list[0])
+                ## ..end of A-P-O saga.
+                self.declarations              = tuple(_defaulted(declarations, list(),
+                                                                  type = (list_, (satisfies_, _valid_declaration_p))))
+                self.documentation             = _defaulted(documentation, nil,
+                                                            type = (or_, str, (eql_, nil)))
+                if _specifiedp(lambda_list):
+                        self.lambda_list       = lambda_list
+                self.method_combination        = _defaulted(method_combination, standard_method_combination,
+                                                            type = method_combination)
+                self.method_class              = _defaulted(method_class, standard_method,
+                                                            type = method)
+                self.name                      = _defaulted(name, nil)
+        # def __call__ ..is installed during EMF computation, with the proper arglist.
+
 def _generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")
 def _method_p(x):           return functionp(x) and hasattr(x, "__specializers__")
 def _specializerp(x):       return ((x is t)        or
                                     typep(x, (or_, type_, (tuple_, (eql_, eql_), t))))
 
 def _get_generic_fun_info(generic_function):
-        return values(len(generic_function.__lambda_list__[0]), # nreq
+        return values(len(generic_function.lambda_list[0]), # nreq
                       nil,
                       [],
-                      len(generic_function.__lambda_list__[3]),
-                      generic_function.__lambda_list__)
+                      len(generic_function.lambda_list[3]),
+                      generic_function.lambda_list)
 
 def generic_function_name(x):    return x.__name__
 def generic_function_methods(x): return x.__methods__.values()
 # def generic_function_(x):       return x.____
+
+class standard_method_combination(method_combination):
+        "???"
 
 __method_combinations__ = dict()
 def _find_method_combination(name):
@@ -3633,9 +3808,6 @@ def _find_method_combination(name):
         if not therep:
                 error("Undefined method combination: %s", name)
         return combin
-
-def _qualifier_pattern_p(x):
-        return _not_implemented()
 
 def define_method_combination(name, method_group_specifiers, body,
                               arguments = None, generic_function = None):
@@ -4055,7 +4227,6 @@ executed."""
         return method_combination
 
 def make_method_lambda(generic_function, method, lambda_expression, environment):
-# gfun -> method -> sexp -> env -> (sexp -> function)
         """Arguments:
 
 The GENERIC-FUNCTION argument is a generic function metaobject.
@@ -4458,7 +4629,7 @@ its result installed, by ADD-METHOD, REMOVE-METHOD,
 INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
         return _do_compute_discriminating_function(
                  generic_function.__name__,
-                 generic_function.__lambda_list__,
+                 generic_function.lambda_list,
                  generic_function.__applicable_method_cache__,
                  generic_function.__code__.co_filename,
                  generic_function.__code__.co_lineno)
@@ -4502,7 +4673,7 @@ def _do_compute_discriminating_function(function_name,
                         # (i) the generic function is being called again with required
                         #     arguments which are instances of the same classes,
                         return applicable
-                _here("gf: %s, ll: %s", generic_function, generic_function.__lambda_list__)
+                _here("gf: %s, ll: %s", generic_function, generic_function.lambda_list)
                 methods, okayp = compute_applicable_methods_using_classes(generic_function,
                                                                           dispatch_arg_types)
                 if okayp:
@@ -4549,7 +4720,7 @@ def ensure_generic_function_using_class(generic_function, function_name,
                                         argument_precedence_order = None,
                                         declarations = None,
                                         documentation = None,
-                                        generic_function_class = None,
+                                        generic_function_class = standard_generic_function,
                                         lambda_list = None,
                                         method_class = None,
                                         method_combination = None,
@@ -4672,26 +4843,54 @@ The :NAME argument is an object.
 
 If the generic function is being initialized, this argument defaults
 to NIL."""
-        lambda_list = _defaulted(lambda_list, ([], [], nil, [], nil))
-        fixed, optional, args, keyword, keys = lambda_list
-        if some(lambda x: x[1] is not None, list(optional) + list(keyword)):
-                error("Generic function arglist cannot specify default parameter values.")
-        if (argument_precedence_order or declarations or
-            generic_function_class or method_class or method_combination):
-                error("This is not CLOS.  Yet.  (Read: ARGUMENT-PRECEDENCE-ORDER, DECLARE, ENVIRONMENT, GENERIC-FUNCTION-CLASS, METHOD-CLASS and METHOD-COMBINATION keyword options are not supported.)")
-        gfun, presentp = gethash(function_name, globals())
-        applicable_method_cache = dict()
-        if (not presentp or                       # New generic function?..
-            lambda_list != gfun.__lambda_list__): # ..or an incompatible redefinition?
+        if gfun:
+                # DEFGENERIC (CLHS) documentation says:
+                ## The effect of the DEFGENERIC macro is as if the following three steps
+                ## were performed: first, methods defined by previous DEFGENERIC forms
+                ## are removed; second, ENSURE-GENERIC-FUNCTION is called; and finally,
+                ## methods specified by the current DEFGENERIC form are added to the
+                ## generic function.
+                ## /citation
+                # ..however, in the documentation of ENSURE-GENERIC-FUNCTION (AMOP):
+                ## The behavior of this function is actually implemented by the generic
+                ## function ENSURE-GENERIC-FUNCTION-USING-CLASS. When ENSURE-GENERIC-FUNCTION
+                ## is called, it immediately calls ENSURE-GENERIC-FUNCTION-USING-CLASS and
+                ## returns that result as its own.
+                # ..and so, we decide that AMOP trumps CLHS.
+                mapc(curry(remove_method, gfun), generic_function_methods(gfun))
+        initargs = _specified_keys(
+                argument_precedence_order = argument_precedence_order,
+                declarations              = declarations,
+                documentation             = documentation,
+                lambda_list               = lambda_list,
+                method_class              = method_class,
+                method_combination        = method_combination,
+                name                      = name)
+        initargs.update(keys)
+        if not generic_function:
+                # If the GENERIC-FUNCTION argument is NIL, an instance of the class
+                # specified by the :GENERIC-FUNCTION-CLASS argument is created by
+                # calling MAKE-INSTANCE with the previously computed initialization arguments.
+                # The function name FUNCTION-NAME is set to name the generic function.
+                generic_function = make_instance(generic_function_class, **initargs)
+                _setf_global(function_name, generic_function)
+        else:
+                if class_of(generic_function) is not generic_function_class:
+                        error("ENSURE-GENERIC-FUNCTION-USING-CLASS: ")
+                # fixed, optional, args, keyword, keys = lambda_list
+                # if some(lambda x: x[1] is not None, list(optional) + list(keyword)):
+                #         error("Generic function arglist cannot specify default parameter values.")
+                # applicable_method_cache = dict()
+        if (not generic_function or                       # New generic function?..
+            lambda_list != generic_function.lambda_list): # ..or an incompatible redefinition?
                 new_gfun = _do_compute_discriminating_function(function_name,
                                                                lambda_list,
                                                                applicable_method_cache,
                                                                filename,
                                                                _defaulted(lineno, 0))
                 # new_gfun.__applicable_method_cache__ = ..see below
-                new_gfun.__methods__            = dict() # keyed by type specifier tuples... busted?
-                new_gfun.__lambda_list__        = lambda_list
-                globals()[function_name] = gfun = new_gfun
+                new_gfun.__methods__         = dict() # keyed by type specifier tuples... busted?
+                new_gfun.lambda_list         = lambda_list
         else:
                 gfun.__code__.co_filename    = filename
                 gfun.__code__.co_firstlineno = lineno
@@ -4703,12 +4902,12 @@ to NIL."""
         gfun.__applicable_method_cache__ = applicable_method_cache # (list_, type_) -> list;  busted on every defmethod invocation
         return gfun
 
-def generic_function_argument_precedence_order(x): return _not_implemented()
-def generic_function_declarations(x):              return _not_implemented()
-def generic_function_lambda_list(x):               return x.__lambda_list__
-def generic_function_method_combination(x):        return _not_implemented()
-def generic_function_method_class(x):              return _not_implemented()
-def generic_function_name(x):                      return x.__name__
+def generic_function_argument_precedence_order(x): return x.argument_precedence_order
+def generic_function_declarations(x):              return x.declarations
+def generic_function_lambda_list(x):               return x.lambda_list
+def generic_function_method_combination(x):        return x.method_combination
+def generic_function_method_class(x):              return x.method_class
+def generic_function_name(x):                      return x.name
 
 def ensure_generic_function(function_name, **keys):
         """Arguments:
@@ -4752,17 +4951,210 @@ as follows:
 The second argument is FUNCTION-NAME. The remaining arguments are the
 complete set of keyword arguments received by
 ENSURE-GENERIC-FUNCTION."""
-        x, definedp = gethash(the(str, function_name), globals(), nil)
-        if functionp(x) and not _generic_function_p(x):
+        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+        maybe_gfun, therep = _defaulted(_global(the(str, function_name)), nil)
+        if functionp(maybe_gfun) and not _generic_function_p(maybe_gfun):
                 error("%s already names an ordinary function.", function_name)
-        return ensure_generic_function_using_class(x, function_name, **keys)
+        return ensure_generic_function_using_class(maybe_gfun, function_name, **keys)
 
-def defgeneric(fn):
-        return ensure_generic_function(fn.__name__,
-                                       documentation = fn.__doc__,
-                                       lambda_list   = _argspec_lambda_spec(inspect.getfullargspec(fn)),
-                                       filename      = fn.__code__.co_filename,
-                                       lineno        = fn.__code__.co_firstlineno)
+def defgeneric(_ = None,
+               argument_precedence_order = _keyword("most-specific-first"),
+               documentation = None,
+               method_combination = standard_method_combination,
+               generic_function_class = standard_generic_function,
+               method_class = standard_method):
+# Unregistered Issue: DEFGENERIC-METHOD-DESCRIPTIONS-UNIMPLEMENTABLE
+"""defgeneric function-name gf-lambda-list [[option | {method-description}*]]
+
+=> new-generic
+
+option::= (:argument-precedence-order parameter-name+) | 
+          (declare gf-declaration+) | 
+          (:documentation gf-documentation) | 
+          (:method-combination method-combination method-combination-argument*) | 
+          (:generic-function-class generic-function-class) | 
+          (:method-class method-class) 
+
+method-description::= (:method method-qualifier* specialized-lambda-list [[declaration* | documentation]] form*) 
+
+Arguments and Values:
+
+FUNCTION-NAME---a function name.
+
+GENERIC-FUNCTION-CLASS---a non-NIL symbol naming a class.
+
+GF-DECLARATION---an optimize declaration specifier; other declaration specifiers are not permitted.
+
+GF-DOCUMENTATION---a string; not evaluated.
+
+GF-LAMBDA-LIST---a generic function lambda list.
+
+METHOD-CLASS---a non-NIL symbol naming a class.
+
+METHOD-COMBINATION-ARGUMENT---an object.
+
+METHOD-COMBINATION-NAME---a symbol naming a method combination type.
+
+METHOD-QUALIFIERS, SPECIALIZED-LAMBDA-LIST, DECLARATIONS, DOCUMENTATION, FORMS---as per DEFMETHOD.
+
+NEW-GENERIC---the generic function object.
+
+PARAMETER-NAME---a symbol that names a required parameter in the
+LAMBDA-LIST. (If the :ARGUMENT-PRECEDENCE-ORDER option is specified,
+each required parameter in the LAMBDA-LIST must be used exactly once
+as a PARAMETER-NAME.)
+
+Description:
+
+The macro DEFGENERIC is used to define a generic function or to
+specify options and declarations that pertain to a generic function as
+a whole.
+
+If FUNCTION-NAME is a list it must be of the form (SETF SYMBOL). If
+(FBOUNDP FUNCTION-NAME) is false, a new generic function is
+created. If (FDEFINITION FUNCTION-NAME) is a generic function, that
+generic function is modified. If FUNCTION-NAME names an ordinary
+function, a macro, or a special operator, an error is signaled.
+
+The effect of the DEFGENERIC macro is as if the following three steps
+were performed: first, methods defined by previous DEFGENERIC forms
+are removed; second, ENSURE-GENERIC-FUNCTION is called; and finally,
+methods specified by the current DEFGENERIC form are added to the
+generic function.
+
+Each METHOD-DESCRIPTION defines a method on the generic function. The
+lambda list of each method must be congruent with the lambda list
+specified by the GF-LAMBDA-LIST option. If no method descriptions are
+specified and a generic function of the same name does not already
+exist, a generic function with no methods is created.
+
+The GF-LAMBDA-LIST argument of defgeneric specifies the shape of
+lambda lists for the methods on this generic function. All methods on
+the resulting generic function must have lambda lists that are
+congruent with this shape. If a DEFGENERIC form is evaluated and some
+methods for that generic function have lambda lists that are not
+congruent with that given in the DEFGENERIC form, an error is
+signaled. For further details on method congruence, see Section 7.6.4
+(Congruent Lambda-lists for all Methods of a Generic Function).
+
+The generic function passes to the method all the argument values
+passed to it, and only those; default values are not supported. Note
+that optional and keyword arguments in method definitions, however,
+can have default initial value forms and can use SUPPLIED-P
+parameters.
+
+The following options are provided. Except as otherwise noted, a given
+option may occur only once.
+
+    The :argument-precedence-order option is used to specify the order
+    in which the required arguments in a call to the generic function
+    are tested for specificity when selecting a particular
+    method. Each required argument, as specified in the gf-lambda-list
+    argument, must be included exactly once as a parameter-name so
+    that the full and unambiguous precedence order is supplied. If
+    this condition is not met, an error is signaled.
+
+    The declare option is used to specify declarations that pertain to
+    the generic function.
+
+    An optimize declaration specifier is allowed. It specifies whether
+    method selection should be optimized for speed or space, but it
+    has no effect on methods. To control how a method is optimized, an
+    optimize declaration must be placed directly in the defmethod form
+    or method description. The optimization qualities speed and space
+    are the only qualities this standard requires, but an
+    implementation can extend the object system to recognize other
+    qualities. A simple implementation that has only one method
+    selection technique and ignores optimize declaration specifiers is
+    valid.
+
+    The special, ftype, function, inline, notinline, and declaration
+    declarations are not permitted. Individual implementations can
+    extend the declare option to support additional declarations. If
+    an implementation notices a declaration specifier that it does not
+    support and that has not been proclaimed as a non-standard
+    declaration identifier name in a declaration proclamation, it
+    should issue a warning.
+
+    The declare option may be specified more than once. The effect is
+    the same as if the lists of declaration specifiers had been
+    appended together into a single list and specified as a single
+    declare option.
+
+    The :documentation argument is a documentation string to be
+    attached to the generic function object, and to be attached with
+    kind function to the function-name.
+
+    The :generic-function-class option may be used to specify that the
+    generic function is to have a different class than the default
+    provided by the system (the class standard-generic-function). The
+    class-name argument is the name of a class that can be the class
+    of a generic function. If function-name specifies an existing
+    generic function that has a different value for the
+    :generic-function-class argument and the new generic function
+    class is compatible with the old, change-class is called to change
+    the class of the generic function; otherwise an error is signaled.
+
+    The :method-class option is used to specify that all methods on
+    this generic function are to have a different class from the
+    default provided by the system (the class standard-method). The
+    class-name argument is the name of a class that is capable of
+    being the class of a method.
+
+    The :method-combination option is followed by a symbol that names
+    a type of method combination. The arguments (if any) that follow
+    that symbol depend on the type of method combination. Note that
+    the standard method combination type does not support any
+    arguments. However, all types of method combination defined by the
+    short form of define-method-combination accept an optional
+    argument named order, defaulting to :most-specific-first, where a
+    value of :most-specific-last reverses the order of the primary
+    methods without affecting the order of the auxiliary methods.
+
+The method-description arguments define methods that will be
+associated with the generic function. The method-qualifier and
+specialized-lambda-list arguments in a method description are the same
+as for defmethod.
+
+The form arguments specify the method body. The body of the method is
+enclosed in an implicit block. If function-name is a symbol, this
+block bears the same name as the generic function. If function-name is
+a list of the form (setf symbol), the name of the block is symbol.
+
+Implementations can extend defgeneric to include other options. It is
+required that an implementation signal an error if it observes an
+option that is not implemented locally.
+
+defgeneric is not required to perform any compile-time side
+effects. In particular, the methods are not installed for invocation
+during compilation. An implementation may choose to store information
+about the generic function for the purposes of compile-time
+error-checking (such as checking the number of arguments on calls, or
+noting that a definition for the function name has been seen)."""
+        if _ is not None:
+                error("DEFGENERIC must be used be as a decorator call.")
+                # The rationale is that the gfun arglist is precious, and
+                # the decorator is the only place to have a sane arglist.
+        if documentation is not None:
+                error("DEFGENERIC :DOCUMENTATION is provided through the docstring instead.")
+        def do_defgeneric(fn):
+                # option::= (:argument-precedence-order parameter-name+) |
+                #           (declare gf-declaration+) |
+                #           (:documentation gf-documentation) |
+                #           (:method-combination method-combination method-combination-argument*) |
+                #           (:generic-function-class generic-function-class) |
+                #           (:method-class method-class)
+                return ensure_generic_function(fn.__name__,
+                                               argument_precedence_order = argument_precedence_order,
+                                               documentation             = fn.__doc__,
+                                               method_combination        = method_combination,
+                                               generic_function_class    = generic_function_class,
+                                               method_class              = method_class,
+                                               #
+                                               lambda_list   = _argspec_lambda_spec(inspect.getfullargspec(fn)),
+                                               filename      = fn.__code__.co_filename,
+                                               lineno        = fn.__code__.co_firstlineno)
+        return do_defgeneric
 
 def add_method(generic_function, method):
         """Arguments:
@@ -4806,9 +5198,9 @@ implementation."""
         # XXX: validate GF
         lambda_list = _argspec_lambda_spec(inspect.getfullargspec(the(function_, method)))
         fixed, optional, args, keyword, keys = lambda_list
-        method.__qualifiers__ = []
-        method.__lambda_list__ = lambda_list
-        method.__specializers__ = tuple(make_method_specializers(
+        method.qualifiers = []
+        method.lambda_list = lambda_list
+        method.specializers = tuple(_make_method_specializers(
                         mapcar(lambda name: gethash(name, method.__annotations__, t)[0],
                                fixed)))
         method.__slot_definition__ = None
@@ -4816,14 +5208,14 @@ implementation."""
         generic_function.__applicable_method_cache__ = dict()
         return generic_function
 
-def method_qualifiers(x):      return x.__qualifiers___
-def method_lambda_list(x):     return x.__lambda_list__
-def method_specializers(x):    return x.__specializers__
+def method_qualifiers(x):      return x.qualifiers
+def method_lambda_list(x):     return x.lambda_list
+def method_specializers(x):    return x.specializers
 def method_function(x):        return x
 def method_slot_definition(x): return x.__slot_definition__
 def method_documentation(x):   return x.__doc__
 
-def make_method_specializers(specializers):
+def _make_method_specializers(specializers):
         def parse(name):
                 return (# name                                                    if specializerp(name) else
                         name                                                      if name is t          else
@@ -4867,7 +5259,10 @@ implementation."""
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
         # (iii) no method has been added to or removed from the
         #       generic function,
+        del generic_function.__methods__[method.__specializers__]
         generic_function.__applicable_method_cache__ = dict()
+        _not_implemented()
+        # Bust the EMF cache too.
         return generic_function
 
 def defmethod(fn):
@@ -5181,6 +5576,7 @@ object."""
 # options creates a generic function, and if the lambda list for the
 # method mentions keyword arguments, the lambda list of the generic
 # function will mention &key (but no keyword arguments).
+        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
         gfun, definedp = gethash(fn.__name__, globals())
         if not definedp:
                 gfun = ensure_generic_function(fn.__name__)

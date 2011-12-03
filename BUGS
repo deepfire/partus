@@ -704,3 +704,5 @@ Traceback (most recent call last):
   File "/little/home/deepfire/src/partus/cl.py", line 322, in _ast_compiled_name
     mod = _compile_and_load(*body, **keys)
 KeyError: 'gfun'
+
+Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
