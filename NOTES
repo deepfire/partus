@@ -1,0 +1,52 @@
+### -*- mode: org; -*-
+#+STARTUP: hidestars #+STARTUP: odd
+
+* TODO initialize-instance
+* TODO reinitialize-instance
+* shared-initialize standard-generic-function
+* TODO define-method-combination
+* TODO make-method-lambda
+* TODO compute-effective-method
+* compute-applicable-methods-using-classes
+*** compute-applicable-methods-using-types
+* compute-applicable-methods-using-types
+*** specializer-applicable-using-type-p
+*** get-generic-fun-info
+*** sort-applicable-methods
+* compute-applicable-methods
+*** compute-applicable-methods-using-types
+* compute-discriminating-function
+*** lambda
+***** dfun-compute-applicable-methods
+******* compute-applicable-methods-using-classes
+******* compute-applicable-methods
+***** compute-effective-method
+* ensure-generic-function-using-class
+*** remove-method
+*** or
+***** make-instance generic-function-class, _setf_global
+***** reinitialize-instance
+* ensure-generic-function
+*** ensure-generic-function-using-class
+* defgeneric
+*** ensure-generic-function
+*** TODO recheck compliance
+* add-method
+*** generic-function-find-agreeing-method
+*** remove-method
+*** add-direct-method
+*** set-funcallable-instance (compute-discriminating-function)
+*** TODO update-dependents
+* set-funcallable-instance-function
+* TODO add-direct-method
+* shared-initialize standard-method
+* remove-method
+*** remove-direct-method
+*** set-funcallable-instance (compute-discriminating-function)
+*** TODO update-dependents
+* defmethod
+*** ensure-generic-function
+*** make-method-lambda (class-prototype)
+*** make-instance (generic-function-method-class)
+*** add-method
+

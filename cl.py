@@ -244,6 +244,9 @@ def _ast_return(node):
 #              expr* kw_defaults)
 # arg = (identifier arg, expr? annotation)
 # keyword = (identifier arg, expr value)
+def _function_lambda_list(fn):
+        return _argspec_lambda_spec(inspect.getfullargspec(fn))
+
 def _argspec_nfixargs(paramspec):
         return len(paramspec.args) - len(paramspec.defaults or []) # ILTW Python implementors think..
 
@@ -1855,6 +1858,11 @@ def _init_package_system_0():
         t                  = _intern0("T", cl)       # Nothing much works without these..
         nil                = _intern0("NIL", cl)
         t.value, nil.value = t, nil     # Self-evaluation.
+        nil.__contains__   = lambda _: False
+        nil.__getitem__    = lambda _, __: nil
+        nil.__length__     = lambda _: 0
+        nil.__iter__       = lambda _: None
+        nil.__reversed__   = lambda _: None
         export([t, nil] + mapcar(lambda n: _intern0(n, cl),
                                  __core_symbol_names__ +
                                  __more_symbol_names__),
@@ -3605,42 +3613,99 @@ def eval_(form):
         package = symbol_value("_package_")
         return _eval_python(_callify(form, package))
 
-def _compile_list(body):
-        
+def _valid_declaration_p(x):
+        return nil
 
 # Unregistered Issue C-J-COULD-BE-EXTENDED-TO-FOLLOW-M-J-WITHIN-COMMENTS
 ##
 ## An attempt at CLOS imitation
 ##
 class standard_object():
-        pass
+        def __init__(self, **initargs):
+                initialize_instance(self, **initargs)
 
 def make_instance(class, **keys):
         "XXX: compliance?"
-        return class(***keys)
+        return class(**keys)
+
+def slot_boundp(object, slot):            return hasattr(object, slot)
+def slot_makunbound(object, slot):        del object.__dir__[slot]
+def slot_value(object, slot):             return getattr(object, slot)
+def setf_slot_value(object, slot, value): return setattr(object, slot, value)
+
+def initialize_instance(instance, **initargs):
+        """Called by MAKE-INSTANCE to initialize a newly created INSTANCE. The
+generic function is called with the new INSTANCE and the defaulted
+initialization argument list.
+
+The system-supplied primary method on INITIALIZE-INSTANCE initializes
+the slots of the instance with values according to the INITARGS and
+the :INITFORM forms of the slots. It does this by calling the generic
+function SHARED-INITIALIZE with the following arguments: the instance,
+T (this indicates that all slots for which no initialization arguments
+are provided should be initialized according to their :INITFORM
+forms), and the INITARGS.
+
+Programmers can define methods for INITIALIZE-INSTANCE to specify
+actions to be taken when an instance is initialized. If only after
+methods are defined, they will be run after the system-supplied
+primary method for initialization and therefore will not interfere
+with the default behavior of INITIALIZE-INSTANCE."""
+        shared_initialize(instance, t, **initargs)
+        _not_implemented()
+        return instance
+
+def reinitialize_instance(instance, **initargs):
+        """The generic function REINITIALIZE-INSTANCE can be used to
+change the values of local slots of an INSTANCE according to
+INITARGS. This generic function can be called by users.
+
+The system-supplied primary method for REINITIALIZE-INSTANCE checks
+the validity of INITARGS and signals an error if an initarg is
+supplied that is not declared as valid. The method then calls the
+generic function SHARED-INITIALIZE with the following arguments: the
+INSTANCE, NIL (which means no slots should be initialized according to
+their initforms), and the INITARGS it received."""
+        shared_initialize(instance, nil, **initargs)
+        _not_implemented()
+        return instance
 
 class method():
         "All methods are of this type."
-class generic_function():
+
+class funcallable_standard_class():
+        "All funcallable instances are of this type."
+        def __call__(self, *args, **keys):
+                return self.function(*args, **keys)
+
+class generic_function(funcallable_standard_class):
         "All generic functions are of this type."
+
 class method_combination():
         "All method combinations are of this type."
 
 class standard_method(method):
-        def __init__(self, function = None, **key):
-                if not functionp(function):
-                        # When the method metaobject is created with MAKE-INSTANCE,
-                        # the method function must be the value of the :FUNCTION
-                        # initialization argument.
-                        error("MAKE-INSTANCE for method metaobjects requires the :FUNCTION keyword to name a function.")
-                self.function = function
+        def __init__(self, **initargs):
+                _standard_method_shared_initialize(method, **initargs)
         def __call__(self, gfun_args, next_methods):
                 return self.function(gfun_args, next_methods)
 
-def _valid_declaration_p(x):
-        return nil
-
 class standard_generic_function(generic_function):
+        def __init__(self, **initargs): # Nihil ex nihil.
+                _standard_generic_function_shared_initialize(**initargs)
+        # def __call__ ..is installed during EMF computation, with the proper arglist.
+
+def _standard_generic_function_shared_initialize(generic_function,
+                                                 argument_precedence_order = None,
+                                                 declarations = None,
+                                                 documentation = None,
+                                                 lambda_list = None,
+                                                 method_combination = None,
+                                                 method_class = None,
+                                                 name = None,
+                                                 # extensions
+                                                 filename = None,
+                                                 lineno = None):
         """Initialization of Generic Function Metaobjects
 
 A generic function metaobject can be created by calling
@@ -3750,41 +3815,45 @@ previously stored value is left unchanged.
 
     If the generic function is being initialized, this argument
     defaults to NIL."""
-        def __init__(self,
-                     argument_precedence_order = None,
-                     declarations = None,
-                     documentation = None,
-                     lambda_list = None,
-                     method_combination = None,
-                     method_class = None,
-                     name = None): # Nihil ex nihil.
-                if _specifiedp(argument_precedence_order):
-                        if not _specifiedp(lambda_list):
-                                error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER "
-                                      "was provided, but :LAMBDA-LIST was not.")
-                        elif not (listp(argument) and
-                                  set(argument_precedence_order) == set(lambda_list[0])):
-                                error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER, "
-                                      "when specified, must be a permutation of fixed arguments in :LAMBDA-LIST.")
-                        self.argument_precedence_order = tuple(argument_precedence_order)
-                elif _specifiedp(lambda_list):
-                        self.argument_precedence_order = tuple(lambda_list[0])
-                ## ..end of A-P-O saga.
-                self.declarations              = tuple(_defaulted(declarations, list(),
-                                                                  type = (list_, (satisfies_, _valid_declaration_p))))
-                self.documentation             = _defaulted(documentation, nil,
-                                                            type = (or_, str, (eql_, nil)))
-                if _specifiedp(lambda_list):
-                        self.lambda_list       = lambda_list
-                self.method_combination        = _defaulted(method_combination, standard_method_combination,
-                                                            type = method_combination)
-                self.method_class              = _defaulted(method_class, standard_method,
-                                                            type = method)
-                self.name                      = _defaulted(name, nil)
-        # def __call__ ..is installed during EMF computation, with the proper arglist.
+        if _specifiedp(argument_precedence_order):
+                if not _specifiedp(lambda_list):
+                        error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER "
+                              "was provided, but :LAMBDA-LIST was not.")
+                elif not (listp(argument) and
+                          set(argument_precedence_order) == set(lambda_list[0])):
+                        error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER, "
+                              "when specified, must be a permutation of fixed arguments in :LAMBDA-LIST.")
+                self.argument_precedence_order = tuple(argument_precedence_order)
+        elif _specifiedp(lambda_list):
+                self.argument_precedence_order = tuple(lambda_list[0])
+        ## ..end of A-P-O saga.
+        self.declarations              = tuple(_defaulted(declarations, list(),
+                                                          type = (list_, (satisfies_, _valid_declaration_p))))
+        self.documentation             = _defaulted(documentation, nil,
+                                                    type = (or_, str, (eql_, nil)))
+        if _specifiedp(lambda_list):
+                # XXX: _not_implemented("lambda-list validation")
+                self.lambda_list       = lambda_list
+        self.method_combination        = _defaulted(method_combination, standard_method_combination,
+                                                    type = method_combination)
+        self.method_class              = _defaulted(method_class, standard_method,
+                                                    type = method)
+        self.name                      = _defaulted(name, nil)
+        # The discriminating function may reuse the
+        # list of applicable methods without calling
+        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
+        # (ii) the generic function has not been reinitialized,
+        generic_function.__applicable_method_cache__ = dict() # (list_, type_) -> list;  busted on every defmethod invocation
+        filename, lineno = (_defaulted(filename, "<unknown>"), _defaulted(filename, "<lineno>"))
+        generic_function.__dfun__ = compute_discriminating_function(generic_function)
+        # Simulate a python function:
+        generic_function.__doc__ = _defaulted(documentation, gfun.__doc__)
+        generic_function.__code__.co_filename    = filename
+        generic_function.__code__.co_firstlineno = lineno
+        return generic_function
 
 def _generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")
-def _method_p(x):           return functionp(x) and hasattr(x, "__specializers__")
+def _method_p(x):           return functionp(x) and hasattr(x, "specializers")
 def _specializerp(x):       return ((x is t)        or
                                     typep(x, (or_, type_, (tuple_, (eql_, eql_), t))))
 
@@ -3795,9 +3864,14 @@ def _get_generic_fun_info(generic_function):
                       len(generic_function.lambda_list[3]),
                       generic_function.lambda_list)
 
-def generic_function_name(x):    return x.__name__
-def generic_function_methods(x): return x.__methods__.values()
-# def generic_function_(x):       return x.____
+def generic_function_argument_precedence_order(x): return x.argument_precedence_order
+def generic_function_declarations(x):              return x.declarations
+def generic_function_lambda_list(x):               return x.lambda_list
+def generic_function_method_combination(x):        return x.method_combination
+def generic_function_method_class(x):              return x.method_class
+def generic_function_name(x):                      return x.name
+
+def generic_function_methods(x):                   return x.__methods__.values()
 
 class standard_method_combination(method_combination):
         "???"
@@ -4548,6 +4622,9 @@ mutates the list returned by this generic function."""
                                                                         arguments,
                                                                         eql_))
 
+def error_need_at_least_n_args(function, n):
+        error("The function %s requires at least %d arguments.", function, n)
+
 __sealed_classes__ = set([object,
                           int, bool, float, complex,
                           str, tuple, bytes,
@@ -4578,7 +4655,7 @@ def _seal_class(x):
         # How do we forbid class precedence list modification?
         __sealed_classes__.add(x)
 
-def compute_discriminating_function(generic_function) -> (lambda *args, **keys: None):
+def compute_discriminating_function(generic_function):
         """Arguments:
 
 The GENERIC-FUNCTION argument is a generic function metaobject.
@@ -4627,21 +4704,15 @@ about how method functions are called.)
 The generic function COMPUTE-DISCRIMINATING-FUNCTION is called, and
 its result installed, by ADD-METHOD, REMOVE-METHOD,
 INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
-        return _do_compute_discriminating_function(
-                 generic_function.__name__,
-                 generic_function.lambda_list,
-                 generic_function.__applicable_method_cache__,
-                 generic_function.__code__.co_filename,
-                 generic_function.__code__.co_lineno)
-
-def error_need_at_least_n_args(function, n):
-        error("The function %s requires at least %d arguments.", function, n)
-
-def _do_compute_discriminating_function(function_name,
-                                        lambda_list,
-                                        applicable_method_cache,
-                                        filename,
-                                        lineno) -> (lambda *args, **keys: None):
+        (function_name,
+         lambda_list,
+         applicable_method_cache,
+         filename,
+         lineno) = (generic_function.__name__,
+                    generic_function.lambda_list,
+                    generic_function.__applicable_method_cache__,
+                    generic_function.__code__.co_filename,
+                    generic_function.__code__.co_lineno)
         fixed, optional, args, keyword, keys = lambda_list
         nfixed = len(fixed)
         def dfun_compute_applicable_methods(generic_function, args):
@@ -4663,7 +4734,7 @@ def _do_compute_discriminating_function(function_name,
                 applicable_method_cache_key = dispatch_arg_types + reduce(lambda acc, x: acc + x.__mro__,
                                                                           sorted(unsealed_classes, key = lambda type: type.__name__),
                                                                           tuple())
-                # We pay the high price of (iv) and (v), because we can't hook
+                # We ought to pay the high price of (iv) and (v), because we can't hook
                 # into the Python's object system.
                 applicable, hit = gethash(applicable_method_cache_key, applicable_method_cache)
                 if hit:
@@ -4782,67 +4853,7 @@ signaled.
 Otherwise the generic function GENERIC-FUNCTION is redefined by
 calling the REINITIALIZE-INSTANCE generic function with
 GENERIC-FUNCTION and the initialization arguments. The
-GENERIC-FUNCTION argument is then returned.
-
-Unless there is a specific note to the contrary, then during
-reinitialization, if an initialization argument is not supplied, the
-previously stored value is left unchanged.
-
-The :ARGUMENT-PRECEDENCE-ORDER argument is a list of symbols.
-
-An error is signaled if this argument appears but the :LAMBDA-LIST
-argument does not appear. An error is signaled if this value is not a
-proper list or if this value is not a permutation of the symbols from
-the required arguments part of the :LAMBDA-LIST initialization
-argument.
-
-When the generic function is being initialized or reinitialized, and
-this argument is not supplied, but the :LAMBDA-LIST argument is
-supplied, this value defaults to the symbols from the required
-arguments part of the :LAMBDA-LIST argument, in the order they appear
-in that argument. If neither argument is supplied, neither are
-initialized (see the description of :LAMBDA-LIST.)
-
-The :DECLARATIONS argument is a list of declarations.
-
-An error is signaled if this value is not a proper list or if each of
-its elements is not a legal declaration.
-
-When the generic function is being initialized, and this argument is
-not supplied, it defaults to the empty list.
-
-The :DOCUMENTATION argument is a string or NIL.
-
-An error is signaled if this value is not a string or NIL.
-
-If the generic function is being initialized, this argument defaults
-to NIL.
-
-The :LAMBDA-LIST argument is a lambda list.
-
-An error is signaled if this value is not a proper generic function
-lambda list.
-
-When the generic function is being initialized, and this argument is
-not supplied, the generic function's lambda list is not
-initialized. The lambda list will be initialized later, either when
-the first method is added to the generic function, or a later
-reinitialization of the generic function.
-
-The :METHOD-COMBINATION argument is a method combination metaobject.
-
-The :METHOD-CLASS argument is a class metaobject.
-
-An error is signaled if this value is not a subclass of the class
-METHOD.
-
-When the generic function is being initialized, and this argument is
-not supplied, it defaults to the class STANDARD-METHOD.
-
-The :NAME argument is an object.
-
-If the generic function is being initialized, this argument defaults
-to NIL."""
+GENERIC-FUNCTION argument is then returned."""
         if gfun:
                 # DEFGENERIC (CLHS) documentation says:
                 ## The effect of the DEFGENERIC macro is as if the following three steps
@@ -4858,6 +4869,10 @@ to NIL."""
                 ## returns that result as its own.
                 # ..and so, we decide that AMOP trumps CLHS.
                 mapc(curry(remove_method, gfun), generic_function_methods(gfun))
+        if lambda_list:
+                fixed, optional, args, keyword, keys = lambda_list
+                if some(lambda x: x[1] is not None, list(optional) + list(keyword)):
+                        error("Generic function arglist cannot specify default parameter values.")
         initargs = _specified_keys(
                 argument_precedence_order = argument_precedence_order,
                 declarations              = declarations,
@@ -4865,7 +4880,10 @@ to NIL."""
                 lambda_list               = lambda_list,
                 method_class              = method_class,
                 method_combination        = method_combination,
-                name                      = name)
+                name                      = name,
+                # incompatible..
+                filename                  = filename,
+                lineno                    = lineno)
         initargs.update(keys)
         if not generic_function:
                 # If the GENERIC-FUNCTION argument is NIL, an instance of the class
@@ -4876,38 +4894,16 @@ to NIL."""
                 _setf_global(function_name, generic_function)
         else:
                 if class_of(generic_function) is not generic_function_class:
+                        # If the class of the GENERIC-FUNCTION argument is not the same as the
+                        # class specified by the :GENERIC-FUNCTION-CLASS argument, an error is
+                        # signaled.
                         error("ENSURE-GENERIC-FUNCTION-USING-CLASS: ")
-                # fixed, optional, args, keyword, keys = lambda_list
-                # if some(lambda x: x[1] is not None, list(optional) + list(keyword)):
-                #         error("Generic function arglist cannot specify default parameter values.")
-                # applicable_method_cache = dict()
-        if (not generic_function or                       # New generic function?..
-            lambda_list != generic_function.lambda_list): # ..or an incompatible redefinition?
-                new_gfun = _do_compute_discriminating_function(function_name,
-                                                               lambda_list,
-                                                               applicable_method_cache,
-                                                               filename,
-                                                               _defaulted(lineno, 0))
-                # new_gfun.__applicable_method_cache__ = ..see below
-                new_gfun.__methods__         = dict() # keyed by type specifier tuples... busted?
-                new_gfun.lambda_list         = lambda_list
-        else:
-                gfun.__code__.co_filename    = filename
-                gfun.__code__.co_firstlineno = lineno
-        gfun.__doc__ = _defaulted(documentation, gfun.__doc__)
-        # The discriminating function may reuse the
-        # list of applicable methods without calling
-        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
-        # (ii) the generic function has not been reinitialized,
-        gfun.__applicable_method_cache__ = applicable_method_cache # (list_, type_) -> list;  busted on every defmethod invocation
-        return gfun
-
-def generic_function_argument_precedence_order(x): return x.argument_precedence_order
-def generic_function_declarations(x):              return x.declarations
-def generic_function_lambda_list(x):               return x.lambda_list
-def generic_function_method_combination(x):        return x.method_combination
-def generic_function_method_class(x):              return x.method_class
-def generic_function_name(x):                      return x.name
+                        # Otherwise the generic function GENERIC-FUNCTION is redefined by
+                        # calling the REINITIALIZE-INSTANCE generic function with
+                        # GENERIC-FUNCTION and the initialization arguments. The
+                        # GENERIC-FUNCTION argument is then returned.               
+                reinitialize_instance(generic_function, **initargs)
+        return generic_function
 
 def ensure_generic_function(function_name, **keys):
         """Arguments:
@@ -5149,9 +5145,9 @@ noting that a definition for the function name has been seen)."""
                                                documentation             = fn.__doc__,
                                                method_combination        = method_combination,
                                                generic_function_class    = generic_function_class,
+                                               lambda_list               = _function_lambda_list(fn),
                                                method_class              = method_class,
                                                #
-                                               lambda_list   = _argspec_lambda_spec(inspect.getfullargspec(fn)),
                                                filename      = fn.__code__.co_filename,
                                                lineno        = fn.__code__.co_firstlineno)
         return do_defgeneric
@@ -5190,30 +5186,197 @@ dependents of the generic function.
 
 The generic function ADD-METHOD can be called by the user or the
 implementation."""
-        # The discriminating function may reuse the
-        # list of applicable methods without calling
-        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
-        # (iii) no method has been added to or removed from the
-        #       generic function,
-        # XXX: validate GF
-        lambda_list = _argspec_lambda_spec(inspect.getfullargspec(the(function_, method)))
-        fixed, optional, args, keyword, keys = lambda_list
-        method.qualifiers = []
-        method.lambda_list = lambda_list
-        method.specializers = tuple(_make_method_specializers(
-                        mapcar(lambda name: gethash(name, method.__annotations__, t)[0],
-                               fixed)))
-        method.__slot_definition__ = None
-        generic_function.__methods__[method.__specializers__] = method
-        generic_function.__applicable_method_cache__ = dict()
+        _not_implemented("congruence check")
+        if slot_boundp(method, "__generic_function__") and method.__generic_function__:
+                error("ADD-METHOD called to add %s, when it was already attached to %s.",
+                      method, method.__generic_function__)
+        old_method = _generic_function_find_agreeing_method(generic_function,
+                                                            method_qualifiers(method),
+                                                            method_specializers(method))
+        if old_method:
+                remove_method(generic_function, old_method)
+        generic_function.__methods__[method.specializers] = method
+        method.__generic_function__ = generic_function
+        for s in method_specializers(method):
+                add_direct_method(s, method)
+        set_funcallable_instance_function(generic_function,
+                                          compute_discriminating_function(generic_function))
+        # _not_implemented("update the dependents of the generic function.")
         return generic_function
 
-def method_qualifiers(x):      return x.qualifiers
-def method_lambda_list(x):     return x.lambda_list
-def method_specializers(x):    return x.specializers
-def method_function(x):        return x
-def method_slot_definition(x): return x.__slot_definition__
-def method_documentation(x):   return x.__doc__
+def set_funcallable_instance_function(funcallable_instance, function):
+        """set-funcallable-instance-function funcallable-instance function
+
+Arguments:
+
+The FUNCALLABLE-INSTANCE argument is a funcallable instance (it must
+have been returned by ALLOCATE-INSTANCE (FUNCALLABLE-STANDARD-CLASS)).
+
+The FUNCTION argument is a function.
+
+Values:
+
+The value returned by this function is unspecified.
+
+Purpose:
+
+This function is called to set or to change the function of a
+funcallable instance. After SET-FUNCALLABLE-INSTANCE-FUNCTION is
+called, any subsequent calls to FUNCALLABLE-INSTANCE will run the new
+FUNCTION."""
+        # XXX: better to:
+        # 1. override __call__ with a properly-arglisted thing
+        # 2. pass through __code__ and maybe others
+        funcallable_instance.function = function
+
+def add_direct_method(specializer, method):
+        """This generic function is called to maintain a set of
+backpointers from a SPECIALIZER to the set of methods specialized to
+it. If METHOD is already in the set, it is not added again (no error
+is signaled).
+
+This set can be accessed as a list by calling the generic function
+SPECIALIZER-DIRECT-METHODS. Methods are removed from the set by
+REMOVE-DIRECT-METHOD.
+
+The generic function ADD-DIRECT-METHOD is called by ADD-METHOD
+whenever a method is added to a generic function. It is called once
+for each of the specializers of the METHOD. Note that in cases where a
+specializer appears more than once in the specializers of a METHOD,
+this generic function will be called more than once with the same
+specializer as argument.
+
+The results are undefined if the SPECIALIZER argument is not one of
+the specializers of the METHOD argument."""
+        _not_implemented("maintain a set of backpointers from a SPECIALIZER to the set of methods specialized to it")
+
+def _standard_method_shared_initialize(method,
+                                       qualifiers = None,
+                                       lambda_list = None,
+                                       specializers = None,
+                                       function = None,
+                                       documentation = None,
+                                       slot_definition = None,
+                                       # extensions
+                                       filename = None,
+                                       lineno = None):
+"""Initialization of Method Metaobjects
+
+A method metaobject can be created by calling MAKE-INSTANCE. The
+initialization arguments establish the definition of the METHOD. A
+method metaobject cannot be redefined; calling REINITIALIZE-INSTANCE
+signals an error.
+
+Initialization of a METHOD metaobject must be done by calling
+MAKE-INSTANCE and allowing it to call INITIALIZE-INSTANCE. Portable
+programs must not call INITIALIZE-INSTANCE directly to initialize a
+method metaoject. Portable programs must not call shared-initialize
+directly to initialize a method metaobject. Portable programs must not
+call CHANGE-CLASS to change the class of any method metaobject or to
+turn a non-method object into a method metaobject.
+
+Since metaobject classes may not be redefined, no behavior is
+specified for the result of calls to
+UPDATE-INSTANCE-FOR-REDEFINED-CLASS on method metaobjects. Since the
+class of a method metaobject cannot be changed, no behavior is
+specified for the result of calls to
+UPDATE-INSTANCE-FOR-DIFFERENT-CLASS on method metaobjects.
+
+During initialization, each initialization argument is checked for
+errors and then associated with the METHOD metaobject. The value can
+then be accessed by calling the appropriate accessor as shown in Table
+4.
+
+This section begins with a description of the error checking and
+processing of each initialization argument. This is followed by a
+table showing the generic functions that can be used to access the
+stored initialization arguments. The section ends with a set of
+restrictions on portable methods affecting method metaobject
+initialization.
+
+In these descriptions, the phrase ``this argument defaults to value''
+means that when that initialization argument is not supplied,
+initialization is performed as if value had been supplied. For some
+initialization arguments this could be done by the use of default
+initialization arguments, but whether it is done this way is not
+specified. Implementations are free to define default initialization
+arguments for specified method metaobject classes. Portable programs
+are free to define default initialization arguments for portable
+subclasses of the class method.
+
+    The :QUALIFIERS argument is a list of method qualifiers. An error
+    is signaled if this value is not a proper list, or if any element
+    of the list is not a non-null atom. This argument defaults to the
+    empty list.
+
+    The :LAMBDA-LIST argument is the unspecialized lambda list of the
+    method. An error is signaled if this value is not a proper lambda
+    list. If this value is not supplied, an error is signaled.
+
+    The :SPECIALIZERS argument is a list of the specializer
+    metaobjects for the METHOD. An error is signaled if this value is
+    not a proper list, or if the length of the list differs from the
+    number of required arguments in the :LAMBDA-LIST argument, or if
+    any element of the list is not a specializer metaobject. If this
+    value is not supplied, an error is signaled.
+
+    The :FUNCTION argument is a method function. It must be compatible
+    with the methods on COMPUTE-EFFECTIVE-METHOD defined for this
+    class of method and generic function with which it will be
+    used. That is, it must accept the same number of arguments as all
+    uses of CALL-METHOD that will call it supply. (See
+    COMPUTE-EFFECTIVE-METHOD for more information.) An error is
+    signaled if this argument is not supplied.
+
+    When the METHOD being initialized is an instance of a subclass of
+    STANDARD-ACCESSOR-METHOD, the :SLOT-DEFINITION initialization
+    argument must be provided. Its value is the direct slot definition
+    metaobject which defines this accessor method. An error is
+    signaled if the value is not an instance of a subclass of
+    DIRECT-SLOT-DEFINITION.
+
+    The :documentation argument is a string or NIL. An error is
+    signaled if this value is not a string or NIL. This argument
+    defaults to NIL.
+
+After the processing and defaulting of initialization arguments
+described above, the value of each initialization argument is
+associated with the method metaobject. These values can then be
+accessed by calling the corresponding generic function. The
+correspondences are as follows:"""
+        method.qualifiers = _defaulted(qualifiers, [],
+                                       type = (list_, (and_, symbol, (not_, (eql_, nil)))))
+        if not _specifiedp(lambda_list):
+                error("SHARED-INITIALIZE STANDARD-METHOD: :LAMBDA-LIST must be supplied.")
+        # XXX: _not_implemented("lambda-list validation")
+        method.lambda_list = lambda_list
+        if not _specifiedp(specializers):
+                error("SHARED-INITIALIZE STANDARD-METHOD: :SPECIALIZERS must be supplied.")
+        # XXX: _not_implemented("specializer validation"):
+        #  o  (list_, method_specializer)
+        #  o  length == len(lambda_list[0])
+        method.specializers = specializers
+        if not _specifiedp(function):
+                error("SHARED-INITIALIZE STANDARD-METHOD: :FUNCTION must be supplied.")
+        method.function = function
+        ## Later:
+        # if typep(method, standard_accessor_method):
+        #         if not _specifiedp(slot_definition):
+        #                 error("SHARED-INITIALIZE STANDARD-METHOD: :SLOT-DEFINITION must be supplied.")
+        #         if not typep(slot_definition, direct_slot_definition):
+        #                 error("SHARED-INITIALIZE STANDARD-METHOD: the supplied value of :SLOT-DEFINITION must be an instance of a subclass of DIRECT-SLOT-DEFINITION.")
+        method.documentation = _defaulted(documentation, nil,
+                                          type = (or_, str, (eql_, nil)))
+        return method
+
+def method_qualifiers(x):       return x.qualifiers
+def method_lambda_list(x):      return x.lambda_list
+def method_specializers(x):     return x.specializers
+def method_function(x):         return x
+def method_slot_definition(x):  return x.__slot_definition__
+def method_documentation(x):    return x.__doc__
+
+def method_generic_function(x): return x.__generic_function__
 
 def _make_method_specializers(specializers):
         def parse(name):
@@ -5254,15 +5417,13 @@ dependents of the generic function.
 
 The generic function REMOVE-METHOD can be called by the user or the
 implementation."""
-        # The discriminating function may reuse the
-        # list of applicable methods without calling
-        # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
-        # (iii) no method has been added to or removed from the
-        #       generic function,
-        del generic_function.__methods__[method.__specializers__]
-        generic_function.__applicable_method_cache__ = dict()
-        _not_implemented()
-        # Bust the EMF cache too.
+        del generic_function.__methods__[method.specializers]
+        method.__generic_function__ = nil
+        for s in method_specializers(method):
+                remove_direct_method(s, method)
+        set_funcallable_instance_function(generic_function,
+                                          compute_discriminating_function(generic_function))
+        # _not_implemented("update the dependents of the generic function.")
         return generic_function
 
 def defmethod(fn):
@@ -5577,15 +5738,30 @@ object."""
 # method mentions keyword arguments, the lambda list of the generic
 # function will mention &key (but no keyword arguments).
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        gfun, definedp = gethash(fn.__name__, globals())
+        generic_function, definedp = gethash(fn.__name__, globals())
+        lambda_list = _function_lambda_list(fn)
         if not definedp:
-                gfun = ensure_generic_function(fn.__name__)
-        methfun_lambda, methfun_args = make_method_lambda(gfun, class_prototype(class_of()),
+                generic_function = ensure_generic_function(fn.__name__,
+                                               lambda_list = (lambda_list[0],
+                                                              lambda_list[1],
+                                                              [],
+                                                              lambda_list[3],
+                                                              []))
+        method_class = generic_function_method_class(generic_function)
+        methfun_lambda, methfun_args = make_method_lambda(generic_function,
+                                                          class_prototype(method_class),
                                                           fn, <env>)
-        method = make_instance(standard_method,
-                               function = _not_implemented("somehow compile", methfun_lambda),
-                               **methfun_args)
-        add_method(gfun, method)
+        fixed, optional, args, keyword, keys = lambda_list
+        method = make_instance(
+                method_class,
+                qualifiers = [], # XXX
+                lambda_list = lambda_list,
+                specializers = tuple(_make_method_specializers(
+                                     mapcar(lambda name: gethash(name, method.__annotations__, t)[0],
+                               fixed))),
+                function = _not_implemented("somehow compile", methfun_lambda)
+                **methfun_args)
+        add_method(generic_function, method)
         return method
 
 ###
