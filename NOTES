@@ -32,7 +32,8 @@
 *** ensure-generic-function
 *** TODO recheck compliance
 * add-method
-*** generic-function-find-agreeing-method
+*** generic-function-lambda-list-incongruent-with-method-list-p
+*** TODO generic-function-find-agreeing-method
 *** remove-method
 *** add-direct-method
 *** set-funcallable-instance (compute-discriminating-function)

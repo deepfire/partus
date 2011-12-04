@@ -733,9 +733,9 @@ _curry = functools.partial
 def _compose(f, g):
         return lambda *args, **keys: f(g(*args, **keys))
 
-def _tuplep(x):       return type(x) is tuple
-def _frozensetp(o):   return type(o) is frozenset
-def _setp(o):         return type(o) is set or _frozensetp(o)
+def _tuplep(x):     return type(x) is tuple
+def _frozensetp(o): return type(o) is frozenset
+def _setp(o):       return type(o) is set or _frozensetp(o)
 
 def _ensure_list(x):
         return x if listp(x) else [x]
@@ -872,6 +872,12 @@ def none(fn, *xss):
         for xs in zip(xss):
                 if fn(*xs): return False
         return True
+
+def _xorf(x, y):
+        return (x or y) and not (x and y)
+
+def _nxorf(x, y):
+        return (x and y) or not (x or y)
 
 ##
 ## Types
@@ -5152,6 +5158,82 @@ noting that a definition for the function name has been seen)."""
                                                lineno        = fn.__code__.co_firstlineno)
         return do_defgeneric
 
+def _method_agrees_with_qualifiers_specializers(method, qualifiers, specializers):
+"""7.6.3 Agreement on Parameter Specializers and Qualifiers
+
+Two methods are said to agree with each other on parameter
+specializers and qualifiers if the following conditions hold:
+
+1. Both methods have the same number of required parameters. Suppose
+the parameter specializers of the two methods are P1,1...P1,n and
+P2,1...P2,n.
+
+2. For each 1<=i<=n, P1,i agrees with P2,i. The parameter specializer
+P1,i agrees with P2,i if P1,i and P2,i are the same class or if
+P1,i=(eql object1), P2,i=(eql object2), and (eql object1
+object2). Otherwise P1,i and P2,i do not agree.
+
+3. The two lists of qualifiers are the same under equal."""
+        _not_implemented()
+
+def _generic_function_lambda_list_incongruent_with_method_list_p(generic_function_lambda_list,
+                                                                 method_lambda_list):
+        """7.6.4 Congruent Lambda-lists for all Methods of a Generic Function
+
+These rules define the congruence of a set of lambda lists, including
+the lambda list of each method for a given generic function and the
+lambda list specified for the generic function itself, if given.
+
+1. Each lambda list must have the same number of required parameters.
+
+2. Each lambda list must have the same number of optional
+parameters. Each method can supply its own default for an optional
+parameter.
+
+3. If any lambda list mentions &rest or &key, each lambda list must
+mention one or both of them.
+
+4. If the generic function lambda list mentions &key, each method must
+accept all of the keyword names mentioned after &key, either by
+accepting them explicitly, by specifying &allow-other-keys, or by
+specifying &rest but not &key. Each method can accept additional
+keyword arguments of its own. The checking of the validity of keyword
+names is done in the generic function, not in each method. A method is
+invoked as if the keyword argument pair whose name is
+:allow-other-keys and whose value is true were supplied, though no
+such argument pair will be passed.
+
+5. The use of &allow-other-keys need not be consistent across lambda
+lists. If &allow-other-keys is mentioned in the lambda list of any
+applicable method or of the generic function, any keyword arguments
+may be mentioned in the call to the generic function.
+
+6. The use of &aux need not be consistent across methods.
+
+If a method-defining operator that cannot specify generic function
+options creates a generic function, and if the lambda list for the
+method mentions keyword arguments, the lambda list of the generic
+function will mention &key (but no keyword arguments)."""
+# Unregistered Issue SPEC-UNCLEAR-LAST-PASSAGE-LAMBDA-LIST-CONGRUENCE
+        gf_fixed, gf_optional, gf_args, gf_keyword, gf_keys = generic_function_lambda_list
+        m_fixed,  m_optional,  m_args,  m_keyword,  m_keys  = method_lambda_list
+        return ((len(gf_fixed)    != len(m_fixed) and
+                 "the method has %s required arguments than the generic function" %
+                 ("more" if len(m_fixed) > len(gf_fixed) else "less"))                                        or
+                (len(gf_optional) != len(m_optional) and
+                 "the method has %s optional arguments than the generic function" %
+                 ("more" if len(m_fixed) > len(gf_fixed) else "less"))                                        or
+                (_xorf(gf_args, m_args) and
+                 "but the method and generic function differ in whether they accept &REST or &KEY arguments") or
+                # XXX: #3 compliance -- still looks fishy
+                (_xorf(gf_keyword or gf_keys,
+                       m_keyword  or m_keys) and
+                 "but the method and generic function differ in whether they accept &REST or &KEY arguments") or
+                (((not gf_keyword) or
+                  m_keys           or
+                  not (set(gf_keyword) - set(m_keyword))) and
+                 "but the method does not accept each of the &KEY arguments %s" % tuple([gf_keyword])))
+
 def add_method(generic_function, method):
         """Arguments:
 
@@ -5186,13 +5268,20 @@ dependents of the generic function.
 
 The generic function ADD-METHOD can be called by the user or the
 implementation."""
-        _not_implemented("congruence check")
+        # Unregistered Issue UNCLEAR-METHOD-LAMBDA-LIST-SPECIALIZERS-INCLUSION
+        congruence_error = _generic_function_lambda_list_incongruent_with_method_list_p(
+                generic_function_lambda_list(generic_function),
+                method_lambda_list(method))
+        if congruence_error:
+                error("attempt to add the method %s to the generic function %s; but %s.",
+                      method, generic_function, congruence_error)
         if slot_boundp(method, "__generic_function__") and method.__generic_function__:
                 error("ADD-METHOD called to add %s, when it was already attached to %s.",
                       method, method.__generic_function__)
-        old_method = _generic_function_find_agreeing_method(generic_function,
-                                                            method_qualifiers(method),
-                                                            method_specializers(method))
+        old_method = find_if(lambda m: _method_agrees_with_qualifiers_specializers(m,
+                                                                                   method_qualifiers(method),
+                                                                                   method_specializers(method)),
+                             generic_function_methods(generic_function))
         if old_method:
                 remove_method(generic_function, old_method)
         generic_function.__methods__[method.specializers] = method
@@ -5377,20 +5466,6 @@ def method_slot_definition(x):  return x.__slot_definition__
 def method_documentation(x):    return x.__doc__
 
 def method_generic_function(x): return x.__generic_function__
-
-def _make_method_specializers(specializers):
-        def parse(name):
-                return (# name                                                    if specializerp(name) else
-                        name                                                      if name is t          else
-                                                                  # ..special-case, since T isn't a type..
-                        name                                                      if typep(name, type_) else
-                                                                  # Was: ((symbolp name) `(find-class ',name))
-                        ecase(car(name),
-                              (eql_,      lambda: intern_eql_specializer(name[1])),
-                              (class_eq_, lambda: class_eq_specializer(name[1]))) if _tuplep(name)      else
-                        ## Was: FIXME: Document CLASS-EQ specializers.
-                        error("%s is not a valid parameter specializer name.", name))
-        return mapcar(parse, specializers)
 
 def remove_method(generic_function, method):
         """Arguments:
@@ -5739,30 +5814,41 @@ object."""
 # function will mention &key (but no keyword arguments).
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
         generic_function, definedp = gethash(fn.__name__, globals())
-        lambda_list = _function_lambda_list(fn)
+        fixed, optional, args, keyword, keys = lambda_list = _function_lambda_list(fn)
         if not definedp:
                 generic_function = ensure_generic_function(fn.__name__,
-                                               lambda_list = (lambda_list[0],
-                                                              lambda_list[1],
-                                                              [],
-                                                              lambda_list[3],
-                                                              []))
+                                                           lambda_list = lambda_list,
+                                                           # the rest is defaulted
+                                                           )
         method_class = generic_function_method_class(generic_function)
         methfun_lambda, methfun_args = make_method_lambda(generic_function,
                                                           class_prototype(method_class),
                                                           fn, <env>)
-        fixed, optional, args, keyword, keys = lambda_list
         method = make_instance(
                 method_class,
                 qualifiers = [], # XXX
                 lambda_list = lambda_list,
                 specializers = tuple(_make_method_specializers(
                                      mapcar(lambda name: gethash(name, method.__annotations__, t)[0],
-                               fixed))),
+                                            fixed))),
                 function = _not_implemented("somehow compile", methfun_lambda)
                 **methfun_args)
         add_method(generic_function, method)
         return method
+
+def _make_method_specializers(specializers):
+        def parse(name):
+                return (# name                                                    if specializerp(name) else
+                        name                                                      if name is t          else
+                                                                  # ..special-case, since T isn't a type..
+                        name                                                      if typep(name, type_) else
+                                                                  # Was: ((symbolp name) `(find-class ',name))
+                        ecase(car(name),
+                              (eql_,      lambda: intern_eql_specializer(name[1])),
+                              (class_eq_, lambda: class_eq_specializer(name[1]))) if _tuplep(name)      else
+                        ## Was: FIXME: Document CLASS-EQ specializers.
+                        error("%s is not a valid parameter specializer name.", name))
+        return mapcar(parse, specializers)
 
 ###
 ### Init

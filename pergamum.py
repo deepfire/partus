@@ -91,9 +91,9 @@ def arg1(*args): return args[0]
 def arg2(*args): return args[1]
 def arg3(*args): return args[2]
 
-def orf(x, y):  return x | y
-def andf(x, y): return x & y
-def xorf(x, y): return x ^ y
+def logorf(x, y):  return x | y
+def logandf(x, y): return x & y
+def logxorf(x, y): return x ^ y
 
 ## conses
 # def single(x):        return (x,)
