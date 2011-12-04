@@ -3654,6 +3654,9 @@ def _valid_declaration_p(x):
 ##
 ## An attempt at CLOS imitation
 ##
+def class_of(x):
+        return getattr(x, "__class__")
+
 class standard_object():
         def __init__(self, **initargs):
                 initialize_instance(self, **initargs)
