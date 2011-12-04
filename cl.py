@@ -931,7 +931,7 @@ def _check_complex_type(x, type):
                 (zero if zero is not None else
                  error("Type specifier %s requires arguments.", type[0])) if len(type) is 1 else
                 test(lambda elem_type: element_test(x, elem_type),
-                     type[1:]))
+                     type, start = 1)) # Standard type predicates do accept the :START keyword.
 
 def typep(x, type):
         return (isinstance(x, type)          if isinstance(type, type_)                      else
@@ -1919,6 +1919,12 @@ def setf_fdefinition(symbol_name, function):
         symbol.__code__        = function.__code__
         return function
 
+__type_predicate_map__ = {
+        or_:            (nil,          nil, some,  typep),
+        and_:           (nil,          t,   every, typep),
+        member_:        (nil,          nil, some,  eql),
+        }
+
 def defun(f):
         symbol_name = f.__name__
         setf_fdefinition(symbol_name, f)
@@ -1966,20 +1972,32 @@ def varituple_(x, type):
                 every(typep, x[:fixlen], fixed_t) and
                 _every_typep(x[fixlen:], (or_,) + tuple(t[1] for t in maybes_t)))
 
-__type_predicate_map__ = {
-        or_:            (nil,          nil, some,  typep),
-        and_:           (nil,          t,   every, typep),
-        member_:        (nil,          nil, some,  eql),
-        eql_:           (eql_,         nil, nil, nil),
-        satisfies_:     (satisfies_,   nil, nil, nil),
-        maybe_:         (maybe_,       nil, nil, nil),
-        # XXX: this is a small lie: this is not a cons-list
-        # ..but neither CL has a type specifier like this and the others, that follow..
-        list_:          (list_,        nil, nil, nil),
-        tuple_:         (tuple_,       nil, nil, nil),
-        partuple_:      (partuple_,    nil, nil, nil),
-        varituple_:     (varituple_,   nil, nil, nil),
-        }
+@defun
+def lambda_list_(x, type):
+        if type:
+                return None # fail
+        return typep(x, (tuple_,
+                         (list_, str),
+                         (list_, str),
+                         (maybe_, str),
+                         (list_, str),
+                         (maybe_, str)))
+
+def deftype(name, test):
+        "XXX: should analyse the lambda list of TEST.."
+        __type_predicate_map__[name] = (test, nil, nil, nil)
+        return name
+
+deftype(eql_,         eql_)
+deftype(satisfies_,   satisfies_)
+deftype(maybe_,       maybe_)
+# XXX: this is a small lie: this is not a cons-list
+# ..but neither CL has a type specifier like this and the others, that follow..
+deftype(list_,        list_)
+deftype(tuple_,       tuple_)
+deftype(partuple_,    partuple_)
+deftype(varituple_,   varituple_)
+# deftype(lambda_list_, lambda_list_)
 
 ##
 ## T/NIL-dependent stuff
