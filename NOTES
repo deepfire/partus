@@ -1,20 +1,47 @@
 ### -*- mode: org; -*-
 #+STARTUP: hidestars #+STARTUP: odd
+#+TODO: TODO NOTGF | DONE
 
-* TODO initialize-instance
+* standard-object
+* make-instance
+* slot-*
+* NOTGF initialize-instance
 * TODO reinitialize-instance
+* NOTGF shared-initialize
+* method
+* funcallable-standard-class
+* generic-function
+* add-dependent
+* remove-dependent
+* map-dependents
+* NOTGF update-dependent
+* method-combination
+* standard-method
+* standard-generic-function
 * shared-initialize standard-generic-function
-* TODO define-method-combination
+* generic-function-*
+* define-method-combination
+*** method-combination
+***** TODO call-method
+* TODO standard-method-combination
 * TODO make-method-lambda
 * TODO compute-effective-method
 * compute-applicable-methods-using-classes
 *** compute-applicable-methods-using-types
+*** types-from-args
 * compute-applicable-methods-using-types
 *** specializer-applicable-using-type-p
 *** get-generic-fun-info
 *** sort-applicable-methods
+* specializer-applicable-using-type-p
+* sort-applicable-methods
+* sort-methods
+* order-specializers
 * compute-applicable-methods
 *** compute-applicable-methods-using-types
+*** types-from-args
+* class-sealed-p
+* seal-class
 * compute-discriminating-function
 *** lambda
 ***** dfun-compute-applicable-methods

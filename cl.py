@@ -1952,13 +1952,13 @@ def eql_(x, type):
 def tuple_(x, type):
         return (_tuplep(x)              and
                 len(x) == len(type) - 1 and
-                every(typep, x, type[1:]))
+                every(typep, x, type, start = 1))
 
 @defun
 def partuple_(x, type):
         return (_tuplep(x)              and
                 len(x) >= len(type) - 1 and
-                every(typep, x, type[1:]))
+                every(typep, x, type, start = 1))
 
 __variseq__ = (tuple_, (eql_, maybe_), t) # Meta-type, heh..
 @defun
@@ -3688,8 +3688,8 @@ actions to be taken when an instance is initialized. If only after
 methods are defined, they will be run after the system-supplied
 primary method for initialization and therefore will not interfere
 with the default behavior of INITIALIZE-INSTANCE."""
-        shared_initialize(instance, t, initargs)
-        _not_implemented()
+        # Unregistered Issue COMPLIANCE-SPEC-UNCLEAR-ON-NEED-FOR-INITARG-VALIDITY-CHECK
+        shared_initialize(instance, t, **initargs)
         return instance
 
 def reinitialize_instance(instance, **initargs):
@@ -3703,25 +3703,337 @@ supplied that is not declared as valid. The method then calls the
 generic function SHARED-INITIALIZE with the following arguments: the
 INSTANCE, NIL (which means no slots should be initialized according to
 their initforms), and the INITARGS it received."""
-        shared_initialize(instance, nil, initargs)
-        _not_implemented()
+        _not_implemented("check of validity of INITARGS")
+        shared_initialize(instance, nil, **initargs)
         return instance
 
-def shared_initialize(instance, slots, initargs):
-""" """
-        
+def shared_initialize(instance, slot_names, **initargs):
+        """shared-initialize instance slot-names &rest initargs &key &allow-other-keys => instance
+
+Method Signatures:
+
+shared-initialize (instance standard-object) slot-names &rest initargs
+
+Arguments and Values:
+
+instance---an object.
+
+slot-names---a list or t.
+
+initargs---a list of keyword/value pairs (of initialization argument names and values).
+
+Description:
+
+The generic function SHARED-INITIALIZE is used to fill the slots of an
+instance using INITARGS and :INITFORM forms. It is called when an
+instance is created, when an instance is re-initialized, when an
+instance is updated to conform to a redefined class, and when an
+instance is updated to conform to a different class. The generic
+function SHARED-INITIALIZE is called by the system-supplied primary
+method for INITIALIZE-INSTANCE, REINITIALIZE-INSTANCE,
+UPDATE-INSTANCE-FOR-REDEFINED-CLASS, and
+UPDATE-INSTANCE-FOR-DIFFERENT-CLASS.
+
+The generic function SHARED-INITIALIZE takes the following arguments:
+the INSTANCE to be initialized, a specification of a set of SLOT-NAMES
+accessible in that INSTANCE, and any number of INITARGS. The arguments
+after the first two must form an initialization argument list. The
+system-supplied primary method on SHARED-INITIALIZE initializes the
+slots with values according to the INITARGS and supplied :INITFORM
+forms. SLOT-NAMES indicates which slots should be initialized
+according to their :INITFORM forms if no initargs are provided for
+those slots.
+
+The system-supplied primary method behaves as follows, regardless of
+whether the slots are local or shared:
+
+    If an initarg in the initialization argument list specifies a
+    value for that slot, that value is stored into the slot, even if a
+    value has already been stored in the slot before the method is
+    run.
+
+    Any slots indicated by SLOT-NAMES that are still unbound at this
+    point are initialized according to their :INITFORM forms. For any
+    such slot that has an :INITFORM form, that form is evaluated in
+    the lexical environment of its defining DEFCLASS form and the
+    result is stored into the slot. For example, if a before method
+    stores a value in the slot, the :INITFORM form will not be used to
+    supply a value for the slot.
+
+    The rules mentioned in Section 7.1.4 (Rules for Initialization
+    Arguments) are obeyed.
+
+The SLOTS-NAMES argument specifies the slots that are to be
+initialized according to their :INITFORM forms if no initialization
+arguments apply. It can be a list of slot names, which specifies the
+set of those slot names; or it can be the symbol T, which specifies
+the set of all of the slots.
+
+7.1.4 Rules for Initialization Arguments
+
+The :INITARG slot option may be specified more than once for a given
+slot.
+
+The following rules specify when initialization arguments may be
+multiply defined:
+
+* A given initialization argument can be used to initialize more than
+  one slot if the same initialization argument name appears in more
+  than one :INITARG slot option.
+
+* A given initialization argument name can appear in the lambda list
+  of more than one initialization method.
+
+* A given initialization argument name can appear both in an :INITARG
+  slot option and in the lambda list of an initialization method.
+
+If two or more initialization arguments that initialize the same slot
+are given in the arguments to MAKE-INSTANCE, the leftmost of these
+initialization arguments in the initialization argument list supplies
+the value, even if the initialization arguments have different names.
+
+If two or more different initialization arguments that initialize the
+same slot have default values and none is given explicitly in the
+arguments to MAKE-INSTANCE, the initialization argument that appears
+in a :DEFAULT-INITARGS class option in the most specific of the
+classes supplies the value. If a single :DEFAULT-INITARGS class option
+specifies two or more initialization arguments that initialize the
+same slot and none is given explicitly in the arguments to
+MAKE-INSTANCE, the leftmost in the :DEFAULT-INITARGS class option
+supplies the value, and the values of the remaining default value
+forms are ignored.
+
+Initialization arguments given explicitly in the arguments to
+MAKE-INSTANCE appear to the left of defaulted initialization
+arguments. Suppose that the classes C1 and C2 supply the values of
+defaulted initialization arguments for different slots, and suppose
+that C1 is more specific than C2; then the defaulted initialization
+argument whose value is supplied by C1 is to the left of the defaulted
+initialization argument whose value is supplied by C2 in the defaulted
+initialization argument list. If a single :DEFAULT-INITARGS class
+option supplies the values of initialization arguments for two
+different slots, the initialization argument whose value is specified
+farther to the left in the :DEFAULT-INITARGS class option appears
+farther to the left in the defaulted initialization argument list.
+
+If a slot has both an :INITFORM form and an :INITARG slot option, and
+the initialization argument is defaulted using :DEFAULT-INITARGS or is
+supplied to MAKE-INSTANCE, the captured :INITFORM form is neither used
+nor evaluated."""
+        # Unregistered Issue COMPLIANCE-INITFORM-MECHANISM-NOT-AVAILABLE
+        # Unregistered Issue COMPLIANCE-MULTIPLY-DEFINED-INITARGS-NOT-SUPPORTED
+        # Unregistered Issue COMPLIANCE-INDIRECT-SLOT-INITARG-RELATIONSHIPS-NOT-SUPPORTED
+        # Unregistered Issue COMPLIANCE-DEFAULT-INITARGS-NOT-SUPPORTED
+        instance.__dict__.update(initargs)
         return instance
 
-class method():
+class method(standard_object):
         "All methods are of this type."
 
-class funcallable_standard_class():
+class funcallable_standard_class(standard_object):
         "All funcallable instances are of this type."
         def __call__(self, *args, **keys):
                 return self.function(*args, **keys)
 
 class generic_function(funcallable_standard_class):
         "All generic functions are of this type."
+        def __init__(self, **initargs): # Simulate a :BEFORE method.
+                self.__dependents__ = set()
+                super().__init__(**initargs)
+
+# Dependent Maintenance Protocol
+#
+# It is convenient for portable metaobjects to be able to memoize
+# information about other metaobjects, portable or otherwise. Because
+# class and generic function metaobjects can be reinitialized, and
+# generic function metaobjects can be modified by adding and removing
+# methods, a means must be provided to update this memoized
+# information.
+#
+# The dependent maintenance protocol supports this by providing a way
+# to register an object which should be notified whenever a class or
+# generic function is modified. An object which has been registered
+# this way is called a dependent of the class or generic function
+# metaobject. The dependents of class and generic function metaobjects
+# are maintained with ADD-DEPENDENT and REMOVE-DEPENDENT. The
+# dependents of a class or generic function metaobject can be accessed
+# with MAP-DEPENDENTS. Dependents are notified about a modification by
+# calling UPDATE-DEPENDENT. (See the specification of UPDATE-DEPENDENT
+# for detailed description of the circumstances under which it is
+# called.)
+#
+# To prevent conflicts between two portable programs, or between
+# portable programs and the implementation, portable code must not
+# register metaobjects themselves as dependents. Instead, portable
+# programs which need to record a metaobject as a dependent, should
+# encapsulate that metaobject in some other kind of object, and record
+# that object as the dependent. The results are undefined if this
+# restriction is violated.
+#
+# This example shows a general facility for encapsulating metaobjects
+# before recording them as dependents. The facility defines a basic
+# kind of encapsulating object: an UPDATER. Specializations of the
+# basic class can be defined with appropriate special updating
+# behavior. In this way, information about the updating required is
+# associated with each updater rather than with the metaobject being
+# updated.
+#
+# Updaters are used to encapsulate any metaobject which requires
+# updating when a given class or generic function is modified. The
+# function RECORD-UPDATER is called to both create an UPDATER and add
+# it to the dependents of the class or generic function. Methods on
+# the generic function UPDATE-DEPENDENT, specialized to the specific
+# class of UPDATER do the appropriate update work.
+#
+# (defclass updater ()
+#      ((dependent :initarg :dependent :reader dependent)))
+#
+# (defun record-updater (class dependee dependent &rest initargs)
+#   (let ((updater (apply #'make-instance class :dependent dependent initargs)))
+#     (add-dependent dependee updater)
+#     updater))
+#
+# A FLUSH-CACHE-UPDATER simply flushes the cache of the dependent when
+# it is updated.
+#
+# (defclass flush-cache-updater (updater) ())
+#
+# (defmethod update-dependent (dependee (updater flush-cache-updater) &rest args)
+#   (declare (ignore args))
+#   (flush-cache (dependent updater)))
+
+def add_dependent(metaobject, dependent):
+        """add-dependent metaobject dependent
+
+Arguments:
+
+The METAOBJECT argument is a class or generic function metaobject.
+
+The DEPENDENT argument is an object.
+
+Values:
+
+The value returned by this generic function is unspecified.
+
+Purpose:
+
+This generic function adds DEPENDENT to the dependents of
+METAOBJECT. If DEPENDENT is already in the set of dependents it is not
+added again (no error is signaled).
+
+The generic function MAP-DEPENDENTS can be called to access the set of
+dependents of a class or generic function. The generic function
+REMOVE-DEPENDENT can be called to remove an object from the set of
+dependents of a class or generic function. The effect of calling
+ADD-DEPENDENT or REMOVE-DEPENDENT while a call to MAP-DEPENDENTS on
+the same class or generic function is in progress is unspecified.
+
+The situations in which ADD-DEPENDENT is called are not specified."""
+        metaobject.__dependents__.add(dependent)
+
+def remove_dependent(metaobject, dependent):
+        """remove-dependent metaobject dependent
+
+Arguments:
+
+The METAOBJECT argument is a class or generic function metaobject.
+
+The DEPENDENT argument is an object.
+
+Values:
+
+The value returned by this generic function is unspecified.
+
+Purpose:
+
+This generic function removes DEPENDENT from the dependents of
+METAOBJECT. If DEPENDENT is not one of the dependents of metaobject,
+no error is signaled.
+
+The generic function MAP-DEPENDENTS can be called to access the set of
+dependents of a class or generic function. The generic function
+ADD-DEPENDENT can be called to add an object from the set of
+dependents of a class or generic function. The effect of calling
+ADD-DEPENDENT or REMOVE-DEPENDENT while a call to MAP-DEPENDENTS on
+the same class or generic function is in progress is unspecified.
+
+The situations in which REMOVE-DEPENDENT is called are not specified."""
+        if dependent in metaobject.__dependents__:
+                metaobject.__dependents__.remove(dependent)
+
+def map_dependents(metaobject, function):
+        """map-dependents metaobject function
+
+Arguments:
+
+The METAOBJECT argument is a class or generic function metaobject.
+
+The FUNCTION argument is a function which accepts one argument.
+
+Values:
+
+The value returned is unspecified.
+
+Purpose:
+
+This generic function applies FUNCTION to each of the dependents of
+METAOBJECT. The order in which the dependents are processed is not
+specified, but function is applied to each dependent once and only
+once. If, during the mapping, ADD-DEPENDENT or REMOVE-DEPENDENT is
+called to alter the dependents of METAOBJECT, it is not specified
+whether the newly added or removed dependent will have function
+applied to it."""
+        mapc(function, the(metaobject).__dependents__)
+
+def update_dependent(metaobject, dependent, **initargs):
+        """update-dependent metaobject dependent &rest initargs
+
+Arguments:
+
+The METAOBJECT argument is a class or generic function metaobject. It
+is the metaobject being reinitialized or otherwise modified.
+
+The DEPENDENT argument is an object. It is the dependent being
+updated.
+
+The INITARGS argument is a list of the initialization arguments for
+the metaobject redefinition.
+
+Values:
+
+The value returned by UPDATE-DEPENDENT is unspecified.
+
+Purpose:
+
+This generic function is called to update a dependent of METAOBJECT.
+
+When a class or a generic function is reinitialized each of its
+dependents is updated. The INITARGS argument to UPDATE-DEPENDENT is
+the set of initialization arguments received by REINITIALIZE-INSTANCE.
+
+When a method is added to a generic function, each of the generic
+function's dependents is updated. The INITARGS argument is a list of
+two elements: the symbol ADD-METHOD, and the method that was added.
+
+When a method is removed from a generic function, each of the generic
+function's dependents is updated. The INITARGS argument is a list of
+two elements: the symbol REMOVE-METHOD, and the method that was
+removed.
+
+In each case, MAP-DEPENDENTS is used to call UPDATE-DEPENDENT on each
+of the dependents. So, for example, the update of a generic function's
+dependents when a method is added could be performed by the following
+code:
+
+  (map-dependents generic-function
+                  #'(lambda (dep)
+                      (update-dependent generic-function
+                                        dep
+                                        'add-method
+                                        new-method)))
+"""
+        # Unregistered Issue COMPLIANCE-UPDATE-DEPENDENT-DOES-NOT-REALLY-DO-ANYTHING
+        pass
 
 class method_combination():
         "All method combinations are of this type."
@@ -3751,29 +4063,29 @@ def _standard_generic_function_shared_initialize(generic_function,
         """Initialization of Generic Function Metaobjects
 
 A generic function metaobject can be created by calling
-make-instance. The initialization arguments establish the definition
+MAKE-INSTANCE. The initialization arguments establish the definition
 of the generic function. A generic function metaobject can be
-redefined by calling reinitialize-instance. Some classes of generic
+redefined by calling REINITIALIZE-INSTANCE. Some classes of generic
 function metaobject do not support redefinition; in these cases,
-reinitialize-instance signals an error.
+REINITIALIZE-INSTANCE signals an error.
 
 Initialization of a generic function metaobject must be done by
-calling make-instance and allowing it to call
-initialize-instance. Reinitialization of a generic-function metaobject
-must be done by calling reinitialize-instance. Portable programs must
-not call initialize-instance directly to initialize a generic function
-metaobject. Portable programs must not call shared-initialize directly
+calling MAKE-INSTANCE and allowing it to call
+INITIALIZE-INSTANCE. Reinitialization of a GENERIC-FUNCTION metaobject
+must be done by calling REINITIALIZE-INSTANCE. Portable programs must
+not call INITIALIZE-INSTANCE directly to initialize a generic function
+metaobject. Portable programs must not call SHARED-INITIALIZE directly
 to initialize or reinitialize a generic function metaobject. Portable
-programs must not call change-class to change the class of any generic
+programs must not call CHANGE-CLASS to change the class of any generic
 function metaobject or to turn a non-generic-function object into a
 generic function metaobject.
 
 Since metaobject classes may not be redefined, no behavior is
 specified for the result of calls to
-update-instance-for-redefined-class on generic function
+UPDATE-INSTANCE-FOR-REDEFINED-CLASS on generic function
 metaobjects. Since the class of a generic function metaobject may not
 be changed, no behavior is specified for the results of calls to
-update-instance-for-different-class on generic function metaobjects.
+UPDATE-INSTANCE-FOR-DIFFERENT-CLASS on generic function metaobjects.
 
 During initialization or reinitialization, each initialization
 argument is checked for errors and then associated with the generic
@@ -3795,7 +4107,7 @@ use of default initialization arguments, but whether it is done this
 way is not specified. Implementations are free to define default
 initialization arguments for specified generic function metaobject
 classes. Portable programs are free to define default initialization
-arguments for portable subclasses of the class generic-function.
+arguments for portable subclasses of the class GENERIC-FUNCTION.
 
 Unless there is a specific note to the contrary, then during
 reinitialization, if an initialization argument is not supplied, the
@@ -3856,7 +4168,35 @@ previously stored value is left unchanged.
     The :NAME argument is an object.
 
     If the generic function is being initialized, this argument
-    defaults to NIL."""
+    defaults to NIL.
+
+After the processing and defaulting of initialization arguments
+described above, the value of each initialization argument is
+associated with the generic function metaobject. These values can then
+be accessed by calling the corresponding generic function. The
+correspondences are as follows:
+
+Table 2: Initialization arguments and accessors for generic function metaobjects. 
+
+Initialization Argument		Generic Function
+--------------------------------------------------------------------------
+:argument-precedence-order 	generic-function-argument-precedence-order
+:declarations 			generic-function-declarations
+:documentation 			documentation
+:lambda-list 			generic-function-lambda-list
+:method-combination 		generic-function-method-combination
+:method-class 			generic-function-method-class
+:name 				generic-function-name 
+
+Methods:
+
+It is not specified which methods provide the initialization and
+reinitialization behavior described above. Instead, the information
+needed to allow portable programs to specialize this behavior is
+presented as a set of restrictions on the methods a portable program
+can define. The model is that portable initialization methods have
+access to the generic function metaobject when either all or none of
+the specified initialization has taken effect."""
         if _specifiedp(argument_precedence_order):
                 if not _specifiedp(lambda_list):
                         error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER "
@@ -3885,17 +4225,25 @@ previously stored value is left unchanged.
         # list of applicable methods without calling
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
         # (ii) the generic function has not been reinitialized,
-        generic_function.__applicable_method_cache__ = dict() # (list_, type_) -> list;  busted on every defmethod invocation
-        filename, lineno = (_defaulted(filename, "<unknown>"), _defaulted(filename, "<lineno>"))
+        generic_function.__applicable_method_cache__ = dict() # (list_, type_) -> list
+        filename, lineno = (_defaulted(filename, "<unknown>"),
+                            _defaulted(lineno,   0))
         generic_function.__dfun__ = compute_discriminating_function(generic_function)
-        # Simulate a python function:
+        # Simulate a python function (XXX: factor):
         generic_function.__doc__ = _defaulted(documentation, gfun.__doc__)
         generic_function.__code__.co_filename    = filename
         generic_function.__code__.co_firstlineno = lineno
         return generic_function
 
-def _generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")
-def _method_p(x):           return functionp(x) and hasattr(x, "specializers")
+def generic_function_argument_precedence_order(x): return x.argument_precedence_order
+def generic_function_declarations(x):              return x.declarations
+def generic_function_lambda_list(x):               return x.lambda_list
+def generic_function_method_combination(x):        return x.method_combination
+def generic_function_method_class(x):              return x.method_class
+def generic_function_name(x):                      return x.name
+
+def generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")  # XXX: CL+
+def method_p(x):           return functionp(x) and hasattr(x, "specializers") # XXX: CL+
 def _specializerp(x):       return ((x is t)        or
                                     typep(x, (or_, type_, (tuple_, (eql_, eql_), t))))
 
@@ -3906,24 +4254,9 @@ def _get_generic_fun_info(generic_function):
                       len(generic_function.lambda_list[3]),
                       generic_function.lambda_list)
 
-def generic_function_argument_precedence_order(x): return x.argument_precedence_order
-def generic_function_declarations(x):              return x.declarations
-def generic_function_lambda_list(x):               return x.lambda_list
-def generic_function_method_combination(x):        return x.method_combination
-def generic_function_method_class(x):              return x.method_class
-def generic_function_name(x):                      return x.name
-
 def generic_function_methods(x):                   return x.__methods__.values()
 
-class standard_method_combination(method_combination):
-        "???"
-
 __method_combinations__ = dict()
-def _find_method_combination(name):
-        combin, therep = gethash(name, __method_combinations__)
-        if not therep:
-                error("Undefined method combination: %s", name)
-        return combin
 
 def define_method_combination(name, method_group_specifiers, body,
                               arguments = None, generic_function = None):
@@ -4066,7 +4399,7 @@ Long form (snipped)
     variable. During the execution of the forms in the body of
     DEFINE-METHOD-COMBINATION, this variable is bound to a list of the
     methods in the method group. The methods in this list occur in the
-    order specified by the :order option.
+    order specified by the :ORDER option.
 
     If QUALIFIER-PATTERN is a symbol it must be *. A method matches a
     qualifier-pattern if the method's list of qualifiers is equal to
@@ -4171,13 +4504,13 @@ Long form (snipped)
     method combination type performs some specific behavior as part of
     the combined method and that behavior needs access to the
     arguments to the generic function. Each parameter variable defined
-    by lambda-list is bound to a form that can be inserted into the
+    by LAMBDA-LIST is bound to a form that can be inserted into the
     effective method. When this form is evaluated during execution of
     the effective method, its value is the corresponding argument to
     the generic function; the consequences of using such a form as the
     place in a setf form are undefined. Argument correspondence is
-    computed by dividing the :arguments lambda-list and the generic
-    function lambda-list into three sections: the required parameters,
+    computed by dividing the :ARGUMENTS LAMBDA-LIST and the generic
+    function LAMBDA-LIST into three sections: the required parameters,
     the optional parameters, and the keyword and rest parameters. The
     arguments supplied to the generic function for a particular call
     are also divided into three sections; the required arguments
@@ -4186,36 +4519,36 @@ Long form (snipped)
     many arguments as the generic function has optional parameters,
     and the keyword/rest arguments section contains the remaining
     arguments. Each parameter in the required and optional sections of
-    the :arguments lambda-list accesses the argument at the same
+    the :ARGUMENTS LAMBDA-LIST accesses the argument at the same
     position in the corresponding section of the arguments. If the
-    section of the :arguments lambda-list is shorter, extra arguments
-    are ignored. If the section of the :arguments lambda-list is
+    section of the :ARGUMENTS LAMBDA-LIST is shorter, extra arguments
+    are ignored. If the section of the :ARGUMENTS LAMBDA-LIST is
     longer, excess required parameters are bound to forms that
-    evaluate to nil and excess optional parameters are bound to their
+    evaluate to NIL and excess optional parameters are bound to their
     initforms. The keyword parameters and rest parameters in the
-    :arguments lambda-list access the keyword/rest section of the
-    arguments. If the :arguments lambda-list contains &key, it behaves
+    :ARGUMENTS LAMBDA-LIST access the keyword/rest section of the
+    arguments. If the :ARGUMENTS LAMBDA-LIST contains &key, it behaves
     as if it also contained &allow-other-keys.
 
-    In addition, &whole var can be placed first in the :arguments
-    lambda-list. It causes var to be bound to a form that evaluates to
+    In addition, &whole var can be placed first in the :ARGUMENTS
+    LAMBDA-LIST. It causes var to be bound to a form that evaluates to
     a list of all of the arguments supplied to the generic
     function. This is different from &rest because it accesses all of
     the arguments, not just the keyword/rest arguments.
 
     Erroneous conditions detected by the body should be reported with
-    method-combination-error or invalid-method-error; these functions
+    METHOD-COMBINATION-ERROR or INVALID-METHOD-ERROR; these functions
     add any necessary contextual information to the error message and
     will signal the appropriate error.
 
-    The body forms are evaluated inside of the bindings created by the
+    The BODY forms are evaluated inside of the bindings created by the
     lambda list and method group specifiers. Declarations at the head
-    of the body are positioned directly inside of bindings created by
+    of the BODY are positioned directly inside of bindings created by
     the lambda list and outside of the bindings of the method group
     variables. Thus method group variables cannot be declared in this
-    way. locally may be used around the body, however.
+    way. LOCALLY may be used around the BODY, however.
 
-    Within the body forms, generic-function-symbol is bound to the
+    Within the BODY forms, GENERIC-FUNCTION-SYMBOL is bound to the
     generic function object.
 
     Documentation is attached as a documentation string to name (as
@@ -4241,25 +4574,38 @@ the time that generic functions that use the method combination are
 executed."""
         ## define_method_combination(name, method_group_specifiers, body,
         #                            arguments = None, generic_function = None)
+        # Unregistered Issue COMPLIANCE-ARGUMENTS-LAMBDA-LIST-NOT-IMPLEMENTED
+        # Unregistered Issue COMPLIANCE-ERRORNEOUS-CONDITION-REPORTING
+        # Unregistered Issue COMPLIANCE-SPECIAL-CASE-(APPLY #'FORMAT STREAM FORMAT-CONTROL (METHOD-QUALIFIERS METHOD))-NOT-IMPLEMENTED
+        # Unregistered Issue PERFORMANCE-SINGLE-APPLICABLE-METHOD-OPTIMISATION
         check_type(method_group_specifiers,
                   (list_,
                    (varituple_,
-                    symbol,     # group name
-                    (or_, (list_, (or_, star, list)),
+                    str,        # group name
+                    (or_, (list_, (or_, star, tuple)), # We're off the spec a little here,
+                                                       # but it's a minor syntactic issue.
                           function),
                     # the rest is actually a plist, but we cannot (yet) describe it
                     # in terms of a type.
                     (maybe_, (tuple_,
-                              (eql_, keyword("description")),
+                              (eql_, _keyword("description")),
                               str)),
                     (maybe_, (tuple_,
-                              (eql_, keyword("order")),
+                              (eql_, _keyword("order")),
                               (member_,
-                               keyword("most-specific-first"),
-                               keyword("most-specific-last"))))
+                               _keyword("most-specific-first"),
+                               _keyword("most-specific-last"))))
                     (maybe_, (tuple_,
-                              (eql_, keyword("required")),
+                              (eql_, _keyword("required")),
                               (member_, t, nil))))))
+        # check_type(arguments, (maybe_, lambda_list_))
+        check_type(arguments, (maybe_, (tuple_,
+                                        (list_, str),
+                                        (list_, str),
+                                        (maybe_, str),
+                                        (list_, str),
+                                        (maybe_, str))))
+        check_type(generic_function, (maybe_, string))
         ### VARI-BIND, anyone?
         # def vari_bind(x, body):
         #         # don't lambda lists actually rule this, hands down?
@@ -4287,8 +4633,21 @@ executed."""
                # The LAMBDA-LIST receives any arguments provided after the name of
                # the method combination type in the :METHOD-COMBINATION option to
                # DEFGENERIC.
-               ## .. this means, that the EMF-computing form must be evaluated in
-               ## the context, where the values bound by the lambda list are available.
+               # /citation
+               #
+               # The BODY forms are evaluated inside of the bindings created by the
+               # lambda list and method group specifiers.
+               # /citation
+               #
+               # The effective method is evaluated in the null lexical environment
+               # augmented with a local macro definition for CALL-METHOD and with
+               # bindings named by symbols not accessible from the COMMON-LISP-USER
+               # package.
+               # /citation
+               #
+               # Within the BODY forms, GENERIC-FUNCTION-SYMBOL is bound to the
+               # generic function object.
+               # /citation
                def method_qualifiers_match_pattern_p(qualifiers, pattern):
                        return (t if pattern is star else
                                qualifiers == pattern)
@@ -4315,10 +4674,6 @@ executed."""
                                error("Method group %s requires at least one method.", group.name)
                        if not group.most_specific_first:
                                grouped_methods[group.name].reverse()
-               # The effective method is evaluated in the null lexical
-               # environment augmented with a local macro definition
-               # for CALL-METHOD and with bindings named by symbols not
-               # accessible from the COMMON-LISP-USER package.
                ## So: must bind group names and CALL-METHOD, which, in turn
                ## must bind CALL-NEXT-METHOD and NEXT-METHOD-P.  I presume.
                # BODY must, therefore, return some kind of an AST representation?
@@ -4334,13 +4689,114 @@ executed."""
                        # methods, CALL-METHOD will invoke the method such that
                        # CALL-NEXT-METHOD has available the next methods.
                        method_lambda
-               body_args.update({ "call_method": })
+               body_args.update({ "call_method": call_method })
                return body(**body_args)
         method_combination.__name__                    = the(symbol, name)
         method_combination.__method_group_specifiers__ = method_group_specifiers
-        # Unregistered Issue SPECIAL-CASE-(APPLY #'FORMAT STREAM FORMAT-CONTROL (METHOD-QUALIFIERS METHOD))-NOT-IMPLEMENTED
-        # 
         return method_combination
+
+# 7.6.6.2 Standard Method Combination
+#
+# Standard method combination is supported by the class
+# standard-generic-function. It is used if no other type of method
+# combination is specified or if the built-in method combination type
+# standard is specified.
+#
+# Primary methods define the main action of the effective method, while
+# auxiliary methods modify that action in one of three ways. A primary
+# method has no method qualifiers.
+#
+# An auxiliary method is a method whose qualifier is :before, :after,
+# or :around. Standard method combination allows no more than one
+# qualifier per method; if a method definition specifies more than one
+# qualifier per method, an error is signaled.
+#
+# * A before method has the keyword :before as its only qualifier. A
+#   before method specifies code that is to be run before any primary
+#   methods.
+#
+# * An after method has the keyword :after as its only qualifier. An
+#   after method specifies code that is to be run after primary methods.
+#
+# * An around method has the keyword :around as its only qualifier. An
+#   around method specifies code that is to be run instead of other
+#   applicable methods, but which might contain explicit code which
+#   calls some of those shadowed methods (via call-next-method).
+#
+# The semantics of standard method combination is as follows:
+#
+# * If there are any around methods, the most specific around method is
+#   called. It supplies the value or values of the generic function.
+#
+# * Inside the body of an around method, call-next-method can be used to
+#   call the next method. When the next method returns, the around
+#   method can execute more code, perhaps based on the returned value or
+#   values. The generic function no-next-method is invoked if
+#   call-next-method is used and there is no applicable method to
+#   call. The function next-method-p may be used to determine whether a
+#   next method exists.
+#
+# * If an around method invokes call-next-method, the next most specific
+#   around method is called, if one is applicable. If there are no
+#   around methods or if call-next-method is called by the least
+#   specific around method, the other methods are called as follows:
+#
+#     -- All the before methods are called, in most-specific-first
+#        order. Their values are ignored. An error is signaled if
+#        call-next-method is used in a before method.
+#
+#     -- The most specific primary method is called. Inside the body of
+#        a primary method, call-next-method may be used to call the next
+#        most specific primary method. When that method returns, the
+#        previous primary method can execute more code, perhaps based on
+#        the returned value or values. The generic function
+#        no-next-method is invoked if call-next-method is used and there
+#        are no more applicable primary methods. The function
+#        next-method-p may be used to determine whether a next method
+#        exists. If call-next-method is not used, only the most specific
+#        primary method is called.
+#
+#     -- All the after methods are called in most-specific-last
+#        order. Their values are ignored. An error is signaled if
+#        call-next-method is used in an after method.
+#
+# * If no around methods were invoked, the most specific primary method
+#   supplies the value or values returned by the generic function. The
+#   value or values returned by the invocation of call-next-method in
+#   the least specific around method are those returned by the most
+#   specific primary method.
+#
+# In standard method combination, if there is an applicable method but
+# no applicable primary method, an error is signaled.
+#
+# The before methods are run in most-specific-first order while the
+# after methods are run in least-specific-first order. The design
+# rationale for this difference can be illustrated with an
+# example. Suppose class C1 modifies the behavior of its superclass, C2,
+# by adding before methods and after methods. Whether the behavior of
+# the class C2 is defined directly by methods on C2 or is inherited from
+# its superclasses does not affect the relative order of invocation of
+# methods on instances of the class C1. Class C1's before method runs
+# before all of class C2's methods. Class C1's after method runs after
+# all of class C2's methods.
+#
+# By contrast, all around methods run before any other methods run. Thus
+# a less specific around method runs before a more specific primary
+# method.
+#
+# If only primary methods are used and if call-next-method is not used,
+# only the most specific method is invoked; that is, more specific
+# methods shadow more general ones.
+standard_method_combination = define_method_combination(
+        _intern0("STANDARD"),
+        [("around",  [(_keyword("around"),)]),
+         ("before",  [(_keyword("before"),)]),
+         ("primary", [tuple()],                (_keyword("required"), t)),
+         ("after",   [(_keyword("after"),)],   (_keyword("order"),
+                                                _keyword("most-specific-last")))],
+        lambda: # "around", "before", "primary" and "after" are bound "magically",
+                # to avoid duplication.
+                [])
 
 def make_method_lambda(generic_function, method, lambda_expression, environment):
         """Arguments:
@@ -4560,14 +5016,14 @@ def specializer_applicable_using_type_p(specl, type):
                      # (not    (saut-not specl type)),
                      # (class,      saut_class(specl, type)),
                      # (prototype  (saut-prototype specl type)),
-                     (class_eq_,   lambda: saut_class_eq(specl, type)),
+                     (class_eq_,   lambda: _saut_class_eq(specl, type)),
                      # (class-eq   (saut-class-eq specl type)),
                      # (eql    (saut-eql specl type)),
                      (t,       lambda: error("%s cannot handle the second argument %s.",
                                              "specializer-applicable-using-type-p",
                                              type))))
 
-def saut_class_eq(specl, type):
+def _saut_class_eq(specl, type):
        if car(specl) is eql_:
                return values(nil, type_of(specl[1]) is type[1])
        else:
@@ -4750,7 +5206,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
          lambda_list,
          applicable_method_cache,
          filename,
-         lineno) = (generic_function.__name__,
+         lineno) = (generic_function.name,
                     generic_function.lambda_list,
                     generic_function.__applicable_method_cache__,
                     generic_function.__code__.co_filename,
@@ -4896,8 +5352,13 @@ Otherwise the generic function GENERIC-FUNCTION is redefined by
 calling the REINITIALIZE-INSTANCE generic function with
 GENERIC-FUNCTION and the initialization arguments. The
 GENERIC-FUNCTION argument is then returned."""
+        # Unregistered Issue COMPLIANCE-SETF-LIST-NAMES-NOT-SUPPORTED
+        # Unregistered Issue COMPLIANCE-GENERIC-FUNCTION-CLASS-AS-NAME-NOT-SUPPORTED
+        # Unregistered Issue COMPLIANCE-
+        ###
+        ### First step, "compute the set of initialization arguments":
         if gfun:
-                # DEFGENERIC (CLHS) documentation says:
+                # DEFGENERIC (CLHS) documentation speaks so about method removal/addition:
                 ## The effect of the DEFGENERIC macro is as if the following three steps
                 ## were performed: first, methods defined by previous DEFGENERIC forms
                 ## are removed; second, ENSURE-GENERIC-FUNCTION is called; and finally,
@@ -4927,6 +5388,8 @@ GENERIC-FUNCTION argument is then returned."""
                 filename                  = filename,
                 lineno                    = lineno)
         initargs.update(keys)
+        ###
+        ### Second step:
         if not generic_function:
                 # If the GENERIC-FUNCTION argument is NIL, an instance of the class
                 # specified by the :GENERIC-FUNCTION-CLASS argument is created by
@@ -4991,7 +5454,7 @@ complete set of keyword arguments received by
 ENSURE-GENERIC-FUNCTION."""
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
         maybe_gfun, therep = _defaulted(_global(the(str, function_name)), nil)
-        if functionp(maybe_gfun) and not _generic_function_p(maybe_gfun):
+        if functionp(maybe_gfun) and not generic_function_p(maybe_gfun):
                 error("%s already names an ordinary function.", function_name)
         return ensure_generic_function_using_class(maybe_gfun, function_name, **keys)
 
@@ -5001,8 +5464,8 @@ def defgeneric(_ = None,
                method_combination = standard_method_combination,
                generic_function_class = standard_generic_function,
                method_class = standard_method):
-# Unregistered Issue: DEFGENERIC-METHOD-DESCRIPTIONS-UNIMPLEMENTABLE
-"""defgeneric function-name gf-lambda-list [[option | {method-description}*]]
+# Unregistered Issue: COMPLIANCE-DEFGENERIC-METHOD-DESCRIPTIONS-UNIMPLEMENTABLE
+        """defgeneric function-name gf-lambda-list [[option | {method-description}*]]
 
 => new-generic
 
@@ -5210,7 +5673,15 @@ P1,i=(eql object1), P2,i=(eql object2), and (eql object1
 object2). Otherwise P1,i and P2,i do not agree.
 
 3. The two lists of qualifiers are the same under equal."""
-        _not_implemented()
+        lambda_list = method_lambda_list(method)
+        return (len(lambda_list[0]) == len(specializers)         and
+                every(lambda ms, s: ((ms is s) or
+                                     (listp(ms) and listp(s) and
+                                      len(ms) == len(s) == 2 and
+                                      ms[0] == s[0] == eql_  and
+                                      eql(ms[1], s[1]))),
+                      method_specializers(method), specializers) and
+                equal(method_qualifiers(method), qualifiers))
 
 def _generic_function_lambda_list_incongruent_with_method_list_p(generic_function_lambda_list,
                                                                  method_lambda_list):
@@ -5250,7 +5721,7 @@ If a method-defining operator that cannot specify generic function
 options creates a generic function, and if the lambda list for the
 method mentions keyword arguments, the lambda list of the generic
 function will mention &key (but no keyword arguments)."""
-# Unregistered Issue SPEC-UNCLEAR-LAST-PASSAGE-LAMBDA-LIST-CONGRUENCE
+# Unregistered Issue COMPLIANCE-SPEC-UNCLEAR-LAST-PASSAGE-LAMBDA-LIST-CONGRUENCE
         gf_fixed, gf_optional, gf_args, gf_keyword, gf_keys = generic_function_lambda_list
         m_fixed,  m_optional,  m_args,  m_keyword,  m_keys  = method_lambda_list
         return ((len(gf_fixed)    != len(m_fixed) and
@@ -5304,7 +5775,7 @@ dependents of the generic function.
 
 The generic function ADD-METHOD can be called by the user or the
 implementation."""
-        # Unregistered Issue UNCLEAR-METHOD-LAMBDA-LIST-SPECIALIZERS-INCLUSION
+        # Unregistered Issue COMPLIANCE-UNCLEAR-METHOD-LAMBDA-LIST-SPECIALIZERS-INCLUSION
         congruence_error = _generic_function_lambda_list_incongruent_with_method_list_p(
                 generic_function_lambda_list(generic_function),
                 method_lambda_list(method))
@@ -5326,7 +5797,9 @@ implementation."""
                 add_direct_method(s, method)
         set_funcallable_instance_function(generic_function,
                                           compute_discriminating_function(generic_function))
-        # _not_implemented("update the dependents of the generic function.")
+        map_dependents(generic_function,
+                       lambda dep: update_dependent(generic_function, dep,
+                                                    add_method = method))
         return generic_function
 
 def set_funcallable_instance_function(funcallable_instance, function):
@@ -5534,7 +6007,9 @@ implementation."""
                 remove_direct_method(s, method)
         set_funcallable_instance_function(generic_function,
                                           compute_discriminating_function(generic_function))
-        # _not_implemented("update the dependents of the generic function.")
+        map_dependents(generic_function,
+                       lambda dep: update_dependent(generic_function, dep,
+                                                    remove_method = method))
         return generic_function
 
 def defmethod(fn):
