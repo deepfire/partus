@@ -853,6 +853,16 @@ def ecase(val, *clauses):
                         return body() if isinstance(body, function_) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
+def _seek(n, iterator):
+        for i in range(n):
+                next(iterator, nil)
+
+def _from(n, iterator):
+        for i in range(n):
+                next(iterator, nil)
+        for x in iterator:
+                yield x
+
 def every(fn, *xss):
         for xs in zip(*xss):
                 if not fn(*xs): return False
