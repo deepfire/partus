@@ -863,23 +863,23 @@ def _from(n, iterator):
         for x in iterator:
                 yield x
 
-def every(fn, *xss):
-        for xs in zip(*xss):
+def every(fn, *xss, start = 0):
+        for xs in _from(start, zip(*xss)):
                 if not fn(*xs): return False
         return True
 
-def _some_not(fn, *xss):
-        for xs in zip(*xss):
+def _some_not(fn, *xss, start = 0):
+        for xs in _from(start, zip(*xss)):
                 if not fn(*xs): return True
         return False
 
-def some(fn, *xss):
-        for xs in zip(*xss):
+def some(fn, *xss, start = 0):
+        for xs in _from(start, zip(*xss)):
                 if fn(*xs): return True
         return False
 
-def none(fn, *xss):
-        for xs in zip(xss):
+def none(fn, *xss, start = 0):
+        for xs in _from(start, zip(xss)):
                 if fn(*xs): return False
         return True
 
