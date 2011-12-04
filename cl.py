@@ -3657,7 +3657,7 @@ actions to be taken when an instance is initialized. If only after
 methods are defined, they will be run after the system-supplied
 primary method for initialization and therefore will not interfere
 with the default behavior of INITIALIZE-INSTANCE."""
-        shared_initialize(instance, t, **initargs)
+        shared_initialize(instance, t, initargs)
         _not_implemented()
         return instance
 
@@ -3672,8 +3672,13 @@ supplied that is not declared as valid. The method then calls the
 generic function SHARED-INITIALIZE with the following arguments: the
 INSTANCE, NIL (which means no slots should be initialized according to
 their initforms), and the INITARGS it received."""
-        shared_initialize(instance, nil, **initargs)
+        shared_initialize(instance, nil, initargs)
         _not_implemented()
+        return instance
+
+def shared_initialize(instance, slots, initargs):
+""" """
+        
         return instance
 
 class method():
