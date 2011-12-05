@@ -954,51 +954,35 @@ def _every_typep(xs, type):
                 if not typep(x, type): return False
         return x or t
 
-def _invalid_type_specifier(x):
+def _invalid_type_specifier_error(x):
         error(simple_type_error, "%s is not a valid type specifier.", x)
 
 # __type_predicate_map__ is declared after the package system is initialised
-def _check_complex_type(x, type):
-        fast_test, zero, test, element_test = __type_predicate_map__[type[0]]
+def _complex_type_mismatch(x, type):
+        fast_test, zero_fn, test, element_test = __type_predicate_map__[type[0]]
         return (let(fast_test(x, type),
                     lambda ret: (ret if ret is not None else
-                                 _invalid_type_specifier(type)))          if fast_test      else
-                (zero if zero is not None else
+                                 _invalid_type_specifier_error(type)))    if fast_test      else
+                (zero_fn(x, type) if zero is not None else
                  error("Type specifier %s requires arguments.", type[0])) if len(type) is 1 else
                 test(lambda elem_type: element_test(x, elem_type),
                      type, start = 1)) # Standard type predicates do accept the :START keyword.
 
-def _complex_type_mismatch(x, type):
-        """This is a more thorough, negated variant of
-CHECK-COMPLEX-TYPE, returning the exact point of mismatch, up to the
-first OR type predicate, if there is a mismatch, otherwise it returns
-NIL."""
-        ## ..which is supposed to deal with that:
-        # [('around', [(:AROUND,)]),
-        #  ('before', [(:BEFORE,)]),
-        #  ('primary', [()], (:REQUIRED, T)),
-        #  ('after', [(:AFTER,)], (:ORDER, :MOST-SPECIFIC-LAST))]
-        # (LIST,
-        #  (VARITUPLE,
-        #   <class 'str'>,
-        #   (OR, (LIST, (OR, <class 'tuple'>, (EQL, CL::*))),
-        #        <class 'function'>),
-        #   (MAYBE, (TUPLE, (EQL, :DESCRIPTION), <class 'str'>)),
-        #   (MAYBE, (TUPLE, (EQL, :ORDER),       (MEMBER, :MOST-SPECIFIC-FIRST, :MOST-SPECIFIC-LAST))),
-        #   (MAYBE, (TUPLE, (EQL, :REQUIRED),    (MEMBER, T, NIL)))))
-        _not_implemented()
+def _type_mismatch(x, type):
+        return (((not isinstance(x, type)) and
+                 (x, type))                     if isinstance(type, type_)             else
+                nil                             if type is t                           else
+                _complex_type_mismatch(x, type) if (_tuplep(type) and type and
+                                                    type[0] in __type_predicate_map__) else
+                _invalid_type_specifier_error(type))
 
 def typep(x, type):
-        return (isinstance(x, type)          if isinstance(type, type_)                      else
-                t                            if type is t                                    else
-                _check_complex_type(x, type) if (_tuplep(type) and
-                                                 type and type[0] in __type_predicate_map__) else
-                _invalid_type_specifier(type))
+        return not _type_mismatch(x, type)
 
 def subtypep(sub, super):
-        return (issubclass(sub, super)              if super is not t                 else
+        return (issubclass(sub, super)              if super is not t                            else
                 _not_implemented("complex type relatioships: %s vs. %s.",
-                                 sub, super)        if _tuplep(sub) or _tuplep(super) else
+                                 sub, super)        if _tuplep(sub) or _tuplep(super)            else
                 error("%s is not a type specifier") if not (typep(sub, (or_, type_, (eql_, t))) and
                                                             typep(sub, (or_, type_, (eql_, t)))) else
                 sub is super or super is t)
@@ -1975,9 +1959,9 @@ def setf_fdefinition(symbol_name, function):
         return function
 
 __type_predicate_map__ = {
-        or_:            (nil,          nil, some,  typep),
-        and_:           (nil,          t,   every, typep),
-        member_:        (nil,          nil, some,  eql),
+        or_:            (nil,   identity,        every, _type_mismatch),
+        and_:           (nil,   constantly(nil), some,  _type_mismatch),
+        member_:        (nil,   nil,           some,  eql),
         }
 
 def defun(f):
