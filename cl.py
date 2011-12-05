@@ -4052,6 +4052,12 @@ class standard_generic_function(generic_function):
                 _standard_generic_function_shared_initialize(self, **initargs)
         # def __call__ ..is installed during EMF computation, with the proper arglist.
 
+def _update_generic_function_and_dependents(generic_function, **initargs):
+        set_funcallable_instance_function(generic_function,
+                                          compute_discriminating_function(generic_function))
+        map_dependents(generic_function,
+                       lambda dep: update_dependent(generic_function, dep, **initargs))
+
 def _standard_generic_function_shared_initialize(generic_function,
                                                  argument_precedence_order = None,
                                                  declarations = None,
@@ -5798,11 +5804,7 @@ implementation."""
         method.__generic_function__ = generic_function
         for s in method_specializers(method):
                 add_direct_method(s, method)
-        set_funcallable_instance_function(generic_function,
-                                          compute_discriminating_function(generic_function))
-        map_dependents(generic_function,
-                       lambda dep: update_dependent(generic_function, dep,
-                                                    add_method = method))
+        _update_generic_function_and_dependents(generic_function, add_method = method)
         return generic_function
 
 def set_funcallable_instance_function(funcallable_instance, function):
@@ -6008,11 +6010,7 @@ implementation."""
         method.__generic_function__ = nil
         for s in method_specializers(method):
                 remove_direct_method(s, method)
-        set_funcallable_instance_function(generic_function,
-                                          compute_discriminating_function(generic_function))
-        map_dependents(generic_function,
-                       lambda dep: update_dependent(generic_function, dep,
-                                                    remove_method = method))
+        _update_generic_function_and_dependents(generic_function, remove_method = method)
         return generic_function
 
 def defmethod(fn):
