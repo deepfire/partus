@@ -137,7 +137,7 @@ def _defaulted(x, value, type = None):
 def _defaulted_to_var(x, variable, type = None):
         return _defaulted(x, symbol_value(variable), type = type)
 
-def _specified_keys(**keys):
+def _only_specified_keys(**keys):
         return dict(k, v for k, v in keys if _specifiedp(k))
 
 def _read_case_xformed(x):
@@ -5379,7 +5379,7 @@ GENERIC-FUNCTION argument is then returned."""
                 fixed, optional, args, keyword, keys = lambda_list
                 if some(lambda x: x[1] is not None, list(optional) + list(keyword)):
                         error("Generic function arglist cannot specify default parameter values.")
-        initargs = _specified_keys(
+        initargs = _only_specified_keys(
                 argument_precedence_order = argument_precedence_order,
                 declarations              = declarations,
                 documentation             = documentation,
