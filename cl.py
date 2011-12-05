@@ -903,7 +903,7 @@ def every(fn, *xss, start = 0):
                 if not fn(*xs): return False
         return True
 
-def _some_not(fn, *xss, start = 0):
+def notevery(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
                 if not fn(*xs): return True
         return False
@@ -913,7 +913,7 @@ def some(fn, *xss, start = 0):
                 if fn(*xs): return True
         return False
 
-def none(fn, *xss, start = 0):
+def notany(fn, *xss, start = 0):
         for xs in _from(start, zip(xss)):
                 if fn(*xs): return False
         return True
