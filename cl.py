@@ -901,22 +901,22 @@ def _from(n, iterator):
 def every(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
                 if not fn(*xs): return False
-        return True
+        return xs or t
 
 def notevery(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
-                if not fn(*xs): return True
+                if not fn(*xs): return xs or t
         return False
 
 def some(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
-                if fn(*xs): return True
+                if fn(*xs): return xs or t
         return False
 
 def notany(fn, *xss, start = 0):
         for xs in _from(start, zip(xss)):
                 if fn(*xs): return False
-        return True
+        return xs or t
 
 def _xorf(x, y):
         return (x or y) and not (x and y)
@@ -952,7 +952,7 @@ def _of_type(x):
 def _every_typep(xs, type):
         for x in xs:
                 if not typep(x, type): return False
-        return True
+        return x or t
 
 def _invalid_type_specifier(x):
         error(simple_type_error, "%s is not a valid type specifier.", x)
