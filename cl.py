@@ -3659,6 +3659,7 @@ def class_of(x):
 
 class standard_object():
         def __init__(self, **initargs):
+                super().__init__(**initargs)
                 initialize_instance(self, **initargs)
 
 def make_instance(class, **keys):
@@ -4040,13 +4041,15 @@ class method_combination():
 
 class standard_method(method):
         def __init__(self, **initargs):
+                super().__init__(**initargs)
                 _standard_method_shared_initialize(method, **initargs)
         def __call__(self, gfun_args, next_methods):
                 return self.function(gfun_args, next_methods)
 
 class standard_generic_function(generic_function):
-        def __init__(self, **initargs): # Nihil ex nihil.
-                _standard_generic_function_shared_initialize(**initargs)
+        def __init__(self, **initargs):
+                super().__init__(**initargs)
+                _standard_generic_function_shared_initialize(self, **initargs)
         # def __call__ ..is installed during EMF computation, with the proper arglist.
 
 def _standard_generic_function_shared_initialize(generic_function,
