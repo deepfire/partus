@@ -74,6 +74,13 @@ def _case_xform(type, s):
         return _case_attribute_map[type.name](s)
 
 ###
+### Cold boot
+###
+def _cold_print_symbol(s, **keys):
+        return s.package.name + ":" + s.name
+_print_symbol = _cold_print_symbol
+
+###
 ### Ring 1.
 ###
 def _1arg(*args):
@@ -138,7 +145,7 @@ def _defaulted_to_var(x, variable, type = None):
         return _defaulted(x, symbol_value(variable), type = type)
 
 def _only_specified_keys(**keys):
-        return dict(k, v for k, v in keys if _specifiedp(k))
+        return dict(((k, v) for k, v in keys if _specifiedp(k)))
 
 def _read_case_xformed(x):
         return _case_xform(_symbol_value("_READ_CASE_"), x)
@@ -290,6 +297,34 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                                         (list(optional) + list(keyword) +
                                                          ([args] if args else []) +
                                                          ([keys] if keys else [])))))))
+###
+### Macro facility (FEXPRs?)
+###
+def _astify_atree(tree):
+        """Flip an atree to its AST geminae.
+
+An "atree" is a tree, where every element is one of the following:
+ - an astifiable literal (according to _try_astify_constant/__astifier_map__),
+   but not a tuple;
+ - a tuple of length > 0, with the following structure:
+   - the 0'th element is a string, naming a class in the "ast" module
+   - the rest of the elements are atrees.
+
+The set of all atrees enjoys isomorphism relationship to the set of
+all AST-trees, except for the tuple exception."""
+        return (_astify_constant(tree)                                          if not _tuplep(tree)    else
+                error("The atree nodes cannot contain empty forms.")            if not tree             else
+                error("The CAR of an atree must be a string, not %s.", tree[0]) if not stringp(tree[0]) else
+                if_let(gethash(tree[0], ast)[0],
+                       lambda type:
+                               (error("Unknown AST type %s in atree node %s.", tree[0], tree)
+                                if not hasattr(type, "_fields") else
+                                error("AST type %s requires %d arguments, but %d were provided by atree node %s.",
+                                      type, len(type._fields), len(tree) - 1, tree)
+                                if len(type._fields) != len(tree) - 1 else
+                                type(*mapcar(_astify_atree, tree[1:]))),
+                       # XXX: pythonic CONS-ing idiocy
+                       lambda: error("Unknown AST type %s in atree node %s.", tree[0], tree)))
 
 ###
 ### Basis
@@ -932,6 +967,26 @@ def _check_complex_type(x, type):
                  error("Type specifier %s requires arguments.", type[0])) if len(type) is 1 else
                 test(lambda elem_type: element_test(x, elem_type),
                      type, start = 1)) # Standard type predicates do accept the :START keyword.
+
+def _complex_type_mismatch(x, type):
+        """This is a more thorough, negated variant of
+CHECK-COMPLEX-TYPE, returning the exact point of mismatch, up to the
+first OR type predicate, if there is a mismatch, otherwise it returns
+NIL."""
+        ## ..which is supposed to deal with that:
+        # [('around', [(:AROUND,)]),
+        #  ('before', [(:BEFORE,)]),
+        #  ('primary', [()], (:REQUIRED, T)),
+        #  ('after', [(:AFTER,)], (:ORDER, :MOST-SPECIFIC-LAST))]
+        # (LIST,
+        #  (VARITUPLE,
+        #   <class 'str'>,
+        #   (OR, (LIST, (OR, <class 'tuple'>, (EQL, CL::*))),
+        #        <class 'function'>),
+        #   (MAYBE, (TUPLE, (EQL, :DESCRIPTION), <class 'str'>)),
+        #   (MAYBE, (TUPLE, (EQL, :ORDER),       (MEMBER, :MOST-SPECIFIC-FIRST, :MOST-SPECIFIC-LAST))),
+        #   (MAYBE, (TUPLE, (EQL, :REQUIRED),    (MEMBER, T, NIL)))))
+        _not_implemented()
 
 def typep(x, type):
         return (isinstance(x, type)          if isinstance(type, type_)                      else
@@ -1929,7 +1984,7 @@ def defun(f):
         symbol_name = f.__name__
         setf_fdefinition(symbol_name, f)
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        return _global(symbol_name) # guaranteed to exist at this point
+        return _global(symbol_name)[0] # guaranteed to exist at this point
 
 @defun
 def maybe_(x, type):
@@ -2501,32 +2556,6 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
         write(object, stream = stream, escape = t, pretty = t)
         return object
 
-def format(destination, control_string, *args):
-        """FORMAT produces formatted output by outputting the characters
-of CONTROL-STRING and observing that a tilde introduces a
-directive. The character after the tilde, possibly preceded by prefix
-parameters and modifiers, specifies what kind of formatting is
-desired. Most directives use one or more elements of ARGS to create
-their output.
-
-If DESTINATION is a string, a stream, or T, then the result is
-nil. Otherwise, the result is a string containing the `output.'
-
-FORMAT is useful for producing nicely formatted text, producing
-good-looking messages, and so on. FORMAT can generate and return a
-string or output to destination.
-
-For details on how the CONTROL-STRING is interpreted, see Section 22.3
-(Formatted Output)."""
-        string = control_string % args
-        if  streamp(destination) or listp(destination) or destination is t:
-                # XXX: python strings are immutable, so lists will serve as adjustable arrays..
-                # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
-                write_string(string, destination)
-                return nil
-        else:
-                return string
-
 ##
 ## Reader
 ##
@@ -2943,6 +2972,32 @@ def write_string(string, stream = t):
                 _without_condition_system(handler,
                                           reason = "_write_string")
         return string
+
+def format(destination, control_string, *args):
+        """FORMAT produces formatted output by outputting the characters
+of CONTROL-STRING and observing that a tilde introduces a
+directive. The character after the tilde, possibly preceded by prefix
+parameters and modifiers, specifies what kind of formatting is
+desired. Most directives use one or more elements of ARGS to create
+their output.
+
+If DESTINATION is a string, a stream, or T, then the result is
+nil. Otherwise, the result is a string containing the `output.'
+
+FORMAT is useful for producing nicely formatted text, producing
+good-looking messages, and so on. FORMAT can generate and return a
+string or output to destination.
+
+For details on how the CONTROL-STRING is interpreted, see Section 22.3
+(Formatted Output)."""
+        string = control_string % args
+        if  streamp(destination) or listp(destination) or destination is t:
+                # XXX: python strings are immutable, so lists will serve as adjustable arrays..
+                # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
+                write_string(string, destination)
+                return nil
+        else:
+                return string
 
 def write_line(string, stream = t):
         return write_string(string + "\n", stream)
@@ -3662,9 +3717,9 @@ class standard_object():
                 super().__init__(**initargs)
                 initialize_instance(self, **initargs)
 
-def make_instance(class, **keys):
+def make_instance(class_, **keys):
         "XXX: compliance?"
-        return class(**keys)
+        return class_(**keys)
 
 def slot_boundp(object, slot):            return hasattr(object, slot)
 def slot_makunbound(object, slot):        del object.__dir__[slot]
@@ -4251,7 +4306,7 @@ the specified initialization has taken effect."""
                                        filename = filename,
                                        lineno = lineno))
         # Simulate a python function (XXX: factor):
-        generic_function.__doc__ = self.
+        generic_function.__doc__ = documentation
         generic_function.__code__.co_filename    = filename
         generic_function.__code__.co_firstlineno = lineno
         return generic_function
@@ -4603,9 +4658,9 @@ executed."""
                   (list_,
                    (varituple_,
                     str,        # group name
-                    (or_, (list_, (or_, star, tuple)), # We're off the spec a little here,
-                                                       # but it's a minor syntactic issue.
-                          function),
+                    (or_, (list_, (or_, tuple, (eql_, star))), # We're off the spec a little here,
+                                                               # but it's a minor syntactic issue.
+                          function_),
                     # the rest is actually a plist, but we cannot (yet) describe it
                     # in terms of a type.
                     (maybe_, (tuple_,
@@ -4615,7 +4670,7 @@ executed."""
                               (eql_, _keyword("order")),
                               (member_,
                                _keyword("most-specific-first"),
-                               _keyword("most-specific-last"))))
+                               _keyword("most-specific-last")))),
                     (maybe_, (tuple_,
                               (eql_, _keyword("required")),
                               (member_, t, nil))))))
@@ -4872,9 +4927,9 @@ argument. The additional initialization arguments, returned as the
 second value of this generic function, must also be passed in this
 call to MAKE-INSTANCE."""
         _not_implemented()
-        "Return an expression compileable (by whom? compute-effective-method?)
+        """Return an expression compileable (by whom? compute-effective-method?)
         down to a function, accepting (gf-arglist &rest (subseq c-m-args 1)),
-        responsible to invoke the method and ."
+        responsible to invoke the method and ."""
         # (defmacro call-method (method &rest c-m-args)
         #   (apply method.function
         #          gf-arglist (subseq c-m-args 1)))
@@ -5681,7 +5736,7 @@ noting that a definition for the function name has been seen)."""
         return do_defgeneric
 
 def _method_agrees_with_qualifiers_specializers(method, qualifiers, specializers):
-"""7.6.3 Agreement on Parameter Specializers and Qualifiers
+        """7.6.3 Agreement on Parameter Specializers and Qualifiers
 
 Two methods are said to agree with each other on parameter
 specializers and qualifiers if the following conditions hold:
@@ -5877,7 +5932,7 @@ def _standard_method_shared_initialize(method,
                                        # extensions
                                        filename = None,
                                        lineno = None):
-"""Initialization of Method Metaobjects
+        """Initialization of Method Metaobjects
 
 A method metaobject can be created by calling MAKE-INSTANCE. The
 initialization arguments establish the definition of the METHOD. A
@@ -6384,7 +6439,7 @@ object."""
         method_class = generic_function_method_class(generic_function)
         methfun_lambda, methfun_args = make_method_lambda(generic_function,
                                                           class_prototype(method_class),
-                                                          fn, <env>)
+                                                          fn, ___env___)
         method = make_instance(
                 method_class,
                 qualifiers = [], # XXX
