@@ -1,80 +1,103 @@
 ### -*- mode: org; -*-
 #+STARTUP: hidestars #+STARTUP: odd
-#+TODO: TODO NOTGF | DONE
+#+TODO: TODO NOTGF | DONY DONE
 
-* standard-object
-* make-instance
-* slot-*
+* DONE standard-object
+* DONE make-instance
+* DONE slot-*
 * NOTGF initialize-instance
 * TODO reinitialize-instance
 * NOTGF shared-initialize
-* method
-* funcallable-standard-class
-* generic-function
-* add-dependent
-* remove-dependent
-* map-dependents
+* DONE method
+* DONE funcallable-standard-class
+* DONE generic-function
+* DONE add-dependent
+* DONE remove-dependent
+* DONE map-dependents
 * NOTGF update-dependent
-* method-combination
-* standard-method
-* standard-generic-function
-* shared-initialize standard-generic-function
-* generic-function-*
-* define-method-combination
+* DONE method-combination
+* DONE standard-method
+* DONE standard-generic-function
+* TODO shared-initialize standard-generic-function
+*** <warp to ensure-generic-function-using-class>
+* DONE generic-function-*
+* TODO define-method-combination
 *** method-combination
 ***** TODO call-method
 * TODO standard-method-combination
 * TODO make-method-lambda
 * TODO compute-effective-method
-* compute-applicable-methods-using-classes
+* DONE compute-applicable-methods-using-classes
 *** compute-applicable-methods-using-types
 *** types-from-args
-* compute-applicable-methods-using-types
+* DONE compute-applicable-methods-using-types
 *** specializer-applicable-using-type-p
 *** get-generic-fun-info
 *** sort-applicable-methods
-* specializer-applicable-using-type-p
-* sort-applicable-methods
-* sort-methods
-* order-specializers
-* compute-applicable-methods
-*** compute-applicable-methods-using-types
-*** types-from-args
-* class-sealed-p
-* seal-class
-* compute-discriminating-function
+* DONE specializer-applicable-using-type-p
+* DONE sort-applicable-methods
+* DONE sort-methods
+* DONE order-specializers
+* DONE compute-applicable-methods
+*** <warp to compute-discriminating-function>
+* DONE class-sealed-p
+* TODO seal-class
+* TODO compute-discriminating-function
+*** DONE dfun-compute-applicable-methods
+***** compute-applicable-methods-using-classes
+******* -> compute-applicable-methods-using-types
+******* -> types-from-args
+***** compute-applicable-methods
+******* <essentially-same-as-camuc>
 *** lambda
-***** dfun-compute-applicable-methods
-******* compute-applicable-methods-using-classes
-******* compute-applicable-methods
-***** compute-effective-method
-* ensure-generic-function-using-class
+***** -> dfun-compute-applicable-methods
+***** TODO -> compute-effective-method
+* DONE ensure-generic-function-using-class
 *** remove-method
 *** or
 ***** make-instance generic-function-class, _setf_global
-***** reinitialize-instance
-* ensure-generic-function
-*** ensure-generic-function-using-class
-* defgeneric
+******* -> make-instance 'standard-generic-function
+********* -> standard_generic_function.__init__
+*********** -> _standard_generic_function_shared_initialize
+************* -> update-generic-function-and-dependents
+*************** TODO -> set-funcallable-instance-function (compute-discriminating-function) -> <warp-straight-upwards>
+*************** -> map-dependents update-dependent
+********* -> generic_function.__init__
+*********** __dependents__ setup
+********* -> standard_object.__init__
+*********** NOTGF -> initialize-instance
+************* NOTGF -> shared-initialize
+# ***** TODO reinitialize-instance
+# ******* NOTGF -> shared-initialize
+***** _standard_generic_function_shared_initialize
+******* -> update-generic-function-and-dependents
+********* TODO -> set-funcallable-instance (compute-discriminating-function) -> <warp-straight-upwards>
+********* -> map-dependents update-dependent
+* DONE ensure-generic-function
+*** ensure-generic-function-using-class -> <warp-straight-upwards>
+* DONY defgeneric
 *** ensure-generic-function
-*** TODO recheck compliance
-* add-method
+*** TODO compliance
+* TODO add-method
 *** generic-function-lambda-list-incongruent-with-method-list-p
-*** TODO generic-function-find-agreeing-method
-*** remove-method
-*** add-direct-method
-*** set-funcallable-instance (compute-discriminating-function)
-*** TODO update-dependents
-* set-funcallable-instance-function
+*** generic-function-find-agreeing-method
+*** TODO remove-method
+*** TODO add-direct-method
+*** update-generic-function-and-dependents
+***** TODO -> set-funcallable-instance (compute-discriminating-function) -> <warp-upwards>
+***** -> map-dependents update-dependent
+* DONE set-funcallable-instance-function
 * TODO add-direct-method
-* shared-initialize standard-method
-* remove-method
-*** remove-direct-method
-*** set-funcallable-instance (compute-discriminating-function)
-*** TODO update-dependents
-* defmethod
-*** ensure-generic-function
-*** make-method-lambda (class-prototype)
-*** make-instance (generic-function-method-class)
-*** add-method
+* DONY shared-initialize standard-method
+* TODO remove-method
+*** TODO remove-direct-method
+*** update-generic-function-and-dependents
+***** TODO -> set-funcallable-instance (compute-discriminating-function)
+***** -> map-dependents update-dependent
+* TODO remove-direct-method
+* TODO defmethod
+*** DONE ensure-generic-function
+*** TODO make-method-lambda (class-prototype)
+*** TODO make-instance (generic-function-method-class) (make-method-specializers) (compile)
+*** TODO add-method
 

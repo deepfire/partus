@@ -4206,6 +4206,7 @@ presented as a set of restrictions on the methods a portable program
 can define. The model is that portable initialization methods have
 access to the generic function metaobject when either all or none of
 the specified initialization has taken effect."""
+        # Unregistered Issue COMPLIANCE-METHOD-CLASS-ARGUMENT-TYPE-CHECK-NOT-PRECISE-ENOUGH
         if _specifiedp(argument_precedence_order):
                 if not _specifiedp(lambda_list):
                         error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER "
@@ -4214,22 +4215,22 @@ the specified initialization has taken effect."""
                           set(argument_precedence_order) == set(lambda_list[0])):
                         error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER, "
                               "when specified, must be a permutation of fixed arguments in :LAMBDA-LIST.")
-                self.argument_precedence_order = tuple(argument_precedence_order)
+                generic_function.argument_precedence_order = tuple(argument_precedence_order)
         elif _specifiedp(lambda_list):
-                self.argument_precedence_order = tuple(lambda_list[0])
-        ## ..end of A-P-O saga.
-        self.declarations              = tuple(_defaulted(declarations, list(),
-                                                          type = (list_, (satisfies_, _valid_declaration_p))))
-        self.documentation             = _defaulted(documentation, nil,
-                                                    type = (or_, str, (eql_, nil)))
+                generic_function.argument_precedence_order = tuple(lambda_list[0])
+        generic_function.declarations        = tuple(_defaulted(declarations, list(),
+                                                                type = (list_,
+                                                                        (satisfies_, _valid_declaration_p))))
+        generic_function.documentation       = _defaulted(documentation, nil,
+                                              type = (or_, str, (eql_, nil)))
         if _specifiedp(lambda_list):
                 # XXX: _not_implemented("lambda-list validation")
-                self.lambda_list       = lambda_list
-        self.method_combination        = _defaulted(method_combination, standard_method_combination,
-                                                    type = method_combination)
-        self.method_class              = _defaulted(method_class, standard_method,
-                                                    type = method)
-        self.name                      = _defaulted(name, nil)
+                generic_function.lambda_list = lambda_list
+        generic_function.method_combination  = _defaulted(method_combination, standard_method_combination,
+                                                          type = method_combination)
+        generic_function.method_class        = _defaulted(method_class, standard_method,
+                                                          type = type_) # method metaclass
+        generic_function.name                = _defaulted(name, nil)
         # The discriminating function may reuse the
         # list of applicable methods without calling
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
@@ -4237,9 +4238,20 @@ the specified initialization has taken effect."""
         generic_function.__applicable_method_cache__ = dict() # (list_, type_) -> list
         filename, lineno = (_defaulted(filename, "<unknown>"),
                             _defaulted(lineno,   0))
-        generic_function.__dfun__ = compute_discriminating_function(generic_function)
+        _update_generic_function_and_dependents(
+                generic_function,
+                **_only_specified_keys(argument_precedence_order = argument_precedence_order,
+                                       declarations = declarations,
+                                       documentation = documentation,
+                                       lambda_list = lambda_list,
+                                       method_combination = method_combination,
+                                       method_class = method_class,
+                                       name = name,
+                                       # extensions
+                                       filename = filename,
+                                       lineno = lineno))
         # Simulate a python function (XXX: factor):
-        generic_function.__doc__ = _defaulted(documentation, gfun.__doc__)
+        generic_function.__doc__ = self.
         generic_function.__code__.co_filename    = filename
         generic_function.__code__.co_firstlineno = lineno
         return generic_function
@@ -5363,7 +5375,7 @@ GENERIC-FUNCTION and the initialization arguments. The
 GENERIC-FUNCTION argument is then returned."""
         # Unregistered Issue COMPLIANCE-SETF-LIST-NAMES-NOT-SUPPORTED
         # Unregistered Issue COMPLIANCE-GENERIC-FUNCTION-CLASS-AS-NAME-NOT-SUPPORTED
-        # Unregistered Issue COMPLIANCE-
+        # Unregistered Issue COMPLIANCE-GENERIC-FUNCTION-REINITIALIZE-INSTANCE-SURROGATE-CALLED
         ###
         ### First step, "compute the set of initialization arguments":
         if gfun:
@@ -5405,6 +5417,7 @@ GENERIC-FUNCTION argument is then returned."""
                 # calling MAKE-INSTANCE with the previously computed initialization arguments.
                 # The function name FUNCTION-NAME is set to name the generic function.
                 generic_function = make_instance(generic_function_class, **initargs)
+                # _standard_generic_function_shared_initialize is called by s-g-f.__init__
                 _setf_global(function_name, generic_function)
         else:
                 if class_of(generic_function) is not generic_function_class:
@@ -5412,11 +5425,12 @@ GENERIC-FUNCTION argument is then returned."""
                         # class specified by the :GENERIC-FUNCTION-CLASS argument, an error is
                         # signaled.
                         error("ENSURE-GENERIC-FUNCTION-USING-CLASS: ")
-                        # Otherwise the generic function GENERIC-FUNCTION is redefined by
-                        # calling the REINITIALIZE-INSTANCE generic function with
-                        # GENERIC-FUNCTION and the initialization arguments. The
-                        # GENERIC-FUNCTION argument is then returned.               
-                reinitialize_instance(generic_function, **initargs)
+                # Otherwise the generic function GENERIC-FUNCTION is redefined by
+                # calling the REINITIALIZE-INSTANCE generic function with
+                # GENERIC-FUNCTION and the initialization arguments. The
+                # GENERIC-FUNCTION argument is then returned.
+                # reinitialize_instance(generic_function, **initargs) # does not do much, beyond __dict__ update
+                _standard_generic_function_shared_initialize(generic_function, **initargs)
         return generic_function
 
 def ensure_generic_function(function_name, **keys):
@@ -5951,17 +5965,18 @@ correspondences are as follows:"""
                                        type = (list_, (and_, symbol, (not_, (eql_, nil)))))
         if not _specifiedp(lambda_list):
                 error("SHARED-INITIALIZE STANDARD-METHOD: :LAMBDA-LIST must be supplied.")
-        # XXX: _not_implemented("lambda-list validation")
+        # Unregistered Issue COMPLIANCE-STANDARD-METHOD-SHARED-INITIALIZE-LAMBDA-LIST-VALIDATION-NOT-IMPLEMENTED
         method.lambda_list = lambda_list
         if not _specifiedp(specializers):
                 error("SHARED-INITIALIZE STANDARD-METHOD: :SPECIALIZERS must be supplied.")
-        # XXX: _not_implemented("specializer validation"):
+        # Unregistered Issue COMPLIANCE-STANDARD-METHOD-SHARED-INITIALIZE-SPECIALIZER-VALIDATION-NOT-IMPLEMENTED
         #  o  (list_, method_specializer)
         #  o  length == len(lambda_list[0])
         method.specializers = specializers
         if not _specifiedp(function):
                 error("SHARED-INITIALIZE STANDARD-METHOD: :FUNCTION must be supplied.")
         method.function = function
+        # Unregistered Issue COMPLIANCE-STANDARD-METHOD-SHARED-INITIALIZE-SLOT-DEFINITION-OPTION-NOT-IMPLEMENTED
         ## Later:
         # if typep(method, standard_accessor_method):
         #         if not _specifiedp(slot_definition):
@@ -6012,6 +6027,40 @@ implementation."""
                 remove_direct_method(s, method)
         _update_generic_function_and_dependents(generic_function, remove_method = method)
         return generic_function
+
+def remove_direct_method(specializer, method):
+        """remove-direct-method specializer method
+
+Arguments:
+
+The specializer argument is a specializer metaobject.
+
+The method argument is a method metaobject.
+
+Values:
+
+The value returned by remove-direct-method is unspecified.
+
+Purpose:
+
+This generic function is called to maintain a set of backpointers from
+a SPECIALIZER to the set of methods specialized to it. If METHOD is in
+the set it is removed. If it is not, no error is signaled.
+
+This set can be accessed as a list by calling the generic function
+SPECIALIZER-DIRECT-METHODS. Methods are added to the set by
+ADD-DIRECT-METHOD.
+
+The generic function REMOVE-DIRECT-METHOD is called by REMOVE-METHOD
+whenever a method is removed from a generic function. It is called
+once for each of the specializers of the method. Note that in cases
+where a specializer appears more than once in the specializers of a
+method, this generic function will be called more than once with the
+same specializer as argument.
+
+The results are undefined if the specializer argument is not one of
+the specializers of the method argument."""
+        _not_implemented()
 
 def defmethod(fn):
         """defmethod function-name {method-qualifier}* specialized-lambda-list [[declaration* | documentation]] form*
