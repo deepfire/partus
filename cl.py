@@ -4723,17 +4723,17 @@ executed."""
                                  "required")
         groups = dict()
         for mgspec in method_group_specifiers:
-                name, qualifier_spec = mgspec[:2]
+                gname, qualifier_spec = mgspec[:2]
                 options = mgspec[2:]
                 options_dict = _map_into_hash_star(lambda keyword, v: (symbol_name(keyword), v), options)
                 (lambda description = "Method group %s.",
                         required = nil,
                         order = _keyword("most_specific_first"):
-                        groups.update({name: method_group(name,
-                                                          qualifier_spec,
-                                                          description,
-                                                          order is _keyword("most_specific_first"),
-                                                          required)}))(**options_dict)
+                        groups.update({gname: method_group(gname,
+                                                           qualifier_spec,
+                                                           description,
+                                                           order is _keyword("most_specific_first"),
+                                                           required)}))(**options_dict)
         def method_combination(applicable_methods, *args, **keys):
                # The LAMBDA-LIST receives any arguments provided after the name of
                # the method combination type in the :METHOD-COMBINATION option to
