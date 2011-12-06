@@ -315,16 +315,16 @@ all AST-trees, except for the tuple exception."""
         return (_astify_constant(tree)                                          if not _tuplep(tree)    else
                 error("The atree nodes cannot contain empty forms.")            if not tree             else
                 error("The CAR of an atree must be a string, not %s.", tree[0]) if not stringp(tree[0]) else
-                if_let(gethash(tree[0], ast)[0],
-                       lambda type:
-                               (error("Unknown AST type %s in atree node %s.", tree[0], tree)
-                                if not hasattr(type, "_fields") else
-                                error("AST type %s requires %d arguments, but %d were provided by atree node %s.",
-                                      type, len(type._fields), len(tree) - 1, tree)
-                                if len(type._fields) != len(tree) - 1 else
-                                type(*mapcar(_astify_atree, tree[1:]))),
-                       # XXX: pythonic CONS-ing idiocy
-                       lambda: error("Unknown AST type %s in atree node %s.", tree[0], tree)))
+                _if_let(gethash(tree[0], ast.__dict__)[0],
+                        lambda type:
+                                (error("Unknown AST type %s in atree node %s.", tree[0], tree)
+                                 if not hasattr(type, "_fields") else
+                                 error("AST type %s requires %d arguments, but %d were provided by atree node %s.",
+                                       type, len(type._fields), len(tree) - 1, tree)
+                                 if len(type._fields) != len(tree) - 1 else
+                                 type(*mapcar(_astify_atree, tree[1:]))),
+                        # XXX: pythonic CONS-ing idiocy
+                        lambda: error("Unknown AST type %s in atree node %s.", tree[0], tree)))
 
 ###
 ### Basis
@@ -4893,12 +4893,13 @@ executed."""
 # only the most specific method is invoked; that is, more specific
 # methods shadow more general ones.
 standard_method_combination = define_method_combination(
-        _intern0("STANDARD"),
+        _i("STANDARD"),
         [(_i("around"),  [(_keyword("around"),)]),
          (_i("before"),  [(_keyword("before"),)]),
-         (_i("primary"), [tuple()],          (_keyword("required"), t)),
-         (_i("after"),   [(_keyword("after"),)],   (_keyword("order"),
-                                              _keyword("most-specific-last")))],
+         (_i("primary"), [tuple()],
+                         (_keyword("required"), t)),
+         (_i("after"),   [(_keyword("after"),)],
+                         (_keyword("order"),    _keyword("most-specific-last")))],
         lambda: # "around", "before", "primary" and "after" are bound "magically",
                 # to avoid duplication.
                 [])
