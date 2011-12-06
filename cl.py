@@ -888,11 +888,16 @@ def ecase(val, *clauses):
                         return body() if isinstance(body, function_) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
+def _infinite(x):
+        while True:
+                yield x
+
 def _seek(n, iterator):
         for i in range(n):
                 next(iterator, nil)
 
-def _from(n, iterator):
+def _from(n, xs):
+        iterator = iter(xs)
         for i in range(n):
                 next(iterator, nil)
         for x in iterator:
@@ -901,22 +906,24 @@ def _from(n, iterator):
 def every(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
                 if not fn(*xs): return False
-        return xs or t
+        return (xs or True) if "xs" in locals() else True
 
 def notevery(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
-                if not fn(*xs): return xs or t
+                ret = fn(*xs)
+                if not ret: return ret or True
         return False
 
 def some(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
-                if fn(*xs): return xs or t
+                ret = fn(*xs)
+                if ret: return ret or True
         return False
 
 def notany(fn, *xss, start = 0):
-        for xs in _from(start, zip(xss)):
+        for xs in _from(start, zip(*xss)):
                 if fn(*xs): return False
-        return xs or t
+        return (xs or True) if "xs" in locals() else True
 
 def _xorf(x, y):
         return (x or y) and not (x and y)
@@ -949,26 +956,28 @@ def type_of(x):
 def _of_type(x):
         return lambda y: typep(y, x)
 
-def _every_typep(xs, type):
-        for x in xs:
-                if not typep(x, type): return False
-        return x or t
+def _type_specifier_complex_p(x):
+        """Determines, whether a type specifier X constitutes a
+complex type specifier."""
+        return _tuplep(x)
 
-def _invalid_type_specifier_error(x):
-        error(simple_type_error, "%s is not a valid type specifier.", x)
+def _invalid_type_specifier_error(x, complete_type = None):
+        error(simple_type_error, "%s is not a valid type specifier%s.",
+              x, ("" if not complete_type else
+                  (" (within type specifier %s)" % (complete_type,))))
 
 # __type_predicate_map__ is declared after the package system is initialised
 def _complex_type_mismatch(x, type):
-        fast_test, zero_fn, test, element_test = __type_predicate_map__[type[0]]
-        return (let(fast_test(x, type),
-                    lambda ret: (ret if ret is not None else
-                                 _invalid_type_specifier_error(type)))    if fast_test      else
-                (zero_fn(x, type) if zero is not None else
-                 error("Type specifier %s requires arguments.", type[0])) if len(type) is 1 else
-                test(lambda elem_type: element_test(x, elem_type),
-                     type, start = 1)) # Standard type predicates do accept the :START keyword.
+        ctype_test = __type_predicate_map__[type[0]]
+        ret = ctype_test(x, type)
+        return (ret if not (_tuplep(ret) and ret[0] is None) else
+                _invalid_type_specifier_error(ret[1], complete_type = type))
 
 def _type_mismatch(x, type):
+        """Determine, whether X does not belong to TYPE, and if so,
+return a tuple, specifying the specific parts of X and TYPE being in
+disagreement.  Otherwise, when X is of TYPE, a negative boolean value
+is returned."""
         return (((not isinstance(x, type)) and
                  (x, type))                     if isinstance(type, type_)             else
                 nil                             if type is t                           else
@@ -980,16 +989,19 @@ def typep(x, type):
         return not _type_mismatch(x, type)
 
 def subtypep(sub, super):
-        return (issubclass(sub, super)              if super is not t                            else
+        return (issubclass(sub, super)                    if super is not t                            else
                 _not_implemented("complex type relatioships: %s vs. %s.",
-                                 sub, super)        if _tuplep(sub) or _tuplep(super)            else
-                error("%s is not a type specifier") if not (typep(sub, (or_, type_, (eql_, t))) and
-                                                            typep(sub, (or_, type_, (eql_, t)))) else
+                                 sub, super)              if _tuplep(sub) or _tuplep(super)            else
+                error("%s is not a valid type specifier") if not (typep(sub, (or_, type_, (eql_, t))) and
+                                                                  typep(sub, (or_, type_, (eql_, t)))) else
                 sub is super or super is t)
 
 def the(type, x):
-        return (x if typep(x, type) else
-                error(simple_type_error, "The value %s is not of type %s.", x, type))
+        mismatch = _type_mismatch(x, type)
+        return (x if not mismatch else
+                error(simple_type_error, "The value %s is not of type %s%s.",
+                      x, type, ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
+                                (", specifically, the value %s is not of type %s" % mismatch))))
 
 def check_type(x, type):
         the(type, x)
@@ -1181,6 +1193,7 @@ def remove(elt, xs, test = eq, key = identity):
                 return _maprestype(xs) (x for x    in xs         if test(elt, key(x)))
 
 def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
+        # Unregistered Issue FIND-IF-NOT-ITERATOR-FRIENDLY
         end = end or len(xs)
         if start or end:
                 seq = zip(xs, range(len(xs)))
@@ -1958,46 +1971,71 @@ def setf_fdefinition(symbol_name, function):
         symbol.__code__        = function.__code__
         return function
 
-__type_predicate_map__ = {
-        or_:            (nil,   identity,        every, _type_mismatch),
-        and_:           (nil,   constantly(nil), some,  _type_mismatch),
-        member_:        (nil,   nil,           some,  eql),
-        }
-
 def defun(f):
         symbol_name = f.__name__
         setf_fdefinition(symbol_name, f)
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
         return _global(symbol_name)[0] # guaranteed to exist at this point
 
+__type_predicate_map__ = dict()
+
+## Remember, we return type mismatches in these predicates!
+def _some_type_mismatch(type, xs):
+        "Determines, whether some member of XS mismatches TYPE."
+        return some(_type_mismatch, xs, _infinite(type))
+
+@defun
+def or_(x, type):
+        return ((x, type) if len(type) is 1 else
+                (every(_type_mismatch, _infinite(x), _from(1, type)) and
+                 (x, type)))
+
+@defun
+def and_(x, type):
+        return (nil       if len(type) is 1 else
+                some(_type_mismatch, _infinite(x), _from(1, type)))
+
+@defun
+def member_(x, type):
+        return ((x not in _from(1, type)) and
+                (x, type))
+
 @defun
 def maybe_(x, type):
-        return x is None or x is nil or typep(x, type[1])
-assert(symbolp(maybe_))
+        return ((None, type) if len(type) is not 2               else
+                nil          if ((x is None or x is nil) or
+                                 not _type_mismatch(x, type[1])) else
+                (x, type))
 
 @defun
 def list_(x, type):
-        return isinstance(x, list) and _every_typep(x, type[1])
+        return ((None, type) if len(type) is not 2      else
+                (x, type)    if not isinstance(x, list) else
+                some(_type_mismatch, x, _infinite(type[1])))
 
 @defun
 def satisfies_(x, type):
-        return type[1](x)
+        return ((None, type) if ((len(type) is not 2) or
+                                 not functionp(type[1])) else
+                ((not type[1](x)) and
+                 (x, type)))
 
 @defun
 def eql_(x, type):
-        return eql(x, type[1])
+        return ((None, type) if len(type) is not 2 else
+                ((not eql(x, type[1])) and
+                 (x, type)))
 
 @defun
 def tuple_(x, type):
-        return (_tuplep(x)              and
-                len(x) == len(type) - 1 and
-                every(typep, x, type, start = 1))
+        return ((x, type) if not (_tuplep(x) and len(x) == len(type) - 1) else
+                some(_type_mismatch, x, _from(1, type)))
+# Unregistered Issue TEACHABLE-TYPE-CHECKING-PRACTICE-AND-TOOL-CONSTRUCTION
 
 @defun
 def partuple_(x, type):
-        return (_tuplep(x)              and
-                len(x) >= len(type) - 1 and
-                every(typep, x, type, start = 1))
+        return ((x, type) if not _tuplep(x) and len(x) < (len(type) - 1) else
+                some(_type_mismatch, x, type[1:]))
 
 __variseq__ = (tuple_, (eql_, maybe_), t) # Meta-type, heh..
 @defun
@@ -2005,11 +2043,11 @@ def varituple_(x, type):
         # correctness enforcement over speed?
         fixed_t, maybes_t = _prefix_suffix_if_not(_of_type(__variseq__), type[1:])
         if not every(_of_type(__variseq__), maybes_t):
-                return None # fail
+                return (None, type)   # fail
         fixlen = len(fixed_t)
-        return (len(x) >= fixlen                  and
-                every(typep, x[:fixlen], fixed_t) and
-                _every_typep(x[fixlen:], (or_,) + tuple(t[1] for t in maybes_t)))
+        return ((x, type) if len(x) < fixlen else
+                some(_type_mismatch, x[:fixlen], fixed_t) or
+                some(_type_mismatch, x[fixlen:], _infinite((or_,) + tuple(t[1] for t in maybes_t))))
 
 @defun
 def lambda_list_(x, type):
@@ -2024,15 +2062,19 @@ def lambda_list_(x, type):
 
 def deftype(name, test):
         "XXX: should analyse the lambda list of TEST.."
-        __type_predicate_map__[name] = (test, nil, nil, nil)
+        __type_predicate_map__[name] = test
         return name
 
+## Remember, the used predicates must return type mismatches!
+deftype(or_,          or_)
+deftype(and_,         and_)
+deftype(member_,      member_)
 deftype(eql_,         eql_)
 deftype(satisfies_,   satisfies_)
-deftype(maybe_,       maybe_)
 # XXX: this is a small lie: this is not a cons-list
 # ..but neither CL has a type specifier like this and the others, that follow..
 deftype(list_,        list_)
+deftype(maybe_,       maybe_)
 deftype(tuple_,       tuple_)
 deftype(partuple_,    partuple_)
 deftype(varituple_,   varituple_)
