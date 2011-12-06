@@ -1,5 +1,5 @@
 (setq partus-path "/home/deepfire/src/partus/"
-      default-lisp-implementation 'partus)
+      slime-default-lisp 'partus)
 
 ;; Citing Python 3.2.2 documentation (Python Setup and Usage/1.1.1):
 ;; "In non-interactive mode, the entire input is parsed before it is executed."
@@ -25,6 +25,9 @@
     (format "import sys; sys.path.append('%s'); from cl import *; import partus; setq('_debug_swank_backend_', t); setq('_swank_debug_p_', t); partus.start_server('%s', coding_system = '%s')\n"
             partus-path port-filename coding-system)))
 
+;;;
+;;; Python does not process input from non-TTYs incrementally, hence SEND-EOF
+;;;
 (defun* slime-start (&key (program inferior-lisp-program) program-args 
                           directory
                           (coding-system slime-net-coding-system)
@@ -62,6 +65,9 @@ DIRECTORY change to this directory before starting the process.
       (slime-inferior-connect proc args)
       (pop-to-buffer (process-buffer proc)))))
 
+;;;
+;;; Python does not process input from non-TTYs incrementally, hence SEND-EOF
+;;;
 (defun slime-start-swank-server (process args)
   "Start a Swank server on the inferior lisp."
   (destructuring-bind (&key coding-system init send-eof &allow-other-keys) args
