@@ -1001,7 +1001,7 @@ def the(type, x):
         return (x if not mismatch else
                 error(simple_type_error, "The value %s is not of type %s%s.",
                       x, type, ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
-                                (", specifically, the value %s is not of type %s" % mismatch))))
+                                (", specifically, the value %s is not of type %s" % (princ_to_string(mismatch[0]), mismatch[1])))))
 
 def check_type(x, type):
         the(type, x)
@@ -2482,7 +2482,7 @@ def write_to_string(object,
         # assert(True
         #        and array is t
         #        and base is 10
-        #        # case is keyword("upcase")
+        #        # case is _keyword("upcase")
         #        and circle is nil
         #        # and escape is t !
         #        # and gensym is t
@@ -4685,7 +4685,7 @@ executed."""
         check_type(method_group_specifiers,
                   (list_,
                    (varituple_,
-                    str,        # group name
+                    symbol,       # group name
                     (or_, (list_, (or_, tuple, (eql_, star))), # We're off the spec a little here,
                                                                # but it's a minor syntactic issue.
                           function_),
@@ -4709,7 +4709,7 @@ executed."""
                                         (maybe_, str),
                                         (list_, str),
                                         (maybe_, str))))
-        check_type(generic_function, (maybe_, string))
+        check_type(generic_function, (maybe_, symbol))
         ### VARI-BIND, anyone?
         # def vari_bind(x, body):
         #         # don't lambda lists actually rule this, hands down?
@@ -4726,13 +4726,14 @@ executed."""
                 name, qualifier_spec = mgspec[:2]
                 options = mgspec[2:]
                 options_dict = _map_into_hash_star(lambda keyword, v: (symbol_name(keyword), v), options)
-                (lambda DESCRIPTION = "Method group %s.",
-                        REQUIRED = nil,
-                        ORDER = keyword("most_specific_first"):
-                        groups.update({name: method_group(name, qualifier_spec,
-                                                          DESCRIPTION,
-                                                          ORDER is keyword("most_specific_first"),
-                                                          REQUIRED)}))(**options_dict)
+                (lambda description = "Method group %s.",
+                        required = nil,
+                        order = _keyword("most_specific_first"):
+                        groups.update({name: method_group(name,
+                                                          qualifier_spec,
+                                                          description,
+                                                          order is _keyword("most_specific_first"),
+                                                          required)}))(**options_dict)
         def method_combination(applicable_methods, *args, **keys):
                # The LAMBDA-LIST receives any arguments provided after the name of
                # the method combination type in the :METHOD-COMBINATION option to
@@ -4795,7 +4796,7 @@ executed."""
                        method_lambda
                body_args.update({ "call_method": call_method })
                return body(**body_args)
-        method_combination.__name__                    = the(symbol, name)
+        method_combination.name                        = the(symbol, name)
         method_combination.__method_group_specifiers__ = method_group_specifiers
         return method_combination
 
@@ -4893,11 +4894,11 @@ executed."""
 # methods shadow more general ones.
 standard_method_combination = define_method_combination(
         _intern0("STANDARD"),
-        [("around",  [(_keyword("around"),)]),
-         ("before",  [(_keyword("before"),)]),
-         ("primary", [tuple()],                (_keyword("required"), t)),
-         ("after",   [(_keyword("after"),)],   (_keyword("order"),
-                                                _keyword("most-specific-last")))],
+        [(_i("around"),  [(_keyword("around"),)]),
+         (_i("before"),  [(_keyword("before"),)]),
+         (_i("primary"), [tuple()],          (_keyword("required"), t)),
+         (_i("after"),   [(_keyword("after"),)],   (_keyword("order"),
+                                              _keyword("most-specific-last")))],
         lambda: # "around", "before", "primary" and "after" are bound "magically",
                 # to avoid duplication.
                 [])
