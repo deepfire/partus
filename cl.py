@@ -1846,11 +1846,13 @@ def intern(x, package = None):
         s, found_in_package = _intern(x, package)
         return s, (symbol_relation(s, found_in_package) if found_in_package else
                    None)
-def _intern0(x, package = None): return intern(x, package)[0]
+def _intern0(x, package = None): return intern(the(str, x),         package)[0]
+def _i(x):                       return intern(the(str, x).upper(), None)[0]
 
 # requires that __keyword_package__ is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
 def _keyword(s, upcase = True):
         return _intern((s.upper() if upcase else s), __keyword_package__)[0]
+_k = _keyword
 
 def import_(symbols, package = None, populate_module = True):
         p = _coerce_to_package(package)
