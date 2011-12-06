@@ -325,6 +325,77 @@ all AST-trees, except for the tuple exception."""
                                  type(*mapcar(_astify_atree, tree[1:]))),
                         # XXX: pythonic CONS-ing idiocy
                         lambda: error("Unknown AST type %s in atree node %s.", tree[0], tree)))
+# mod = Module(stmt* body)
+#     | Interactive(stmt* body)
+#     | Expression(expr body)
+# stmt = FunctionDef(identifier name, arguments args, 
+#                    stmt* body, expr* decorator_list, expr? returns)
+#       | ClassDef(identifier name, 
+# 		   expr* bases,
+# 		   keyword* keywords,
+# 		   expr? starargs,
+# 		   expr? kwargs,
+# 		   stmt* body,
+# 		   expr* decorator_list)
+#       | Return(expr? value)
+#       | Delete(expr* targets)
+#       | Assign(expr* targets, expr value)
+#       | AugAssign(expr target, operator op, expr value)
+#       | For(expr target, expr iter, stmt* body, stmt* orelse)
+#       | While(expr test, stmt* body, stmt* orelse)
+#       | If(expr test, stmt* body, stmt* orelse)
+#       | With(expr context_expr, expr? optional_vars, stmt* body)
+#       | Raise(expr? exc, expr? cause)
+#       | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
+#       | TryFinally(stmt* body, stmt* finalbody)
+#       | Assert(expr test, expr? msg)
+#       | Import(alias* names)
+#       | ImportFrom(identifier? module, alias* names, int? level)
+#       | Global(identifier* names)
+#       | Nonlocal(identifier* names)
+#       | Expr(expr value)
+#       | Pass | Break | Continue
+# expr = BoolOp(boolop op, expr* values)
+#      | BinOp(expr left, operator op, expr right)
+#      | UnaryOp(unaryop op, expr operand)
+#      | Lambda(arguments args, expr body)
+#      | IfExp(expr test, expr body, expr orelse)
+#      | Dict(expr* keys, expr* values)
+#      | Set(expr* elts)
+#      | ListComp(expr elt, comprehension* generators)
+#      | SetComp(expr elt, comprehension* generators)
+#      | DictComp(expr key, expr value, comprehension* generators)
+#      | GeneratorExp(expr elt, comprehension* generators)
+#      | Yield(expr? value)
+#      | Compare(expr left, cmpop* ops, expr* comparators)
+#      | Call(expr func, expr* args, keyword* keywords, expr? starargs, expr? kwargs)
+#      | Num(object n) -- a number as a PyObject.
+#      | Str(string s) -- need to specify raw, unicode, etc?
+#      | Bytes(string s)
+#      | Ellipsis
+#      | Attribute(expr value, identifier attr, expr_context ctx)
+#      | Subscript(expr value, slice slice, expr_context ctx)
+#      | Starred(expr value, expr_context ctx)
+#      | Name(identifier id, expr_context ctx)
+#      | List(expr* elts, expr_context ctx) 
+#      | Tuple(expr* elts, expr_context ctx)
+# expr_context = Load | Store | Del | AugLoad | AugStore | Param
+# slice = Slice(expr? lower, expr? upper, expr? step) 
+#       | ExtSlice(slice* dims) 
+#       | Index(expr value) 
+# boolop = And | Or 
+# operator = Add | Sub | Mult | Div | Mod | Pow | LShift | RShift | BitOr | BitXor | BitAnd | FloorDiv
+# unaryop = Invert | Not | UAdd | USub
+# cmpop = Eq | NotEq | Lt | LtE | Gt | GtE | Is | IsNot | In | NotIn
+# comprehension = (expr target, expr iter, expr* ifs)
+# excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
+# arguments = (arg* args, identifier? vararg, expr? varargannotation,
+#              arg* kwonlyargs, identifier? kwarg,
+#              expr? kwargannotation, expr* defaults,
+#              expr* kw_defaults)
+# arg = (identifier arg, expr? annotation)
+# keyword = (identifier arg, expr value)
+# alias = (identifier name, identifier? asname)
 
 ###
 ### Basis

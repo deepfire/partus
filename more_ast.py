@@ -395,6 +395,9 @@ def pp_ast_as_code(x, tab = " " * 8):
                         ast.BinOp:       pp_binop,
                         ast.Return:      make_trivial_pper("return"),
                         ast.Raise:       make_trivial_pper("raise"),
+                        ast.Pass:        make_trivial_pper("pass"),
+                        ast.Break:       make_trivial_pper("break"),
+                        ast.Continue:    make_trivial_pper("continue"),
                         ast.Import:      pp_import,
                         }
                 def fail(x): not_implemented("pretty-printing AST node %s" % (type(x),))
