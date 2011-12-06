@@ -4717,7 +4717,7 @@ executed."""
         #         return body()
         method_group = defstruct("method_group",
                                  "name",
-                                 "qualifier_spec"
+                                 "qualifier_spec",
                                  "description",
                                  "most_specific_first",
                                  "required")
