@@ -298,7 +298,7 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                  ((list_, ast.AST),
                                   body),
                                  (function_,
-                                  lambda: 
+                                  lambda:
                                   body(*mapcar(_ast_name, fixed),
                                        **_map_into_hash(lambda x: (x, _ast_name),
                                                         (list(optional) + list(keyword) +
@@ -1917,7 +1917,7 @@ def symbol_relation(x, p):
 def _find_symbol(x, package):
         s = package.accessible.get(x) if x in package.accessible else None
         if s is not None:
-                # format(t, "FIND-SYMBOL:%s, %s -> %s, %s\n", 
+                # format(t, "FIND-SYMBOL:%s, %s -> %s, %s\n",
                 #        x, package, s, symbol_relation(s, p))
                 return s, symbol_relation(s, package)
         else:
@@ -2673,7 +2673,7 @@ def prin1(object, stream = t):
 def princ(object, stream = t):
         """PRINC is just like PRIN1 except that the output has no escape characters.
 It binds *PRINT-ESCAPE* to false and *PRINT-READABLY* to false.
-The general rule is that output from PRINC is intended to look good to people, 
+The general rule is that output from PRINC is intended to look good to people,
 while output from PRIN1 is intended to be acceptable to READ."""
         return write(object, stream = stream, escape = nil, readably = nil)
 
@@ -3254,7 +3254,7 @@ def _report_condition(cond, stream = None, backtrace = None):
         stream = _defaulted_to_var(stream, "_debug_io_")
         format(stream, "%sondition of type %s: %s\n",
                (("In thread \"%s\": c" % threading.current_thread().name)
-                if threading.current_thread() is not __main_thread__ else 
+                if threading.current_thread() is not __main_thread__ else
                 "C"),
                type(cond), cond)
         if backtrace:
@@ -3646,7 +3646,6 @@ def invoke_restart(restart, *args, **keys):
 Calls the function associated with RESTART, passing arguments to
 it. Restart must be valid in the current dynamic environment.
 """
-        
         assert(stringp(restart) or _restartp(restart))
         restart = restart if _restartp(restart) else find_restart(restart)
         return restart.function(*args, **keys)
@@ -4386,7 +4385,7 @@ Initialization Argument		Generic Function
 :lambda-list 			generic-function-lambda-list
 :method-combination 		generic-function-method-combination
 :method-class 			generic-function-method-class
-:name 				generic-function-name 
+:name 				generic-function-name
 
 Methods:
 
@@ -4482,15 +4481,15 @@ define-method-combination name lambda-list (method-group-specifier*) [(:argument
 
 => name
 
-short-form-option::= :documentation documentation |  
-                     :identity-with-one-argument identity-with-one-argument | 
-                     :operator operator 
+short-form-option::= :documentation documentation |
+                     :identity-with-one-argument identity-with-one-argument |
+                     :operator operator
 
 method-group-specifier::= (name {qualifier-pattern+ | predicate} [[long-form-option]]) 
 
-long-form-option::= :description description | 
-                    :order order | 
-                    :required required-p 
+long-form-option::= :description description |
+                    :order order |
+                    :required required-p
 
 Arguments and Values:
 
@@ -5685,12 +5684,12 @@ def defgeneric(_ = None,
 
 => new-generic
 
-option::= (:argument-precedence-order parameter-name+) | 
-          (declare gf-declaration+) | 
-          (:documentation gf-documentation) | 
+option::= (:argument-precedence-order parameter-name+) |
+          (declare gf-declaration+) |
+          (:documentation gf-documentation) |
           (:method-combination method-combination method-combination-argument*) | 
-          (:generic-function-class generic-function-class) | 
-          (:method-class method-class) 
+          (:generic-function-class generic-function-class) |
+          (:method-class method-class)
 
 method-description::= (:method method-qualifier* specialized-lambda-list [[declaration* | documentation]] form*) 
 
@@ -6264,12 +6263,12 @@ function-name::= {symbol | (setf symbol)}
 
 method-qualifier::= non-list
 
-specialized-lambda-list::= ({var | (var parameter-specializer-name)}* 
+specialized-lambda-list::= ({var | (var parameter-specializer-name)}*
                             [&optional {var | (var [initform [supplied-p-parameter] ])}*] 
-                            [&rest var] 
+                            [&rest var]
                             [&key{var | ({var | (keywordvar)} [initform [supplied-p-parameter] ])}*
-                                 [&allow-other-keys] ] 
-                            [&aux {var | (var [initform] )}*] ) 
+                                 [&allow-other-keys] ]
+                            [&aux {var | (var [initform] )}*] )
 parameter-specializer-name::= symbol | (eql eql-specializer-form)
 
 Arguments and Values:
