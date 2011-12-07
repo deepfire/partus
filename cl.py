@@ -80,6 +80,11 @@ def _cold_print_symbol(s, **keys):
         return s.package.name + ":" + s.name
 _print_symbol = _cold_print_symbol
 
+def _cold_error(format_control, *format_args):
+        raise Exception(format_control % format_args)
+error = _cold_error
+# Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
+
 ###
 ### Ring 1.
 ###
