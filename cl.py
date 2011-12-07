@@ -310,6 +310,9 @@ def _ast_functiondef(name, lambda_list_spec, body):
 __ast_field_types__ = dict()
 def defast(fn):
         name = fn.__name__
+        if len(name) < 7 or not name.startswith("_ast_"):
+                error("In DEFAST %s: the AST name must be prefixed with \"_ast_\".", name)
+        name = name[5:]
         fixed, optional, args, keyword, keys = lambda_list = _function_lambda_list(fn, astify_defaults = nil)
         ast_type, therep = gethash(name, ast.__dict__)
         if not therep:
@@ -2126,15 +2129,15 @@ deftype(varituple_,   varituple_)
 #     | Interactive(stmt* body)
 #     | Expression(expr body)
 @defast
-def        Module(body: (list_, ast.stmt)): pass
+def        _ast_Module(body: (list_, ast.stmt)): pass
 @defast
-def   Interactive(body: (list_, ast.stmt)): pass
+def   _ast_Interactive(body: (list_, ast.stmt)): pass
 @defast
-def    Expression(body: ast.expr): pass
+def    _ast_Expression(body: ast.expr): pass
 # stmt = FunctionDef(identifier name, arguments args,
 #                    stmt* body, expr* decorator_list, expr? returns)
 @defast
-def   FunctionDef(name: str, args: ast.arguments, body: (list_, ast.stmt),
+def   _ast_FunctionDef(name: str, args: ast.arguments, body: (list_, ast.stmt),
                        decorator_list: (list_, ast.expr) = list,
                        returns: ast.expr = None): pass
 #       | ClassDef(identifier name,
@@ -2145,247 +2148,251 @@ def   FunctionDef(name: str, args: ast.arguments, body: (list_, ast.stmt),
 # 		   stmt* body,
 # 		   expr* decorator_list)
 @defast
-def      ClassDef(name: str,
+def      _ast_ClassDef(name: str,
                        bases: (list_, ast.expr),
                        keywords: (list_, ast.keyword),
                        starargs: (list_, (maybe_, ast.expr)),
                        kwargs: (list_, (maybe_, ast.expr)),
                        body: (list_, ast.stmt),
-                       decorator_list: (list_, ast.expr))
+                       decorator_list: (list_, ast.expr)): pass
 #       | Return(expr? value)
 @defast
-def        Return(value: (maybe_, ast.expr)): pass
+def        _ast_Return(value: (maybe_, ast.expr)): pass
 #       | Delete(expr* targets)
 @defast
-def        Delete(targets: (list_, ast.expr)): pass
+def        _ast_Delete(targets: (list_, ast.expr)): pass
 #       | Assign(expr* targets, expr value)
 @defast
-def        Assign(targets: (list_, ast.expr), value: ast.expr): pass
+def        _ast_Assign(targets: (list_, ast.expr), value: ast.expr): pass
 #       | AugAssign(expr target, operator op, expr value)
 @defast
-def     AugAssign(target: ast.expr, op: ast.operator, value: ast.expr): pass
+def     _ast_AugAssign(target: ast.expr, op: ast.operator, value: ast.expr): pass
 #       | For(expr target, expr iter, stmt* body, stmt* orelse)
 @defast
-def           For(target: ast.expr, iter: ast.expr, body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
+def           _ast_For(target: ast.expr, iter: ast.expr, body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
 #       | While(expr test, stmt* body, stmt* orelse)
 @defast
-def         While(test: ast.expr, body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
+def         _ast_While(test: ast.expr, body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
 #       | If(expr test, stmt* body, stmt* orelse)
 @defast
-def            If(test: ast.expr,  body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
+def            _ast_If(test: ast.expr,  body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
 #       | With(expr context_expr, expr? optional_vars, stmt* body)
 @defast
-def          With(context_expr: ast.expr, optional_vars: (maybe_, ast.expr), body: (list_, ast.stmt)): pass
+def          _ast_With(context_expr: ast.expr, optional_vars: (maybe_, ast.expr), body: (list_, ast.stmt)): pass
 #       | Raise(expr? exc, expr? cause)
 @defast
-def         Raise(exc: (maybe_, ast.expr), cause: (maybe_, ast.expr)): pass
+def         _ast_Raise(exc: (maybe_, ast.expr), cause: (maybe_, ast.expr)): pass
 #       | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
 @defast
-def     TryExcept(body: (list_, ast.stmt), handlers: (list_, ast.excepthandler), orelse: (list_, ast.stmt)): pass
+def     _ast_TryExcept(body: (list_, ast.stmt), handlers: (list_, ast.excepthandler), orelse: (list_, ast.stmt)): pass
 #       | TryFinally(stmt* body, stmt* finalbody)
 @defast
-def    TryFinally(body: (list_, ast.stmt), finalbody: (list_, ast.stmt)): pass
+def    _ast_TryFinally(body: (list_, ast.stmt), finalbody: (list_, ast.stmt)): pass
 #       | Assert(expr test, expr? msg)
 @defast
-def        Assert(test: ast.expr, msg: ast.expr = None): pass
+def        _ast_Assert(test: ast.expr, msg: ast.expr = None): pass
 #       | Import(alias* names)
 @defast
-def        Import(names: (list_, ast.alias)): pass
+def        _ast_Import(names: (list_, ast.alias)): pass
 #       | ImportFrom(identifier? module, alias* names, int? level)
 @defast
-def    ImportFrom(module: (maybe_, str), names: (list_, ast.alias), level: (maybe_, int)): pass
+def    _ast_ImportFrom(module: (maybe_, str), names: (list_, ast.alias), level: (maybe_, int)): pass
 #       | Global(identifier* names)
 @defast
-def        Global(names: (list_, str)): pass
+def        _ast_Global(names: (list_, str)): pass
 #       | Nonlocal(identifier* names)
 @defast
-def      Nonlocal(names: (list_, str)): pass
+def      _ast_Nonlocal(names: (list_, str)): pass
 #       | Expr(expr value)
 @defast
-def          Expr(value: ast.expr): pass
+def          _ast_Expr(value: ast.expr): pass
 #       | Pass | Break | Continue
 @defast
-def          Pass(): pass
+def          _ast_Pass(): pass
 @defast
-def         Break(): pass
+def         _ast_Break(): pass
 @defast
-def      Continue(): pass
+def      _ast_Continue(): pass
 # expr = BoolOp(boolop op, expr* values)
 @defast
-def        BoolOp(op: ast.boolop, values: (list_, ast.expr)): pass
+def        _ast_BoolOp(op: ast.boolop, values: (list_, ast.expr)): pass
 #      | BinOp(expr left, operator op, expr right)
 @defast
-def         BinOp(left: ast.expr, op: ast.operator, right: ast.expr): pass
+def         _ast_BinOp(left: ast.expr, op: ast.operator, right: ast.expr): pass
 #      | UnaryOp(unaryop op, expr operand)
 @defast
-def       UnaryOp(op: ast.unaryop, operand: ast.expr): pass
+def       _ast_UnaryOp(op: ast.unaryop, operand: ast.expr): pass
 #      | Lambda(arguments args, expr body)
 @defast
-def        Lambda(args: ast.arguments, body: ast.expr): pass
+def        _ast_Lambda(args: ast.arguments, body: ast.expr): pass
 #      | IfExp(expr test, expr body, expr orelse)
 @defast
-def         IfExp(test: ast.expr, body: ast.expr, orelse: ast.expr): pass
+def         _ast_IfExp(test: ast.expr, body: ast.expr, orelse: ast.expr): pass
 #      | Dict(expr* keys, expr* values)
 @defast
-def          Dict(keys: (list_, ast.expr), values: (list_, ast.expr)): pass
+def          _ast_Dict(keys: (list_, ast.expr), values: (list_, ast.expr)): pass
 #      | Set(expr* elts)
 @defast
-def           Set(elts: (list_, ast.expr)): pass
+def           _ast_Set(elts: (list_, ast.expr)): pass
 #      | ListComp(expr elt, comprehension* generators)
 @defast
-def      ListComp(elt: ast.expr, generators: (list_, ast.comprehension)): pass
+def      _ast_ListComp(elt: ast.expr, generators: (list_, ast.comprehension)): pass
 #      | SetComp(expr elt, comprehension* generators)
 @defast
-def       SetComp(elt: ast.expr, generators: (list_, ast.comprehension)): pass
+def       _ast_SetComp(elt: ast.expr, generators: (list_, ast.comprehension)): pass
 #      | DictComp(expr key, expr value, comprehension* generators)
 @defast
-def      DictComp(key: ast.expr, value: ast.expr, generators: (list_, ast.comprehension)): pass
+def      _ast_DictComp(key: ast.expr, value: ast.expr, generators: (list_, ast.comprehension)): pass
 #      | GeneratorExp(expr elt, comprehension* generators)
 @defast
-def  GeneratorExp(elt: ast.expr, generators: (list_, ast.comprehension)): pass
+def  _ast_GeneratorExp(elt: ast.expr, generators: (list_, ast.comprehension)): pass
 #      | Yield(expr? value)
 @defast
-def         Yield(value: (maybe_, ast.expr) = None): pass
+def         _ast_Yield(value: (maybe_, ast.expr) = None): pass
 #      | Compare(expr left, cmpop* ops, expr* comparators)
 @defast
-def       Compare(left: ast.expr, ops: (list_, ast.cmpop), comparators: (list_, ast.expr)): pass
+def       _ast_Compare(left: ast.expr, ops: (list_, ast.cmpop), comparators: (list_, ast.expr)): pass
 #      | Call(expr func, expr* args, keyword* keywords, expr? starargs, expr? kwargs)
 @defast
-def          Call(func: ast.expr, args: (list_, ast.expr), keywords: (list_, ast.keyword),
-                  starargs: (maybe_, ast.expr) = None, kwargs: (maybe_, ast.expr) = None): pass
+def          _ast_Call(func: ast.expr, args: (list_, ast.expr), keywords: (list_, ast.keyword),
+                       starargs: (maybe_, ast.expr) = None, kwargs: (maybe_, ast.expr) = None): pass
 #      | Num(object n) -- a number as a PyObject.
 @defast
-def           Num(n: int): pass
+def           _ast_Num(n: int): pass
 #      | Str(string s) -- need to specify raw, unicode, etc?
 @defast
-def           Str(s: str): pass
+def           _ast_Str(s: str): pass
 #      | Bytes(string s)
 @defast
-def         Bytes(s: str): pass
+def         _ast_Bytes(s: str): pass
 #      | Ellipsis
 @defast
-def      Ellipsis(): pass
+def      _ast_Ellipsis(): pass
 #      | Attribute(expr value, identifier attr, expr_context ctx)
 @defast
-def     Attribute(value: ast.expr, attr: str, ctx: ast.expr_context): pass
+def     _ast_Attribute(value: ast.expr, attr: str, ctx: ast.expr_context): pass
 #      | Subscript(expr value, slice slice, expr_context ctx)
 @defast
-def     Subscript(value: ast.expr, slice: ast.slice, ctx: ast.expr_context): pass
+def     _ast_Subscript(value: ast.expr, slice: ast.slice, ctx: ast.expr_context): pass
 #      | Starred(expr value, expr_context ctx)
 @defast
-def       Starred(value: ast.expr, ctx: ast.expr_context): pass
+def       _ast_Starred(value: ast.expr, ctx: ast.expr_context): pass
 #      | Name(identifier id, expr_context ctx)
 @defast
-def          Name(id: str, ctx: ast.expr_context): pass
+def          _ast_Name(id: str, ctx: ast.expr_context): pass
 #      | List(expr* elts, expr_context ctx)
 @defast
-def          List(elts: (list_, ast.expr), ctx: ast.expr_context): pass
+def          _ast_List(elts: (list_, ast.expr), ctx: ast.expr_context): pass
 #      | Tuple(expr* elts, expr_context ctx)
 @defast
-def         Tuple(elts: (list_, ast.expr), ctx: ast.expr_context): pass
+def         _ast_Tuple(elts: (list_, ast.expr), ctx: ast.expr_context): pass
 # expr_context = Load | Store | Del | AugLoad | AugStore | Param
 @defast
-def          Load(): pass
+def          _ast_Load(): pass
 @defast
-def         Store(): pass
+def         _ast_Store(): pass
 @defast
-def       AugLoad(): pass
+def       _ast_AugLoad(): pass
 @defast
-def      AugStore(): pass
+def      _ast_AugStore(): pass
 @defast
-def         Param(): pass
+def         _ast_Param(): pass
 # slice = Slice(expr? lower, expr? upper, expr? step)
 @defast
-def         Slice(lower: (maybe_, ast.expr) = None,
-                  upper: (maybe_, ast.expr) = None,
-                  step:  (maybe_, ast.expr) = None): pass
+def         _ast_Slice(lower: (maybe_, ast.expr) = None,
+                       upper: (maybe_, ast.expr) = None,
+                       step:  (maybe_, ast.expr) = None): pass
 #       | ExtSlice(slice* dims)
 @defast
-def      ExtSlice(dims: (list_, ast.slice)): pass
+def      _ast_ExtSlice(dims: (list_, ast.slice)): pass
 #       | Index(expr value)
 @defast
-def         Index(value: ast.expr): pass
+def         _ast_Index(value: ast.expr): pass
 # boolop = And | Or
 @defast
-def           And(): pass
+def           _ast_And(): pass
 @defast
-def            Or(): pass
+def            _ast_Or(): pass
 # operator = Add | Sub | Mult | Div | Mod | Pow | LShift | RShift | BitOr | BitXor | BitAnd | FloorDiv
 @defast
-def           Add(): pass
+def           _ast_Add(): pass
 @defast
-def           Sub(): pass
+def           _ast_Sub(): pass
 @defast
-def          Mult(): pass
+def          _ast_Mult(): pass
 @defast
-def           Div(): pass
+def           _ast_Div(): pass
 @defast
-def           Mod(): pass
+def           _ast_Mod(): pass
 @defast
-def           Pow(): pass
+def           _ast_Pow(): pass
 @defast
-def        LShift(): pass
+def        _ast_LShift(): pass
 @defast
-def        RShift(): pass
+def        _ast_RShift(): pass
 @defast
-def         BitOr(): pass
+def         _ast_BitOr(): pass
 @defast
-def        BitXor(): pass
+def        _ast_BitXor(): pass
 @defast
-def        BinAnd(): pass
+def        _ast_BitAnd(): pass
 @defast
-def      FloorDiv(): pass
+def      _ast_FloorDiv(): pass
 # unaryop = Invert | Not | UAdd | USub
 @defast
-def        Invert(): pass
+def        _ast_Invert(): pass
 @defast
-def           Not(): pass
+def           _ast_Not(): pass
 @defast
-def          UAdd(): pass
+def          _ast_UAdd(): pass
 @defast
-def          USub(): pass
+def          _ast_USub(): pass
 # cmpop = Eq | NotEq | Lt | LtE | Gt | GtE | Is | IsNot | In | NotIn
 @defast
-def            Eq(): pass
+def            _ast_Eq(): pass
 @defast
-def         NotEq(): pass
+def         _ast_NotEq(): pass
 @defast
-def            Lt(): pass
+def            _ast_Lt(): pass
 @defast
-def           LtE(): pass
+def           _ast_LtE(): pass
 @defast
-def            Gt(): pass
+def            _ast_Gt(): pass
 @defast
-def           GtE(): pass
+def           _ast_GtE(): pass
 @defast
-def            Is(): pass
+def            _ast_Is(): pass
 @defast
-def         IsNot(): pass
+def         _ast_IsNot(): pass
 @defast
-def            In(): pass
+def            _ast_In(): pass
 @defast
-def         NotIn(): pass
+def         _ast_NotIn(): pass
 # comprehension = (expr target, expr iter, expr* ifs)
 @defast
-def comprehension(target: ast.expr, iter: ast.expr, ifs: (list_, ast.expr)): pass
+def _ast_comprehension(target: ast.expr, iter: ast.expr, ifs: (list_, ast.expr)): pass
 # excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
 @defast
-def ExceptHandler(type: (maybe_, ast.expr), name: (maybe_, str), body: (list_, ast.stmt)): pass
+def _ast_ExceptHandler(type: (maybe_, ast.expr), name: (maybe_, str), body: (list_, ast.stmt)): pass
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
 #              arg* kwonlyargs, identifier? kwarg,
 #              expr? kwargannotation, expr* defaults,
 #              expr* kw_defaults)
-@defastn
-def     arguments(args: (list_, arg), ): pass
+@defast
+### This suggests a remapping facility.
+def     _ast_arguments(args:       (list_, ast.arg), vararg: (maybe_, str), varargannotation: (maybe_, ast.expr),
+                       kwonlyargs: (list_, ast.arg), kwarg:  (maybe_, str), kwargannotation:  (maybe_, ast.expr),
+                       defaults:    (list_, ast.expr),
+                       kw_defaults: (list_, ast.expr)): pass
 # arg = (identifier arg, expr? annotation)
 @defast
-def           arg(): pass
+def           _ast_arg(arg: str, annotation: (maybe_, ast.expr) = None): pass
 # keyword = (identifier arg, expr value)
 @defast
-def       keyword(): pass
+def       _ast_keyword(arg: str, value: ast.expr): pass
 # alias = (identifier name, identifier? asname)
 @defast
-def         alias(): pass
+def         _ast_alias(name: str, asname: (maybe_, str) = None): pass
 
 ##
 ## T/NIL-dependent stuff
