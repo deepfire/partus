@@ -256,21 +256,22 @@ def _ast_return(node):
 #              expr* kw_defaults)
 # arg = (identifier arg, expr? annotation)
 # keyword = (identifier arg, expr value)
-def _function_lambda_list(fn):
-        return _argspec_lambda_spec(inspect.getfullargspec(fn))
+def _function_lambda_list(fn, astify_defaults = True):
+        return _argspec_lambda_spec(inspect.getfullargspec(fn), astify_defaults = astify_defaults)
 
 def _argspec_nfixargs(paramspec):
         return len(paramspec.args) - len(paramspec.defaults or []) # ILTW Python implementors think..
 
-def _argspec_lambda_spec(spec):
+def _argspec_lambda_spec(spec, astify_defaults = True):
         # args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations
         nfixargs = _argspec_nfixargs(spec)
+        default_xform = _astify_constant if astify_defaults else identity
         return (spec.args[:nfixargs],
                 list(zip(spec.args[nfixargs:],
-                         mapcar(_astify_constant, spec.defaults or []))),
+                         mapcar(default_xform, spec.defaults or []))),
                 spec.varargs,
                 list(zip(spec.kwonlyargs,
-                     mapcar(_astify_constant, spec.kwonlydefaults or []))),
+                     mapcar(default_xform, spec.kwonlydefaults or []))),
                 spec.varkw)
 def _lambda_spec_arguments(lambda_list_spec):
         fixed, optional, args, keyword, keys = lambda_list_spec
