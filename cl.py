@@ -362,77 +362,6 @@ all AST-trees, except for the tuple exception."""
                                  type(*mapcar(_astify_atree, tree[1:]))),
                         # XXX: pythonic CONS-ing idiocy
                         lambda: error("Unknown AST type %s in atree node %s.", tree[0], tree)))
-# mod = Module(stmt* body)
-#     | Interactive(stmt* body)
-#     | Expression(expr body)
-# stmt = FunctionDef(identifier name, arguments args, 
-#                    stmt* body, expr* decorator_list, expr? returns)
-#       | ClassDef(identifier name, 
-# 		   expr* bases,
-# 		   keyword* keywords,
-# 		   expr? starargs,
-# 		   expr? kwargs,
-# 		   stmt* body,
-# 		   expr* decorator_list)
-#       | Return(expr? value)
-#       | Delete(expr* targets)
-#       | Assign(expr* targets, expr value)
-#       | AugAssign(expr target, operator op, expr value)
-#       | For(expr target, expr iter, stmt* body, stmt* orelse)
-#       | While(expr test, stmt* body, stmt* orelse)
-#       | If(expr test, stmt* body, stmt* orelse)
-#       | With(expr context_expr, expr? optional_vars, stmt* body)
-#       | Raise(expr? exc, expr? cause)
-#       | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
-#       | TryFinally(stmt* body, stmt* finalbody)
-#       | Assert(expr test, expr? msg)
-#       | Import(alias* names)
-#       | ImportFrom(identifier? module, alias* names, int? level)
-#       | Global(identifier* names)
-#       | Nonlocal(identifier* names)
-#       | Expr(expr value)
-#       | Pass | Break | Continue
-# expr = BoolOp(boolop op, expr* values)
-#      | BinOp(expr left, operator op, expr right)
-#      | UnaryOp(unaryop op, expr operand)
-#      | Lambda(arguments args, expr body)
-#      | IfExp(expr test, expr body, expr orelse)
-#      | Dict(expr* keys, expr* values)
-#      | Set(expr* elts)
-#      | ListComp(expr elt, comprehension* generators)
-#      | SetComp(expr elt, comprehension* generators)
-#      | DictComp(expr key, expr value, comprehension* generators)
-#      | GeneratorExp(expr elt, comprehension* generators)
-#      | Yield(expr? value)
-#      | Compare(expr left, cmpop* ops, expr* comparators)
-#      | Call(expr func, expr* args, keyword* keywords, expr? starargs, expr? kwargs)
-#      | Num(object n) -- a number as a PyObject.
-#      | Str(string s) -- need to specify raw, unicode, etc?
-#      | Bytes(string s)
-#      | Ellipsis
-#      | Attribute(expr value, identifier attr, expr_context ctx)
-#      | Subscript(expr value, slice slice, expr_context ctx)
-#      | Starred(expr value, expr_context ctx)
-#      | Name(identifier id, expr_context ctx)
-#      | List(expr* elts, expr_context ctx) 
-#      | Tuple(expr* elts, expr_context ctx)
-# expr_context = Load | Store | Del | AugLoad | AugStore | Param
-# slice = Slice(expr? lower, expr? upper, expr? step) 
-#       | ExtSlice(slice* dims) 
-#       | Index(expr value) 
-# boolop = And | Or 
-# operator = Add | Sub | Mult | Div | Mod | Pow | LShift | RShift | BitOr | BitXor | BitAnd | FloorDiv
-# unaryop = Invert | Not | UAdd | USub
-# cmpop = Eq | NotEq | Lt | LtE | Gt | GtE | Is | IsNot | In | NotIn
-# comprehension = (expr target, expr iter, expr* ifs)
-# excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
-# arguments = (arg* args, identifier? vararg, expr? varargannotation,
-#              arg* kwonlyargs, identifier? kwarg,
-#              expr? kwargannotation, expr* defaults,
-#              expr* kw_defaults)
-# arg = (identifier arg, expr? annotation)
-# keyword = (identifier arg, expr value)
-# alias = (identifier name, identifier? asname)
 
 ###
 ### Basis
@@ -2189,6 +2118,274 @@ deftype(tuple_,       tuple_)
 deftype(partuple_,    partuple_)
 deftype(varituple_,   varituple_)
 # deftype(lambda_list_, lambda_list_)
+
+##
+## AST stuff: needed as early as possible, available once types are
+##
+# mod = Module(stmt* body)
+#     | Interactive(stmt* body)
+#     | Expression(expr body)
+@defast
+def        Module(body: (list_, ast.stmt)): pass
+@defast
+def   Interactive(body: (list_, ast.stmt)): pass
+@defast
+def    Expression(body: ast.expr): pass
+# stmt = FunctionDef(identifier name, arguments args,
+#                    stmt* body, expr* decorator_list, expr? returns)
+@defast
+def   FunctionDef(name: str, args: ast.arguments, body: (list_, ast.stmt),
+                       decorator_list: (list_, ast.expr) = list,
+                       returns: ast.expr = None): pass
+#       | ClassDef(identifier name,
+# 		   expr* bases,
+# 		   keyword* keywords,
+# 		   expr? starargs,
+# 		   expr? kwargs,
+# 		   stmt* body,
+# 		   expr* decorator_list)
+@defast
+def      ClassDef(name: str,
+                       bases: (list_, ast.expr),
+                       keywords: (list_, ast.keyword),
+                       starargs: (list_, (maybe_, ast.expr)),
+                       kwargs: (list_, (maybe_, ast.expr)),
+                       body: (list_, ast.stmt),
+                       decorator_list: (list_, ast.expr))
+#       | Return(expr? value)
+@defast
+def        Return(value: (maybe_, ast.expr)): pass
+#       | Delete(expr* targets)
+@defast
+def        Delete(targets: (list_, ast.expr)): pass
+#       | Assign(expr* targets, expr value)
+@defast
+def        Assign(targets: (list_, ast.expr), value: ast.expr): pass
+#       | AugAssign(expr target, operator op, expr value)
+@defast
+def     AugAssign(target: ast.expr, op: ast.operator, value: ast.expr): pass
+#       | For(expr target, expr iter, stmt* body, stmt* orelse)
+@defast
+def           For(target: ast.expr, iter: ast.expr, body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
+#       | While(expr test, stmt* body, stmt* orelse)
+@defast
+def         While(test: ast.expr, body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
+#       | If(expr test, stmt* body, stmt* orelse)
+@defast
+def            If(test: ast.expr,  body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
+#       | With(expr context_expr, expr? optional_vars, stmt* body)
+@defast
+def          With(context_expr: ast.expr, optional_vars: (maybe_, ast.expr), body: (list_, ast.stmt)): pass
+#       | Raise(expr? exc, expr? cause)
+@defast
+def         Raise(exc: (maybe_, ast.expr), cause: (maybe_, ast.expr)): pass
+#       | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
+@defast
+def     TryExcept(body: (list_, ast.stmt), handlers: (list_, ast.excepthandler), orelse: (list_, ast.stmt)): pass
+#       | TryFinally(stmt* body, stmt* finalbody)
+@defast
+def    TryFinally(body: (list_, ast.stmt), finalbody: (list_, ast.stmt)): pass
+#       | Assert(expr test, expr? msg)
+@defast
+def        Assert(test: ast.expr, msg: ast.expr = None): pass
+#       | Import(alias* names)
+@defast
+def        Import(names: (list_, ast.alias)): pass
+#       | ImportFrom(identifier? module, alias* names, int? level)
+@defast
+def    ImportFrom(module: (maybe_, str), names: (list_, ast.alias), level: (maybe_, int)): pass
+#       | Global(identifier* names)
+@defast
+def        Global(names: (list_, str)): pass
+#       | Nonlocal(identifier* names)
+@defast
+def      Nonlocal(names: (list_, str)): pass
+#       | Expr(expr value)
+@defast
+def          Expr(value: ast.expr): pass
+#       | Pass | Break | Continue
+@defast
+def          Pass(): pass
+@defast
+def         Break(): pass
+@defast
+def      Continue(): pass
+# expr = BoolOp(boolop op, expr* values)
+@defast
+def        BoolOp(op: ast.boolop, values: (list_, ast.expr)): pass
+#      | BinOp(expr left, operator op, expr right)
+@defast
+def         BinOp(left: ast.expr, op: ast.operator, right: ast.expr): pass
+#      | UnaryOp(unaryop op, expr operand)
+@defast
+def       UnaryOp(op: ast.unaryop, operand: ast.expr): pass
+#      | Lambda(arguments args, expr body)
+@defast
+def        Lambda(args: ast.arguments, body: ast.expr): pass
+#      | IfExp(expr test, expr body, expr orelse)
+@defast
+def         IfExp(test: ast.expr, body: ast.expr, orelse: ast.expr): pass
+#      | Dict(expr* keys, expr* values)
+@defast
+def          Dict(keys: (list_, ast.expr), values: (list_, ast.expr)): pass
+#      | Set(expr* elts)
+@defast
+def           Set(elts: (list_, ast.expr)): pass
+#      | ListComp(expr elt, comprehension* generators)
+@defast
+def      ListComp(elt: ast.expr, generators: (list_, ast.comprehension)): pass
+#      | SetComp(expr elt, comprehension* generators)
+@defast
+def       SetComp(elt: ast.expr, generators: (list_, ast.comprehension)): pass
+#      | DictComp(expr key, expr value, comprehension* generators)
+@defast
+def      DictComp(key: ast.expr, value: ast.expr, generators: (list_, ast.comprehension)): pass
+#      | GeneratorExp(expr elt, comprehension* generators)
+@defast
+def  GeneratorExp(elt: ast.expr, generators: (list_, ast.comprehension)): pass
+#      | Yield(expr? value)
+@defast
+def         Yield(value: (maybe_, ast.expr) = None): pass
+#      | Compare(expr left, cmpop* ops, expr* comparators)
+@defast
+def       Compare(left: ast.expr, ops: (list_, ast.cmpop), comparators: (list_, ast.expr)): pass
+#      | Call(expr func, expr* args, keyword* keywords, expr? starargs, expr? kwargs)
+@defast
+def          Call(func: ast.expr, args: (list_, ast.expr), keywords: (list_, ast.keyword),
+                  starargs: (maybe_, ast.expr) = None, kwargs: (maybe_, ast.expr) = None): pass
+#      | Num(object n) -- a number as a PyObject.
+@defast
+def           Num(n: int): pass
+#      | Str(string s) -- need to specify raw, unicode, etc?
+@defast
+def           Str(s: str): pass
+#      | Bytes(string s)
+@defast
+def         Bytes(s: str): pass
+#      | Ellipsis
+@defast
+def      Ellipsis(): pass
+#      | Attribute(expr value, identifier attr, expr_context ctx)
+@defast
+def     Attribute(value: ast.expr, attr: str, ctx: ast.expr_context): pass
+#      | Subscript(expr value, slice slice, expr_context ctx)
+@defast
+def     Subscript(value: ast.expr, slice: ast.slice, ctx: ast.expr_context): pass
+#      | Starred(expr value, expr_context ctx)
+@defast
+def       Starred(value: ast.expr, ctx: ast.expr_context): pass
+#      | Name(identifier id, expr_context ctx)
+@defast
+def          Name(id: str, ctx: ast.expr_context): pass
+#      | List(expr* elts, expr_context ctx)
+@defast
+def          List(elts: (list_, ast.expr), ctx: ast.expr_context): pass
+#      | Tuple(expr* elts, expr_context ctx)
+@defast
+def         Tuple(elts: (list_, ast.expr), ctx: ast.expr_context): pass
+# expr_context = Load | Store | Del | AugLoad | AugStore | Param
+@defast
+def          Load(): pass
+@defast
+def         Store(): pass
+@defast
+def       AugLoad(): pass
+@defast
+def      AugStore(): pass
+@defast
+def         Param(): pass
+# slice = Slice(expr? lower, expr? upper, expr? step)
+@defast
+def         Slice(lower: (maybe_, ast.expr) = None,
+                  upper: (maybe_, ast.expr) = None,
+                  step:  (maybe_, ast.expr) = None): pass
+#       | ExtSlice(slice* dims)
+@defast
+def      ExtSlice(dims: (list_, ast.slice)): pass
+#       | Index(expr value)
+@defast
+def         Index(value: ast.expr): pass
+# boolop = And | Or
+@defast
+def           And(): pass
+@defast
+def            Or(): pass
+# operator = Add | Sub | Mult | Div | Mod | Pow | LShift | RShift | BitOr | BitXor | BitAnd | FloorDiv
+@defast
+def           Add(): pass
+@defast
+def           Sub(): pass
+@defast
+def          Mult(): pass
+@defast
+def           Div(): pass
+@defast
+def           Mod(): pass
+@defast
+def           Pow(): pass
+@defast
+def        LShift(): pass
+@defast
+def        RShift(): pass
+@defast
+def         BitOr(): pass
+@defast
+def        BitXor(): pass
+@defast
+def        BinAnd(): pass
+@defast
+def      FloorDiv(): pass
+# unaryop = Invert | Not | UAdd | USub
+@defast
+def        Invert(): pass
+@defast
+def           Not(): pass
+@defast
+def          UAdd(): pass
+@defast
+def          USub(): pass
+# cmpop = Eq | NotEq | Lt | LtE | Gt | GtE | Is | IsNot | In | NotIn
+@defast
+def            Eq(): pass
+@defast
+def         NotEq(): pass
+@defast
+def            Lt(): pass
+@defast
+def           LtE(): pass
+@defast
+def            Gt(): pass
+@defast
+def           GtE(): pass
+@defast
+def            Is(): pass
+@defast
+def         IsNot(): pass
+@defast
+def            In(): pass
+@defast
+def         NotIn(): pass
+# comprehension = (expr target, expr iter, expr* ifs)
+@defast
+def comprehension(target: ast.expr, iter: ast.expr, ifs: (list_, ast.expr)): pass
+# excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
+@defast
+def ExceptHandler(type: (maybe_, ast.expr), name: (maybe_, str), body: (list_, ast.stmt)): pass
+# arguments = (arg* args, identifier? vararg, expr? varargannotation,
+#              arg* kwonlyargs, identifier? kwarg,
+#              expr? kwargannotation, expr* defaults,
+#              expr* kw_defaults)
+@defastn
+def     arguments(args: (list_, arg), ): pass
+# arg = (identifier arg, expr? annotation)
+@defast
+def           arg(): pass
+# keyword = (identifier arg, expr value)
+@defast
+def       keyword(): pass
+# alias = (identifier name, identifier? asname)
+@defast
+def         alias(): pass
 
 ##
 ## T/NIL-dependent stuff
