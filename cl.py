@@ -350,21 +350,38 @@ An "atree" is a tree, where every element is one of the following:
    - the 0'th element is a string, naming a class in the "ast" module
    - the rest of the elements are atrees.
 
-The set of all atrees enjoys isomorphism relationship to the set of
-all AST-trees, except for the tuple exception."""
-        return (_astify_constant(tree)                                          if not _tuplep(tree)    else
-                error("The atree nodes cannot contain empty forms.")            if not tree             else
-                error("The CAR of an atree must be a string, not %s.", tree[0]) if not stringp(tree[0]) else
-                _if_let(gethash(tree[0], ast.__dict__)[0],
-                        lambda type:
-                                (error("Unknown AST type %s in atree node %s.", tree[0], tree)
-                                 if not hasattr(type, "_fields") else
-                                 error("AST type %s requires %d arguments, but %d were provided by atree node %s.",
-                                       type, len(type._fields), len(tree) - 1, tree)
-                                 if len(type._fields) != len(tree) - 1 else
-                                 type(*mapcar(_astify_atree, tree[1:]))),
-                        # XXX: pythonic CONS-ing idiocy
-                        lambda: error("Unknown AST type %s in atree node %s.", tree[0], tree)))
+The set of all atrees enjoys an isomorphism relationship to the set of
+all AST-trees .. except for the case of tuples."""
+        def unknown_ast_type_error(x, node):
+                error("Unknown AST type %s in atree node %s.", x, node)
+        def argument_count_error(min, max, given, control, *args):
+                error("%s requires between %d and %d arguments, but %d were given.", (control % args), min, max, given)
+        def argument_type_error(name, expected_type, defacto_value, control, *args):
+                error("The argument \"%s\" of %s must be of type \"%s\", but was a %s.",
+                      name, (control % args), expected_type, princ_to_string(defacto_value))
+        def astify_known(type, args):
+                type = ast.__dict__[node[0]]
+                info, therep = gethash(type, __ast_field_types__)
+                if not therep:
+                        unknown_ast_type_error(node[0], node)
+                fields, finfos = info.items()
+                positional, optional = _prefix_suffix_if(lambda x: "default" in x, finfos)
+                nfixed, defacto = len(positional), len(args)
+                max = nfixed + len(optional)
+                if not (nfixed <= defacto <= max):
+                        argument_count_error(nfixed, max, defacto, "AST type %s", type[0])
+                effective_args = args + mapcar(areffing("default"), optional[defacto - nfixed:])
+                assert(len(effective_args) == max)
+                for val, name, finfo in zip(effective_args, fields, finfos):
+                        type = finfo["type"]
+                        if not typep(val, type):
+                                argument_type_error(name, type, val, "AST node %s", type[0])
+                return type(*args)
+        return (_astify_constant(tree)                                          if not _tuplep(tree)           else
+                error("The atree nodes cannot contain empty forms.")            if not tree                    else
+                error("The CAR of an atree must be a string, not %s.", tree[0]) if not stringp(tree[0])        else
+                unknown_ast_type_error(tree[0], tree)                           if tree[0] not in ast.__dict__ else
+                _astify_known(tree[0], mapcar(_astify_tree, _from(1, tree))))
 
 ###
 ### Basis
