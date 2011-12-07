@@ -88,10 +88,10 @@ error = _cold_error
 ###
 ### Ring 1.
 ###
-def _1arg(*args):
+def _0arg(*args):
         return args[0]
 
-def _0arg(*args):
+def _1arg(*args):
         return args[1]
 
 def _narg(n, *args):
