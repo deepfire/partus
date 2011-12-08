@@ -320,7 +320,7 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                                          ([args] if args else []) +
                                                          ([keys] if keys else [])))))))
 ###
-### Macro facility (FEXPRs?)
+### ATrees (low-level IR)
 ###
 __ast_field_types__ = dict()
 def defast(fn):
@@ -397,142 +397,6 @@ all AST-trees .. except for the case of tuples."""
                 error("The CAR of an atree must be a string, not %s.", tree[0]) if not stringp(tree[0])        else
                 unknown_ast_type_error(tree[0], tree)                           if tree[0] not in ast.__dict__ else
                 _astify_known(tree[0], mapcar(_astify_tree, _from(1, tree))))
-
-__primitive_form_compilers__ = dict()
-def defprimitive(fn):
-        name = fn.__name__
-        fn.__name__ = "compile_" + fn.__name__
-        sym, presentp = _global(name)
-        if not presentp or not symbolp(sym):
-                error("In DEFPRIMITIVE %s: the name must denote a symbol in the current package.", name)
-        __primitive_form_compilers__[sym] = fn
-        return sym # pass through
-def _find_primitive(x):
-        return gethash(x, __primitive_form_compilers__)
-
-# We need cross-primitive communication, to facilitate
-# thunk allocation.
-def _compile_lispy_lambda_list(context, list, allow_defaults = None):
-        if not _tuplep(list):
-                error("In %s: lambda list must be a tuple.", list)
-        def valid_parameter_specifier(x): return stringp(x) or (symbolp(x) and not keywordp(x))
-        test, failure_message = ((lambda x: valid_name(x) or (_tuplep(x) and len(x) == 2 and
-                                                              valid_name(x[0])),
-                                 "In %s: lambda lists can only contain strings, non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
-                                 if allow_defaults else
-                                 (valid_name, "In %s: lambda list must consist of strings and non-keyword symbols: %s."))
-        ### 0. locate lambda list keywords
-        lambda_words = [_optional_, _rest_, _key_, _restkey_]
-        optpos,  restpos,  keypos,  restkeypos = lambda_posns = mapcar(lambda x: position(x, list), lambda_words)
-        ### 1. ensure proper order of provided lambda list keywords
-        optposp, restposp, keyposp, restkeyposp = mapcar(complement(nonep), lambda_words)
-        toptpos     = optpos or 0
-        trestpos    = restpos or toptpos
-        tkeypos     = keypos or trestpos
-        trestkeypos = restkeypos or tkeypos
-        if not toptpos <= trestpos <= tkeypos <= trestkeypos:
-                error("In %s: %s, %s, %s and %s must appear in that order in the lambda list, when specified.",
-                      context, *lambda_words)
-        ### 2. ensure correct amount of names for provided lambda list keywords
-        if (restposp and keyposp and (keypos - restpos != 1) or
-            restposp and (not keyposp) and restkeyposp and (restkeypos - restpos != 1) or
-            restkeyposp and (len(list) - restkeypos != 2)):
-                error("In %s: found garbage instead of a lambda list: %s", context, list)
-        ### 3. compute argument specifier sets, as determined by provided lambda list keywords
-        restkey = restkeyposp and list[restkeypos + 1] or None
-        _keys = list[keypos + 1:restkeypos or None] or tuple()
-        keys, keydefs = (tuple(_ensure_car(x)      for x in _keys),
-                         tuple(cdr(car(x)) or None for x in _keys))
-        rest = restposp and list[restpos + 1] or None
-        _optional = optposp and list[optpos + 1:restpos or keypos or restkeypos or None]
-        optional, optdefs = (tuple(_ensure_car(x)      for x in _optional),
-                             tuple(cdr(car(x)) or None for x in _optional))
-        fixed = list[0:optpos or restpos or keypos or restkeypos or None]
-        total = fixed + optional + (rest,) + keys + (restkey,) if restkey else tuple()
-        ### 4. validate syntax of the provided individual argument specifiers
-        if not every(valid_parameter_specifier, total):
-                error(failure_message, context, list)
-        ### 5. check for duplicate lambda list specifiers
-        if len(total) != len(set(total)):
-                error("In %s: duplicate parameter names in lambda list: %s.", context, list)
-        ### 6. lower
-        return ("arguments",
-                mapcar(lambda x: ("arg", string(x)), fixed + optional),
-                rest and string(rest), None,
-                mapcar(lambda x: ("arg", string(x)), keys),
-                restkey and string(restkey), None,
-                optdefs,
-                keydefs), (fixed, optional, rest, keys, restkey)
-
-@defprimitive
-def def_(name, lambda_list, *body):
-        "A function definition with python-style lambda list (but lisp-style syntax)."
-        lambda_list_atree, (fixed, optional, rest, keys, restkey) = _compile_lispy_lambda_list("DEFUN %s" % name, lambda_list)
-        return ("FunctionDef", string(name), lambda_list_atree,
-                ((mapcar(compile_, body[:-1]) +
-                  [compile_(("Return", body[-1]))]) if body else
-                 []),
-                []) # no decorators and no return annotation
-
-## Honest DEFUN, with real keyword arguments, is out of scope for now.
-# @defprimitive
-# def defun(name, lambda_list, *body):
-#         def compile_lambda_list(x):
-#                 return ("arguments",
-#                         )
-#         return ("FunctionDef", name, compile_lambda_list(lambda_list),
-#                 mapcar(compile_, body),
-#                 []) # no decorators and no return annotation
-
-@defprimitive
-def funcall(func, *args, **keys):
-        return ("Call", func, list(args), mapcar_star(lambda name, value:
-                                                             ("keyword", name, value),
-                                                      keys.items()))
-
-# How is it do be determined, that a form must be passed through?
-# - directly AST-ifiable (in terms of _astify_constant)
-# - atrees
-# ..but what about detecting invalid forms?
-#
-# Also: how do we represent fucking tuples?
-# Also: should we track form paths?
-def macroexpand_1(form):
-        return (form if not _tuplep(form) else
-                if_let(form and _symbol_macro_function(form[0]),
-                       lambda macroexpander:
-                       (macroexpander(*form[1:]), t),
-                       (form, nil)))
-
-def macroexpand(form):
-        def do_macroexpand(form, expanded):
-                expansion, expanded_again = macroexpand_1(form)
-                return (do_macroexpand(expansion, t) if expanded_again else
-                        (form, expanded))
-        return do_macroexpand(form, nil)
-
-def compile_(form):
-        def lower(x):
-                if _tuplep(x):
-                        if not x:
-                                error("Invalid empty form in %s.", princ_to_string(form))
-                        if symbolp(x[0]):
-                                compiler, primitivep = _find_primitive(the(symbol, x[0]))
-                                if primitivep:
-                                        return compiler(*x[1:])
-                                form, expanded = macroexpand(x)
-                                if expanded:
-                                        return lower(form)
-                                # basic function call
-                                return lower((funcall,) + form)
-                        elif stringp(x[0]): # basic function call
-                                return lower((funcall,) + form)
-                        else:
-                                error("Invalid form: %s.", princ_to_string(form))
-                else:
-                        # Nothing much we can do here.
-                        return x
-        return lower(form)
 
 ###
 ### Basis
@@ -1967,10 +1831,6 @@ def symbol_function(x):
 def _symbol_macro_function(x):
         return gethash("function", x.__dict__)
 
-def defun(name, function):
-        the(symbol, name).function = function
-        return name
-
 class symbol():
         def __str__(self):
                 return _print_symbol(self)
@@ -2570,6 +2430,147 @@ def       _ast_keyword(arg: str, value: ast.expr): pass
 # alias = (identifier name, identifier? asname)
 @defast
 def         _ast_alias(name: str, asname: (maybe_, str) = None): pass
+
+###
+### A rudimentary Lisp -> Python compiler
+###
+__primitive_form_compilers__ = dict()
+def defprimitive(fn):
+        name = fn.__name__
+        fn.__name__ = "compile_" + fn.__name__
+        sym, presentp = _global(name)
+        if not presentp or not symbolp(sym):
+                sym = _intern0(name.upper())
+                _setf_global(name, sym)
+        __primitive_form_compilers__[sym] = fn
+        return sym # pass through
+def _find_primitive(x):
+        return gethash(x, __primitive_form_compilers__)
+
+# We need cross-primitive communication, to facilitate
+# thunk allocation.
+def _compile_lispy_lambda_list(context, list, allow_defaults = None):
+        if not _tuplep(list):
+                error("In %s: lambda list must be a tuple.", list)
+        def valid_parameter_specifier(x): return stringp(x) or (symbolp(x) and not keywordp(x))
+        test, failure_message = ((lambda x: valid_name(x) or (_tuplep(x) and len(x) == 2 and
+                                                              valid_name(x[0])),
+                                 "In %s: lambda lists can only contain strings, non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
+                                 if allow_defaults else
+                                 (valid_name, "In %s: lambda list must consist of strings and non-keyword symbols: %s."))
+        ### 0. locate lambda list keywords
+        lambda_words = [_optional_, _rest_, _key_, _restkey_]
+        optpos,  restpos,  keypos,  restkeypos = lambda_posns = mapcar(lambda x: position(x, list), lambda_words)
+        ### 1. ensure proper order of provided lambda list keywords
+        optposp, restposp, keyposp, restkeyposp = mapcar(complement(nonep), lambda_words)
+        toptpos     = optpos or 0
+        trestpos    = restpos or toptpos
+        tkeypos     = keypos or trestpos
+        trestkeypos = restkeypos or tkeypos
+        if not toptpos <= trestpos <= tkeypos <= trestkeypos:
+                error("In %s: %s, %s, %s and %s must appear in that order in the lambda list, when specified.",
+                      context, *lambda_words)
+        ### 2. ensure correct amount of names for provided lambda list keywords
+        if (restposp and keyposp and (keypos - restpos != 1) or
+            restposp and (not keyposp) and restkeyposp and (restkeypos - restpos != 1) or
+            restkeyposp and (len(list) - restkeypos != 2)):
+                error("In %s: found garbage instead of a lambda list: %s", context, list)
+        ### 3. compute argument specifier sets, as determined by provided lambda list keywords
+        restkey = restkeyposp and list[restkeypos + 1] or None
+        _keys = list[keypos + 1:restkeypos or None] or tuple()
+        keys, keydefs = (tuple(_ensure_car(x)      for x in _keys),
+                         tuple(cdr(car(x)) or None for x in _keys))
+        rest = restposp and list[restpos + 1] or None
+        _optional = optposp and list[optpos + 1:restpos or keypos or restkeypos or None]
+        optional, optdefs = (tuple(_ensure_car(x)      for x in _optional),
+                             tuple(cdr(car(x)) or None for x in _optional))
+        fixed = list[0:optpos or restpos or keypos or restkeypos or None]
+        total = fixed + optional + (rest,) + keys + (restkey,) if restkey else tuple()
+        ### 4. validate syntax of the provided individual argument specifiers
+        if not every(valid_parameter_specifier, total):
+                error(failure_message, context, list)
+        ### 5. check for duplicate lambda list specifiers
+        if len(total) != len(set(total)):
+                error("In %s: duplicate parameter names in lambda list: %s.", context, list)
+        ### 6. lower
+        return ("arguments",
+                mapcar(lambda x: ("arg", string(x)), fixed + optional),
+                rest and string(rest), None,
+                mapcar(lambda x: ("arg", string(x)), keys),
+                restkey and string(restkey), None,
+                optdefs,
+                keydefs), (fixed, optional, rest, keys, restkey)
+
+@defprimitive
+def def_(name, lambda_list, *body):
+        "A function definition with python-style lambda list (but lisp-style syntax)."
+        lambda_list_atree, (fixed, optional, rest, keys, restkey) = _compile_lispy_lambda_list("DEFUN %s" % name, lambda_list)
+        return ("FunctionDef", string(name), lambda_list_atree,
+                ((mapcar(compile_, body[:-1]) +
+                  [compile_(("Return", body[-1]))]) if body else
+                 []),
+                []) # no decorators and no return annotation
+
+## Honest DEFUN, with real keyword arguments, is out of scope for now.
+# @defprimitive
+# def defun(name, lambda_list, *body):
+#         def compile_lambda_list(x):
+#                 return ("arguments",
+#                         )
+#         return ("FunctionDef", name, compile_lambda_list(lambda_list),
+#                 mapcar(compile_, body),
+#                 []) # no decorators and no return annotation
+
+@defprimitive
+def funcall(func, *args, **keys):
+        return ("Call", func, list(args), mapcar_star(lambda name, value:
+                                                             ("keyword", name, value),
+                                                      keys.items()))
+
+# How is it do be determined, that a form must be passed through?
+# - directly AST-ifiable (in terms of _astify_constant)
+# - atrees
+# ..but what about detecting invalid forms?
+#
+# Also: how do we represent fucking tuples?
+# Also: should we track form paths?
+def macroexpand_1(form):
+        # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
+        return (form if not _tuplep(form) else
+                if_let(form and _symbol_macro_function(form[0]),
+                       lambda macroexpander:
+                       (macroexpander(*form[1:]), t),
+                       (form, nil)))
+
+def macroexpand(form):
+        def do_macroexpand(form, expanded):
+                expansion, expanded_again = macroexpand_1(form)
+                return (do_macroexpand(expansion, t) if expanded_again else
+                        (form, expanded))
+        return do_macroexpand(form, nil)
+
+def compile_(form):
+        def lower(x):
+                if _tuplep(x):
+                        if not x:
+                                error("Invalid empty form in %s.", princ_to_string(form))
+                        if symbolp(x[0]):
+                                compiler, primitivep = _find_primitive(the(symbol, x[0]))
+                                if primitivep:
+                                        return compiler(*x[1:])
+                                form, expanded = macroexpand(x)
+                                if expanded:
+                                        return lower(form)
+                                # basic function call
+                                return lower((funcall,) + form)
+                        elif stringp(x[0]): # basic function call
+                                return lower((funcall,) + form)
+                        else:
+                                error("Invalid form: %s.", princ_to_string(form))
+                else:
+                        # Nothing much we can do here.
+                        return x
+        return lower(form)
 
 ##
 ## T/NIL-dependent stuff
