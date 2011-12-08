@@ -97,6 +97,8 @@ _print_symbol = _cold_print_symbol
 def _cold_error(format_control, *format_args):
         raise Exception(format_control % format_args)
 error = _cold_error
+def _cold_null(x): return not x
+null = _cold_null
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
 
 ###
@@ -410,16 +412,42 @@ def _find_primitive(x):
 
 # We need cross-primitive communication, to facilitate
 # thunk allocation.
+def _compile_lispy_lambda_list(context, list):
+        if not _tuplep(list):
+                error("In %s: lambda list must be a tuple.", list)
+        if not every(lambda x: symbolp(x) and not keywordp(x), list):
+                error("In %s: lambda list must consist of non-keyword symbols: %s.", context, list)
+        lambda_words = [_optional_, _rest_, _key_, _restkey_]
+        optpos,  restpos,  keypos,  restkeypos = lambda_posns = mapcar(lambda x: position(x, list), lambda_words)
+        optposp, restposp, keyposp, restkeyposp = mapcar(complement(nonep), lambda_words)
+        toptpos     = optpos or 0
+        trestpos    = restpos or toptpos
+        tkeypos     = keypos or trestpos
+        trestkeypos = restkeypos or tkeypos
+        if not toptpos <= trestpos <= tkeypos <= trestkeypos:
+                error("In %s: %s, %s, %s and %s must appear in that order in the lambda list, when specified.",
+                      context, *lambda_words)
+        if (restposp and keyposp and (keypos - restpos != 1) or
+            restposp and (not keyposp) and restkeyposp and (restkeypos - restpos != 1) or
+            restkeyposp and (len(list) - restkeypos != 2)):
+                error("In %s: found garbage instead of a lambda list: %s", context, list)
+        restkey = restkeyposp and list[restkeypos + 1]
+        keys = keyposp and list[keypos + 1:restkeypos or None]
+        rest = restposp and list[restpos + 1]
+        optional = optposp and list[optpos + 1:restpos or keypos or restkeypos or None]
+        fixed = list[0:optpos or restpos or keypos or restkeypos or None]
+        total = fixed + optional + (rest,) + keys + (restkey,) if restkey else tuple()
+        
+        return ("arguments",
+                mapcar(lambda x: ("arg", the(str, x)), list[:restpos]))
+
 @defprimitive
 def def_(name, lambda_list, *body):
-        "A function definition with python-style lambda list."
-        def compile_lambda_list(list):
-                restpos, optpos, keypos, restkey = mapcar(lambda x: position(x, list),
-                                                          [_optional_, _rest_, _key_, _restkey_])
-                return ("arguments",
-                        mapcar(lambda x: ("arg", the(str, x)), list[:restpos]))
-        return ("FunctionDef", name, compile_lambda_list(lambda_list),
-                mapcar(compile_, body),
+        "A function definition with python-style lambda list (but lisp-style syntax)."
+        return ("FunctionDef", name, _compile_lispy_lambda_list("DEFUN %s" % name, lambda_list),
+                ((mapcar(compile_, body[:-1]) +
+                  [compile_(("Return", body[-1]))]) if body else
+                 []),
                 []) # no decorators and no return annotation
 
 ## Honest DEFUN, with real keyword arguments, is out of scope for now.
@@ -465,21 +493,23 @@ def compile_(form):
                         if not x:
                                 error("Invalid empty form in %s.", princ_to_string(form))
                         if symbolp(x[0]):
+                                compiler, primitivep = _find_primitive(the(symbol, x[0]))
+                                if primitivep:
+                                        return compiler(*x[1:])
                                 form, expanded = macroexpand(x)
                                 if expanded:
                                         return lower(form)
+                                # basic function call
+                                return lower((funcall,) + form)
                         elif stringp(x[0]): # basic function call
                                 return lower((funcall,) + form)
                         else:
                                 error("Invalid form: %s.", princ_to_string(form))
-                        compiler, therep = _find_primitive(the(symbol, x[0]))
-                        if not therep:
-                                error("Do not know how to compile form %s.", princ_to_string(x))
-                        return compiler(*mapcar(lower, _from(1, x)))
                 else:
                         # Nothing much we can do here.
                         return x
         return lower(form)
+
 ###
 ### Basis
 ###
@@ -1190,7 +1220,6 @@ def hash_table_p(o):  return type(o) is dict
 ##
 ## Predicates
 ##
-def null(x):          return not x
 def evenp(x):         return not (x % 2)
 def oddp(x):          return not not (x % 2)
 def zerop(x):         return x == 0
@@ -2105,6 +2134,15 @@ def _init_package_system_1():
         setq("_modules_",  [])
 
 _init_package_system_1()
+
+###
+### Symbol-related thaw
+###
+def null(x):
+        return x is nil
+###
+##
+#
 
 def setf_fdefinition(symbol_name, function):
         symbol_name = string(symbol_name)
@@ -3527,6 +3565,16 @@ at all.
         # format(t, "    %s\n", cond)
         return cond
 
+###
+### Condition system -related thaw
+###
+def error(datum, *args, **keys):
+        "With all said and done, this ought to jump right into __CL_CONDITION_HANDLER__."
+        raise make_condition(datum, *args, **keys)
+###
+##
+#
+
 setq("_presignal_hook_", nil)
 setq("_prehandler_hook_", nil)
 setq("_debugger_hook_",  nil)
@@ -3547,10 +3595,6 @@ def signal(cond):
                                                 hook(cond, frame, hook)
                                         handler(cond)
         return nil
-
-def error(datum, *args, **keys):
-        "With all said and done, this ought to jump right into __CL_CONDITION_HANDLER__."
-        raise make_condition(datum, *args, **keys)
 
 def warn(datum, *args, **keys):
         cond = make_condition(datum, *args, default_type = simple_warning, **keys)
