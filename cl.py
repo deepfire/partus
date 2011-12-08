@@ -54,13 +54,18 @@ def char_downcase(x):     return x.lower()
 def upper_case_p(x):      return x.isupper()
 def lower_case_p(x):      return x.islower()
 
+def gethash(key, dict, default = None):
+        inp = key in dict
+        return (dict.get(key) if inp else default), key in dict
+
 __core_symbol_names__ = [
         "QUOTE",
         "AND", "OR", "MEMBER", "EQL", "SATISFIES",
         "ABORT", "CONTINUE", "BREAK",
         "LIST",
-        "_KEY", "_REST", "_BODY", "_ALLOW_OTHER_KEYS", "_WHOLE",
-        # Heresy!
+        "_OPTIONAL", "_REST", "_KEY", "_BODY", "_ALLOW_OTHER_KEYS", "_WHOLE",
+        "_RESTKEY", # pythonism
+        # Heresy!  Extensions!
         "TUPLE", "PARTUPLE", "VARITUPLE", "MAYBE", "CLASS", "CLASS_EQ", "LAMBDA_LIST"
         ]
 __more_symbol_names__ = [
@@ -73,6 +78,14 @@ _case_attribute_map = dict(UPCASE     = string_upcase,
                            PRESERVE   = identity)
 def _case_xform(type, s):
         return _case_attribute_map[type.name](s)
+
+# Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+def _setf_global(name, value):
+        globals()[name] = value
+        return value
+
+def _global(name):
+        return gethash(name, globals())
 
 ###
 ### Cold boot
@@ -383,20 +396,96 @@ all AST-trees .. except for the case of tuples."""
                 unknown_ast_type_error(tree[0], tree)                           if tree[0] not in ast.__dict__ else
                 _astify_known(tree[0], mapcar(_astify_tree, _from(1, tree))))
 
+__primitive_form_compilers__ = dict()
+def defprimitive(fn):
+        name = fn.__name__
+        fn.__name__ = "compile_" + fn.__name__
+        sym, presentp = _global(name)
+        if not presentp or not symbolp(sym):
+                error("In DEFPRIMITIVE %s: the name must denote a symbol in the current package.", name)
+        __primitive_form_compilers__[sym] = fn
+        return sym # pass through
+def _find_primitive(x):
+        return gethash(x, __primitive_form_compilers__)
+
+# We need cross-primitive communication, to facilitate
+# thunk allocation.
+@defprimitive
+def def_(name, lambda_list, *body):
+        "A function definition with python-style lambda list."
+        def compile_lambda_list(list):
+                restpos, optpos, keypos, restkey = mapcar(lambda x: position(x, list),
+                                                          [_optional_, _rest_, _key_, _restkey_])
+                return ("arguments",
+                        mapcar(lambda x: ("arg", the(str, x)), list[:restpos]))
+        return ("FunctionDef", name, compile_lambda_list(lambda_list),
+                mapcar(compile_, body),
+                []) # no decorators and no return annotation
+
+## Honest DEFUN, with real keyword arguments, is out of scope for now.
+# @defprimitive
+# def defun(name, lambda_list, *body):
+#         def compile_lambda_list(x):
+#                 return ("arguments",
+#                         )
+#         return ("FunctionDef", name, compile_lambda_list(lambda_list),
+#                 mapcar(compile_, body),
+#                 []) # no decorators and no return annotation
+
+@defprimitive
+def funcall(func, *args, **keys):
+        return ("Call", func, list(args), mapcar_star(lambda name, value:
+                                                             ("keyword", name, value),
+                                                      keys.items()))
+
+# How is it do be determined, that a form must be passed through?
+# - directly AST-ifiable (in terms of _astify_constant)
+# - atrees
+# ..but what about detecting invalid forms?
+#
+# Also: how do we represent fucking tuples?
+# Also: should we track form paths?
+def macroexpand_1(form):
+        return (form if not _tuplep(form) else
+                if_let(form and _symbol_macro_function(form[0]),
+                       lambda macroexpander:
+                       (macroexpander(*form[1:]), t),
+                       (form, nil)))
+
+def macroexpand(form):
+        def do_macroexpand(form, expanded):
+                expansion, expanded_again = macroexpand_1(form)
+                return (do_macroexpand(expansion, t) if expanded_again else
+                        (form, expanded))
+        return do_macroexpand(form, nil)
+
+def compile_(form):
+        def lower(x):
+                if _tuplep(x):
+                        if not x:
+                                error("Invalid empty form in %s.", princ_to_string(form))
+                        if symbolp(x[0]):
+                                form, expanded = macroexpand(x)
+                                if expanded:
+                                        return lower(form)
+                        elif stringp(x[0]): # basic function call
+                                return lower((funcall,) + form)
+                        else:
+                                error("Invalid form: %s.", princ_to_string(form))
+                        compiler, therep = _find_primitive(the(symbol, x[0]))
+                        if not therep:
+                                error("Do not know how to compile form %s.", princ_to_string(x))
+                        return compiler(*mapcar(lower, _from(1, x)))
+                else:
+                        # Nothing much we can do here.
+                        return x
+        return lower(form)
 ###
 ### Basis
 ###
 ##
 ## modules/packages
 ##
-# Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-def _setf_global(name, value):
-        globals()[name] = value
-        return value
-
-def _global(name):
-        return gethash(name, globals())
-
 def _load_code_object_as_module(name, co, filename = "", builtins = None, globals_ = None, locals_ = None, register = True):
         check_type(co, type(_load_code_object_as_module.__code__))
         mod = imp.new_module(name)
@@ -1413,10 +1502,6 @@ def intersection(x, y):
 ##
 ## Dicts
 ##
-def gethash(key, dict, default = None):
-        inp = key in dict
-        return (dict.get(key) if inp else default), key in dict
-
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
 def _maphash(f, dict) -> list:
         return [ f(k, v) for k, v in dict.items() ]
@@ -1813,6 +1898,7 @@ def fboundp(x):
         return hasattr(the(symbol, x), "__call__")
 
 def function(name):
+        # Unregistered Issue NAMESPACING-FUNCTIONS
         pyname, module = _lisp_symbol_python_addr(name)
         return the(function_, _lisp_symbol_python_value(name))
 
@@ -1822,6 +1908,9 @@ def symbol_function(x):
         if not fboundp:
                 error("The function %s is undefined.", x)
         return func
+
+def _symbol_macro_function(x):
+        return gethash("function", x.__dict__)
 
 def defun(name, function):
         the(symbol, name).function = function
@@ -2151,8 +2240,11 @@ def        _ast_Module(body: (list_, ast.stmt)): pass
 def   _ast_Interactive(body: (list_, ast.stmt)): pass
 @defast
 def    _ast_Expression(body: ast.expr): pass
-# stmt = FunctionDef(identifier name, arguments args,
-#                    stmt* body, expr* decorator_list, expr? returns)
+# stmt = FunctionDef(identifier name,
+#                    arguments args,
+#                    stmt* body,
+#                    expr* decorator_list,
+#                    expr? returns)
 @defast
 def   _ast_FunctionDef(name: str, args: ast.arguments, body: (list_, ast.stmt),
                        decorator_list: (list_, ast.expr) = list,
@@ -2397,10 +2489,14 @@ def _ast_ExceptHandler(type: (maybe_, ast.expr), name: (maybe_, str), body: (lis
 #              expr* kw_defaults)
 @defast
 ### This suggests a remapping facility.
-def     _ast_arguments(args:       (list_, ast.arg), vararg: (maybe_, str), varargannotation: (maybe_, ast.expr),
-                       kwonlyargs: (list_, ast.arg), kwarg:  (maybe_, str), kwargannotation:  (maybe_, ast.expr),
-                       defaults:    (list_, ast.expr),
-                       kw_defaults: (list_, ast.expr)): pass
+def     _ast_arguments(args:             (list_, ast.arg),
+                       vararg:           (maybe_, str),
+                       varargannotation: (maybe_, ast.expr),
+                       kwonlyargs:       (list_, ast.arg),
+                       kwarg:            (maybe_, str),
+                       kwargannotation:  (maybe_, ast.expr),
+                       defaults:         (list_, ast.expr),
+                       kw_defaults:      (list_, ast.expr)): pass
 # arg = (identifier arg, expr? annotation)
 @defast
 def           _ast_arg(arg: str, annotation: (maybe_, ast.expr) = None): pass
