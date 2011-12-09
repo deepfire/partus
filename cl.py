@@ -2068,6 +2068,12 @@ def and_(x, type):
                 some(_type_mismatch, _infinite(x), _from(1, type)))
 
 @defun
+def not_(x, type):
+        return ((None, type) if len(type) is not 2             else
+                (x, type)    if not _type_mismatch(x, type[1]) else
+                nil)
+
+@defun
 def member_(x, type):
         return ((x not in _from(1, type)) and
                 (x, type))
@@ -2140,6 +2146,7 @@ def deftype(name, test):
 ## Remember, the used predicates must return type mismatches!
 deftype(or_,          or_)
 deftype(and_,         and_)
+deftype(not_,         not_)
 deftype(member_,      member_)
 deftype(eql_,         eql_)
 deftype(satisfies_,   satisfies_)
