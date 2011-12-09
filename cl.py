@@ -2438,6 +2438,20 @@ def       _ast_keyword(arg: str, value: ast.expr): pass
 @defast
 def         _ast_alias(name: str, asname: (maybe_, str) = None): pass
 
+##
+## T/NIL-dependent stuff
+##
+def defvar(name, value = None, documentation = nil):
+        "XXX: documentation, declaring as special"
+        if not boundp(name) and value is not None:
+                setq(name, value)
+        return name
+
+def defparameter(name, value, documentation = nil):
+        "XXX: documentation, declaring as special"
+        setq(name, value)
+        return name
+
 ###
 ### A rudimentary Lisp -> Python compiler
 ###
@@ -2578,20 +2592,6 @@ def compile_(form):
                         # Nothing much we can do here.
                         return x
         return lower(form)
-
-##
-## T/NIL-dependent stuff
-##
-def defvar(name, value = None, documentation = nil):
-        "XXX: documentation, declaring as special"
-        if not boundp(name) and value is not None:
-                setq(name, value)
-        return name
-
-def defparameter(name, value, documentation = nil):
-        "XXX: documentation, declaring as special"
-        setq(name, value)
-        return name
 
 ##
 ## Pretty-printing
