@@ -2088,33 +2088,40 @@ _ast_info = defstruct("_ast_info",
                       "get_refs")
 __ast_infos__ = dict()
 def _function_body_pass_p(fn):
+        "Dirty and fast-made."
         fn_body_ast = compile(inspect.getsource(fn), "", 'exec', flags=ast.PyCF_ONLY_AST).body[0].body
         return len(fn_body_ast) == 1 and typep(fn_body_ast[0], ast.Pass):
 
 def defast(fn):
-        name = fn.__name__
-        if len(name) < 7 or not name.startswith("_ast_"):
-                error("In DEFAST %s: the AST name must be prefixed with \"_ast_\".", name)
-        name = name[5:]
-        fixed, optional, args, keyword, keys = lambda_list = _function_lambda_list(fn, astify_defaults = nil)
-        ast_type, therep = gethash(name, ast.__dict__)
-        if not therep:
-                error("In DEFAST: '%s' does not denote a known AST type.", name)
-        if args or keyword or keys:
-                error("In DEFAST %s: only fixed and optional arguments are allowed.", name)
-        ast_field_names = fixed + mapcar(car, optional)
-        ast_field_names_with_defaults = fixed + optional
-        ast_field_types = mapcar(lambda name: fn.__annotations__[name], ast_field_names)
-        if len(ast_field_types) != len(ast_type._fields):
-                error("In DEFAST %s: the amount of provided type specifiers (%d) does not match the AST _fields: %s.",
-                      name, len(ast_field_types), ast_type._fields)
-        type = (or_, tuple, type_)
-        if not every(_of_type(type), ast_field_types):
-                error("In DEFAST %s: the AST field type specifiers must be of type %s.", name, type)
-        for i, (fname, ast_fname) in enumerate(zip(ast_field_names, ast_type._fields)):
-                if fname != ast_fname:
-                        error("In DEFAST %s: the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s.",
-                              name, i, fname, ast_fname, ast_type._fields)
+        def validate_name(name):
+                if not name.startswith("_ast_"):
+                        error("In DEFAST %s: the AST name must be prefixed with \"_ast_\".", name)
+                name = name[5:]
+                ast_type, therep = gethash(name, ast.__dict__)
+                if not therep:
+                        error("In DEFAST: '%s' does not denote a known AST type.", name)
+                return name, ast_type
+        def validate_lambda_list(ast_type, lambda_list, annotations):
+                (fixed, optional, args, keyword, keys) = lambda_list
+                if args or keyword or keys:
+                        error("In DEFAST %s: only fixed and optional arguments are allowed.", ast_type.__name__)
+                ast_field_names = fixed + mapcar(car, optional)
+                ast_field_names_with_defaults = fixed + optional
+                ast_field_types = mapcar(lambda name: annotations[name], ast_field_names)
+                if len(ast_field_types) != len(ast_type._fields):
+                        error("In DEFAST %s: the amount of provided type specifiers (%d) does not match the AST _fields: %s.",
+                              ast_type.__name__, len(ast_field_types), ast_type._fields)
+                type = (or_, tuple, type_)
+                if not every(_of_type(type), ast_field_types):
+                        error("In DEFAST %s: the AST field type specifiers must be of type %s.", ast_type.__name__, type)
+                for i, (fname, ast_fname) in enumerate(zip(ast_field_names, ast_type._fields)):
+                        if fname != ast_fname:
+                                error("In DEFAST %s: the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s.",
+                                      ast_type.__name__, i, fname, ast_fname, ast_type._fields)
+                return lambda_list, ast_field_types
+        name, ast_type = validate_name(fn.__name__)
+        ((fixed, optional, args, keyword, keys),
+         ast_field_types) = validate_lambda_list(ast_type, _function_lambda_list(fn, astify_defaults = nil), fn.__annotations__)
         fields = _odict()
         for fname, type in zip(fixed, ast_field_types):
                 fields[fname] = dict(type = type)
@@ -2241,6 +2248,9 @@ def          _ast_With(context_expr: ast.expr, optional_vars: (maybe_, ast.expr)
 def         _ast_Raise(exc: (maybe_, ast.expr), cause: (maybe_, ast.expr)):
         return _ast_refs(exc) | _ast_refs(cause) # XXX: really?
 #       | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
+@defast
+def _ast_TryExcept(body: (list_, ast.stmt), handlers: (list_, ast.excepthandler), orelse: (list_, ast.stmt)):
+        def binds(): return mapsetn(_ast_refs, body + handlers + orelse)
 @defast
 def     _ast_TryExcept(body: (list_, ast.stmt), handlers: (list_, ast.excepthandler), orelse: (list_, ast.stmt)):
         return mapsetn(_ast_refs, body + handlers + orelse)
