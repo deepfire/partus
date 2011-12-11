@@ -2,7 +2,7 @@
 ### Some utilities, in the spirit of Common Lisp.
 ###
 from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref, t
-from cl           import write_string, write_line, evenp
+from cl           import evenp
 from functools    import reduce, partial
 from cl           import _of_type as of_type, _tuplep as tuplep, _setp as setp, _frozensetp as frozensetp
 from cl           import _if_let as if_let, _when_let as when_let, _lret as lret
@@ -14,7 +14,6 @@ from cl           import _mapset as mapset, _mapsetn as mapsetn, _mapcar_star as
 from cl           import _slotting as slotting
 from cl           import _ensure_list as ensure_list
 from cl           import _caller_name as caller_name
-from cl           import _coerce_to_stream as coerce_to_stream
 from cl           import _here as here
 from cl           import _prognf as prognf
 from cl           import _destructuring_bind_keys as destructuring_bind_keys

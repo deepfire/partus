@@ -274,12 +274,17 @@ def pp_ast_as_code(x, tab = " " * 8):
                                                  ", ".join(iterate(x.keywords)),
                                                  (", *%s" % pp_ast_as_code(x.starargs)) if x.starargs else "",
                                                  (", **%s" % pp_ast_as_code(x.kwargs)) if x.kwargs else "")
+                def pp_generatorexp(x):
+                        return "%s%s" % (rec(x.elt), "".join(" " + rec(c) for c in x.generators))
+                def pp_comprehension(x):
+                        return "for %s in %s%s" % (rec(x.target), rec(x.iter),
+                                                   "".join(" if %s" % rec(x) for x in x.ifs))
                 def pp_attribute(x):
                         return "%s.%s" % (pp_ast_as_code(x.value), x.attr)
                 def pp_name(x):
                         return x.id
                 def pp_arg(x):
-                        return x.arg + ((":" + x.annotation) if x.annotation else "")
+                        return x.arg + ((": " + str(x.annotation)) if x.annotation else "")
                 def pp_alias(x):
                         return x.name + ((" as " + x.asname) if x.asname else "")
                 def pp_keyword(x):
@@ -320,27 +325,30 @@ def pp_ast_as_code(x, tab = " " * 8):
                                 pp_ast_as_code(x.right))
                 def pp_module(x):
                         return "\n".join(iterate(x.body))
+                def pp_args(args):
+                        (args, vararg,
+                         kwonlyargs, kwarg,
+                         defaults,
+                         kw_defaults) = mapcar(lambda a: getattr(args, a),
+                                               ["args", "vararg", "kwonlyargs", "kwarg",
+                                                "defaults", "kw_defaults"])
+                        fixs = len(args) - len(defaults)
+                        return ", ".join(mapcar(rec, args[:fixs]) +
+                                         mapcar(lambda var, val: rec(var) + " = " + val,
+                                                args[fixs:], iterate(defaults)) +
+                                         ([("*" + rec(vararg))] if vararg else []) +
+                                         mapcar(lambda var, val: rec(var) + " = " + val,
+                                                kwonlyargs, iterate(kw_defaults)) +
+                                         ([("**" + rec(kwarg))] if kwarg else []))
                 def pp_functiondef(x):
                         "XXX: ignores __annotations__"
-                        def pp_args(args):
-                                (args, vararg,
-                                 kwonlyargs, kwarg,
-                                 defaults,
-                                 kw_defaults) = mapcar(lambda a: getattr(args, a),
-                                                       ["args", "vararg", "kwonlyargs", "kwarg",
-                                                        "defaults", "kw_defaults"])
-                                fixs = len(args) - len(defaults)
-                                return ", ".join(mapcar(rec, args[:fixs]) +
-                                                 mapcar(lambda var, val: rec(var) + " = " + val,
-                                                        args[fixs:], iterate(defaults)) +
-                                                 ([("*" + rec(vararg))] if vararg else []) +
-                                                 mapcar(lambda var, val: rec(var) + " = " + val,
-                                                        kwonlyargs, iterate(kw_defaults)) +
-                                                 ([("**" + rec(kwarg))] if kwarg else []))
-                        res = indent() + "def " + x.name + "(" + pp_args(x.args) + "):\n"
+                        res = indent() + "def " + x.name + "(" + rec(x.args) + "):\n"
                         with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
                                 res += "\n".join(iterate(x.body))
                         return res + "\n"
+                def pp_lambda(x):
+                        args = rec(x.args)
+                        return "lambda%s: %s" % (" " + args if args else "", rec(x.body))
                 def pp_for(x):
                         res = indent() + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n"
                         with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
@@ -372,8 +380,12 @@ def pp_ast_as_code(x, tab = " " * 8):
                                           "\n")
                 def pp_import(x):
                         return indent() + "import " + ", ".join(iterate(x.names))
-                map = { ast.Module:      pp_module,
+                map = { ast.arguments:   pp_args,
+                        ast.comprehension: pp_comprehension,
+                        ast.GeneratorExp:  pp_generatorexp,
+                        ast.Module:      pp_module,
                         ast.FunctionDef: pp_functiondef,
+                        ast.Lambda:      pp_lambda,
                         ast.For:         pp_for,
                         ast.Expr:        pp_Expr,
                         ast.Call:        pp_call,
