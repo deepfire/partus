@@ -101,3 +101,8 @@
 *** TODO make-instance (generic-function-method-class) (make-method-specializers) (compile)
 *** TODO add-method
 
+* Python
+*** Deficiencies
+***** IF-MULTILINE-CONDITION-READABILITY-FUCKUP
+*** Niceties
+***** MODULE-LOAD-FAILURE-OFTEN-HAS-NO-SIDE-EFFECTS-ON-OTHER-NAMESPACES
