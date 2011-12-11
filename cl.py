@@ -2126,7 +2126,7 @@ __ast_infos__ = dict()
 def defast(fn):
         def err(format_control, *format_args):
                 error(("In DEFAST %s: " % fn.__name__) + format_control + ".", *format_args)
-        def validate_name(name):
+        def validate_defast_name(name):
                 if not name.startswith("_ast_"):
                         err("the AST name must be prefixed with \"_ast_\"")
                 name = name[5:]
@@ -2134,7 +2134,7 @@ def defast(fn):
                 if not therep:
                         err("'%s' does not denote a known AST type", name)
                 return name, ast_type
-        def validate_lambda_list(ast_type, lambda_list, annotations):
+        def validate_defast_lambda_list(ast_type, lambda_list, annotations):
                 (fixed, optional, args, keyword, keys) = lambda_list
                 if args or keyword or keys:
                         err("only fixed and optional arguments are allowed")
@@ -2152,18 +2152,72 @@ def defast(fn):
                                 err("the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s",
                                     i, fname, ast_fname, ast_type._fields)
                 return ast_field_types
+        def parse_defbody_ast(names, asts, valid_declarations = dict()):
+                def extract_sexp(ast_):
+                        import more_ast
+                        return (x.id                                      if isinstance(ast_, ast.Name)  else
+                                x.n                                       if isinstance(ast_, ast.Num)   else
+                                tuple(extract_sexp(x) for x in ast_.elts) if isinstance(ast_, ast.Tuple) else
+                                error("Invalid sexp: %s.", more_ast.pp_ast_as_code(ast_)))
+                def ensure_valid_declaration(decl):
+                        # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
+                        def fail():
+                                import more_ast
+                                err("invalid declaration form: %s", more_ast.pp_ast_as_code(decl))
+                        typep(decl, ast.Tuple) and decl.elts and typep(decl[0], ast.Name) or fail()
+                        decl_name = decl[0].id
+                        if decl_name not in valid_declarations:
+                                err("unknown declaration: %s", decl_name.upper())
+                        n_decl_args = valid_declarations(decl_name)
+                        if len(decl) < 1 + n_decl_args + 1:
+                                err("invalid declaration %s: no parameter names specified", decl_name.upper())
+                        every(of_type(ast.Name), decl[1 + n_decl_args:]) or fail()
+                        decl_param_names = tuple(x.id for x in decl.elts[1 + n_decl_args:])
+                        unknown_param_names = set(decl_param_names) - names
+                        if unknown_param_names:
+                                err("invalid declaration %s: invalid parameter names: %s",
+                                    decl_name.upper(), ", ".join(x.upper() for x in unknown_param_names))
+                        return decl_name, tuple(extract_sexp(x) for x in decl[1:1 + n_decl_args]), decl_param_names
+                content, _ = _prefix_suffix_if(of_type(ast.Pass), asts)
+                documentation, body = (([0], content[1:]) if content and stringp(content[0]) else
+                                       (nil, content))
+                declarations, body = _prefix_suffix_if(lambda x: (typep(x, ast.Expr)       and
+                                                                  typep(x.value, ast.Call) and
+                                                                  x.value.name == "declare")
+                                                       body)
+                return body, documentation, mapcar(ensure_valid_declaration, declarations)
+        def group_declarations(decls):
+                return { name: set(d[0:2] for d in decls
+                                   if name in d[2:])
+                         for name in mapsetn(lambda x: x[2], decls) } # AREFFING..
+        def lambda_list_names(lambda_list):
+                (fixed, optional, args, keyword, keys) = lambda_list
+                return (fixed +
+                        mapcar(car, optionals) + (tuple() if not args else (args,)) +
+                        mapcar(car, keyword)   + (tuple() if not keys else (keys,)))
         def validate_body(arg_ast, body_ast):
-                def fail(): err("definition body may only contain definitions of REFS and BINDS methods")
-                def replacing_slot(x, slot, val): setattr(x, slot, val); return x
-                if not every(_of_type((or_, ast.Pass, ast.FunctionDef)), body_ast):
-                        fail()
-                fdefns = { x.name:x for x in body_ast
-                           if not typep(x, ast.Pass) }
-                if set(fdefns) - set(["refs", "binds"]):
-                        fail()
-                def default_set(name): return ast.FunctionDef(name, arg_ast, [ast.Return(_ast_funcall("set"))], [], None)
-                def process(name):
-                        x, presentp = gethash(name, fdefns)
+                # methods = [("refs",  default_empty_set),
+                #            ("binds", default_empty_set),
+                #            ("free",  default_refs_minus_binds)]
+                # def fail(): err("definition body may only contain definitions of %s methods",
+                #                 ", ".join([x.upper() for x, _ in methods[:-1]]) + " and " + methods[-1][0].upper())
+                # if not every(_of_type((or_, ast.Pass, ast.FunctionDef)), body_ast):
+                #         fail()
+                # specified_method_names = { x.name:x for x in body_ast
+                #                            if not typep(x, ast.Pass) }
+                # def default_empty_set(name):
+                #         return ast.FunctionDef(name, arg_ast,
+                #                                [ast.Return(_ast_funcall("set"))], [], None)
+                # def default_refs_minus_binds(name):
+                #         return ast.FunctionDef(name, arg_ast,
+                #                                [ast.Return(ast.BinOp(
+                #                                         _ast_funcall("_ast_refs", []),
+                #                                         ast.Sub(),
+                #                                         _ast_funcall("_ast_binds", )))])
+                # if set(specified_method_names) - set(name for name, _ in methods):
+                #         fail()
+                def process(name, default_body_maker):
+                        x = find(name, body_ast, key = slotting("name"))
                         if x:
                                 x.args = arg_ast
                                 if len(x.body) > 1:
@@ -2173,25 +2227,28 @@ def defast(fn):
                                         x.body[0] = ast.Return(x.body[0].value)
                                 return x
                         else:
-                                return default_set(name)
-                return (process(x) for x in ["refs", "binds"])
-        name, ast_type = validate_name(fn.__name__)
+                                return default_body_maker(name)
+                return (process(*mspec) for mspec in methods)
+        name, ast_type = validate_defast_name(fn.__name__)
         lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
-        ast_field_types = validate_lambda_list(ast_type, lambda_list, fn.__annotations__)
-        refs_ast, binds_ast = validate_body(*_function_ast(fn))
-        # import more_ast
-        # _debug_printf("   DEFAST %s: refs: %s", name, more_ast.pp_ast_as_code(refs_ast))
-        # _debug_printf("   DEFAST %s: binds: %s", name, more_ast.pp_ast_as_code(binds_ast))
-        refs, binds = [ _ast_compiled_name(name, x, locals_ = locals(), globals_ = globals())
-                        for name, x in [("refs", refs_ast), ("binds", binds_ast)] ]
-
-        fields = _odict()
-        for fname, type in zip(fixed, ast_field_types):
-                fields[fname] = dict(type = type)
-        for (fname, default), type in zip(optional, ast_field_types[len(fixed):]):
-                fields[fname] = dict(type = type,
-                                     default = default)
-        ### XXX: compute get_refs
+        ast_field_types = validate_defast_lambda_list(ast_type, lambda_list, fn.__annotations__)
+        parameters = lambda_list_names(lambda_list)
+        _, body_ast = _function_ast(fn)
+        body, documentation, declarations = parse_defbody_ast(parameters, body_ast,
+                                                              valid_declarations = set(["refs", "binds"]))
+        grouped_decls = group_declarations(declarations)
+        fields, refs, binds = _odict(), [], []
+        for p, type in zip(parameters, ast_field_types):
+                if p in fixed:
+                        fields[p] = dict(type = type)
+                else:
+                        fields[p] = dict(type = type,
+                                         default = default) ???
+                refsp = (type in set([ast.stmt, ast.expr, (list_, ast.stmt), (list_, ast.expr)]) or
+                         p in grouped_decls and ("refs",)  in grouped_decls)
+                bindsp = p in grouped_decls and ("binds",) in grouped_decls
+                if refsp:  refs.append(p)
+                if bindsp: binds.append(p)
         __ast_infos__[ast_type] = _ast_info(fields   = fields,
                                             refs     = refs,
                                             binds    = binds)
@@ -2245,18 +2302,23 @@ all AST-trees .. except for the case of tuples."""
                 unknown_ast_type_error(tree[0], tree)                           if tree[0] not in ast.__dict__ else
                 _astify_known(tree[0], mapcar(_astify_tree, _from(1, tree))))
 
+##
+## (or_, ast.stmt,         (list_, ast.stmt)):         refs
+## (or_, ast.expr,         (list_, ast.expr)):         refs
+## (or_, (refs_, t),       (refs_, (list_, t))):       refs
+## (or_, (binds_, t),      (binds_, (list_, t))):      binds
+## (or_, (refs_binds_, t), (refs_binds_, (list_, t))): refs&binds
+##
+
 # mod = Module(stmt* body)
 #     | Interactive(stmt* body)
 #     | Expression(expr body)
 @defast
-def _ast_Module(body: (list_, ast.stmt)):
-        def refs(): mapsetn(_ast_refs, body)
+def _ast_Module(body: (list_, ast.stmt)): pass
 @defast
-def _ast_Interactive(body: (list_, ast.stmt)):
-        def refs(): mapsetn(_ast_refs, body)
+def _ast_Interactive(body: (list_, ast.stmt)): pass
 @defast
-def _ast_Expression(body: ast.expr):
-        def refs(): _ast_refs(body)
+def _ast_Expression(body: ast.expr): pass
 # stmt = FunctionDef(identifier name,
 #                    arguments args,
 #                    stmt* body,
@@ -2265,10 +2327,11 @@ def _ast_Expression(body: ast.expr):
 @defast
 def _ast_FunctionDef(name:            str,
                      args:            ast.arguments,
-                     body:           (list_, ast.stmt),
+                     body:           (list_, ast.stmt), #???
                      decorator_list: (list_, ast.expr) = list,
                      returns:        ast.expr = None):
-        def refs(): mapsetn(_ast_refs, args) | _ast_refs(returns) | _ast_refs(decorator_list)
+        declare((refs_, args),
+                (binds_, args))
 #       | ClassDef(identifier name,
 # 		   expr* bases,
 # 		   keyword* keywords,
