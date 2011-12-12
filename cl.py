@@ -2118,11 +2118,32 @@ deftype(varituple_,   varituple_)
 ###
 ### Rich AST
 ###
-## The question in focus is that of free variables.
-## - expressions:
-##   - Lambda:              (+ (refs self.args) (- (free self.body) (binds self.args)))
-##   - *Comp|GeneratiorExp: (+ (- (free self.elt) (binds self.generators)) (free self.generators))
+## 1. Free variables.
+##
+## - except for special cases, it (the set of FV) is (mapsetn #'_ir_free_vars (ir-walkable-fields o))
+## - walkable fields are:
+##   - fields annotated as being of type __ast_walkable_field_types__
+##   - fields, for which there is a "walk" declaration
+## - special cases are:
 ##   - Name:                { self.id }
+##   - Lambda:              (+ (free self.args) (- (free self.body) (binds self.args)))
+##   - *Comp|GeneratiorExp: It could be as simple as:
+##                              (+ (free self.generators) (- (free self.elt) (binds self.generators)))
+##                          ..however, it's more complex than that: succeeding generators are evaluated
+##                          in a lexical environment extended by bindings established by previous generators:
+##                          (m-v-bind (free bound)
+##                              (labels ((gch-free (xs acc-binds)
+##                                         (if xs
+##                                             (m-v-bind (cfree finbound)
+##                                                 (gch-free (rest xs) (+ acc-binds (binds (first xs))))
+##                                               (values (+ (- (free (first xs)) acc-binds) cfree)
+##                                                       finbound))
+##                                             (values nil acc-binds))))
+##                                (gch-free self.generators ()))
+##                            (values free bound))
+##   - arguments:     free: (+ (free self.args) (free self.varargannotation) (free self.defaults)
+##                             (free self.kwonlyargs) (free self.kwargannotation) (free self.kwdefaults))
+##### The thought process stopped here:
 ##   - FunctionDef:         (+ (refs self.decorators) (refs self.args) (refs self.annotations)
 ##                             (- (free self.body) (binds self.args)))
 ##   - ClassDef:            (+ (refs self.decorators) (refs self.classargs)
@@ -2150,6 +2171,8 @@ _ast_info = defstruct("_ast_info",
                       "fields",
                       "refs",
                       "binds")
+__ast_walkable_field_types__ = set([ast.stmt, (list_, ast.expr), (maybe_, ast.expr),
+                                    ast.expr, (list_, ast.stmt)])
 __ast_infos__ = dict()
 def defast(fn):
         def err(format_control, *format_args):
@@ -2243,9 +2266,7 @@ def defast(fn):
                 else:
                         fields[p] = dict(type = type,
                                          default = default)
-                impliedrefsp = type in set([ast.stmt, ast.expr,
-                                            (list_, ast.stmt), (list_, ast.expr),
-                                            (maybe_, ast.expr)])
+                impliedrefsp = type in __ast_walkable_field_types__
                 declrefsp, declnotrefsp, declbindsp = [declared(grouped_decls, p, x) for x in ["refs",
                                                                                                "notrefs",
                                                                                                "binds"]]
