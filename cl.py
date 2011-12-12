@@ -2116,8 +2116,36 @@ deftype(varituple_,   varituple_)
 # deftype(lambda_list_, lambda_list_)
 
 ###
-### ATrees (low-level IR)
+### Rich AST
 ###
+## The question in focus is that of free variables.
+## - expressions:
+##   - Lambda:              (+ (refs self.args) (- (free self.body) (binds self.args)))
+##   - *Comp|GeneratiorExp: (+ (- (free self.elt) (binds self.generators)) (free self.generators))
+##   - Name:                { self.id }
+##   - FunctionDef:         (+ (refs self.decorators) (refs self.args) (refs self.annotations)
+##                             (- (free self.body) (binds self.args)))
+##   - ClassDef:            (+ (refs self.decorators) (refs self.classargs)
+##                             (- (free self.body) (binds self.classargs)))
+##   - comprehension:       (+ (refs self.iter) (refs self.ifs) <see below>)
+##                          binds are:
+##                          - outward, not for "self"
+##                          - only for Names being direct children of target, List, Tuple and Starred;
+##                          the rest are deemed refs;
+##                          - possibly mutating structure.
+##                          It is, therefore, concluded, that comprehensions must not be processed
+##                          separately, but rather in part of parent *Comp/Generator processing.
+##   - *Assign:             possibly out of scope, for now
+##   - Import*:             Same problem as *Assign (almost: can only rebind names, not mutate structure).
+##   - Global/Nonlocal:     Related to the same problem as *Assign.
+##   - For:                 (+ (refs self.target <see the above complication in comprehension>)
+##                             (refs self.iter) (- (+ (free self.body) (free self.orelse))
+##                                                 (binds self.target <again, above complication>)))
+##                          Same problem as *Assign.
+##   - With:                only (trivial) complication is potential None-ness of optional_vars
+##   - TryExcept/ExceptHandler:    much the same situation as with *Comp|GeneratiorExp/comprehension,
+##                          and much the same solution
+##
 _ast_info = defstruct("_ast_info",
                       "fields",
                       "refs",
@@ -2190,65 +2218,46 @@ def defast(fn):
                 return { name: set(d[0:2] for d in decls
                                    if name in d[2:])
                          for name in mapsetn(lambda x: x[2], decls) } # AREFFING..
-        def lambda_list_names(lambda_list):
+        def declared(grouped_decls, x, as_):
+                return x in grouped_decls and (as_,) in grouped_decls
+        def lambda_list_names(lambda_list, remove_optional = t):
                 (fixed, optional, args, keyword, keys) = lambda_list
+                xform = car if remove_optionals else identity
                 return (fixed +
-                        mapcar(car, optionals) + (tuple() if not args else (args,)) +
-                        mapcar(car, keyword)   + (tuple() if not keys else (keys,)))
-        def validate_body(arg_ast, body_ast):
-                # methods = [("refs",  default_empty_set),
-                #            ("binds", default_empty_set),
-                #            ("free",  default_refs_minus_binds)]
-                # def fail(): err("definition body may only contain definitions of %s methods",
-                #                 ", ".join([x.upper() for x, _ in methods[:-1]]) + " and " + methods[-1][0].upper())
-                # if not every(_of_type((or_, ast.Pass, ast.FunctionDef)), body_ast):
-                #         fail()
-                # specified_method_names = { x.name:x for x in body_ast
-                #                            if not typep(x, ast.Pass) }
-                # def default_empty_set(name):
-                #         return ast.FunctionDef(name, arg_ast,
-                #                                [ast.Return(_ast_funcall("set"))], [], None)
-                # def default_refs_minus_binds(name):
-                #         return ast.FunctionDef(name, arg_ast,
-                #                                [ast.Return(ast.BinOp(
-                #                                         _ast_funcall("_ast_refs", []),
-                #                                         ast.Sub(),
-                #                                         _ast_funcall("_ast_binds", )))])
-                # if set(specified_method_names) - set(name for name, _ in methods):
-                #         fail()
-                def process(name, default_body_maker):
-                        x = find(name, body_ast, key = slotting("name"))
-                        if x:
-                                x.args = arg_ast
-                                if len(x.body) > 1:
-                                        if not typep(x.body[-1], ast.Return):
-                                                err("multi-line methods must use an explicit return statement")
-                                elif not(typep(x.body[0], ast.Return)):
-                                        x.body[0] = ast.Return(x.body[0].value)
-                                return x
-                        else:
-                                return default_body_maker(name)
-                return (process(*mspec) for mspec in methods)
+                        mapcar(xform, optionals) + (tuple() if not args else (args,)) +
+                        mapcar(xform, keyword)   + (tuple() if not keys else (keys,)))
         name, ast_type = validate_defast_name(fn.__name__)
         lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
         ast_field_types = validate_defast_lambda_list(ast_type, lambda_list, fn.__annotations__)
-        parameters = lambda_list_names(lambda_list)
+        parameters, with_defaults = (lambda_list_names(lambda_list),
+                                     lambda_list_names(lambda_list, remove_optional = nil))
         _, body_ast = _function_ast(fn)
         body, documentation, declarations = parse_defbody_ast(parameters, body_ast,
-                                                              valid_declarations = set(["refs", "binds"]))
+                                                              valid_declarations = dict(refs  = 0,
+                                                                                        binds = 0))
         grouped_decls = group_declarations(declarations)
         fields, refs, binds = _odict(), [], []
-        for p, type in zip(parameters, ast_field_types):
-                if p in fixed:
+        def process_field(name, type, default, fixed = t):
+                if fixed:
                         fields[p] = dict(type = type)
                 else:
                         fields[p] = dict(type = type,
-                                         default = default) ???
-                refsp = (type in set([ast.stmt, ast.expr, (list_, ast.stmt), (list_, ast.expr)]) or
-                         p in grouped_decls and ("refs",)  in grouped_decls)
-                bindsp = p in grouped_decls and ("binds",) in grouped_decls
-                if refsp:  refs.append(p)
-                if bindsp: binds.append(p)
+                                         default = default)
+                impliedrefsp = type in set([ast.stmt, ast.expr,
+                                            (list_, ast.stmt), (list_, ast.expr),
+                                            (maybe_, ast.expr)])
+                declrefsp, declnotrefsp, declbindsp = [declared(grouped_decls, p, x) for x in ["refs",
+                                                                                               "notrefs",
+                                                                                               "binds"]]
+                if (declrefsp and declnotrefsp):
+                        err("conflicting REFS/NOTREFS declarations")
+                if declrefsp  or (impliedrefsp and not declnotrefsp):  refs.append(p)
+                if declbindsp:                                         binds.append(p)
+        nfix = len(fixed)
+        for p, type, defaulted in zip(parameters[:nfix], ast_field_types[:nfix], with_defaults[:nfix]):
+                process_field(p, type, None, fixed = t)
+        for p, type, defaulted in zip(parameters[nfix:], ast_field_types[nfix:], with_defaults[nfix:]):
+                process_field(p, type, defaulted[1], fixed = nil)
         __ast_infos__[ast_type] = _ast_info(fields   = fields,
                                             refs     = refs,
                                             binds    = binds)
@@ -2261,6 +2270,9 @@ def _ast_free_vars(ast):
         info, args = _find_ast_info(type(ast)), (getattr(ast, f) for f in ast._fields)
         return info.refs(*args) - info.binds(*args)
 
+###
+### ATrees (low-level IR)
+###
 def _atree_ast(tree):
         """Flip an atree to its AST geminae.
 
@@ -2302,14 +2314,6 @@ all AST-trees .. except for the case of tuples."""
                 unknown_ast_type_error(tree[0], tree)                           if tree[0] not in ast.__dict__ else
                 _astify_known(tree[0], mapcar(_astify_tree, _from(1, tree))))
 
-##
-## (or_, ast.stmt,         (list_, ast.stmt)):         refs
-## (or_, ast.expr,         (list_, ast.expr)):         refs
-## (or_, (refs_, t),       (refs_, (list_, t))):       refs
-## (or_, (binds_, t),      (binds_, (list_, t))):      binds
-## (or_, (refs_binds_, t), (refs_binds_, (list_, t))): refs&binds
-##
-
 # mod = Module(stmt* body)
 #     | Interactive(stmt* body)
 #     | Expression(expr body)
@@ -2327,11 +2331,12 @@ def _ast_Expression(body: ast.expr): pass
 @defast
 def _ast_FunctionDef(name:            str,
                      args:            ast.arguments,
-                     body:           (list_, ast.stmt), #???
-                     decorator_list: (list_, ast.expr) = list,
+                     body:           (list_, ast.stmt),
+                     decorator_list: (list_, ast.expr) = list(),
                      returns:        ast.expr = None):
-        declare((refs_, args),
-                (binds_, args))
+        declare((refs, args),  # defaults do
+                (binds, args),
+                (notrefs, body))
 #       | ClassDef(identifier name,
 # 		   expr* bases,
 # 		   keyword* keywords,
@@ -2343,72 +2348,70 @@ def _ast_FunctionDef(name:            str,
 def _ast_ClassDef(name:            str,
                   bases:          (list_, ast.expr),
                   keywords:       (list_, ast.keyword),
-                  starargs:       (list_, (maybe_, ast.expr)),
-                  kwargs:         (list_, (maybe_, ast.expr)),
+                  starargs:       (maybe_, ast.expr),
+                  kwargs:         (maybe_, ast.expr),
                   body:           (list_, ast.stmt),
                   decorator_list: (list_, ast.expr)):
-        def refs(): (mapsetn(_ast_refs, bases) | _ast_refs(keywords) |
-                     _ast_refs(starargs) | _ast_refs(kwargs) | _ast_refs(decorator_list))
+        declare((refs, keywords),    (binds, keywords),
+                (notrefs, starargs), (binds, starargs),
+                (notrefs, kwargs),   (binds, kwargs),
+                (notrefs, body))
 #       | Return(expr? value)
 @defast
-def _ast_Return(value: (maybe_, ast.expr)):
-        def refs(): _ast_refs(value)
+def _ast_Return(value: (maybe_, ast.expr)): pass
 #       | Delete(expr* targets)
 @defast
-def _ast_Delete(targets: (list_, ast.expr)):
-        def refs(): mapsetn(_ast_refs, targets)
+def _ast_Delete(targets: (list_, ast.expr)): pass
+        # targets do ref, in this case!
 #       | Assign(expr* targets, expr value)
 @defast
 def _ast_Assign(targets: (list_, ast.expr),
                 value:    ast.expr):
-        def refs(): _ast_refs(value)
+        declare((binds_Names_if_immediate_children_of_List_Tuple_Starred, targets),
+                (refs_everything_else, targets))
 #       | AugAssign(expr target, operator op, expr value)
 @defast
 def _ast_AugAssign(target: ast.expr,
                    op:     ast.operator,
                    value:  ast.expr):
-        def refs(): _ast_refs(value)
+        declare((notrefs, target), (mutabinds, target))
 #       | For(expr target, expr iter, stmt* body, stmt* orelse)
 @defast
 def _ast_For(target:  ast.expr,
              iter:    ast.expr,
              body:   (list_, ast.stmt),
              orelse: (list_, ast.stmt)):
-        def refs(): _ast_refs(iter) | mapsetn(_ast_refs, body + orelse)
+        declare((notrefs, target), (mutabinds, target))
 #       | While(expr test, stmt* body, stmt* orelse)
 @defast
 def _ast_While(test:    ast.expr,
                body:   (list_, ast.stmt),
-               orelse: (list_, ast.stmt)):
-        def refs(): _ast_refs(test) | mapsetn(_ast_refs, body + orelse)
+               orelse: (list_, ast.stmt)): pass
 #       | If(expr test, stmt* body, stmt* orelse)
 @defast
 def _ast_If(test:    ast.expr,
             body:   (list_, ast.stmt),
-            orelse: (list_, ast.stmt)):
-        def refs(): _ast_refs(test) | mapsetn(_ast_refs, body + orelse)
+            orelse: (list_, ast.stmt)): pass
 #       | With(expr context_expr, expr? optional_vars, stmt* body)
 @defast
 def _ast_With(context_expr:   ast.expr,
               optional_vars: (maybe_, ast.expr),
               body:          (list_, ast.stmt)):
-        def refs(): _ast_refs(context_expr) | mapsetn(_ast_refs, body)
+        declare((notrefs, optional_vars), (binds, optional_vars))
 #       | Raise(expr? exc, expr? cause)
 @defast
 def _ast_Raise(exc:   (maybe_, ast.expr),
-               cause: (maybe_, ast.expr)):
-        def refs(): _ast_refs(exc) | _ast_refs(cause) # XXX: really?
+               cause: (maybe_, ast.expr)): pass
 #       | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
 @defast
 def _ast_TryExcept(body:     (list_, ast.stmt),
                    handlers: (list_, ast.excepthandler),
                    orelse:   (list_, ast.stmt)):
-        def refs(): mapsetn(_ast_refs, body + handlers + orelse)
+        declare((refs, handlers)) ??? how do we recurse?
 #       | TryFinally(stmt* body, stmt* finalbody)
 @defast
 def _ast_TryFinally(body:      (list_, ast.stmt),
-                    finalbody: (list_, ast.stmt)):
-        def refs(): mapsetn(_ast_refs, body + finalbody)
+                    finalbody: (list_, ast.stmt)): pass
 #       | Assert(expr test, expr? msg)
 @defast
 def _ast_Assert(test: ast.expr,
