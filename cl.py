@@ -798,10 +798,17 @@ def _mapsetn(f, xs):
                 acc |= f(x)
         return acc
 
+def _mapseparaten(f, xs):
+        s0, s1 = set(), set()
+        for s0r, s1r in (f(x) for x in xs):
+                s0 |= s0r; s1 |= s1r
+        return s0, s1
+
 def _mapcar_star(f, xs):
         return [ f(*x) for x in xs ]
 
-def _slotting(x):             return lambda y: getattr(y, x, None)
+def _areffing(x, *xs): return lambda y: y[x] if not xs else _areffing(*xs)(y[x])
+def _slotting(x):      return lambda y: getattr(y, x, None)
 
 def _updated_dict(to, from_):
         to.update(from_)
@@ -2141,8 +2148,23 @@ deftype(varituple_,   varituple_)
 ##                                             (values nil acc-binds))))
 ##                                (gch-free self.generators ()))
 ##                            (values free bound))
+##                          NOTE: it was a neat exercise, and it much helped to shape the thought
+##                          process documented below.
 ##   - arguments:     free: (+ (free self.args) (free self.varargannotation) (free self.defaults)
 ##                             (free self.kwonlyargs) (free self.kwargannotation) (free self.kwdefaults))
+## Intercession: if we decide to go with the upward out-bounded-ness protocol,
+##               when do we stop propagation?  The details, so far apparent, are:
+##               - default to upward propagation
+##               - customize at parents "owning" the bindings
+##               - must cooperate with free var computation, for proper free cancellation
+##                 - single, shared pass?
+##               - Q: whether all bindings affect free vars the same way?
+##                 - honest FunctionDef/Lambda/comprehension/With bindings vs. *Assign/For
+##                   - the owner is calculated much the same way, modulo global/nonlocal
+##                   - the relevance of the possibility of actual un"bound"ed-ness..
+##                     ..patchable by the means of locals()? : -D
+##                   - we're bound (ha) to be overly-optimistic about "bound"ed-ness, as,
+##                     due to the lack of CFA, we must be.
 ##### The thought process stopped here:
 ##   - FunctionDef:         (+ (refs self.decorators) (refs self.args) (refs self.annotations)
 ##                             (- (free self.body) (binds self.args)))
@@ -2156,7 +2178,7 @@ deftype(varituple_,   varituple_)
 ##                          - possibly mutating structure.
 ##                          It is, therefore, concluded, that comprehensions must not be processed
 ##                          separately, but rather in part of parent *Comp/Generator processing.
-##   - *Assign:             possibly out of scope, for now
+##   - *Assign:             Neatly solved by upward out-boundedness protocol. 
 ##   - Import*:             Same problem as *Assign (almost: can only rebind names, not mutate structure).
 ##   - Global/Nonlocal:     Related to the same problem as *Assign.
 ##   - For:                 (+ (refs self.target <see the above complication in comprehension>)
@@ -2169,12 +2191,63 @@ deftype(varituple_,   varituple_)
 ##
 _ast_info = defstruct("_ast_info",
                       "fields",
-                      "refs",
-                      "binds")
+                      "walk",
+                      "bound_free")
 __ast_walkable_field_types__ = set([ast.stmt, (list_, ast.expr), (maybe_, ast.expr),
                                     ast.expr, (list_, ast.stmt)])
 __ast_infos__ = dict()
+def _find_ast_info(type):
+        return __ast_infos__[_coerce_to_ast_type(type)]
+def _ast_fields(ast): return _find_ast_info(type(ast)).fields
 def defast(fn):
+        ### generic tools
+        def parse_defbody_ast(names, asts, valid_declarations = dict()):
+                def extract_sexp(ast_):
+                        import more_ast
+                        return (x.id                                      if isinstance(ast_, ast.Name)  else
+                                x.n                                       if isinstance(ast_, ast.Num)   else
+                                tuple(extract_sexp(x) for x in ast_.elts) if isinstance(ast_, ast.Tuple) else
+                                error("Invalid sexp: %s.", more_ast.pp_ast_as_code(ast_)))
+                def ensure_valid_declaration(decl):
+                        # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
+                        def fail():
+                                import more_ast
+                                err("invalid declaration form: %s", more_ast.pp_ast_as_code(decl))
+                        typep(decl, ast.Tuple) and decl.elts and typep(decl[0], ast.Name) or fail()
+                        decl_name = decl[0].id
+                        if decl_name not in valid_declarations:
+                                err("unknown declaration: %s", decl_name.upper())
+                        n_decl_args = valid_declarations(decl_name)
+                        if len(decl) < 1 + n_decl_args + 1:
+                                err("invalid declaration %s: no parameter names specified", decl_name.upper())
+                        every(of_type(ast.Name), decl[1 + n_decl_args:]) or fail()
+                        decl_param_names = tuple(x.id for x in decl.elts[1 + n_decl_args:])
+                        unknown_param_names = set(decl_param_names) - names
+                        if unknown_param_names:
+                                err("invalid declaration %s: invalid parameter names: %s",
+                                    decl_name.upper(), ", ".join(x.upper() for x in unknown_param_names))
+                        return decl_name, tuple(extract_sexp(x) for x in decl[1:1 + n_decl_args]), decl_param_names
+                content, _ = _prefix_suffix_if(_of_type(ast.Pass), asts)
+                documentation, body = (([0], content[1:]) if content and stringp(content[0]) else
+                                       (nil, content))
+                declarations, body = _prefix_suffix_if(lambda x: (typep(x, ast.Expr)       and
+                                                                  typep(x.value, ast.Call) and
+                                                                  x.value.name == "declare"),
+                                                       body)
+                return body, documentation, mapcar(ensure_valid_declaration, declarations)
+        def group_declarations(decls):
+                return { name: set(d[0:2] for d in decls
+                                   if name in d[2:])
+                         for name in _mapsetn(lambda x: x[2], decls) } # AREFFING..
+        def declaredp(grouped_decls, x, as_):
+                return x in grouped_decls and (as_,) in grouped_decls
+        def lambda_list_names(lambda_list, remove_optional = t):
+                (fixed, optional, args, keyword, keys) = lambda_list
+                xform = car if remove_optional else identity
+                return (tuple(fixed) +
+                        tuple(xform(x) for x in optional) + (tuple() if not args else (args,)) +
+                        tuple(xform(x) for x in keyword)  + (tuple() if not keys else (keys,)))
+        ### end-of-generic-tools
         def err(format_control, *format_args):
                 error(("In DEFAST %s: " % fn.__name__) + format_control + ".", *format_args)
         def validate_defast_name(name):
@@ -2203,93 +2276,70 @@ def defast(fn):
                                 err("the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s",
                                     i, fname, ast_fname, ast_type._fields)
                 return ast_field_types
-        def parse_defbody_ast(names, asts, valid_declarations = dict()):
-                def extract_sexp(ast_):
-                        import more_ast
-                        return (x.id                                      if isinstance(ast_, ast.Name)  else
-                                x.n                                       if isinstance(ast_, ast.Num)   else
-                                tuple(extract_sexp(x) for x in ast_.elts) if isinstance(ast_, ast.Tuple) else
-                                error("Invalid sexp: %s.", more_ast.pp_ast_as_code(ast_)))
-                def ensure_valid_declaration(decl):
-                        # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
-                        def fail():
-                                import more_ast
-                                err("invalid declaration form: %s", more_ast.pp_ast_as_code(decl))
-                        typep(decl, ast.Tuple) and decl.elts and typep(decl[0], ast.Name) or fail()
-                        decl_name = decl[0].id
-                        if decl_name not in valid_declarations:
-                                err("unknown declaration: %s", decl_name.upper())
-                        n_decl_args = valid_declarations(decl_name)
-                        if len(decl) < 1 + n_decl_args + 1:
-                                err("invalid declaration %s: no parameter names specified", decl_name.upper())
-                        every(of_type(ast.Name), decl[1 + n_decl_args:]) or fail()
-                        decl_param_names = tuple(x.id for x in decl.elts[1 + n_decl_args:])
-                        unknown_param_names = set(decl_param_names) - names
-                        if unknown_param_names:
-                                err("invalid declaration %s: invalid parameter names: %s",
-                                    decl_name.upper(), ", ".join(x.upper() for x in unknown_param_names))
-                        return decl_name, tuple(extract_sexp(x) for x in decl[1:1 + n_decl_args]), decl_param_names
-                content, _ = _prefix_suffix_if(of_type(ast.Pass), asts)
-                documentation, body = (([0], content[1:]) if content and stringp(content[0]) else
-                                       (nil, content))
-                declarations, body = _prefix_suffix_if(lambda x: (typep(x, ast.Expr)       and
-                                                                  typep(x.value, ast.Call) and
-                                                                  x.value.name == "declare")
-                                                       body)
-                return body, documentation, mapcar(ensure_valid_declaration, declarations)
-        def group_declarations(decls):
-                return { name: set(d[0:2] for d in decls
-                                   if name in d[2:])
-                         for name in mapsetn(lambda x: x[2], decls) } # AREFFING..
-        def declared(grouped_decls, x, as_):
-                return x in grouped_decls and (as_,) in grouped_decls
-        def lambda_list_names(lambda_list, remove_optional = t):
-                (fixed, optional, args, keyword, keys) = lambda_list
-                xform = car if remove_optionals else identity
-                return (fixed +
-                        mapcar(xform, optionals) + (tuple() if not args else (args,)) +
-                        mapcar(xform, keyword)   + (tuple() if not keys else (keys,)))
+        def arglist_field_infos(parameters, nfix, with_defaults, ast_field_types):
+                fields = _odict()
+                def process_ast_field_arglist_entry(name, type, default, fixed = t):
+                        walkp = (type in __ast_walkable_field_types__ or
+                                 declaredp(grouped_decls, p, "walk"))
+                        fields[p] = (dict(name = name, type = type, walk = walkp) if fixed else
+                                     dict(name = name, type = type, walk = walkp, default = default))
+                for p, type, defaulted in zip(parameters[:nfix], ast_field_types[:nfix], with_defaults[:nfix]):
+                        process_ast_field_arglist_entry(p, type, None,         fixed = t)
+                for p, type, defaulted in zip(parameters[nfix:], ast_field_types[nfix:], with_defaults[nfix:]):
+                        process_ast_field_arglist_entry(p, type, defaulted[1], fixed = nil)
+                return fields
+        def body_methods(arguments_ast, fields, body_ast):
+                def make_default_bound_free(name):
+                        # compile down to:
+                        # return _mapseparaten(_ast_bound_free, [<fields>])
+                        # ..where <fields> is [ f["name"] for f in fields if f["walk"] ]
+                        return ast.FunctionDef(
+                                name, arguments_ast,
+                                [ast.Return(
+                                 _ast_funcall("_mapseparaten",
+                                              [ ast.Name("_ast_bound_free", ast.Load),
+                                                ast.List([ ast.Name(f["name"], ast.Load)
+                                                           for f in fields
+                                                           if f["walk"] ],
+                                                         ast.Load()) ]))])
+                valid_methods = [("bound_free", make_default_bound_free)]
+                def fail(): err("definition body may only contain definitions of %s methods",
+                                (", ".join([x.upper() for x, _ in
+                                              valid_methods[:-1]]) +
+                                 (" and " if len(valid_methods) > 1 else "") +
+                                 valid_methods[-1][0].upper()))
+                if not every(_of_type(ast.FunctionDef), body_ast):
+                        fail()
+                specified_method_names = { x.name:x for x in body_ast }
+                if set(specified_method_names) - mapset(_areffing(0), valid_methods):
+                        fail()
+                def process(name, default_maker):
+                        "Return a validated and normalised named method body 'return'-wise."
+                        x = find(name, body_ast, key = slotting("name"))
+                        if x:
+                                x.args = arguments_ast # Splice in the common arglist.
+                                if len(x.body) > 1:
+                                        if not typep(x.body[-1], ast.Return):
+                                                err("multi-line methods must use an explicit return statement")
+                                elif not(typep(x.body[0], ast.Return)):
+                                        x.body[0] = ast.Return(x.body[0].value)
+                                return _ast_compiled_name(name, x, locals_ = locals(), globals_ = globals())
+                        else:
+                                return default_maker(name)
+                return (process(*mspec) for mspec in methods)
         name, ast_type = validate_defast_name(fn.__name__)
         lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
         ast_field_types = validate_defast_lambda_list(ast_type, lambda_list, fn.__annotations__)
         parameters, with_defaults = (lambda_list_names(lambda_list),
                                      lambda_list_names(lambda_list, remove_optional = nil))
-        _, body_ast = _function_ast(fn)
+        args_ast, body_ast = _function_ast(fn)
         body, documentation, declarations = parse_defbody_ast(parameters, body_ast,
-                                                              valid_declarations = dict(refs  = 0,
-                                                                                        binds = 0))
+                                                              valid_declarations = dict(walk  = 0))
         grouped_decls = group_declarations(declarations)
-        fields, refs, binds = _odict(), [], []
-        def process_field(name, type, default, fixed = t):
-                if fixed:
-                        fields[p] = dict(type = type)
-                else:
-                        fields[p] = dict(type = type,
-                                         default = default)
-                impliedrefsp = type in __ast_walkable_field_types__
-                declrefsp, declnotrefsp, declbindsp = [declared(grouped_decls, p, x) for x in ["refs",
-                                                                                               "notrefs",
-                                                                                               "binds"]]
-                if (declrefsp and declnotrefsp):
-                        err("conflicting REFS/NOTREFS declarations")
-                if declrefsp  or (impliedrefsp and not declnotrefsp):  refs.append(p)
-                if declbindsp:                                         binds.append(p)
-        nfix = len(fixed)
-        for p, type, defaulted in zip(parameters[:nfix], ast_field_types[:nfix], with_defaults[:nfix]):
-                process_field(p, type, None, fixed = t)
-        for p, type, defaulted in zip(parameters[nfix:], ast_field_types[nfix:], with_defaults[nfix:]):
-                process_field(p, type, defaulted[1], fixed = nil)
-        __ast_infos__[ast_type] = _ast_info(fields   = fields,
-                                            refs     = refs,
-                                            binds    = binds)
-def _find_ast_info(type):
-        return __ast_infos__[_coerce_to_ast_type(type)]
-def _ast_fields(ast): return _find_ast_info(type(ast)).fields
-def _ast_refd_vars(ast):  return _find_ast_info(type(ast)).refs (*(getattr(ast, f) for f in ast._fields))
-def _ast_bound_vars(ast): return _find_ast_info(type(ast)).binds(*(getattr(ast, f) for f in ast._fields))
-def _ast_free_vars(ast):
-        info, args = _find_ast_info(type(ast)), (getattr(ast, f) for f in ast._fields)
-        return info.refs(*args) - info.binds(*args)
+        fields = arglist_field_infos(parameters, len(fixed), with_defaults, ast_field_types)
+        [bound_free] = body_methods(args_ast, fields, body)
+        __ast_infos__[ast_type] = _ast_info(fields     = fields,
+                                            bound_free = (bound_free or _ast_default_bound_free))
 
 ###
 ### ATrees (low-level IR)
@@ -2428,7 +2478,7 @@ def _ast_Raise(exc:   (maybe_, ast.expr),
 def _ast_TryExcept(body:     (list_, ast.stmt),
                    handlers: (list_, ast.excepthandler),
                    orelse:   (list_, ast.stmt)):
-        declare((refs, handlers)) ??? how do we recurse?
+        declare((refs, handlers))
 #       | TryFinally(stmt* body, stmt* finalbody)
 @defast
 def _ast_TryFinally(body:      (list_, ast.stmt),
