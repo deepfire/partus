@@ -2210,44 +2210,52 @@ def _ast_bound_free(ast):
 def defast(fn):
         ### generic tools
         def parse_defbody_ast(names, asts, valid_declarations = dict()):
+                def _ast_call_to_name_p(name, x):
+                        return (typep(x, ast.Expr)            and
+                                typep(x.value, ast.Call)      and
+                                typep(x.value.func, ast.Name) and
+                                x.value.func.id == name)
                 def extract_sexp(ast_):
                         import more_ast
                         return (x.id                                      if isinstance(ast_, ast.Name)  else
                                 x.n                                       if isinstance(ast_, ast.Num)   else
                                 tuple(extract_sexp(x) for x in ast_.elts) if isinstance(ast_, ast.Tuple) else
                                 error("Invalid sexp: %s.", more_ast.pp_ast_as_code(ast_)))
-                def ensure_valid_declaration(decl):
+                def ensure_valid_declarations(decls):
                         # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
                         def fail():
                                 import more_ast
-                                err("invalid declaration form: %s", more_ast.pp_ast_as_code(decl))
-                        typep(decl, ast.Tuple) and decl.elts and typep(decl[0], ast.Name) or fail()
-                        decl_name = decl[0].id
-                        if decl_name not in valid_declarations:
-                                err("unknown declaration: %s", decl_name.upper())
-                        n_decl_args = valid_declarations(decl_name)
-                        if len(decl) < 1 + n_decl_args + 1:
-                                err("invalid declaration %s: no parameter names specified", decl_name.upper())
-                        every(of_type(ast.Name), decl[1 + n_decl_args:]) or fail()
-                        decl_param_names = tuple(x.id for x in decl.elts[1 + n_decl_args:])
-                        unknown_param_names = set(decl_param_names) - names
-                        if unknown_param_names:
-                                err("invalid declaration %s: invalid parameter names: %s",
-                                    decl_name.upper(), ", ".join(x.upper() for x in unknown_param_names))
-                        return decl_name, tuple(extract_sexp(x) for x in decl[1:1 + n_decl_args]), decl_param_names
+                                err("invalid declaration form: %s", more_ast.pp_ast_as_code(decls))
+                        def ensure_valid_declaration(decl):
+                                typep(decl, ast.Tuple) and decl.elts and typep(decl.elts[0], ast.Name) or fail()
+                                decl_name = decl.elts[0].id
+                                if decl_name not in valid_declarations:
+                                        err("unknown declaration: %s", decl_name.upper())
+                                n_decl_args = valid_declarations[decl_name]
+                                if len(decl.elts) < 1 + n_decl_args + 1:
+                                        err("invalid declaration %s: no parameter names specified", decl_name.upper())
+                                every(_of_type(ast.Name), decl.elts[1 + n_decl_args:]) or fail()
+                                decl_param_names = tuple(x.id for x in decl.elts[1 + n_decl_args:])
+                                unknown_param_names = set(decl_param_names) - set(names)
+                                if unknown_param_names:
+                                        err("invalid declaration %s: invalid parameter names: %s",
+                                            decl_name.upper(), ", ".join(x.upper() for x in unknown_param_names))
+                                return (decl_name,
+                                        tuple(extract_sexp(x) for x in decl.elts[1:1 + n_decl_args]),
+                                        decl_param_names)
+                        not (decls.keywords or decls.starargs or decls.kwargs) or fail()
+                        return mapcar(ensure_valid_declaration, decls.args)
                 content, _ = _prefix_suffix_if(_not_of_type(ast.Pass), asts)
                 documentation, body = ((content[0], content[1:]) if content and stringp(content[0]) else
                                        (nil, content))
-                declarations, body = _prefix_suffix_if(lambda x: (typep(x, ast.Expr)            and
-                                                                  typep(x.value, ast.Call)      and
-                                                                  typep(x.value.func, ast.Name) and
-                                                                  x.value.func.id == "declare"),
-                                                       body)
-                return body, documentation, mapcar(ensure_valid_declaration, declarations)
-        def group_declarations(decls):
+                declarations, body = _prefix_suffix_if(_curry(_ast_call_to_name_p, "declare"), body)
+                return body, documentation, mapcan(lambda dexcall: ensure_valid_declarations(dexcall.value),
+                                                   declarations)
+        def group_declarations(valid_declspecs, decls):
+                def _declaration_names(x): return set(x[1 + valid_declspecs[x[0]]:])
                 return { name: set(d[0:2] for d in decls
                                    if name in d[2:])
-                         for name in _mapsetn(lambda x: x[2], decls) } # AREFFING..
+                         for name in _mapsetn(_declaration_names, decls) } # AREFFING..
         def declaredp(grouped_decls, x, as_):
                 return x in grouped_decls and (as_,) in grouped_decls
         def lambda_list_names(lambda_list, remove_optional = t):
@@ -2315,19 +2323,19 @@ def defast(fn):
                 valid_methods = [("bound_free", make_default_bound_free)]
                 def fail(x):
                         import more_ast
-                        err("definition body may only contain definitions of %s methods, encountered:\n%s",
+                        err("definition body may only contain definitions of %s methods, encountered: %s",
                             (", ".join([x.upper() for x, _ in
                                         valid_methods[:-1]]) +
                              (" and " if len(valid_methods) > 1 else "") +
                              valid_methods[-1][0].upper()),
-                             more_ast.pp_ast_as_code(x))
+                             x if stringp(x) else more_ast.pp_ast_as_code(x))
                 not_fdefn = find_if_not(_of_type(ast.FunctionDef), body_ast)
                 if not_fdefn:
                         fail(not_fdefn)
                 specified_method_names = { x.name:x for x in body_ast }
                 invalid_methods = set(specified_method_names) - _mapset(_areffing(0), valid_methods)
                 if invalid_methods:
-                        fail(invalid_methods.pop())
+                        fail(invalid_methods.pop().upper())
                 def process(name, default_maker):
                         "Return a validated and normalised named method body 'return'-wise."
                         x = find(name, body_ast, key = _slotting("name"))
@@ -2348,9 +2356,10 @@ def defast(fn):
         parameters, with_defaults = (lambda_list_names(lambda_list),
                                      lambda_list_names(lambda_list, remove_optional = nil))
         args_ast, body_ast = _function_ast(fn)
+        valid_declspecs = dict(walk  = 0)
         body, documentation, declarations = parse_defbody_ast(parameters, body_ast,
-                                                              valid_declarations = dict(walk  = 0))
-        grouped_decls = group_declarations(declarations)
+                                                              valid_declarations = valid_declspecs)
+        grouped_decls = group_declarations(valid_declspecs, declarations)
         fields = arglist_field_infos(parameters, len(fixed), with_defaults, ast_field_types)
         [bound_free] = body_methods(args_ast, fields, remove_if(_of_type(ast.Pass), body))
         __ast_infos__[ast_type] = _ast_info(fields     = fields,
@@ -2575,8 +2584,7 @@ def _ast_Yield(value: (maybe_, ast.expr) = None): pass
 @defast
 def _ast_Compare(left:         ast.expr,
                  ops:         (list_, ast.cmpop),
-                 comparators: (list_, ast.expr)):
-        def refs(): _ast_refs(left) | mapsetn(_ast_refs, comparators)
+                 comparators: (list_, ast.expr)): pass
 #      | Call(expr func, expr* args, keyword* keywords, expr? starargs, expr? kwargs)
 @defast
 def _ast_Call(func:      ast.expr,
@@ -2601,8 +2609,7 @@ def _ast_Ellipsis(): pass
 @defast
 def _ast_Attribute(value: ast.expr,
                    attr:  str,
-                   ctx:   ast.expr_context):
-        def refs(): _ast_refs(value)
+                   ctx:   ast.expr_context): pass
 #      | Subscript(expr value, slice slice, expr_context ctx)
 @defast
 def _ast_Subscript(value: ast.expr,
