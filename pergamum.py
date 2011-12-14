@@ -11,7 +11,8 @@ from cl           import _map_into_hash as map_into_hash, _remap_hash_table as r
 from cl           import _not_implemented_error as not_implemented_error, _not_implemented as not_implemented
 from cl           import _curry as curry, _compose as compose
 from cl           import _mapset as mapset, _mapsetn as mapsetn, _mapcar_star as mapcar_star
-from cl           import _slotting as slotting
+from cl           import _slotting as slotting, _slot_of as slot_of
+from cl           import _indexing as indexing, _index_of as index_of, _index_equal as index_equal
 from cl           import _ensure_list as ensure_list
 from cl           import _caller_name as caller_name
 from cl           import _here as here
@@ -334,13 +335,6 @@ def mapunzip(fpred, xs):
         return yep, nay
 
 ## objects
-def slot_of(x):              return lambda y: getattr(x, y, None)
-def slot_equal(slot, val):   return lambda y: getattr(y, slot, None) == val
-
-def areffing(*is_):          return lambda y: aref(y, *is_)
-def aref_of(xs):             return lambda *is_: aref(xs, *is_)
-def index_equal(index, val): return lambda y: y[index] == val
-
 def map_slot_into_total_set(o, fn, total_slot, recur_slot, recur_key=identity):
         '''Compute the total set for TOTAL_SLOT over RECUR_SLOT, accessed through KEY,
 caching it on the way.'''

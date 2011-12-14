@@ -302,7 +302,7 @@ def pp_ast_as_code(x, tab = " " * 8):
                                 return "%s:%s" % tuple(iterate((l, u)))
                 def pp_iterable(x):
                         l, r = { ast.List: ("[", "]"), ast.Tuple: ("(", ")"), ast.Set: ("{", "}"), ast.Dict: ("{", "}"), } [type(x)]
-                        return "%s %s%s %s" % (l,
+                        return "%s%s%s%s" % (l,
                                              ", ".join(iterate(x.elts)
                                                        if not ast_dict_p(x) else
                                                        mapcar(lambda k, v: "%s: %s" % (k, v),
@@ -315,14 +315,24 @@ def pp_ast_as_code(x, tab = " " * 8):
                         val = with_output_to_string(lambda s: print(x.s, file = s, end = ""))
                         return q + val + q
                 def pp_num(x):     return str(x.n)
-                binop_print_map = dict(Add = "+", Sub = "-", Mult = "*", Div = "/",
-                                       Mod = "%", Pow = "**", LShift = "<<", RShift = ">>",
-                                       BitOr = "|", BitXor = "^", BitAnd = "&",
-                                       FloorDiv = "//")
+                op_print_map = dict(# binary
+                                    Add = "+", Sub = "-", Mult = "*", Div = "/",
+                                    Mod = "%", Pow = "**", LShift = "<<", RShift = ">>",
+                                    BitOr = "|", BitXor = "^", BitAnd = "&",
+                                    FloorDiv = "//",
+                                    # unary
+                                    Invert = "~", Not = "not", UAdd = "+", USub = "-")
                 def pp_binop(x):
                         return (pp_ast_as_code(x.left) +
-                                (" %s " % (binop_print_map[type(x.op).__name__])) +
+                                (" %s " % (op_print_map[type(x.op).__name__])) +
                                 pp_ast_as_code(x.right))
+                def pp_unop(x):
+                        return (("%s " % (op_print_map[type(x.op).__name__])) +
+                                pp_ast_as_code(x.operand))
+                def pp_ifexp(x):
+                        return (rec(x.body) + " if " +
+                                rec(x.test) + " else " +
+                                rec(x.orelse))
                 def pp_module(x):
                         return "\n".join(iterate(x.body))
                 def pp_args(args):
@@ -396,6 +406,7 @@ def pp_ast_as_code(x, tab = " " * 8):
                         ast.keyword:     pp_keyword,
                         ast.Assign:      pp_assign,
                         ast.Subscript:   pp_subscript,
+                        ast.IfExp:       pp_ifexp,
                         ast.Index:       pp_index,
                         ast.Slice:       pp_slice,
                         ast.List:        pp_iterable,
@@ -405,6 +416,7 @@ def pp_ast_as_code(x, tab = " " * 8):
                         ast.Str:         pp_string,
                         ast.Num:         pp_num,
                         ast.BinOp:       pp_binop,
+                        ast.UnaryOp:     pp_unop,
                         ast.Return:      make_trivial_pper("return"),
                         ast.Raise:       make_trivial_pper("raise"),
                         ast.Pass:        make_trivial_pper("pass"),

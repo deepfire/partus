@@ -188,7 +188,7 @@ def _coerce_to_ast_type(type):
                                          error("Provided type %s is not a proper subtype of ast.AST.", type))),
                         (str,   lambda: (ast.__dict__[type] if type in ast.__dict__ else
                                          error("Unknown AST type '%s'.", type))),
-                        (t,     error("Invalid AST type specifier: %s.", type)))
+                        (t,     lambda: error("Invalid AST type specifier: %s, %s, %s.", type, type_, typep(type, type_))))
 
 def _text_ast(text):
         return compile(text, "", 'exec', flags=ast.PyCF_ONLY_AST).body
@@ -807,8 +807,13 @@ def _mapseparaten(f, xs):
 def _mapcar_star(f, xs):
         return [ f(*x) for x in xs ]
 
-def _areffing(x, *xs): return lambda y: y[x] if not xs else _areffing(*xs)(y[x])
-def _slotting(x):      return lambda y: getattr(y, x, None)
+def _slotting(x):             return lambda y: getattr(y, x, None)
+def _slot_of(x):              return lambda y: getattr(x, y, None)
+def _slot_equal(slot, val):   return lambda y: getattr(y, slot, None) == val
+
+def _indexing(*is_):          return lambda y: aref(y, *is_)
+def _index_of(xs):            return lambda *is_: aref(xs, *is_)
+def _index_equal(index, val): return lambda y: y[index] == val
 
 def _updated_dict(to, from_):
         to.update(from_)
@@ -1206,11 +1211,11 @@ def remove_if_not(f, xs, key = identity):
         else:
                 return _maprestype(xs) (x for x    in xs         if f(key(x)))
 
-def remove(elt, xs, test = eq, key = identity):
+def remove(elt, xs, test = eql, key = identity):
         if isinstance(xs, dict):
-                return              { k:x for k, x in xs.items() if test(elt, key(x))}
+                return              { k:x for k, x in xs.items() if not test(elt, key(x))}
         else:
-                return _maprestype(xs) (x for x    in xs         if test(elt, key(x)))
+                return _maprestype(xs) (x for x    in xs         if not test(elt, key(x)))
 
 def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
         # Unregistered Issue FIND-IF-NOT-ITERATOR-FRIENDLY
@@ -2196,7 +2201,7 @@ deftype(varituple_,   varituple_)
 ##                          and much the same solution
 ##
 _ast_info = defstruct("_ast_info",
-                      "fields",
+                      "fields",     # each field is dict(name, type, walk, [default])
                       "bound_free")
 __ast_walkable_field_types__ = set([ast.stmt, (list_, ast.expr), (maybe_, ast.expr),
                                     ast.expr, (list_, ast.stmt)])
@@ -2204,8 +2209,18 @@ __ast_infos__ = dict()
 def _find_ast_info(type):
         return __ast_infos__[_coerce_to_ast_type(type)]
 def _ast_fields(ast): return _find_ast_info(type(ast)).fields
-def _ast_bound_free(ast):
-        return _find_ast_info(ast)["bound_free"]
+def _ast_bound_free(astxs):
+        def bound_free(ast):
+                info = _find_ast_info(type_of(ast))
+                # slots_to_walk = [ name
+                #                   for name, props in info.fields.items()
+                #                   if "walk" in props ]
+                # bound, free = _mapseparaten(_ast_bound_free,
+                #                             mapcan(identity, remove(None, )))
+                # [ _ensure_list(getattr(ast, slot)) for slot in slots_walk
+                #   if getattr(ast, slot) is not None ]
+                return info.bound_free(*mapcar(_slot_of(ast), type(ast)._fields))
+        return _mapseparaten(bound_free, remove(None, _ensure_list(astxs)))
 
 def defast(fn):
         ### generic tools
@@ -2255,7 +2270,7 @@ def defast(fn):
                 def _declaration_names(x): return set(x[1 + valid_declspecs[x[0]]:])
                 return { name: set(d[0:2] for d in decls
                                    if name in d[2:])
-                         for name in _mapsetn(_declaration_names, decls) } # AREFFING..
+                         for name in _mapsetn(_declaration_names, decls) } # INDEXING..
         def declaredp(grouped_decls, x, as_):
                 return x in grouped_decls and (as_,) in grouped_decls
         def lambda_list_names(lambda_list, remove_optional = t):
@@ -2275,6 +2290,7 @@ def defast(fn):
                 if not therep:
                         err("'%s' does not denote a known AST type", name)
                 return name, ast_type
+        name, ast_type = validate_defast_name(fn.__name__)
         def validate_defast_lambda_list(ast_type, lambda_list, annotations):
                 (fixed, optional, args, keyword, keys) = lambda_list
                 if args or keyword or keys:
@@ -2314,8 +2330,8 @@ def defast(fn):
                                 name, arguments_ast,
                                 [ast.Return(
                                  _ast_funcall("_mapseparaten",
-                                              [ ast.Name("_ast_bound_free", ast.Load),
-                                                ast.List([ ast.Name(f["name"], ast.Load)
+                                              [ ast.Name("_ast_bound_free", ast.Load()),
+                                                ast.List([ ast.Name(f["name"], ast.Load())
                                                            for f in fields.values()
                                                            if f["walk"] ],
                                                          ast.Load()) ]))],
@@ -2333,24 +2349,25 @@ def defast(fn):
                 if not_fdefn:
                         fail(not_fdefn)
                 specified_method_names = { x.name:x for x in body_ast }
-                invalid_methods = set(specified_method_names) - _mapset(_areffing(0), valid_methods)
+                invalid_methods = set(specified_method_names) - _mapset(_indexing(0), valid_methods)
                 if invalid_methods:
                         fail(invalid_methods.pop().upper())
-                def process(name, default_maker):
+                def process(method_name, default_maker):
                         "Return a validated and normalised named method body 'return'-wise."
-                        x = find(name, body_ast, key = _slotting("name"))
+                        x = find(method_name, body_ast, key = _slotting("name"))
+                        method_name = "_ast_%s_%s" % (name, method_name)
                         if x:
-                                x.args = arguments_ast # Splice in the common arglist.
+                                x.name, x.args = method_name, arguments_ast # Splice in the common arglist.
                                 if len(x.body) > 1:
                                         if not typep(x.body[-1], ast.Return):
                                                 err("multi-line methods must use an explicit return statement")
                                 elif not(typep(x.body[0], ast.Return)):
                                         x.body[0] = ast.Return(x.body[0].value)
-                                return _ast_compiled_name(name, x, locals_ = locals(), globals_ = globals())
-                        else:
-                                return default_maker(name)
+                        import more_ast
+                        # _debug_printf("AST for %s.%s:\n%s", name, method_name, more_ast.pp_ast_as_code(x or default_maker(method_name)))
+                        return _ast_compiled_name(method_name, x or default_maker(method_name),
+                                                  locals_ = locals(), globals_ = globals())
                 return (process(*mspec) for mspec in valid_methods)
-        name, ast_type = validate_defast_name(fn.__name__)
         lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
         ast_field_types = validate_defast_lambda_list(ast_type, lambda_list, fn.__annotations__)
         parameters, with_defaults = (lambda_list_names(lambda_list),
@@ -2362,8 +2379,9 @@ def defast(fn):
         grouped_decls = group_declarations(valid_declspecs, declarations)
         fields = arglist_field_infos(parameters, len(fixed), with_defaults, ast_field_types)
         [bound_free] = body_methods(args_ast, fields, remove_if(_of_type(ast.Pass), body))
+        # _debug_printf("bound_free for %s is %s", name, bound_free)
         __ast_infos__[ast_type] = _ast_info(fields     = fields,
-                                            bound_free = (bound_free or _ast_default_bound_free))
+                                            bound_free = bound_free)
 
 ###
 ### ATrees (low-level IR)
@@ -2396,10 +2414,10 @@ all AST-trees .. except for the case of tuples."""
                 max = nfixed + len(optional)
                 if not (nfixed <= defacto <= max):
                         argument_count_error(nfixed, max, defacto, "AST type %s", type[0])
-                effective_args = args + mapcar(areffing("default"), optional[defacto - nfixed:])
+                effective_args = args + mapcar(_indexing("default"), optional[defacto - nfixed:])
                 assert(len(effective_args) == max)
                 for val, name, finfo in zip(effective_args, fields, finfos):
-                        type = finfo["type"]
+                        type = finfo.type
                         if not typep(val, type):
                                 argument_type_error(name, type, val, "AST node %s", type[0])
                 return type(*args)
@@ -2423,13 +2441,58 @@ def _ast_Expression(body: ast.expr): pass
 #                    stmt* body,
 #                    expr* decorator_list,
 #                    expr? returns)
+### Unregistered Issue PYTHON-NONLOCALS-ARE-LOL
+# >>> a = 0
+# >>> def damage():
+# ...         a = 1
+# ...         if 1:
+# ...                 global a
+# ...                 a = 2
+# ...
+# <stdin>:4: SyntaxWarning: name 'a' is assigned to before global declaration
+# >>> a
+# 0
+a = 0
+def damage0():
+        a = 1
+        if 1:
+                global a
+                a = 2
+
+damage0()
+print(a)
+a = 0
+def damage1():
+        if 1:
+                global a
+        if 2:
+                a = 1
+
+damage1()
+print(a)
+a = 0
+def damage2():
+        if 0:
+                global a
+        if 2:
+                a = 1
+
+damage1()
+print(a)
 @defast
 def _ast_FunctionDef(name:            str,
                      args:            ast.arguments,
                      body:           (list_, ast.stmt),
                      decorator_list: (list_, ast.expr) = list(),
                      returns:        ast.expr = None):
-        declare((walk, args))
+        def bound_free():
+                ((args_b, args_f),
+                 (body_b, body_f),
+                 (deco_b, deco_f),
+                 (retn_b, retn_f)) = mapcar(_ast_bound_free, [args, body, decorator_list, returns])
+                nonlocalled, globalled = mapcan(lambda type: remove_if_not(of_type(type), ),
+                                                [ast.Global, ast.Nonlocal])
+                return 
 #       | ClassDef(identifier name,
 # 		   expr* bases,
 # 		   keyword* keywords,
@@ -2624,8 +2687,8 @@ def _ast_Starred(value: ast.expr,
 @defast
 def _ast_Name(id:  str,
               ctx: ast.expr_context):
-        def bound_free(): ((set([id]), set()) if typep(ctx, ast.Load) else
-                           (set(), set([id])))
+        def bound_free(): ((set(), set([id])) if typep(ctx, ast.Load) else
+                           (set([id]), set()))
 #      | List(expr* elts, expr_context ctx)
 @defast
 def _ast_List(elts: (list_, ast.expr),
@@ -2740,11 +2803,13 @@ def _ast_arguments(args:             (list_, ast.arg),
                    kwarg:            (maybe_, str),
                    kwargannotation:  (maybe_, ast.expr),
                    defaults:         (list_, ast.expr),
-                   kw_defaults:      (list_, ast.expr)): pass
+                   kw_defaults:      (list_, ast.expr)):
+        declare((walk, args, kwonlyargs))
 # arg = (identifier arg, expr? annotation)
 @defast
 def _ast_arg(arg:         str,
-             annotation: (maybe_, ast.expr) = None): pass
+             annotation: (maybe_, ast.expr) = None):
+        def bound_free(): set([arg]), _ast_bound_free(annotation)[1]
 # keyword = (identifier arg, expr value)
 @defast
 def _ast_keyword(arg:   str,
