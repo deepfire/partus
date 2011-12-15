@@ -3075,7 +3075,7 @@ def lambda_(lambda_list, *body):
         if (thunks or
             len(body) > 1 or
             _some(_anode_requires_thunking_p, body)):
-                thunked_body_free_vars = mapsetn(_ast_free_vars, body),
+                thunked_bound_vars, thunked_free_vars, thunked_xtnls = _ast_bound_free(body)
                 # thunk_vars = 
 
 @defprimitive
