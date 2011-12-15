@@ -2566,7 +2566,7 @@ def _ast_For(target:  ast.expr,
                 ((targ_b, targ_f, _),
                  (_,      iter_f, _)) = mapcar(_ast_bound_free, [target, iter])
                 # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-                (bound, free, xtnls) = _separate(_ast_body_bound_free, [body, orelse])
+                (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
                 return (bound,
                         targ_f | iter_f | free,
                         xtnls)
@@ -2579,7 +2579,7 @@ def _ast_While(test:    ast.expr,
         def bound_free():
                 ((_, test_f, _)) = _ast_bound_free(test)
                 # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-                (bound, free, xtnls) = _separate(_ast_body_bound_free, [body, orelse])
+                (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
                 return (bound,
                         free | test_f,
                         xtnls)
@@ -2591,7 +2591,7 @@ def _ast_If(test:    ast.expr,
         def bound_free():
                 ((_, test_f, _)) = _ast_bound_free(test)
                 # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-                (bound, free, xtnls) = _separate(_ast_body_bound_free, [body, orelse])
+                (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
                 return (bound,
                         free | test_f,
                         xtnls)
@@ -2617,13 +2617,13 @@ def _ast_TryExcept(body:     (list_, ast.stmt),
                    handlers: (list_, ast.excepthandler),
                    orelse:   (list_, ast.stmt)):
         # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-        def bound_free(): _separate(_ast_body_bound_free, [body, handlers, orelse])
+        def bound_free(): _separate(3, _ast_body_bound_free, [body, handlers, orelse])
 #       | TryFinally(stmt* body, stmt* finalbody)
 @defast
 def _ast_TryFinally(body:      (list_, ast.stmt),
                     finalbody: (list_, ast.stmt)):
         # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-        def bound_free(): _separate(_ast_body_bound_free, [body, handlers, orelse])
+        def bound_free(): _separate(3, _ast_body_bound_free, [body, handlers, orelse])
 #       | Assert(expr test, expr? msg)
 @defast
 def _ast_Assert(test: ast.expr,
@@ -2708,7 +2708,7 @@ def _ast_gchain_bound_free(xs, acc_binds):
 
 def _ast_comprehension_bound_free(exprs, generators):
         gchain_bound, gchain_free = _ast_gchain_bound_free(generators, set())
-        _, exprs_f, _ = _separate(_ast_bound_free, exprs)
+        _, exprs_f, _ = _separate(3, _ast_bound_free, exprs)
         return (set(),
                 gchain_free | (exprs_f - gchain_bound),
                 set())
@@ -2748,11 +2748,9 @@ def _ast_Call(func:      ast.expr,
               keywords: (list_, ast.keyword),
               starargs: (maybe_, ast.expr) = None,
               kwargs:   (maybe_, ast.expr) = None):
-        def bound_free(): _separate(_ast_bound_free,
-                                    [func, args, keywords, starargs, kwargs])[]
-        reduce(operator.or_, _separate(compose(_ast_bound_free, _indexing(1)),
-                             [func, args, keywords, starargs, kwargs]))
-n) -- a number as a PyObject.
+        def bound_free(): _separate(3, _ast_bound_free,
+                                    [func, args, keywords, starargs, kwargs])
+#      | Num(object n) -- a number as a PyObject.
 @defast
 def _ast_Num(n: int): pass
 #      | Str(string s) -- need to specify raw, unicode, etc?
@@ -2894,11 +2892,11 @@ def _ast_ExceptHandler(type: (maybe_, ast.expr),
                        name: (maybe_, str),
                        body: (list_, ast.stmt)):
         def bound_free():
-                ((_,      type_f, _),
-                 (body_b, body_f, body_x)) = mapcar(_ast_bound_free, [type, body])
-                return (iter_b,
-                        ((targ_f | iffs_f) - iter_b) | iter_f,
-                        set())
+                (_,      type_f, _) = _ast_bound_free(type)
+                (bound, free, xtnls) = _ast_body_bound_free(body, set([name] if name is not None else []))
+                return (bound,
+                        type_f | free,
+                        xtnls)
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
 #              arg* kwonlyargs, identifier? kwarg,
 #              expr? kwargannotation, expr* defaults,
@@ -2913,23 +2911,34 @@ def _ast_arguments(args:             (list_, ast.arg),
                    kwargannotation:  (maybe_, ast.expr),
                    defaults:         (list_, ast.expr),
                    kw_defaults:      (list_, ast.expr)):
-        declare((walk, args, kwonlyargs))
+        def bound_free():
+                arg_bound, arg_free, _ = _separate(3, _ast_bound_free, [args, kwonlyargs])
+                arg_bound |= set(x for x in [vararg, kwarg]
+                                 if x is not None)
+                _, other_free, _ = _separate(3, _ast_bound_free, [varargannotation, kwargannotation, defaults, kw_defaults])
+                return (arg_bound,
+                        arg_free | other_free,
+                        set())
 # arg = (identifier arg, expr? annotation)
 @defast
 def _ast_arg(arg:         str,
              annotation: (maybe_, ast.expr) = None):
-        def bound_free(): set([arg]), _ast_bound_free(annotation)[1]
+        def bound_free(): (set([arg]),
+                           _ast_bound_free(annotation)[1],
+                           set())
 # keyword = (identifier arg, expr value)
 @defast
 def _ast_keyword(arg:   str,
                  value: ast.expr):
-        def bound_free(): (set([asname] if not _nonep(asname) else []),
-                           _ast_bound_free())
+        def bound_free(): (set([] if _nonep(asname) else [asname]),
+                           _ast_bound_free(value),
+                           set())
 # alias = (identifier name, identifier? asname)
 @defast
 def _ast_alias(name:    str,
                asname: (maybe_, str) = None):
-        def bound_free(): (set([asname] if not _nonep(asname) else []),
+        def bound_free(): (set([] if _nonep(asname) else [asname]),
+                           set(),
                            set())
 #####
 ####
