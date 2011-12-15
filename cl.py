@@ -538,6 +538,9 @@ def _fprintf(stream, format_control, *format_args):
 def _debug_printf(format_control, *format_args):
         _fprintf(sys.stderr, format_control + "\n", *format_args)
 
+def _locals_printf(locals, *local_names):
+        _fprintf(sys.stderr, ", ".join("%s: %%s" % x for x in local_names) + "\n", *(locals[x] for x in local_names))
+
 # >>> dir(f)
 # ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
 # "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
