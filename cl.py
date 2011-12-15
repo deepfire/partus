@@ -804,6 +804,13 @@ def _mapseparaten(f, xs):
                 s0 |= s0r; s1 |= s1r
         return s0, s1
 
+def _separate(n, f, xs):
+        ss = tuple(set() for _ in range(n))
+        for rss in (f(x) for x in xs):
+                for s, rs in zip(ss, rss):
+                        s |= rs
+        return ss
+
 def _mapcar_star(f, xs):
         return [ f(*x) for x in xs ]
 
@@ -2212,15 +2219,8 @@ def _ast_fields(ast): return _find_ast_info(type(ast)).fields
 def _ast_bound_free(astxs):
         def bound_free(ast):
                 info = _find_ast_info(type_of(ast))
-                # slots_to_walk = [ name
-                #                   for name, props in info.fields.items()
-                #                   if "walk" in props ]
-                # bound, free = _mapseparaten(_ast_bound_free,
-                #                             mapcan(identity, remove(None, )))
-                # [ _ensure_list(getattr(ast, slot)) for slot in slots_walk
-                #   if getattr(ast, slot) is not None ]
                 return info.bound_free(*mapcar(_slot_of(ast), type(ast)._fields))
-        return _mapseparaten(bound_free, remove(None, _ensure_list(astxs)))
+        return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
 
 def defast(fn):
         ### generic tools
@@ -2324,13 +2324,14 @@ def defast(fn):
         def body_methods(arguments_ast, fields, body_ast):
                 def make_default_bound_free(name):
                         # compile down to:
-                        # return _mapseparaten(_ast_bound_free, [<fields>])
+                        # return _separate(3, _ast_bound_free, [<fields>])
                         # ..where <fields> is [ f["name"] for f in fields if f["walk"] ]
                         return ast.FunctionDef(
                                 name, arguments_ast,
                                 [ast.Return(
-                                 _ast_funcall("_mapseparaten",
-                                              [ ast.Name("_ast_bound_free", ast.Load()),
+                                 _ast_funcall("_separate",
+                                              [ 3,
+                                                ast.Name("_ast_bound_free", ast.Load()),
                                                 ast.List([ ast.Name(f["name"], ast.Load())
                                                            for f in fields.values()
                                                            if f["walk"] ],
@@ -2441,44 +2442,36 @@ def _ast_Expression(body: ast.expr): pass
 #                    stmt* body,
 #                    expr* decorator_list,
 #                    expr? returns)
-### Unregistered Issue PYTHON-NONLOCALS-ARE-LOL
 # >>> a = 0
 # >>> def damage():
-# ...         a = 1
-# ...         if 1:
-# ...                 global a
-# ...                 a = 2
-# ...
-# <stdin>:4: SyntaxWarning: name 'a' is assigned to before global declaration
-# >>> a
-# 0
-a = 0
-def damage0():
-        a = 1
-        if 1:
-                global a
-                a = 2
-
-damage0()
-print(a)
-a = 0
-def damage1():
-        if 1:
-                global a
-        if 2:
-                a = 1
-
-damage1()
-print(a)
-a = 0
-def damage2():
-        if 0:
-                global a
-        if 2:
-                a = 1
-
-damage1()
-print(a)
+# ...         a = 42
+# ...         def inner():
+# ...                 if 2:
+# ...                         a = 1
+# ...                 if 0:
+# ...                         global a
+# ...                 # elif 0: # errs: SyntaxError: name 'a' is nonlocal and global
+# ...                 #         nonlocal a
+# ...         inner()
+# ... 
+# <stdin>:7: SyntaxWarning: name 'a' is assigned to before global declaration
+# >>> damage()
+# >>> print(a)
+# 1
+# >>> def damage():
+# ...         a = 42
+# ...         def inner(a):
+# ...                 if 2:
+# ...                         a = 1
+# ...                 if 0:
+# ...                         global a
+# ...                 # elif 0: # errs: SyntaxError: name 'a' is nonlocal and global
+# ...                 #         nonlocal a
+# ...         inner(1)
+# ... 
+# <stdin>:7: SyntaxWarning: name 'a' is assigned to before global declaration
+#   File "<stdin>", line 3
+# SyntaxError: name 'a' is parameter and global
 @defast
 def _ast_FunctionDef(name:            str,
                      args:            ast.arguments,
@@ -2486,13 +2479,17 @@ def _ast_FunctionDef(name:            str,
                      decorator_list: (list_, ast.expr) = list(),
                      returns:        ast.expr = None):
         def bound_free():
-                ((args_b, args_f),
-                 (body_b, body_f),
-                 (deco_b, deco_f),
-                 (retn_b, retn_f)) = mapcar(_ast_bound_free, [args, body, decorator_list, returns])
-                nonlocalled, globalled = mapcan(lambda type: remove_if_not(of_type(type), ),
-                                                [ast.Global, ast.Nonlocal])
-                return 
+                ((args_b, args_f, _),
+                 (body_b, body_f, body_x),
+                 (_,      deco_f, _),
+                 (_,      retn_f, _)) = mapcar(_ast_bound_free, [args, body, decorator_list, returns])
+                body_bound = args_b | (body_b - body_x)
+                body_free = body_f - body_bound
+                body_xtnl_writes = body_b & body_x
+                free = args_f | body_free | deco_f | retn_f
+                return (body_xtnl_writes, # names declared global/nonlocal and assigned to
+                        free,
+                        set())            # these do not escape..
 #       | ClassDef(identifier name,
 # 		   expr* bases,
 # 		   keyword* keywords,
@@ -2508,7 +2505,21 @@ def _ast_ClassDef(name:            str,
                   kwargs:         (maybe_, ast.expr),
                   body:           (list_, ast.stmt),
                   decorator_list: (list_, ast.expr)):
-        declare((walk, keywords))
+        def bound_free():
+                ((base_b, base_f, _),
+                 (keyw_b, keyw_f, _),
+                 (star_b, star_f, _),
+                 (karg_b, karg_f, _),
+                 (body_b, body_f, body_x),
+                 (deco_b, deco_f, _)) = mapcar(_ast_bound_free, [bases, keywords, starargs, kwargs, body, decorator_list])
+                # Unregistered Issue CLASS-BINDINGS-UNCLEAR
+                body_bound = body_b - body_x
+                body_free = body_f - body_bound
+                body_xtnl_writes = body_b & body_x
+                free = base_f | keyw_f | star_f | karg_f | body_free | deco_f
+                return (body_xtnl_writes, # names declared global/nonlocal and assigned to
+                        free,
+                        set())            # these do not escape..
 #       | Return(expr? value)
 @defast
 def _ast_Return(value: (maybe_, ast.expr)): pass
@@ -2519,33 +2530,83 @@ def _ast_Delete(targets: (list_, ast.expr)): pass
 #       | Assign(expr* targets, expr value)
 @defast
 def _ast_Assign(targets: (list_, ast.expr),
-                value:    ast.expr): pass
+                value:    ast.expr):
+        def bound_free():
+                ((targ_b, targ_f, _),
+                 (_,      valu_f, _)) = mapcar(_ast_bound_free, [targets, value])
+                return (targ_b,
+                        targ_f | valu_f,
+                        set())
 #       | AugAssign(expr target, operator op, expr value)
 @defast
 def _ast_AugAssign(target: ast.expr,
                    op:     ast.operator,
-                   value:  ast.expr): pass
+                   value:  ast.expr):
+        def bound_free():
+                ((targ_b, targ_f, _),
+                 (_,      valu_f, _)) = mapcar(_ast_bound_free, [target, value])
+                return (targ_b,
+                        targ_f | valu_f,
+                        set())
+
+def _ast_body_bound_free(body, more_bound = set()):
+        body_b, body_f, body_x = _ast_bound_free(body)
+        bound = more_bound | (body_b - body_x)
+        return (bound,
+                body_f - bound,
+                body_b & body_x)
+
 #       | For(expr target, expr iter, stmt* body, stmt* orelse)
 @defast
 def _ast_For(target:  ast.expr,
              iter:    ast.expr,
              body:   (list_, ast.stmt),
-             orelse: (list_, ast.stmt)): pass
+             orelse: (list_, ast.stmt)):
+        def bound_free():
+                ((targ_b, targ_f, _),
+                 (_,      iter_f, _)) = mapcar(_ast_bound_free, [target, iter])
+                # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
+                (bound, free, xtnls) = _separate(_ast_body_bound_free, [body, orelse])
+                return (bound,
+                        targ_f | iter_f | free,
+                        xtnls)
+
 #       | While(expr test, stmt* body, stmt* orelse)
 @defast
 def _ast_While(test:    ast.expr,
                body:   (list_, ast.stmt),
-               orelse: (list_, ast.stmt)): pass
+               orelse: (list_, ast.stmt)):
+        def bound_free():
+                ((_, test_f, _)) = _ast_bound_free(test)
+                # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
+                (bound, free, xtnls) = _separate(_ast_body_bound_free, [body, orelse])
+                return (bound,
+                        free | test_f,
+                        xtnls)
 #       | If(expr test, stmt* body, stmt* orelse)
 @defast
 def _ast_If(test:    ast.expr,
             body:   (list_, ast.stmt),
-            orelse: (list_, ast.stmt)): pass
+            orelse: (list_, ast.stmt)):
+        def bound_free():
+                ((_, test_f, _)) = _ast_bound_free(test)
+                # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
+                (bound, free, xtnls) = _separate(_ast_body_bound_free, [body, orelse])
+                return (bound,
+                        free | test_f,
+                        xtnls)
 #       | With(expr context_expr, expr? optional_vars, stmt* body)
 @defast
 def _ast_With(context_expr:   ast.expr,
               optional_vars: (maybe_, ast.expr),
-              body:          (list_, ast.stmt)): pass
+              body:          (list_, ast.stmt)):
+        def bound_free():
+                ((_,      ctxt_f, _),
+                 (optl_b, optl_f, _)) = mapcar(_ast_bound_free, [context_expr, optional_vars])
+                body_bound, body_free, body_xtnls = _ast_body_bound_free(body, optl_b)
+                return (body_bound,
+                        ctxt_f | optl_f | body_free,
+                        body_xtnls)
 #       | Raise(expr? exc, expr? cause)
 @defast
 def _ast_Raise(exc:   (maybe_, ast.expr),
@@ -2555,30 +2616,39 @@ def _ast_Raise(exc:   (maybe_, ast.expr),
 def _ast_TryExcept(body:     (list_, ast.stmt),
                    handlers: (list_, ast.excepthandler),
                    orelse:   (list_, ast.stmt)):
-        declare((walk, handlers))
+        # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
+        def bound_free(): _separate(_ast_body_bound_free, [body, handlers, orelse])
 #       | TryFinally(stmt* body, stmt* finalbody)
 @defast
 def _ast_TryFinally(body:      (list_, ast.stmt),
-                    finalbody: (list_, ast.stmt)): pass
+                    finalbody: (list_, ast.stmt)):
+        # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
+        def bound_free(): _separate(_ast_body_bound_free, [body, handlers, orelse])
 #       | Assert(expr test, expr? msg)
 @defast
 def _ast_Assert(test: ast.expr,
                 msg:  ast.expr = None): pass
 #       | Import(alias* names)
 @defast
-def _ast_Import(names: (list_, ast.alias)): pass # Don't worry, will actually def refs(): _empty_set
+def _ast_Import(names: (list_, ast.alias)):
+        declare((walk, names))
 #       | ImportFrom(identifier? module, alias* names, int? level)
 @defast
 def _ast_ImportFrom(module: (maybe_, str),
                     names:  (list_, ast.alias),
                     level:  (maybe_, int)):
-        declare((walk, names))
+        def bound_free():
+                return (_ast_bound_free(names)[0],
+                        set([module] if module else []),
+                        set())
 #       | Global(identifier* names)
 @defast
-def _ast_Global(names: (list_, str)): pass
+def _ast_Global(names: (list_, str)):
+        def bound_free(): (set(), set(), set(names))
 #       | Nonlocal(identifier* names)
 @defast
-def _ast_Nonlocal(names: (list_, str)): pass
+def _ast_Nonlocal(names: (list_, str)):
+        def bound_free(): (set(), set(), set(names))
 #       | Expr(expr value)
 @defast
 def _ast_Expr(value: ast.expr): pass
@@ -2606,7 +2676,14 @@ def _ast_UnaryOp(op:      ast.unaryop,
 @defast
 def _ast_Lambda(args: ast.arguments,
                 body: ast.expr):
-        declare((walk, args))
+        def bound_free():
+                ((args_b, args_f, _),
+                 (_,      body_f, _)) = mapcar(_ast_bound_free, [args, body])
+                body_free = body_f - args_b
+                free = args_f | body_free
+                return (set(),
+                        free,
+                        set())
 #      | IfExp(expr test, expr body, expr orelse)
 @defast
 def _ast_IfExp(test:   ast.expr,
@@ -2620,26 +2697,42 @@ def _ast_Dict(keys:   (list_, ast.expr),
 @defast
 def _ast_Set(elts: (list_, ast.expr)): pass
 #      | ListComp(expr elt, comprehension* generators)
+
+def _ast_gchain_bound_free(xs, acc_binds):
+        if xs:
+                g_binds, g_free, _ = _ast_bound_free(xs[0])
+                finbound, cfree = _ast_gchain_bound_free(xs[1:], acc_binds | g_binds)
+                return finbound, (g_free - acc_binds) | cfree
+        else:
+                return acc_binds, set()
+
+def _ast_comprehension_bound_free(exprs, generators):
+        gchain_bound, gchain_free = _ast_gchain_bound_free(generators, set())
+        _, exprs_f, _ = _separate(_ast_bound_free, exprs)
+        return (set(),
+                gchain_free | (exprs_f - gchain_bound),
+                set())
+
 @defast
 def _ast_ListComp(elt:         ast.expr,
                   generators: (list_, ast.comprehension)):
-        declare((walk, generators))
+        def bound_free(): _ast_comprehension_bound_free([elt], generators)
 #      | SetComp(expr elt, comprehension* generators)
 @defast
 def _ast_SetComp(elt:         ast.expr,
                  generators: (list_, ast.comprehension)):
-        declare((walk, generators))
+        def bound_free(): _ast_comprehension_bound_free([elt], generators)
 #      | DictComp(expr key, expr value, comprehension* generators)
 @defast
 def _ast_DictComp(key:        ast.expr,
                   value:      ast.expr,
                   generators: (list_, ast.comprehension)):
-        declare((walk, generators))
+        def bound_free(): _ast_comprehension_bound_free([key, value], generators)
 #      | GeneratorExp(expr elt, comprehension* generators)
 @defast
 def _ast_GeneratorExp(elt:         ast.expr,
                       generators: (list_, ast.comprehension)):
-        declare((walk, generators))
+        def bound_free(): _ast_comprehension_bound_free([elt], generators)
 #      | Yield(expr? value)
 @defast
 def _ast_Yield(value: (maybe_, ast.expr) = None): pass
@@ -2655,8 +2748,11 @@ def _ast_Call(func:      ast.expr,
               keywords: (list_, ast.keyword),
               starargs: (maybe_, ast.expr) = None,
               kwargs:   (maybe_, ast.expr) = None):
-        declare((walk, keywords))
-#      | Num(object n) -- a number as a PyObject.
+        def bound_free(): _separate(_ast_bound_free,
+                                    [func, args, keywords, starargs, kwargs])[]
+        reduce(operator.or_, _separate(compose(_ast_bound_free, _indexing(1)),
+                             [func, args, keywords, starargs, kwargs]))
+n) -- a number as a PyObject.
 @defast
 def _ast_Num(n: int): pass
 #      | Str(string s) -- need to specify raw, unicode, etc?
@@ -2687,7 +2783,7 @@ def _ast_Starred(value: ast.expr,
 @defast
 def _ast_Name(id:  str,
               ctx: ast.expr_context):
-        def bound_free(): ((set(), set([id])) if typep(ctx, ast.Load) else
+        def bound_free(): ((set(), set([id])) if typep(ctx, (or_, ast.Load, ast.AugLoad, ast.Param)) else
                            (set([id]), set()))
 #      | List(expr* elts, expr_context ctx)
 @defast
@@ -2784,12 +2880,25 @@ def _ast_NotIn(): pass
 @defast
 def _ast_comprehension(target: ast.expr,
                        iter:   ast.expr,
-                       ifs:   (list_, ast.expr)): pass
+                       ifs:   (list_, ast.expr)):
+        def bound_free():
+                ((_,      targ_f, _),
+                 (iter_b, iter_f, _),
+                 (_,      iffs_f, _)) = mapcar(_ast_bound_free, [target, iter, ifs])
+                return (iter_b,
+                        ((targ_f | iffs_f) - iter_b) | iter_f,
+                        set())
 # excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
 @defast
 def _ast_ExceptHandler(type: (maybe_, ast.expr),
                        name: (maybe_, str),
-                       body: (list_, ast.stmt)): pass
+                       body: (list_, ast.stmt)):
+        def bound_free():
+                ((_,      type_f, _),
+                 (body_b, body_f, body_x)) = mapcar(_ast_bound_free, [type, body])
+                return (iter_b,
+                        ((targ_f | iffs_f) - iter_b) | iter_f,
+                        set())
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
 #              arg* kwonlyargs, identifier? kwarg,
 #              expr? kwargannotation, expr* defaults,
