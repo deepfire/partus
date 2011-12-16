@@ -788,6 +788,8 @@ def _ensure_list(x):
         return x if listp(x) else [x]
 def _ensure_car(x):
         return x[0] if hasattr(x, "__len__") else x
+def _ensure_cons(x, default = None):
+        return x if _tuplep(x) and len(x) == 2 else (x, default)
 
 def _mapset(f, xs):
         acc = set()
@@ -1116,6 +1118,8 @@ def atom(o):          return type(o) is not tuple
 def car(x):           return x[0]   if x  else nil
 def cdr(x):           return x[1:]  if x  else nil
 def first(xs):        return xs[0]  if xs else nil
+def second(xs):       return xs[1]  if len(xs) > 1 else nil
+def third(xs):        return xs[2]  if len(xs) > 2 else nil
 def rest(xs):         return xs[1:] if xs else nil
 def nth(n, xs):       return xs[n] if n < len(xs) else nil
 
@@ -3068,14 +3072,73 @@ def _compile_lispy_lambda_list(context, list, allow_defaults = None):
                 keydefs), (fixed, optional, rest, keys, restkey, total)
 
 @defprimitive
+def let_(bindings, *body):
+        if not _every(_of_type((or_, symbol, (tuple_, symbol, t)))):
+                error("LET: malformed bindings: %s.", bindings)
+        body = mapcar(compile_, body)
+        arglist = _compile_lispy_lambda_list(
+                "LET", tuple(name, compile_(expr)
+                             for name, expr in (_ensure_cons(b, nil) for b in bindings)),
+                allow_defaults = t)
+        if len > 1:
+                func_name = temp_name()
+                prologue = [("FunctionDef", func_name, arglist, list(body))]
+                epilogue = [("Del", ("Name", func_name, ("Load")))]
+                call = ("Call",
+                        ("Name", func_name, ("Load")),
+                        args, [])
+        else:
+                prologue, epilogue = [], []
+                call = ("Call",
+                        compile_()
+                        ,
+                        )
+        return prologue + [call] + epilogue
+
+@defprimitive
+def labels_(bindings, *body):
+        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
+        if not _every(_of_type((partuple_, symbol, tuple))):
+                error("LABEL: malformed bindings: %s.", bindings)
+        funcs = list(compile_((def_, name, lambda_list) + rest) for name, lambda_list, *rest in bindings)
+        return funcs + mapcar(compile_, body)
+
+@defprimitive
+def progn_(*body):
+        if not body:
+                return ([("pass",)],
+                        [])
+        # What is COMPILE supposed to return?
+        # Is PROGN supposed to be the only multi-form form?
+        # We can exploit this, if so.. how?
+        lowered_body, thunks = reduce(lambda acc, x: (acc[0] + x[0],
+                                                      acc[1] + x[1]),
+                                      mapcar(compile_, body))
+        (( body_bound_vars,  body_free_vars,  body_xtnls),
+         (thunk_bound_vars, thunk_free_vars, thunk_xtnls)) = mapcar(_ast_bound_free, [lowered_body, thunks])
+        must_thunk = len(lowered_body) > 1 or thunks
+        scope_mutation = (body_bound_vars or thunk_bound_vars or body_xtnls or thunk_xtnls)
+        if not (must_thunk or scope_mutation):
+                return (lowered_body,
+                        [])
+        
+
+def _compile_progn_like(body):
+        # does the expectation matter?
+        # - it can be a single expression, wit
+        must_thunk_this = (len(lowered_body) > 1 or
+                           _anode_requires_thunking_p(lowered_body[0]))
+        thunking_required = (thunks or must_thunk_this)
+        
+
+@defprimitive
 def lambda_(lambda_list, *body):
+        # real default values! specifiedp! must has!
+        # wrt specifiedp: is None..
         lambda_list_atree, (fixed, optional, rest, keys, restkey,
                             total) = _compile_lispy_lambda_list("LAMBDA", lambda_list)
-        body, thunks = _collecting_thunks(lambda: mapcar(compile_, body))
-        if (thunks or
-            len(body) > 1 or
-            _some(_anode_requires_thunking_p, body)):
-                thunked_bound_vars, thunked_free_vars, thunked_xtnls = _ast_bound_free(body)
+        ## How much of that is going to be shared for every implicit PROGN primitive?
+        restatement_required = 
                 # thunk_vars = 
 
 @defprimitive
