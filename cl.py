@@ -3067,6 +3067,12 @@ def _triplet_empty_p(pve):      return not (pve[0] or pve[1])
 def _triplet_expression_p(pve): return not (pve[0] or pve[2])
 
 @defprimitive
+def symbol_(name):
+        return ([],
+                ("Name", func_name, ("Load",)),
+                [])
+
+@defprimitive
 def progn_(*body):
         ## <- LET
         pro, ntotal = [], len(body)
@@ -3078,12 +3084,11 @@ def progn_(*body):
         pve = pro, val, epi
         if _triplet_empty_p(pve):
                 return ([],
-                        ("Name", "nil"),
+                        compile_((symbol_, "nil")),
                         [])
         elif _triplet_expression_p(pve):
                 return ([],
-                        val, # This requires something special to be
-                             # done for statements like assignment.
+                        val,
                         [])
         else:
                 return (pro,
@@ -3099,31 +3104,50 @@ def progn_(*body):
 
 @defprimitive
 def let_(bindings, *body):
+        # Potential optimisations:
+        #  - avoid the call, when being the last form, by simple assignment
         if not _every(_of_type((or_, symbol, (tuple_, symbol, t)))):
                 error("LET: malformed bindings: %s.", bindings)
         # Unregistered Issue PRIMITIVE-DECLARATIONS
-        compiled_arglist, _ = _compile_lispy_lambda_list(
-                "LET", tuple(name, compile_(expr)
-                             # This has the bound values as defaults!
-                             for name, expr in (_ensure_cons(b, nil) for b in bindings)),
-                allow_defaults = t)
+        bindings_thru_defaulting = tuple(_ensure_cons(b, nil) for b in bindings)
+        return compile_(((lambda_, binding_thru_defaulting) + body,))
+
+@defprimitive
+def lambda_(lambda_list, *body):
+        # real default values! specifiedp! must has!
+        # wrt specifiedp: is None..
         # Unregistered Issue EXPRESSIBILITY-OF-BOUND-VALUES-FUCKUP-SUGGESTS-RESILIENCE-MEASURES
         # ..we're ignoring the issue for now, to observe the failure mode.
-        pve = body_pro, body_val, body_epi = _compile((progn_), + body)
-        if not _triplet_expression_p(pve):
-                ######### Thought process paused here...
+        preliminary_body_pve = _compile((progn_), + body)
+        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIVITY
+        body_exprp = _triplet_expression_p(preliminary_body_pve)
+        if body_exprp:
                 func_name = _gensymname("LET-BODY-")
-                prologue = [("FunctionDef", func_name, compiled_arglist, compiled_body)]
-                call     = ("Call",
-                            ("Name", func_name, ("Load")),
-                            [], [])
-                epilogue = [("Del", ("Name", func_name, ("Load")))]
+                fdefn, _, _ = compile_((def_, func_name, lambda_list) + body)
+                val = compile_((symbol_, func_name))
         else:
-                prologue, epilogue = [], []
-                call = ("Call",
-                        ("Lambda", compiled_arglist, body_val),
-                        [], [])
-        return prologue, call, epilogue
+                compiled_arguments, _ = _compile_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
+                val = ("Lambda", compiled_arguments, preliminary_body_pve[1])
+        return (fdefn if body_exprp else [],
+                val,
+                [])
+
+@defprimitive
+def def_(name, lambda_list, *body):
+        "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
+        check_type(name, (or_, str, (and_, symbol, (not_, (satisfies_, keyword)))))
+        lambda_list_atree, (fixed, optional, rest, keys, restkey,
+                            total) = _compile_lispy_lambda_list("DEFUN %s" % name, lambda_list)
+        prelimibary_body_pve = pre, val, epi = compile_((progn_, ) + body)
+        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIVITY
+        body_exprp = _triplet_expression_p(preliminary_body_pve)
+        # Unregistered Issue 
+        body, thunks = _collecting_thunks(lambda: ((mapcar(compile_, body[:-1]) +
+                                                    [("Return", compile_(body[-1]))]) if body else
+                                                   []))
+        return ("FunctionDef", string(name), lambda_list_atree,
+                thunks + body,
+                []) # no decorators and no return annotation
 
 @defprimitive
 def labels_(bindings, *body):
@@ -3132,31 +3156,6 @@ def labels_(bindings, *body):
                 error("LABEL: malformed bindings: %s.", bindings)
         funcs = list(compile_((def_, name, lambda_list) + rest) for name, lambda_list, *rest in bindings)
         return funcs + mapcar(compile_, body)
-
-@defprimitive
-def lambda_(lambda_list, *body):
-        # real default values! specifiedp! must has!
-        # wrt specifiedp: is None..
-        compiled_arguments, _ = _compile_lispy_lambda_list("LAMBDA", lambda_list,
-                                                           allow_defaults = t)
-        compiled_body = mapcar(_compile, body)
-        if _atrees_expressible_p(compiled_body):
-                return [("Lambda", compiled_arguments, compiled_body[0])]
-        else:
-                return 
-
-@defprimitive
-def def_(name, lambda_list, *body):
-        "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
-        check_type(name, (or_, str, (and_, symbol, (not_, (satisfies_, keyword)))))
-        lambda_list_atree, (fixed, optional, rest, keys, restkey,
-                            total) = _compile_lispy_lambda_list("DEFUN %s" % name, lambda_list)
-        body, thunks = _collecting_thunks(lambda: ((mapcar(compile_, body[:-1]) +
-                                                    [("Return", compile_(body[-1]))]) if body else
-                                                   []))
-        return ("FunctionDef", string(name), lambda_list_atree,
-                thunks + body,
-                []) # no decorators and no return annotation
 
 ## Honest DEFUN, with real keyword arguments, is out of scope for now.
 # @defprimitive
