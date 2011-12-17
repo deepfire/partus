@@ -862,10 +862,13 @@ class _servile():
 ## Symbols
 ##
 __gensym_counter__ = 0
-def gensym(x = "G"):
+def _gensymname(x = "N"):
+        # Unregistered Issue GENSYM-NOT-THREAD-SAFE
         global __gensym_counter__
         __gensym_counter__ += 1
-        return make_symbol(x + str(__gensym_counter__))
+        return x + str(__gensym_counter__)
+def gensym(x = "G"):
+        return make_symbol(_gensymname(x))
 
 ##
 ## Basic
@@ -3052,23 +3055,40 @@ def _compile_lispy_lambda_list(context, list, allow_defaults = None):
                 optdefs,
                 keydefs), (fixed, optional, rest, keys, restkey, total)
 
+###
+### Triplet intermediate IR
+###
+## A pro/val/epi triple:
+## - prologue
+## - value, can only contain ast.expr's
+## - epilogue, can not happen without prologue or value
+##
+def _triplet_empty_p(pve):      return not (pve[0] or pve[1])
+def _triplet_expression_p(pve): return not (pve[0] or pve[2])
+
 @defprimitive
 def progn_(*body):
-        if not body:
-                return ([],
-                        [("Name", "nil")],
-                        [])
-        proacc, ntotal = [], len(body)
-        for i, (pro, val, epi) in zip(range(ntotal), (compile_(x) for x in body)):
-                proacc.extend(pro)
+        ## <- LET
+        pro, ntotal = [], len(body)
+        for i, (spro, val, epi) in zip(range(ntotal), (compile_(x) for x in body)):
+                pro.extend(spro)
                 if i < (ntotal - 1):
-                        proacc.append(val)
-                        proacc.extend(epi)
-                else:
-                        return proacc, val, epi
-        # What is COMPILE supposed to return?
-        # Is PROGN supposed to be the only multi-form form?
-        # We can exploit this, if so.. how?
+                        pro.append(val)
+                        pro.extend(epi)
+        pve = pro, val, epi
+        if _triplet_empty_p(pve):
+                return ([],
+                        ("Name", "nil"),
+                        [])
+        elif _triplet_expression_p(pve):
+                return ([],
+                        val, # This requires something special to be
+                             # done for statements like assignment.
+                        [])
+        else:
+                return (pro,
+                        val,
+                        epi)
         # lowered_body = mapcan(compile_, body)
         # (( body_bound_vars,  body_free_vars,  body_xtnls),
         #  (thunk_bound_vars, thunk_free_vars, thunk_xtnls)) = mapcar(_ast_bound_free, [lowered_body, thunks])
@@ -3076,9 +3096,6 @@ def progn_(*body):
         # scope_mutation = (body_bound_vars or thunk_bound_vars or body_xtnls or thunk_xtnls)
         # if not (must_thunk or scope_mutation):
         #         return lowered_body
-
-def _triplet_expression_p(pve):
-        return not (pve[0] or pve[2]) and _anode_expression_p(pve[1])
 
 @defprimitive
 def let_(bindings, *body):
@@ -3090,21 +3107,22 @@ def let_(bindings, *body):
                              # This has the bound values as defaults!
                              for name, expr in (_ensure_cons(b, nil) for b in bindings)),
                 allow_defaults = t)
+        # Unregistered Issue EXPRESSIBILITY-OF-BOUND-VALUES-FUCKUP-SUGGESTS-RESILIENCE-MEASURES
+        # ..we're ignoring the issue for now, to observe the failure mode.
         pve = body_pro, body_val, body_epi = _compile((progn_), + body)
         if not _triplet_expression_p(pve):
                 ######### Thought process paused here...
-                func_name = "temp_name" # temp_name()
+                func_name = _gensymname("LET-BODY-")
                 prologue = [("FunctionDef", func_name, compiled_arglist, compiled_body)]
                 call     = ("Call",
                             ("Name", func_name, ("Load")),
-                            args, [])
+                            [], [])
                 epilogue = [("Del", ("Name", func_name, ("Load")))]
         else:
                 prologue, epilogue = [], []
                 call = ("Call",
-                        compile_()
-                        ,
-                        )
+                        ("Lambda", compiled_arglist, body_val),
+                        [], [])
         return prologue, call, epilogue
 
 @defprimitive
@@ -3114,14 +3132,6 @@ def labels_(bindings, *body):
                 error("LABEL: malformed bindings: %s.", bindings)
         funcs = list(compile_((def_, name, lambda_list) + rest) for name, lambda_list, *rest in bindings)
         return funcs + mapcar(compile_, body)
-
-def _compile_progn_like(body):
-        # does the expectation matter?
-        # - it can be a single expression, wit
-        must_thunk_this = (len(lowered_body) > 1 or
-                           _anode_requires_thunking_p(lowered_body[0]))
-        thunking_required = (thunks or must_thunk_this)
-        
 
 @defprimitive
 def lambda_(lambda_list, *body):
