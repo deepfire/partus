@@ -847,6 +847,11 @@ def _prefix_suffix_if(f, xs, key = identity):
 def _prefix_suffix_if_not(f, xs, key = identity):
         return _prefix_suffix_if(lambda x: not f(x), xs, key = key)
 
+def _defwith(name, enter, exit, **initargs):
+        initargs.update(dict(__enter__ = enter,
+                             __exit__  = exit))
+        return type(name, (object,), initargs)
+
 ##
 ## Lesser non-CL tools
 ##
@@ -869,6 +874,19 @@ def _gensymname(x = "N"):
         return x + str(__gensym_counter__)
 def gensym(x = "G"):
         return make_symbol(_gensymname(x))
+
+def _init_gen(self, n = 1, x = "G", gen = gensym):
+        if zerop(n):
+                error("WITH-GEN: we are very very much against this, please stop doing it!")
+        self.gen, self.x, self.n = gen, x, n
+_gen = _defwith("_gen",
+                lambda self: (self.gen(self.x) if self.n == 1 else
+                              tuple(self.gen(self.x) for i in range(self.n))),
+                lambda *_: None,
+                __init__ = _init_gen)
+
+def _gensyms(**initargs):     return _get(gen = gensym,      **initargs)
+def _gensymnames(**initargs): return _get(gen = _gensymname, **initargs)
 
 ##
 ## Basic
@@ -1500,6 +1518,12 @@ class thread_local_storage(threading.local):
 
 __tls__ = thread_local_storage()
 
+# The symmetry invariance is _IMPORTANT_, as you probably can imagine!
+def _dynamic_scope_push(scope):
+        __tls__.dynamic_scope.append(scope)
+def _dynamic_scope_pop():
+        __tls__.dynamic_scope.pop()
+
 def _boundp(name):
         name = _coerce_to_symbol_name(name)
         for scope in reversed(__tls__.dynamic_scope):
@@ -1547,9 +1571,9 @@ class _env_cluster(object):
         def __init__(self, cluster):
                 self.cluster = cluster
         def __enter__(self):
-                __tls__.dynamic_scope.append(_coerce_cluster_keys_to_symbol_names(self.cluster))
+                _dynamic_scope_push(_coerce_cluster_keys_to_symbol_names(self.cluster))
         def __exit__(self, t, v, tb):
-                __tls__.dynamic_scope.pop()
+                _dynamic_scope_pop()
 
 class _dynamic_scope(object):
         "Courtesy of Jason Orendorff."
@@ -3063,37 +3087,79 @@ def _compile_lispy_lambda_list(context, list, allow_defaults = None):
 ## - value, can only contain ast.expr's
 ## - epilogue, can not happen without prologue or value
 ##
+def _triplerator(pve):
+        for x in pve[0]:
+                yield x
+        if pve[1] is not None:
+                yield pve[1]
+        for x in pve[2]:
+                yield x
 def _triplet_empty_p(pve):      return not (pve[0] or pve[1])
 def _triplet_expression_p(pve): return not (pve[0] or pve[2])
+def _triplet_bound(pve):        return _mapsetn(_atree_bound, _triplerator(pve))
+def _triplet_free(pve):         return _mapsetn(_atree_free,  _triplerator(pve))
+def _triplet_xtnls(pve):        return _mapsetn(_atree_xtnls, _triplerator(pve))
 
-@defprimitive
+## Should, probably, be bound by the compiler itself.
+defvar("_compiler_toplevel_p_", t)
+defvar("_compiler_def_",        nil)
+defvar("_compiler_quote_",      nil)
+defvar("_compiler_tailp_")
+
+class _compiler_def(_servile):
+        pass
+
+def _compiling_def():     return symbol_value("_compiler_def_")
+def _compiling_tail_p():  return symbol_value("_compiler_tailp_")
+def _compiling_quote_p(): return symbol_value("_compiler_quote_")
+
+_tail_compilation       = _defwith("_tail_compilation",
+                                   lambda *_: _dynamic_scope_push(dict(_compiler_tailp_ = t)),
+                                   lambda *_: _dynamic_scope_pop())
+
+_maybe_tail_compilation = _defwith("_maybe_tail_compilation", # This is just a documentation feature.
+                                   lambda *_: None,
+                                   lambda *_: None)
+
+_no_tail_compilation    = _defwith("_no_tail_compilation",
+                                   lambda *_: _dynamic_scope_push(dict(_compiler_tailp_ = nil)),
+                                   lambda *_: _dynamic_scope_pop())
+
+def _compiler_warn_discarded_epi(epi, format_control, *format_args):
+        warn("In %s: discarding epilogue %s.", format(nil, format_control, *format_args), epi)
+
+#### Issue stack:
+## Tail position optimisations
+### LET optimisation
+## Atree bfx queries
+## Lisp-level bound/free
+## Quote processing
+## LET/FUNCALL order of evaluation
+
+@defprimitive # Critical-issue-free.
 def symbol_(name):
         return ([],
                 ("Name", func_name, ("Load",)),
                 [])
 
-@defprimitive
+@defprimitive # Critical-issue-free.
 def progn_(*body):
-        ## <- LET
-        pro, ntotal = [], len(body)
-        for i, (spro, val, epi) in zip(range(ntotal), (compile_(x) for x in body)):
-                pro.extend(spro)
-                if i < (ntotal - 1):
-                        pro.append(val)
-                        pro.extend(epi)
-        pve = pro, val, epi
-        if _triplet_empty_p(pve):
+        ## <- DEF_, optimized LET
+        if not body:
                 return ([],
                         compile_((symbol_, "nil")),
                         [])
-        elif _triplet_expression_p(pve):
-                return ([],
-                        val,
-                        [])
-        else:
-                return (pro,
-                        val,
-                        epi)
+        pro, ntotal = [], len(body)
+        with _no_tail_compilation():
+                for spro, val, epi in (compile_(x) for x in body[:-1]):
+                        pro.extend(spro)
+                        pro.append(("Expr", val))
+                        pro.extend(epi)
+        with _maybe_tail_compilation():
+                spro, val, epi = compile_(body[-1])
+                pro.extend(spro)
+        return pro, val, epi
+        ## Not sure the stuff below still makes sense.  Still, am afraid to erase it.
         # lowered_body = mapcan(compile_, body)
         # (( body_bound_vars,  body_free_vars,  body_xtnls),
         #  (thunk_bound_vars, thunk_free_vars, thunk_xtnls)) = mapcar(_ast_bound_free, [lowered_body, thunks])
@@ -3103,59 +3169,156 @@ def progn_(*body):
         #         return lowered_body
 
 @defprimitive
-def let_(bindings, *body):
+def setf_values_(names, values): # Critical-issue-free.
+        with _maybe_tail_compilation():
+                pro, val, epi = compile_(values)
+        return (pro + [("Assign", ("Tuple", [ ("Name", name, ("Store",)) for name in names ],
+                                   ("Store",)),
+                        val)],
+                ("Tuple", [ ("Name", name, ("Load",)) for name in names ],
+                 ("Load",)),
+                epi)
+
+@defprimitive
+def let_(bindings, *body): # Critical-issue-free.
         # Potential optimisations:
-        #  - avoid the call, when being the last form, by simple assignment
+        #  - better tail position detection: non-local-transfer-of-control-free and ending with RETURN.
+        #  - even when not in the tail position, but the bound names are not:
+        #    - xtnls
+        #    - free in some other local expression
+        #    - falls out, sort of.. (see below)
         if not _every(_of_type((or_, symbol, (tuple_, symbol, t)))):
                 error("LET: malformed bindings: %s.", bindings)
         # Unregistered Issue PRIMITIVE-DECLARATIONS
         bindings_thru_defaulting = tuple(_ensure_cons(b, nil) for b in bindings)
+        ## A great optimisation, but mutation can affect:
+        ##  - scope of called outside functions
+        ##    - cannot optimize if body could jump to local code depending on mutated locals
+        ##  - xtnls
+        ##    - cannot optimize if bindings contain xtnls of the current DEF_
+        ##      - which ones must be, therefore, determined before the DEF_'s body is compiled
+        ## Now, all was implemented, except ATREE bound/free/xtnls queries.
+        ## But possibly, just possibly, I've missed another requirement, so playing it safe for now.
+        ##
+        ## This optimisation is, currently, tactically broken, but for another reason: order of evaluation.
+        # names = _mapset(ensure_car, bindings)
+        # if _compiling_tail_p() and not ((_mapsetn(_atree_free, body) - set(names)) or
+        #                                 (_compiling_def().xtnls & set(names))):
+        #         with _no_tail_compilation():
+        #                 # Consciously discarding the values returned by (SETF VALUES)
+        #                 bind_pro, _, bind_epi = compile_((setf_values_,
+        #                                                   [ car(x) for x in bindings_thru_defaulting ],
+        #                                                   ("tuple",) + tuple(cdr(x) for x in bindings_thru_defaulting)))
+        #                 # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-DEF-EPILOGUES
+        #                 _compiler_warn_discarded_epi(bind_epi, "LET %s", bindings)
+        #         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+        #         body_pro, body_val, body_epi = compile_((progn_,) + body)
+        #         return (bind_pro + body_pro,
+        #                 body_val,
+        #                 body_epi)
         return compile_(((lambda_, binding_thru_defaulting) + body,))
 
 @defprimitive
-def lambda_(lambda_list, *body):
-        # real default values! specifiedp! must has!
-        # wrt specifiedp: is None..
-        # Unregistered Issue EXPRESSIBILITY-OF-BOUND-VALUES-FUCKUP-SUGGESTS-RESILIENCE-MEASURES
-        # ..we're ignoring the issue for now, to observe the failure mode.
+def quote_(x): # Issue-free, per se.
+        with (_compiler_quote_ = t):
+                return compile_(x)
+
+@defprimitive
+def unquote_(x): # Issue-free, per se, but needs implementation in COMPILE.
+        with (_compiler_quote_ = nil):
+                return compile_(x)
+
+@defprimitive
+def lambda_(lambda_list, *body): # Issue-free, per se, but needs LABELS.
+        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
+        # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
+        # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
         preliminary_body_pve = _compile((progn_), + body)
-        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIVITY
         body_exprp = _triplet_expression_p(preliminary_body_pve)
         if body_exprp:
-                func_name = _gensymname("LET-BODY-")
-                fdefn, _, _ = compile_((def_, func_name, lambda_list) + body)
-                val = compile_((symbol_, func_name))
-        else:
                 compiled_arguments, _ = _compile_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
-                val = ("Lambda", compiled_arguments, preliminary_body_pve[1])
-        return (fdefn if body_exprp else [],
-                val,
-                [])
+                return ([],
+                        ("Lambda", compiled_arguments, preliminary_body_pve[1]),
+                        [])
+        else:
+                func_name = _gensymname("LET-BODY-")
+                return compile_((labels_, ((func_name, lambda_list) + body,),
+                                 (symbol_, func_name)))
 
 @defprimitive
-def def_(name, lambda_list, *body):
-        "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
-        check_type(name, (or_, str, (and_, symbol, (not_, (satisfies_, keyword)))))
-        lambda_list_atree, (fixed, optional, rest, keys, restkey,
-                            total) = _compile_lispy_lambda_list("DEFUN %s" % name, lambda_list)
-        prelimibary_body_pve = pre, val, epi = compile_((progn_, ) + body)
-        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIVITY
-        body_exprp = _triplet_expression_p(preliminary_body_pve)
-        # Unregistered Issue 
-        body, thunks = _collecting_thunks(lambda: ((mapcar(compile_, body[:-1]) +
-                                                    [("Return", compile_(body[-1]))]) if body else
-                                                   []))
-        return ("FunctionDef", string(name), lambda_list_atree,
-                thunks + body,
-                []) # no decorators and no return annotation
-
-@defprimitive
-def labels_(bindings, *body):
+def labels_(bindings, *body): ########################### ..the thought paused here.
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         if not _every(_of_type((partuple_, symbol, tuple))):
                 error("LABEL: malformed bindings: %s.", bindings)
         funcs = list(compile_((def_, name, lambda_list) + rest) for name, lambda_list, *rest in bindings)
         return funcs + mapcar(compile_, body)
+
+@defprimitive
+def funcall_(func, *args, **keys):
+        # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
+        # <- (LET, LAMBDA)
+        if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
+                          # - quote_ compilation in compile_
+                func_pro, func, func_epi = ([],
+                                            ("Name", func, ("Load",)),
+                                            [])
+        else:
+                with _no_tail_compilation():
+                        func_pro, func, func_epi = compile_(func)
+        with _no_tail_compilation():
+                arg_pves = mapcar(compile_, args)
+                keys_items = list(keys.items())
+                key_pves = mapcar(compile_, v for _, v in keys_items)
+        if every(_triplet_expression_p, arg_pves + key_pves): # Ah, the gratuitious consing.. (and no DOSEQS iterator possible..)
+                return (func_pro,
+                        ("Call", func, list(args), mapcar_star(lambda name, value: ("keyword", name, value),
+                                                               keys_items)),
+                        func_epi)
+        else:
+                pass
+
+@defprimitive
+def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an acknowledgement of the
+                                    # need to represent a building block of the underlying system.
+        "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
+        cdef = _compiler_def(name   = name,
+                             parent = _compiling_def())
+        toplevelp = symbol_value("_compiler_toplevel_p_")
+        with progv(_compiler_def_        = cdef,
+                   _compiler_toplevel_p_ = nil):
+                check_type(name, (or_, str, (and_, symbol, (not_, (satisfies_, keyword)))))
+                def try_compile():
+                        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
+                        compiled_lambda_list, (fixed, optional, rest, keys, restkey,
+                                               total) = _compile_lispy_lambda_list("DEFUN %s" % name, lambda_list)
+                        with _tail_position():
+                                # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+                                pve = pre, val, epi = compile_((progn_, ) + body)
+                        if epi:
+                                # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-DEF-EPILOGUES
+                                _compiler_warn_discarded_epilogue(epi, "DEFUN %s", name)
+                        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
+                        # body_exprp = _triplet_expression_p(preliminary_body_pve) # Why we'd need that, again?
+                        return ([("FunctionDef", string(name), lambda_list_atree,
+                                                 pre + (("Return", val),))],
+                                compile_((quote_, (symbol_, string(name))))[1],
+                                [])
+                ## Xtnls feedback loop stabilisation scheme.
+                ##
+                ## This looks fairly ridiculous, but that reality for you:
+                ##  - it's impossible to know externals before compilation
+                ##    - determined by walking the resulting atree
+                ##  - you need to know externals before compilation
+                ##    - at least one optimisation (LET) depends on this
+                ##
+                ## Quietly hoped to be the only parameter requiring such beforehand knowledge.
+                xtnls_guess, xtnls_actual = None, set()
+                while xtnls_guess != xtnls_actual:
+                        cdef.xtnls = xtnls_guess = xtnls_actual
+                        result = try_compile()
+                        xtnls_actual = _triplet_xtnls(result)
+                return result
 
 ## Honest DEFUN, with real keyword arguments, is out of scope for now.
 # @defprimitive
@@ -3166,12 +3329,6 @@ def labels_(bindings, *body):
 #         return ("FunctionDef", name, compile_lambda_list(lambda_list),
 #                 mapcar(compile_, body),
 #                 []) # no decorators and no return annotation
-
-@defprimitive
-def funcall(func, *args, **keys):
-        return ("Call", func, list(args), mapcar_star(lambda name, value:
-                                                             ("keyword", name, value),
-                                                      keys.items()))
 
 # How is it do be determined, that a form must be passed through?
 # - directly AST-ifiable (in terms of _astify_constant)
@@ -3196,26 +3353,51 @@ def macroexpand(form):
         return do_macroexpand(form, nil)
 
 def compile_(form):
+        # - tail position tracking
+        # - scopes
+        # - symbols not terribly clear
+        # - proper quote processing
         def lower(x):
+                # NOTE: we are going to splice unquoting processing here, as we must be able
+                # to work in READ-less environment.
                 if _tuplep(x):
-                        if not x:
-                                error("Invalid empty form in %s.", princ_to_string(form))
-                        if symbolp(x[0]):
-                                compiler, primitivep = _find_primitive(the(symbol, x[0]))
-                                if primitivep:
-                                        return compiler(*x[1:])
-                                form, expanded = macroexpand(x)
-                                if expanded:
-                                        return lower(form)
-                                # basic function call
-                                return lower((funcall,) + form)
-                        elif stringp(x[0]): # basic function call
-                                return lower((funcall,) + form)
+                        if _compiling_quote_p():
+                                funcall_compiler, _ = _find_primitive(funcall_)
+                                return funcall_compiler(("tuple",) + form)
                         else:
-                                error("Invalid form: %s.", princ_to_string(form))
+                                if not x:
+                                        return lower((symbol_, "nil"))
+                                if symbolp(x[0]):
+                                        compiler, primitivep = _find_primitive(the(symbol, x[0]))
+                                        if primitivep:
+                                                return compiler(*x[1:])
+                                        form, expanded = macroexpand(x)
+                                        if expanded:
+                                                return lower(form)
+                                        # basic function call
+                                        return lower((funcall_,) + form)
+                                elif (_tuplep(x[0]) and x[0] and x[0][0] is lambda_):
+                                        return lower((funcall_,) + form)
+                                elif stringp(x[0]): # basic function call
+                                        return lower((funcall_,) + form)
+                                else:
+                                        error("Invalid form: %s.", princ_to_string(form))
+                elif symbolp(x):
+                        if _compiling_quote_p():
+                                return lower(string(x))
+                        else:
+                                return lower((symbol_, string(x)))
                 else:
-                        # Nothing much we can do here.
-                        return x
+                        # NOTE: we don't care about quoting here, as constants are self-evaluating.
+                        ast, astifiedp = _try_astify_constant(x) # NOTE: this allows to directly pass through ASTs.
+                        if astifiedp:
+                                # ..in turn, this requires the atree astifier to directly pass through ASTs,
+                                # or, alternatively (and more desirably), we could call _try_atreeify_constant.
+                                return ([],
+                                        x,
+                                        [])
+                        else:
+                                error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
         return lower(form)
 
 ##
