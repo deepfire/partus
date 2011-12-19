@@ -3142,7 +3142,7 @@ _no_tail_compilation    = _defwith("_no_tail_compilation",
                                    lambda *_: _dynamic_scope_pop())
 
 def _compiler_warn_discarded_epi(epi, format_control, *format_args):
-        warn("In %s: discarding epilogue %s.", format(nil, format_control, *format_args), epi)
+        epi and warn("In %s: discarding epilogue %s.", format(nil, format_control, *format_args), epi)
 
 #### Issue stack:
 ## Tail position optimisations
@@ -3152,16 +3152,65 @@ def _compiler_warn_discarded_epi(epi, format_control, *format_args):
 ## Quote processing
 ## FUNCALL order of evaluation
 
+### (SYMBOL) <-
+### (SETF VALUES) <-
+### (RETURN) <-
+### (QUOTE) <-
+### (QUAQUOTE) <-
+### (COMMA) <-
+### | (empty: SYMBOL) <- (PROGN) <-
+### PROGN, RETURN, QUOTE, SYMBOL <- (DEF) <-
+### ??? <- (LET) <-
+### | SYMBOL, LET, FUNCALL <- (FUNCALL) <-
+### LET, DEF <- (FLET) <-
+### PROGN | FLET, SYMBOL <- (LAMBDA) <-
+### FLET, DEF, FUNCALL <- (LABELS) <-
+### PROGN | LET, LET* <- (LET*) <-
+
 @defprimitive # Critical-issue-free.
 def symbol_(name):
-        ##< (SYMBOL) <- PROGN, LAMBDA, DEF_
         return ([],
                 ("Name", func_name, ("Load",)),
                 [])
 
+@defprimitive
+def setf_values_(names, values): # Critical-issue-free.
+        with _maybe_tail_compilation():
+                pro, val, epi = compile_(values)
+        return (pro + [("Assign", ("Tuple", [ ("Name", name, ("Store",)) for name in names ],
+                                   ("Store",)),
+                        val)],
+                ("Tuple", [ ("Name", name, ("Load",)) for name in names ],
+                 ("Load",)),
+                epi)
+
+@defprimitive
+def return_(x):
+        with _tail_compilation():
+                pro, val, epi = compile_(x)
+                # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-EPILOGUES
+                _compiler_warn_discarded_epi(epi, "RETURN %s", x)
+                return (pro,
+                        ("Return", val),
+                        [])
+
+@defprimitive
+def quote_(x): # Issue-free, per se.
+        with progv(_compiler_quote_ = t):
+                return compile_(x)
+
+@defprimitive
+def quaquote_(x): # Issue-free, per se.
+        with progv(_compiler_quote_ = t):
+                return compile_(x)
+
+@defprimitive
+def comma_(x): # ..?
+        with progv():
+                return compile_(x)
+
 @defprimitive # Critical-issue-free.
 def progn_(*body):
-        ##< (PROGN) <- LAMBDA, DEF_, (:opt LET), LET*
         if not body:
                 return ([],
                         compile_((symbol_, "nil")),
@@ -3186,20 +3235,48 @@ def progn_(*body):
         #         return lowered_body
 
 @defprimitive
-def setf_values_(names, values): # Critical-issue-free.
-        ##< (SETF VALUES) <- (:opt LET)
-        with _maybe_tail_compilation():
-                pro, val, epi = compile_(values)
-        return (pro + [("Assign", ("Tuple", [ ("Name", name, ("Store",)) for name in names ],
-                                   ("Store",)),
-                        val)],
-                ("Tuple", [ ("Name", name, ("Load",)) for name in names ],
-                 ("Load",)),
-                epi)
+def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an acknowledgement of the
+                                    # need to represent a building block from the underlying system.
+        "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
+        cdef = _compiler_def(name   = name,
+                             parent = _compiling_def())
+        toplevelp = symbol_value("_compiler_toplevel_p_")
+        with progv(_compiler_def_        = cdef,
+                   _compiler_toplevel_p_ = nil):
+                check_type(name, (or_, str, (and_, symbol, (not_, (satisfies_, keyword)))))
+                def try_compile():
+                        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
+                        compiled_lambda_list, (fixed, optional, rest, keys, restkey,
+                                               total) = _compile_lispy_lambda_list("DEF %s" % name, lambda_list)
+                        with _tail_position():
+                                # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+                                pve = body_ret, _, epi = compile_((return_, (progn_, ) + body))
+                        # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-EPILOGUES
+                        _compiler_warn_discarded_epilogue(epi, "DEF %s", name)
+                        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
+                        # body_exprp = _triplet_expression_p(preliminary_body_pve) # Why we'd need that, again?
+                        return ([("FunctionDef", string(name), lambda_list_atree,
+                                                 body_ret)],
+                                compile_((quote_, (symbol_, string(name))))[1],
+                                [])
+                ## Xtnls feedback loop stabilisation scheme.
+                ##
+                ## This looks fairly ridiculous, but that reality for you:
+                ##  - it's impossible to know externals before compilation
+                ##    - determined by walking the resulting atree
+                ##  - you need to know externals before compilation
+                ##    - at least one optimisation (LET) depends on this
+                ##
+                ## Quietly hoped to be the only parameter requiring such beforehand knowledge.
+                xtnls_guess, xtnls_actual = None, set()
+                while xtnls_guess != xtnls_actual:
+                        cdef.xtnls = xtnls_guess = xtnls_actual
+                        result = try_compile()
+                        xtnls_actual = _triplet_xtnls(result)
+                return result
 
 @defprimitive
-def let_(bindings, *body): # Critical-issue-free.
-        ##< LAMBDA, (:opt SETF VALUES, PROGN) <- (LET) <- FLET, LET*
+def let_(bindings, *body):
         # Potential optimisations:
         #  - better tail position detection: non-local-transfer-of-control-free and ending with RETURN.
         #  - even when not in the tail position, but the bound names are not:
@@ -3229,7 +3306,7 @@ def let_(bindings, *body): # Critical-issue-free.
         #                 bind_pro, _, bind_epi = compile_((setf_values_,
         #                                                   [ car(x) for x in bindings_thru_defaulting ],
         #                                                   ("tuple",) + tuple(cdr(x) for x in bindings_thru_defaulting)))
-        #                 # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-DEF-EPILOGUES
+        #                 # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-EPILOGUES
         #                 _compiler_warn_discarded_epi(bind_epi, "LET %s", bindings)
         #         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
         #         body_pro, body_val, body_epi = compile_((progn_,) + body)
@@ -3237,6 +3314,78 @@ def let_(bindings, *body): # Critical-issue-free.
         #                 body_val,
         #                 body_epi)
         return compile_(((lambda_, binding_thru_defaulting) + body,))
+
+@defprimitive
+def funcall_(func, *args): # /Seems/ alright.
+        # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
+        if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
+                          # - quote_ compilation in compile_
+                func_pro, func_val, func_epi = ([],
+                                            ("Name", func, ("Load",)),
+                                            [])
+        else:
+                with _no_tail_compilation():
+                        func_pro, func_val, func_epi = compile_(func)
+        with _no_tail_compilation():
+                arg_pves = mapcar(compile_, args)
+        if every(_triplet_expression_p, arg_pves):
+                return (func_pro,
+                        ("Call", func_val, mapcar(second, arg_pves), []),
+                        func_epi)
+        else:
+                with _gensyms(n = len(args), x = "FUNCALL-ARG") as temp_names:
+                        if _triplet_expression_p((func_pro, func_val, func_epi)):
+                                func_binding, func_exp = (tuple(),
+                                                          func)
+                        else:
+                                func_name = _gensym("FUNCALL-FUNCNAME")
+                                func_binding, func_exp = (((func_name, func),),
+                                                          (symbol_, func_name))
+                        return compile_((let_, func_binding + tuple(zip(temp_names, args)),
+                                         (funcall_, func_exp) + tuple()))
+
+@defprimitive
+def flet_(bindings, *body): # Critical issue-free, but depends on DEF_.
+        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
+        # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
+        # Unregistered Issue SINGLE-NAMESPACE
+        if not _every(_of_type((partuple_, symbol, tuple))):
+                error("FLET: malformed bindings: %s.", bindings)
+        return compile_((let_, tuple((name, (fdefinition_, (def_, _gensym(string(name)), lambda_list) + fbody))
+                                     for name, lambda_list, *fbody in bindings)) +
+                         body)
+
+@defprimitive
+def lambda_(lambda_list, *body): # Critical-issue-free.
+        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
+        # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
+        # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
+        preliminary_body_pve = _compile((progn_), + body)
+        body_exprp = _triplet_expression_p(preliminary_body_pve)
+        if body_exprp:
+                compiled_arguments, _ = _compile_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
+                return ([],
+                        ("Lambda", compiled_arguments, preliminary_body_pve[1]),
+                        [])
+        else:
+                func_name = _gensymname("LET-BODY-")
+                return compile_((flet_, ((func_name, lambda_list) + body,),
+                                 (symbol_, func_name)))
+
+@defprimitive
+def labels_(bindings, *body): # Critical-issue-free, per se, but depends on DEF_.
+        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
+        # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
+        # Unregistered Issue SINGLE-NAMESPACE
+        if not _every(_of_type((partuple_, symbol, tuple))):
+                error("LABELS: malformed bindings: %s.", bindings)
+        temp_name = _gensym("LABELS")
+        return compile_((flet, ((temp_name, tuple(),
+                                 tuple((def_, name, lambda_list, body)
+                                       for name, lambda_list, *body in bindings) +
+                                 body)),
+                         (funcall_, temp_name)))
 
 ## Good news: our LET* will be honest:
 # >>> def let0():
@@ -3259,7 +3408,6 @@ def let_(bindings, *body): # Critical-issue-free.
 # NameError: global name 'val1' is not defined
 @defprimitive
 def let__(bindings, *body): # Critical-issue-free.
-        ##< PROGN, LET*, LET <- (LET*) <- ???
         if not (_tuplep(bindings) and
                 _every(_of_type((or_, symbol, (tuple_, symbol, t))))):
                 error("LET*: malformed bindings: %s.", bindings)
@@ -3269,135 +3417,6 @@ def let__(bindings, *body): # Critical-issue-free.
         else:
                 return compile_((let_, bindings[:1],
                                  (let__, bindings[1:]) + body))
-
-@defprimitive
-def quote_(x): # Issue-free, per se.
-        with (_compiler_quote_ = t):
-                return compile_(x)
-
-@defprimitive
-def unquote_(x): # ..needs implementation in COMPILE.
-        with (_compiler_quote_ = nil):
-                return compile_(x)
-
-@defprimitive
-def lambda_(lambda_list, *body): # Critical-issue-free.
-        ##< PROGN, FLET, SYMBOL <- (LAMBDA) <- LET
-        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-        # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
-        # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
-        preliminary_body_pve = _compile((progn_), + body)
-        body_exprp = _triplet_expression_p(preliminary_body_pve)
-        if body_exprp:
-                compiled_arguments, _ = _compile_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
-                return ([],
-                        ("Lambda", compiled_arguments, preliminary_body_pve[1]),
-                        [])
-        else:
-                func_name = _gensymname("LET-BODY-")
-                return compile_((flet_, ((func_name, lambda_list) + body,),
-                                 (symbol_, func_name)))
-
-@defprimitive
-def flet_(bindings, *body): # Critical issue-free, but depends on DEF_.
-        ##< LET, DEF_ <- (FLET) <- LAMBDA
-        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
-        # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-        # Unregistered Issue SINGLE-NAMESPACE
-        if not _every(_of_type((partuple_, symbol, tuple))):
-                error("FLET: malformed bindings: %s.", bindings)
-        return compile_((let_, tuple((name, (fdefinition_, (def_, _gensym(string(name)), lambda_list) + fbody)),
-                                     for name, lambda_list, *fbody in bindings)) +
-                         body)
-
-@defprimitive
-def labels_(bindings, *body): # Critical-issue-free, per se, but depends on DEF_.
-        ## FLET, DEF, FUNCALL <- (LABELS) <- ???
-        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
-        # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-        # Unregistered Issue SINGLE-NAMESPACE
-        if not _every(_of_type((partuple_, symbol, tuple))):
-                error("LABELS: malformed bindings: %s.", bindings)
-        temp_name = _gensym("LABELS")
-        return compile_((flet, ((temp_name, tuple(),
-                                 tuple((def_, name, lambda_list, body)
-                                       for name, lambda_list, *body in bindings) +
-                                 body)),
-                         (funcall_, temp_name)))
-
-@defprimitive
-def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an acknowledgement of the
-                                    # need to represent a building block from the underlying system.
-        ##< QUOTE, SYMBOL, PROGN <- (DEF_) <- FLET, LABELS
-        "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
-        cdef = _compiler_def(name   = name,
-                             parent = _compiling_def())
-        toplevelp = symbol_value("_compiler_toplevel_p_")
-        with progv(_compiler_def_        = cdef,
-                   _compiler_toplevel_p_ = nil):
-                check_type(name, (or_, str, (and_, symbol, (not_, (satisfies_, keyword)))))
-                def try_compile():
-                        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                        compiled_lambda_list, (fixed, optional, rest, keys, restkey,
-                                               total) = _compile_lispy_lambda_list("DEFUN %s" % name, lambda_list)
-                        with _tail_position():
-                                # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                                pve = pre, val, epi = compile_((progn_, ) + body)
-                        if epi:
-                                # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-DEF-EPILOGUES
-                                _compiler_warn_discarded_epilogue(epi, "DEFUN %s", name)
-                        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
-                        # body_exprp = _triplet_expression_p(preliminary_body_pve) # Why we'd need that, again?
-                        return ([("FunctionDef", string(name), lambda_list_atree,
-                                                 pre + (("Return", val),))],
-                                compile_((quote_, (symbol_, string(name))))[1],
-                                [])
-                ## Xtnls feedback loop stabilisation scheme.
-                ##
-                ## This looks fairly ridiculous, but that reality for you:
-                ##  - it's impossible to know externals before compilation
-                ##    - determined by walking the resulting atree
-                ##  - you need to know externals before compilation
-                ##    - at least one optimisation (LET) depends on this
-                ##
-                ## Quietly hoped to be the only parameter requiring such beforehand knowledge.
-                xtnls_guess, xtnls_actual = None, set()
-                while xtnls_guess != xtnls_actual:
-                        cdef.xtnls = xtnls_guess = xtnls_actual
-                        result = try_compile()
-                        xtnls_actual = _triplet_xtnls(result)
-                return result
-
-@defprimitive
-def funcall_(func, *args):
-        ## | LET <- (FUNCALL) <- (LET, LAMBDA)
-        # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
-        if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
-                          # - quote_ compilation in compile_
-                func_pro, func_val, func_epi = ([],
-                                            ("Name", func, ("Load",)),
-                                            [])
-        else:
-                with _no_tail_compilation():
-                        func_pro, func_val, func_epi = compile_(func)
-        with _no_tail_compilation():
-                arg_pves = mapcar(compile_, args)
-        if every(_triplet_expression_p, arg_pves):
-                return (func_pro,
-                        ("Call", func_val, mapcar(second, arg_pves), []),
-                        func_epi)
-        else:
-                with _gensyms(n = len(args)) as temp_names:
-                        if _triplet_expression_p((func_pro, func_val, func_epi)):
-                                func_binding, func_exp = (tuple(),
-                                                          func)
-                        else:
-                                func_name = _gensym("FUNCALL-FUNCNAME")
-                                func_binding, func_exp = (((func_name, func),),
-                                                          (symbol_, func_name))
-                        return compile_((let_, func_binding + tuple(zip(temp_names, args)),
-                                         (funcall_, func_exp) + tuple()))
 
 ## Honest DEFUN, with real keyword arguments, is out of scope for now.
 # @defprimitive
