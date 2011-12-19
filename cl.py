@@ -3504,7 +3504,9 @@ def lisp(body):
                 return (x.n                                       if isinstance(x, ast.Num)   else
                         x.s                                       if isinstance(x, ast.Str)   else
                         _intern0(x.id)                            if isinstance(x, ast.Name)  else
+                        tuple(_intern_astsexp(e) for e in x)      if isinstance(x, list)      else
                         tuple(_intern_astsexp(e) for e in x.elts) if isinstance(x, ast.Tuple) else
+                        _intern_astsexp(x.value)                  if isinstance(x, ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
         args_ast, body_ast = _function_ast(body)
         form = _intern_astsexp(body_ast)
@@ -3524,7 +3526,7 @@ def lisp(body):
 def fdefinition_(name):
         (def_, fdefinition_, (name),
          (if_, (stringp_, name),
-          (_global, name)
+          (_global, name),
           (symbol_function_, (the_, symbol, name))))
 
 ##
