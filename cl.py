@@ -3370,28 +3370,34 @@ def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an ack
                 return result
 
 @defprimitive
-def funcall_(func, *args, **keys):
+def funcall_(func, *args):
+        ## | LET <- (FUNCALL) <- (LET, LAMBDA)
         # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
-        # <- (LET, LAMBDA)
         if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
                           # - quote_ compilation in compile_
-                func_pro, func, func_epi = ([],
+                func_pro, func_val, func_epi = ([],
                                             ("Name", func, ("Load",)),
                                             [])
         else:
                 with _no_tail_compilation():
-                        func_pro, func, func_epi = compile_(func)
+                        func_pro, func_val, func_epi = compile_(func)
         with _no_tail_compilation():
                 arg_pves = mapcar(compile_, args)
-                keys_items = list(keys.items())
-                key_pves = mapcar(compile_, v for _, v in keys_items)
-        if every(_triplet_expression_p, arg_pves + key_pves): # Ah, the gratuitious consing.. (and no DOSEQS iterator possible..)
+        if every(_triplet_expression_p, arg_pves):
                 return (func_pro,
-                        ("Call", func, list(args), mapcar_star(lambda name, value: ("keyword", name, value),
-                                                               keys_items)),
+                        ("Call", func_val, mapcar(second, arg_pves), []),
                         func_epi)
         else:
-                pass
+                with _gensyms(n = len(args)) as temp_names:
+                        if _triplet_expression_p((func_pro, func_val, func_epi)):
+                                func_binding, func_exp = (tuple(),
+                                                          func)
+                        else:
+                                func_name = _gensym("FUNCALL-FUNCNAME")
+                                func_binding, func_exp = (((func_name, func),),
+                                                          (symbol_, func_name))
+                        return compile_((let_, func_binding + tuple(zip(temp_names, args)),
+                                         (funcall_, func_exp) + tuple()))
 
 ## Honest DEFUN, with real keyword arguments, is out of scope for now.
 # @defprimitive
@@ -3443,6 +3449,7 @@ def compile_(form):
                                 if symbolp(x[0]):
                                         compiler, primitivep = _find_primitive(the(symbol, x[0]))
                                         if primitivep:
+                                                # Unregistered Issue COMPILE-CANNOT-EVEN-MENTION-KWARGS
                                                 return compiler(*x[1:])
                                         form, expanded = macroexpand(x)
                                         if expanded:
