@@ -2035,11 +2035,14 @@ _init_reader_0()         ########### _coerce_to_symbol_name() is now available
 
 def _init_package_system_1():
         # Ought to declare it all on the top level.
-        in_package("COMMON-LISP-USER")
-
+        in_package("CL")
         setq("_FEATURES_", [])
         setq("_MODULES_",  [])
 _init_package_system_1()
+
+def _init_package_system_2():
+        "Is called once CL is loaded completely."
+        in_package("COMMON-LISP-USER")
 
 ###
 ### Symbol-related thaw
@@ -7984,6 +7987,7 @@ def _make_method_specializers(specializers):
 ###
 ### Init
 ###
+_init_package_system_2()
 def _init():
         "Initialise the Common Lisp compatibility layer."
         _init_condition_system()
