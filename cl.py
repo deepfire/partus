@@ -3167,18 +3167,18 @@ class _compiler_def(_servile):
         pass
 
 def _compiling_def():     return symbol_value("_COMPILER_DEF_")
-def _compiling_tail_p():  return symbol_value("_COMPILER_TAILP_")
+def _tail_position_p():   return symbol_value("_COMPILER_TAILP_")
 def _compiling_quote_p(): return symbol_value("_COMPILER_QUOTE_")
 
-_tail_compilation       = _defwith("_tail_compilation",
+_tail_position       = _defwith("_tail_position",
                                    lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = t)),
                                    lambda *_: _dynamic_scope_pop())
 
-_maybe_tail_compilation = _defwith("_maybe_tail_compilation", # This is just a documentation feature.
+_maybe_tail_position = _defwith("_maybe_tail_position", # This is just a documentation feature.
                                    lambda *_: None,
                                    lambda *_: None)
 
-_no_tail_compilation    = _defwith("_no_tail_compilation",
+_no_tail_position    = _defwith("_no_tail_position",
                                    lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = nil)),
                                    lambda *_: _dynamic_scope_pop())
 
@@ -3249,7 +3249,7 @@ def setf_values_(names, values):
 
 @defprimitive # Critical-issue-free.
 def return_(x):
-        with _tail_compilation():
+        with _tail_position():
                 pro, val, epi = compile_(x)
                 # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-EPILOGUES
                 _compiler_warn_discarded_epi(epi, "RETURN %s", x)
@@ -3259,7 +3259,7 @@ def return_(x):
 
 @defprimitive # Issue-free, per se.
 def quote_(x):
-        with progv(_COMPILER_QUOTE_ = T):
+        with progv(_COMPILER_QUOTE_ = t):
                 return compile_(x)
 
 @defprimitive # imp?
@@ -3284,12 +3284,12 @@ def progn_(*body):
                         compile_((symbol_, "nil")),
                         [])
         pro, ntotal = [], len(body)
-        with _no_tail_compilation():
+        with _no_tail_position():
                 for spro, val, epi in (compile_(x) for x in body[:-1]):
                         pro.extend(spro)
                         pro.append(("Expr", val))
                         pro.extend(epi)
-        with _maybe_tail_compilation():
+        with _maybe_tail_position():
                 return _compiler_prepend(pro,
                                          compile_(body[-1]))
         ## Not sure the stuff below still makes sense.  Still, am afraid to erase it.
@@ -3319,10 +3319,10 @@ def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an ack
                                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
                                 pve = body_ret, _, epi = compile_((return_, (progn_, ) + body))
                         # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-EPILOGUES
-                        _compiler_warn_discarded_epilogue(epi, "DEF %s", name)
+                        _compiler_warn_discarded_epi(epi, "DEF %s", name)
                         # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
                         # body_exprp = _triplet_expression_p(preliminary_body_pve) # Why we'd need that, again?
-                        return ([("FunctionDef", string(name), lambda_list_atree,
+                        return ([("FunctionDef", string(name), compiled_lambda_list,
                                                  body_ret)],
                                 compile_((quote_, (symbol_, string(name))))[1],
                                 [])
@@ -3368,9 +3368,9 @@ def let_(bindings, *body):
         ##
         ## This optimisation is, currently, tactically broken, but for another reason: order of evaluation.
         # names = _mapset(ensure_car, bindings)
-        # if _compiling_tail_p() and not ((_mapsetn(_atree_free, body) - set(names)) or
+        # if _tail_position_p() and not ((_mapsetn(_atree_free, body) - set(names)) or
         #                                 (_compiling_def().xtnls & set(names))):
-        #         with _no_tail_compilation():
+        #         with _no_tail_position():
         #                 # Consciously discarding the values returned by (SETF VALUES)
         #                 bind_pro, _, bind_epi = compile_((setf_values_,
         #                                                   [ car(x) for x in bindings_thru_defaulting ],
@@ -3416,9 +3416,9 @@ def funcall_(func, *args):
                                             ("Name", func, ("Load",)),
                                             [])
         else:
-                with _no_tail_compilation():
+                with _no_tail_position():
                         func_pro, func_val, func_epi = compile_(func)
-        with _no_tail_compilation():
+        with _no_tail_position():
                 arg_pves = mapcar(compile_, args)
         if every(_triplet_expression_p, arg_pves):
                 return (func_pro,
@@ -3529,20 +3529,24 @@ def let__(bindings, *body): # Critical-issue-free.
 # Also: should we track form paths?
 def macroexpand_1(form):
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
-        return (form if not _tuplep(form) else
-                if_let(form and _symbol_macro_function(form[0]),
-                       lambda macroexpander:
-                       (macroexpander(*form[1:]), t),
-                       (form, nil)))
+        return ((form, nil) if not _tuplep(form) else
+                _if_let((form and _symbol_macro_function(form[0])[0]),
+                        lambda expander:
+                                (expander(*form[1:]), t),
+                        lambda:
+                                (form, nil)))
 
 def macroexpand(form):
         def do_macroexpand(form, expanded):
-                expansion, expanded_again = macroexpand_1(form)
+                macex = macroexpand_1(form)
+                _here("macex: -> %s", macex)
+                expansion, expanded_again = macex
                 return (do_macroexpand(expansion, t) if expanded_again else
                         (form, expanded))
         return do_macroexpand(form, nil)
 
 _debug_compiler()
+# Urgent Issue COMPILER-MACRO-SYSTEM
 def compile_(form):
         # - tail position tracking
         # - scopes
@@ -3558,11 +3562,12 @@ def compile_(form):
                 if _tuplep(x):
                         if _compiling_quote_p():
                                 funcall_compiler, _ = _find_primitive(funcall_)
-                                return funcall_compiler(("tuple",) + form)
+                                return funcall_compiler(("tuple",) + x)
                         else:
                                 if not x:
                                         return lower((symbol_, "nil"))
                                 if symbolp(x[0]):
+                                        # Urgent Issue COMPILER-MACRO-SYSTEM
                                         compiler, primitivep = _find_primitive(the(symbol, x[0]))
                                         if primitivep:
                                                 # Unregistered Issue COMPILE-CANNOT-EVEN-MENTION-KWARGS
@@ -3596,8 +3601,9 @@ def compile_(form):
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
         pve = lower(form)
         if _debugging_compiler_p():
-                _debug_printf(";;; compilation output:\n;;;\n;;; Prologue\n;;;%s\n;;;\n;;; Value\n;;;%s\n;;;\n;;; Epilogue\n;;;\n%s",
-                              *mapcar(more_ast.pp_ast_as_code, pve))
+                import more_ast
+                _debug_printf(";;; compilation atree output:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
+                              *pve)
         return pve
 
 def lisp(body):
@@ -3619,7 +3625,12 @@ def lisp(body):
         if form[0] not in __def_allowed_toplevels__:
                 error("In LISP %s: only toplevels in %s are allowed.",
                       form[0], __def_allowed_toplevels__)
-        pro, val, epi = compile_(form)
+        pve = pro, val, epi = compile_(form)
+        ast_ = pro_ast, val_ast, epi_ast = mapcar(_atree_ast, pve)
+        if _debugging_compiler_p():
+                import more_ast
+                _debug_printf(";;; compilation AST output:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
+                              *mapcar(more_ast.pp_ast_as_code, ast_))
         _compiler_warn_discarded_epi(epi, "LISP %s", form[0])
         return _ast_compiled_name(body.__name__,
                                   *pro,
