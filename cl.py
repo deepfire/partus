@@ -3350,6 +3350,18 @@ def let_(bindings, *body):
                                   ((lambda_, tuple(zip(names, temp_names + values[n_nonexprs:]))) + body,)),))
 
 @defprimitive
+def unwind_protect_(form, *unwind_body):
+        temp_name = gensym("PROTECTED-FORM-VALUE")
+        pro_form, val_form, epi_form = compile_((setq_, temp_name, form))
+        pro_unwind, val_unwind, epi_unwind = compile_((progn,) + unwind_body)
+        return ([("TryFinally",
+                  # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
+                  pro_form + epi_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
+                  # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
+                  pro_unwind + [("Expr", val_unwind)] + epi_unwind)],
+                (symbol_, temp_name),
+                [])
+
 @defprimitive # /Seems/ alright.
 def funcall_(func, *args):
         # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
