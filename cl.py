@@ -100,6 +100,13 @@ def _cold_error(datum, *args):
 error = _cold_error
 def _cold_null(x): return not x
 null = _cold_null
+def _cold_format(destination, control_string, *args):
+        string = control_string % args
+        if not destination:
+                return string
+        else:
+                _write_string(string, sys.stderr if destination is t else destination)
+format = _cold_format
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
 
 ###
