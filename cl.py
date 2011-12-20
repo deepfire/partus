@@ -828,6 +828,7 @@ def _compose(f, g):
 def _tuplep(x):     return type(x) is tuple
 def _frozensetp(o): return type(o) is frozenset
 def _setp(o):       return type(o) is set or _frozensetp(o)
+def _nonep(o):      return o is None
 
 def _ensure_list(x):
         return x if listp(x) else [x]
