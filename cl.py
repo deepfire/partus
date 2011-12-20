@@ -3138,10 +3138,17 @@ def _triplet_free(pve):         return _mapsetn(_atree_free,  _triplerator(pve))
 def _triplet_xtnls(pve):        return _mapsetn(_atree_xtnls, _triplerator(pve))
 
 ## Should, probably, be bound by the compiler itself.
-defvar("_compiler_toplevel_p_", t)
-defvar("_compiler_def_",        nil)
-defvar("_compiler_quote_",      nil)
-defvar("_compiler_tailp_")
+defvar("_COMPILER_TOPLEVEL_P_", t)
+defvar("_COMPILER_DEF_",        nil)
+defvar("_COMPILER_QUOTE_",      nil)
+defvar("_COMPILER_TAILP_")
+
+defvar("_COMPILER_DEBUG_P_",    nil)
+
+def _debug_compiler(value = t):
+        setq("_COMPILER_DEBUG_P_", value)
+def _debugging_compiler_p():
+        return symbol_value("_COMPILER_DEBUG_P_")
 
 class _compiler_def(_servile):
         pass
@@ -3151,7 +3158,7 @@ def _compiling_tail_p():  return symbol_value("_COMPILER_TAILP_")
 def _compiling_quote_p(): return symbol_value("_COMPILER_QUOTE_")
 
 _tail_compilation       = _defwith("_tail_compilation",
-                                   lambda *_: _dynamic_scope_push(dict(_compiler_tailp_ = t)),
+                                   lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = t)),
                                    lambda *_: _dynamic_scope_pop())
 
 _maybe_tail_compilation = _defwith("_maybe_tail_compilation", # This is just a documentation feature.
@@ -3159,7 +3166,11 @@ _maybe_tail_compilation = _defwith("_maybe_tail_compilation", # This is just a d
                                    lambda *_: None)
 
 _no_tail_compilation    = _defwith("_no_tail_compilation",
-                                   lambda *_: _dynamic_scope_push(dict(_compiler_tailp_ = nil)),
+                                   lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = nil)),
+                                   lambda *_: _dynamic_scope_pop())
+
+_compiler_debug         = _defwith("_compiler_debug",
+                                   lambda *_: _dynamic_scope_push(dict(_COMPILER_DEBUG_P_ = t)),
                                    lambda *_: _dynamic_scope_pop())
 
 def _compiler_warn_discarded_epi(epi, format_control, *format_args):
@@ -3518,14 +3529,19 @@ def macroexpand(form):
                         (form, expanded))
         return do_macroexpand(form, nil)
 
+_debug_compiler()
 def compile_(form):
         # - tail position tracking
         # - scopes
         # - symbols not terribly clear
         # - proper quote processing
+        if _debugging_compiler_p():
+                _debug_printf(";;; compiling: %s", form)
         def lower(x):
                 # NOTE: we are going to splice unquoting processing here, as we must be able
                 # to work in READ-less environment.
+                if _debugging_compiler_p():
+                        _debug_printf(";;; lowering: %s", x)
                 if _tuplep(x):
                         if _compiling_quote_p():
                                 funcall_compiler, _ = _find_primitive(funcall_)
@@ -3565,7 +3581,11 @@ def compile_(form):
                                         [])
                         else:
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
-        return lower(form)
+        pve = lower(form)
+        if _debugging_compiler_p():
+                _debug_printf(";;; compilation output:\n;;;\n;;; Prologue\n;;;%s\n;;;\n;;; Value\n;;;%s\n;;;\n;;; Epilogue\n;;;\n%s",
+                              *mapcar(more_ast.pp_ast_as_code, pve))
+        return pve
 
 def lisp(body):
         def _intern_astsexp(x):
