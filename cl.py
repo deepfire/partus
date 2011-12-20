@@ -3074,24 +3074,30 @@ def _find_primitive(x):
 def _compile_lispy_lambda_list(context, list, allow_defaults = None):
         if not _tuplep(list):
                 error("In %s: lambda list must be a tuple.", list)
-        def valid_parameter_specifier(x): return stringp(x) or (symbolp(x) and not keywordp(x))
-        test, failure_message = ((lambda x: valid_name(x) or (_tuplep(x) and len(x) == 2 and
-                                                              valid_name(x[0])),
+        def valid_parameter_specifier_p(x): return stringp(x) or (symbolp(x) and not keywordp(x))
+        test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (_tuplep(x) and len(x) == 2 and
+                                                              valid_parameter_specifier_p(x[0])),
                                  "In %s: lambda lists can only contain strings, non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
                                  if allow_defaults else
-                                 (valid_name, "In %s: lambda list must consist of strings and non-keyword symbols: %s."))
+                                 (valid_parameter_specifier_p, "In %s: lambda list must consist of strings and non-keyword symbols: %s."))
         ### 0. locate lambda list keywords
         lambda_words = [_optional_, _rest_, _key_, _restkey_]
         optpos,  restpos,  keypos,  restkeypos = lambda_posns = mapcar(lambda x: position(x, list), lambda_words)
         ### 1. ensure proper order of provided lambda list keywords
-        optposp, restposp, keyposp, restkeyposp = mapcar(complement(nonep), lambda_words)
-        toptpos     = optpos or 0
-        trestpos    = restpos or toptpos
-        tkeypos     = keypos or trestpos
-        trestkeypos = restkeypos or tkeypos
-        if not toptpos <= trestpos <= tkeypos <= trestkeypos:
-                error("In %s: %s, %s, %s and %s must appear in that order in the lambda list, when specified.",
-                      context, *lambda_words)
+        optposp, restposp, keyposp, restkeyposp = mapcar(complement(_nonep), lambda_posns)
+        def test_lambda_list_word_order():
+                toptpos     = optpos or 0
+                trestpos    = restpos or toptpos
+                tkeypos     = keypos or trestpos
+                trestkeypos = restkeypos or tkeypos
+                if not toptpos <= trestpos <= tkeypos <= trestkeypos:
+                        error("In %s: %s, %s, %s and %s must appear in that order in the lambda list, when specified.",
+                              context, *lambda_words)
+        test_lambda_list_word_order()
+        # _locals_printf(locals(),
+        #                "optpos",  "restpos",  "keypos",  "restkeypos",
+        #                "optposp", "restposp", "keyposp", "restkeyposp",
+        #               "toptpos", "trestpos", "tkeypos", "trestkeypos")
         ### 2. ensure correct amount of names for provided lambda list keywords
         if (restposp and keyposp and (keypos - restpos != 1) or
             restposp and (not keyposp) and restkeyposp and (restkeypos - restpos != 1) or
@@ -3099,17 +3105,17 @@ def _compile_lispy_lambda_list(context, list, allow_defaults = None):
                 error("In %s: found garbage instead of a lambda list: %s", context, list)
         ### 3. compute argument specifier sets, as determined by provided lambda list keywords
         restkey = restkeyposp and list[restkeypos + 1] or None
-        _keys = list[keypos + 1:restkeypos or None] or tuple()
+        _keys = list[keypos + 1:restkeypos or None] if keypos else tuple()
         keys, keydefs = (tuple(_ensure_car(x)      for x in _keys),
                          tuple(cdr(car(x)) or None for x in _keys))
         rest = restposp and list[restpos + 1] or None
-        _optional = optposp and list[optpos + 1:restpos or keypos or restkeypos or None]
+        _optional = list[optpos + 1:restpos or keypos or restkeypos or None] if optposp else []
         optional, optdefs = (tuple(_ensure_car(x)      for x in _optional),
                              tuple(cdr(car(x)) or None for x in _optional))
         fixed = list[0:optpos or restpos or keypos or restkeypos or None]
         total = fixed + optional + (rest,) + keys + (restkey,) if restkey else tuple()
         ### 4. validate syntax of the provided individual argument specifiers
-        if not every(valid_parameter_specifier, total):
+        if not every(valid_parameter_specifier_p, total):
                 error(failure_message, context, list)
         ### 5. check for duplicate lambda list specifiers
         if len(total) != len(set(total)):
