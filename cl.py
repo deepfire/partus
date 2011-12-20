@@ -3570,13 +3570,16 @@ def lisp(body):
         def _intern_astsexp(x):
                 return (x.n                                       if isinstance(x, ast.Num)   else
                         x.s                                       if isinstance(x, ast.Str)   else
-                        _intern0(x.id)                            if isinstance(x, ast.Name)  else
+                        _read_symbol(x.id)                        if isinstance(x, ast.Name)  else
                         tuple(_intern_astsexp(e) for e in x)      if isinstance(x, list)      else
                         tuple(_intern_astsexp(e) for e in x.elts) if isinstance(x, ast.Tuple) else
                         _intern_astsexp(x.value)                  if isinstance(x, ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
         args_ast, body_ast = _function_ast(body)
-        form = _intern_astsexp(body_ast)
+        if len(body_ast) > 1:
+                error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
+                      "No more than one toplevel form is allowed per definition.")
+        form = _intern_astsexp(body_ast[0])
         ################ Thought paused here..
         __def_allowed_toplevels__ = set([def_])
         if form[0] not in __def_allowed_toplevels__:
