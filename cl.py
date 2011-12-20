@@ -3150,41 +3150,59 @@ def _compiler_warn_discarded_epi(epi, format_control, *format_args):
 ## Atree bfx queries
 ## Lisp-level bound/free
 ## Quote processing
-## FUNCALL order of evaluation
+## FUNCALL order of evaluation (closed?)
+## is the value generally side-effect-free?
+### discarding, reordering evaluation against epilogue
 
-### (SYMBOL) <-
-### (SETF VALUES) <-
-### (RETURN) <-
-### (QUOTE) <-
-### (QUAQUOTE) <-
-### (COMMA) <-
-### | (empty: SYMBOL) <- (PROGN) <-
-### PROGN, RETURN, QUOTE, SYMBOL <- (DEF) <-
-### ??? <- (LET) <-
-### | SYMBOL, LET, FUNCALL <- (FUNCALL) <-
-### LET, DEF <- (FLET) <-
-### PROGN | FLET, SYMBOL <- (LAMBDA) <-
-### FLET, DEF, FUNCALL <- (LABELS) <-
-### PROGN | LET, LET* <- (LET*) <-
+###                                      (QUAQUOTE)    <-
+###                                      (COMMA)       <-
+
+###                                      (SYMBOL)      <-
+###                                      (SETF VALUES) <-
+###                                      (RETURN)      <-
+###                                      (QUOTE)       <-
+###                 | (empty: SYMBOL) <- (PROGN)       <-
+###      PROGN, RETURN, QUOTE, SYMBOL <- (DEF)         <-
+### LAMBDA | LAMBDA, PROGN, SETQ, LET <- (LET)         <-
+###            | SYMBOL, LET, FUNCALL <- (FUNCALL)     <-
+###                          LET, DEF <- (FLET)        <-
+###              PROGN | FLET, SYMBOL <- (LAMBDA)      <-
+###                FLET, DEF, FUNCALL <- (LABELS)      <-
+###                 PROGN | LET, LET* <- (LET*)        <-
 
 @defprimitive # Critical-issue-free.
 def symbol_(name):
+        check_type(name, (or_, str, symbol))
         return ([],
-                ("Name", func_name, ("Load",)),
+                ("Name", string(name), ("Load",)),
                 [])
 
-@defprimitive
-def setf_values_(names, values): # Critical-issue-free.
-        with _maybe_tail_compilation():
-                pro, val, epi = compile_(values)
-        return (pro + [("Assign", ("Tuple", [ ("Name", name, ("Store",)) for name in names ],
-                                   ("Store",)),
+def _compile_name(name, ctx = "Load"):
+        check_type(name, (or_, str, symbol,
+                   (tuple_, (eql_, symbol_), (or_, str, symbol))))
+        if tuplep_(name) and ctx != "Load":
+                error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
+        return (compile_(name)[1] if tuplep_(name) else
+                ("Name", string(name), ctx))
+
+@defprimitive # Critical-issue-free.
+def setq_(name, value):
+        pro, val, epi = compile_(value)
+        return (pro + [("Assign", [_compile_name(name, "Store")])] + epi,
+                _compile_name(name, "Load"),
+                [])
+
+@defprimitive # Critical-issue-free.
+def setf_values_(names, values):
+        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
+        check_type(names, tuple)
+        pro, val, epi = compile_(values)
+        return (pro + [("Assign", [ _compile_name(x, "Store") for x in names ],
                         val)],
-                ("Tuple", [ ("Name", name, ("Load",)) for name in names ],
-                 ("Load",)),
+                ("Tuple", mapcar(_compile_name, names), ("Load",)),
                 epi)
 
-@defprimitive
+@defprimitive # Critical-issue-free.
 def return_(x):
         with _tail_compilation():
                 pro, val, epi = compile_(x)
@@ -3194,20 +3212,25 @@ def return_(x):
                         ("Return", val),
                         [])
 
-@defprimitive
-def quote_(x): # Issue-free, per se.
+@defprimitive # Issue-free, per se.
+def quote_(x):
         with progv(_compiler_quote_ = t):
                 return compile_(x)
 
-@defprimitive
-def quaquote_(x): # Issue-free, per se.
+@defprimitive # imp?
+def quaquote_(x):
         with progv(_compiler_quote_ = t):
                 return compile_(x)
 
-@defprimitive
-def comma_(x): # ..?
+@defprimitive # imp?
+def comma_(x):
         with progv():
                 return compile_(x)
+
+def _compiler_prepend(pro, triplet):
+        return (pro + triplet[0],
+                triplet[1],
+                triplet[2])
 
 @defprimitive # Critical-issue-free.
 def progn_(*body):
@@ -3222,9 +3245,8 @@ def progn_(*body):
                         pro.append(("Expr", val))
                         pro.extend(epi)
         with _maybe_tail_compilation():
-                spro, val, epi = compile_(body[-1])
-                pro.extend(spro)
-        return pro, val, epi
+                return _compiler_prepend(pro,
+                                         compile_(body[-1]))
         ## Not sure the stuff below still makes sense.  Still, am afraid to erase it.
         # lowered_body = mapcan(compile_, body)
         # (( body_bound_vars,  body_free_vars,  body_xtnls),
@@ -3288,6 +3310,8 @@ def let_(bindings, *body):
                 error("LET: malformed bindings: %s.", bindings)
         # Unregistered Issue PRIMITIVE-DECLARATIONS
         bindings_thru_defaulting = tuple(_ensure_cons(b, nil) for b in bindings)
+        names, values = _recombine((list, list), identity, bindings_thru_defaulting)
+        compiled_value_pves = mapcar(compile_, values)
         ## A great optimisation, but mutation can affect:
         ##  - scope of called outside functions
         ##    - cannot optimize if body could jump to local code depending on mutated locals
@@ -3313,10 +3337,21 @@ def let_(bindings, *body):
         #         return (bind_pro + body_pro,
         #                 body_val,
         #                 body_epi)
-        return compile_(((lambda_, binding_thru_defaulting) + body,))
+        if every(_triplet_expression_p, compiled_value_pves):
+                return compile_(((lambda_, binding_thru_defaulting) + body,))
+        else:
+                last_non_expr_posn = position_if_not(_triplet_expression_p, compiled_value_pves, from_end = t)
+                n_nonexprs = last_non_expr_posn + 1
+                temp_names = [ _gensym("LET") for i in range(len(bindings)) ]
+                # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
+                return compile_((progn_,) +
+                                tuple((setq_, n, v) for n, v in zip(temp_names, values[:n_nonexprs])) +
+                                ((let_, tuple(zip(names[:n_nonexprs], temp_names)),
+                                  ((lambda_, tuple(zip(names, temp_names + values[n_nonexprs:]))) + body,)),))
 
 @defprimitive
-def funcall_(func, *args): # /Seems/ alright.
+@defprimitive # /Seems/ alright.
+def funcall_(func, *args):
         # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
         if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
                           # - quote_ compilation in compile_
@@ -3344,8 +3379,8 @@ def funcall_(func, *args): # /Seems/ alright.
                         return compile_((let_, func_binding + tuple(zip(temp_names, args)),
                                          (funcall_, func_exp) + tuple()))
 
-@defprimitive
-def flet_(bindings, *body): # Critical issue-free, but depends on DEF_.
+@defprimitive # Critical issue-free.
+def flet_(bindings, *body):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
         # Unregistered Issue SINGLE-NAMESPACE
@@ -3355,8 +3390,8 @@ def flet_(bindings, *body): # Critical issue-free, but depends on DEF_.
                                      for name, lambda_list, *fbody in bindings)) +
                          body)
 
-@defprimitive
-def lambda_(lambda_list, *body): # Critical-issue-free.
+@defprimitive # Critical-issue-free.
+def lambda_(lambda_list, *body):
         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
         # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
@@ -3373,8 +3408,8 @@ def lambda_(lambda_list, *body): # Critical-issue-free.
                 return compile_((flet_, ((func_name, lambda_list) + body,),
                                  (symbol_, func_name)))
 
-@defprimitive
-def labels_(bindings, *body): # Critical-issue-free, per se, but depends on DEF_.
+@defprimitive # Critical-issue-free, per se, but depends on DEF_.
+def labels_(bindings, *body):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
         # Unregistered Issue SINGLE-NAMESPACE
