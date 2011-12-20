@@ -1927,12 +1927,13 @@ def intern(x, package = None):
         s, found_in_package = _intern(x, package)
         return s, (symbol_relation(s, found_in_package) if found_in_package else
                    None)
-def _intern0(x, package = None): return intern(the(str, x),         package)[0]
-def _i(x):                       return intern(the(str, x).upper(), None)[0]
 
+### handi-tools
+def _intern0(x, package = None): return intern(the(str, x),         package)[0]
 # requires that __keyword_package__ is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
 def _keyword(s, upcase = True):
         return _intern((s.upper() if upcase else s), __keyword_package__)[0]
+def _i(x):                       return intern(the(str, x).upper(), None)[0]
 _k = _keyword
 
 def import_(symbols, package = None, populate_module = True):
@@ -2060,6 +2061,22 @@ def defparameter(name, value, documentation = nil):
         "XXX: documentation, declaring as special"
         setq(name, value)
         return name
+
+def _read_symbol(x, package = None, case = _keyword("upcase")):
+        # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
+        name, p = ((x[1:], __keyword_package__)
+                   if x[0] == ":" else
+                   let(x.find(":"),
+                       lambda index:
+                               (_if_let(find_package(x[0:index].upper()),
+                                        lambda p:
+                                                (x[index + 1:], p),
+                                        lambda:
+                                                error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
+                                                      x[0:index].upper(), x))
+                                if index != -1 else
+                                (x, _coerce_to_package(package)))))
+        return _intern0(_case_xform(case, name), p)
 ###
 ##
 #
@@ -4086,22 +4103,6 @@ def parse_integer(xs, junk_allowed = nil, radix = 10):
                         else:
                                 error("Junk in string \"%s\".", xs)
         return int(xform(xs[:(end + 1)]))
-
-def _read_symbol(x, package = None, case = _keyword("upcase")):
-        # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
-        name, p = ((x[1:], __keyword_package__)
-                   if x[0] == ":" else
-                   let(x.find(":"),
-                       lambda index:
-                               (_if_let(find_package(x[0:index].upper()),
-                                        lambda p:
-                                                (x[index + 1:], p),
-                                        lambda:
-                                                error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
-                                                      x[0:index].upper(), x))
-                                if index != -1 else
-                                (x, _coerce_to_package(package)))))
-        return _intern0(_case_xform(case, name), p)
 
 end_of_file = EOFError
 
