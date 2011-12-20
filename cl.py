@@ -487,15 +487,15 @@ def _pp_frame(f, align = None, handle_overflow = None, lineno = None):
                                  fun_name, ", ".join(fun_params)))
 
 def _print_frame(f, stream = None, **keys):
-        write_string(_pp_frame(f, **keys), _defaulted_to_var(stream, "_debug_io_"))
+        write_string(_pp_frame(f, **keys), _defaulted_to_var(stream, "_DEBUG_IO_"))
 
 def _print_frames(fs, stream = None):
-        mapc(lambda i, f: format(_defaulted_to_var(stream, "_debug_io_"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
+        mapc(lambda i, f: format(_defaulted_to_var(stream, "_DEBUG_IO_"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
              *zip(*enumerate(fs)))
 
 def _backtrace(x = -1, stream = None):
         _print_frames(_frames_calling(_this_frame())[1:x],
-                      _defaulted_to_var(stream, "_debug_io_"))
+                      _defaulted_to_var(stream, "_DEBUG_IO_"))
 
 def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_line = None):
         def _pp_frame_in_chain(f, pretty = None):
@@ -1812,15 +1812,15 @@ def find_package(name, errorp = False):
 
 # Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
 def _ccoerce_to_package(x, if_null = "current", **args):
-        return (x                         if packagep(x)                      else
-                symbol_value("_package_") if (not x) and if_null == "current" else
-                _find_package(x)          if stringp(x) or symbolp(x)         else
+        return (x                          if packagep(x)                      else
+                _symbol_value("_PACKAGE_") if (not x) and if_null == "current" else
+                _find_package(x)           if stringp(x) or symbolp(x)         else
                 error(simple_type_error, "CCOERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
                       x, type_of(x)))
 def _coerce_to_package(x, if_null = "current"):
-        return (x                         if packagep(x)                      else
-                symbol_value("_package_") if (not x) and if_null == "current" else
-                find_package(x, True)     if stringp(x) or symbolp(x)         else
+        return (x                          if packagep(x)                      else
+                _symbol_value("_PACKAGE_") if (not x) and if_null == "current" else
+                find_package(x, True)      if stringp(x) or symbolp(x)         else
                 error(simple_type_error, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
                       x, type_of(x)))
 
@@ -1831,7 +1831,7 @@ def defpackage(name, use = [], export = []):
         return p
 
 def in_package(name):
-        setq("_package_", _coerce_to_package(name))
+        setq("_PACKAGE_", _coerce_to_package(name))
 
 def fboundp(x):
         return hasattr(the(symbol, x), "__call__")
@@ -2036,9 +2036,9 @@ _init_reader_0()         ########### _coerce_to_symbol_name() is now available
 def _init_package_system_1():
         # Ought to declare it all on the top level.
         in_package("COMMON-LISP-USER")
-        setq("_features_", [])
-        setq("_modules_",  [])
 
+        setq("_FEATURES_", [])
+        setq("_MODULES_",  [])
 _init_package_system_1()
 
 ###
@@ -3125,9 +3125,9 @@ defvar("_compiler_tailp_")
 class _compiler_def(_servile):
         pass
 
-def _compiling_def():     return symbol_value("_compiler_def_")
-def _compiling_tail_p():  return symbol_value("_compiler_tailp_")
-def _compiling_quote_p(): return symbol_value("_compiler_quote_")
+def _compiling_def():     return symbol_value("_COMPILER_DEF_")
+def _compiling_tail_p():  return symbol_value("_COMPILER_TAILP_")
+def _compiling_quote_p(): return symbol_value("_COMPILER_QUOTE_")
 
 _tail_compilation       = _defwith("_tail_compilation",
                                    lambda *_: _dynamic_scope_push(dict(_compiler_tailp_ = t)),
@@ -3214,12 +3214,12 @@ def return_(x):
 
 @defprimitive # Issue-free, per se.
 def quote_(x):
-        with progv(_compiler_quote_ = t):
+        with progv(_COMPILER_QUOTE_ = T):
                 return compile_(x)
 
 @defprimitive # imp?
 def quaquote_(x):
-        with progv(_compiler_quote_ = t):
+        with progv(_COMPILER_QUOTE_ = t):
                 return compile_(x)
 
 @defprimitive # imp?
@@ -3262,10 +3262,10 @@ def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an ack
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
         cdef = _compiler_def(name   = name,
                              parent = _compiling_def())
-        toplevelp = symbol_value("_compiler_toplevel_p_")
-        with progv(_compiler_def_        = cdef,
-                   _compiler_toplevel_p_ = nil):
-                check_type(name, (or_, str, (and_, symbol, (not_, (satisfies_, keyword)))))
+        toplevelp = symbol_value("_COMPILER_TOPLEVEL_P_")
+        with progv(_COMPILER_DEF_        = cdef,
+                   _COMPILER_TOPLEVEL_P_ = nil):
+                check_type(name, (or_, str, (and_, symbol, (not_, (satisfies_, keywordp)))))
                 def try_compile():
                         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                         compiled_lambda_list, (fixed, optional, rest, keys, restkey,
@@ -3606,27 +3606,27 @@ def copy_readtable(x):
 __standard_pprint_dispatch__ = dict() # XXX: this is crap!
 __standard_readtable__       = readtable() # XXX: this is crap!
 
-__standard_io_syntax__ = dict(_package_               = find_package("COMMON-LISP-USER"),
-                              _print_array_           = t,
-                              _print_base_            = 10,
-                              _print_case_            = _keyword("upcase"),
-                              _print_circle_          = nil,
-                              _print_escape_          = t,
-                              _print_gensym_          = t,
-                              _print_length_          = nil,
-                              _print_level_           = nil,
-                              _print_lines_           = nil,
-                              _print_miser_width_     = nil,
-                              _print_pprint_dispatch_ = __standard_pprint_dispatch__,
-                              _print_pretty_          = t,
-                              _print_radix_           = nil,
-                              _print_readably_        = nil,
-                              _print_right_margin_    = nil,
-                              _read_base_                 = 10,
-                              _read_default_float_format_ = "single-float",
-                              _read_eval_                 = t,
-                              _read_suppress_             = nil,
-                              _readtable_                 = __standard_readtable__)
+__standard_io_syntax__ = dict(_PACKAGE_               = find_package("COMMON-LISP-USER"),
+                              _PRINT_ARRAY_           = t,
+                              _PRINT_BASE_            = 10,
+                              _PRINT_CASE_            = _keyword("upcase"),
+                              _PRINT_CIRCLE_          = nil,
+                              _PRINT_ESCAPE_          = t,
+                              _PRINT_GENSYM_          = t,
+                              _PRINT_LENGTH_          = nil,
+                              _PRINT_LEVEL_           = nil,
+                              _PRINT_LINES_           = nil,
+                              _PRINT_MISER_WIDTH_     = nil,
+                              _PRINT_PPRINT_DISPATCH_ = __standard_pprint_dispatch__,
+                              _PRINT_PRETTY_          = t,
+                              _PRINT_RADIX_           = nil,
+                              _PRINT_READABLY_        = nil,
+                              _PRINT_RIGHT_MARGIN_    = nil,
+                              _READ_BASE_                 = 10,
+                              _READ_DEFAULT_FLOAT_FORMAT_ = "single-float",
+                              _READ_EVAL_                 = t,
+                              _READ_SUPPRESS_             = nil,
+                              _READTABLE_                 = __standard_readtable__)
 
 def with_standard_io_syntax(body):
         """Within the dynamic extent of the BODY of forms, all reader/printer
@@ -3661,7 +3661,7 @@ Variable                     Value
         with progv(**__standard_io_syntax__):
                 return body()
 
-setq("_print_array_",           __standard_io_syntax__["_print_array_"])
+setq("_PRINT_ARRAY_",           __standard_io_syntax__["_PRINT_ARRAY_"])
 """Controls the format in which arrays are printed. If it is false,
 the contents of arrays other than strings are never printed. Instead,
 arrays are printed in a concise form using #< that gives enough
@@ -3669,7 +3669,7 @@ information for the user to be able to identify the array, but does
 not include the entire array contents. If it is true, non-string
 arrays are printed using #(...), #*, or #nA syntax."""
 
-setq("_print_base_",            __standard_io_syntax__["_print_base_"])
+setq("_PRINT_BASE_",            __standard_io_syntax__["_PRINT_BASE_"])
 """*PRINT-BASE* and *PRINT-RADIX* control the printing of
 rationals. The value of *PRINT-BASE* is called the current output
 base.
@@ -3678,7 +3678,7 @@ The value of *PRINT-BASE* is the radix in which the printer will print
 rationals. For radices above 10, letters of the alphabet are used to
 represent digits above 9."""
 
-setq("_print_case_",            __standard_io_syntax__["_print_case_"])
+setq("_PRINT_CASE_",            __standard_io_syntax__["_PRINT_CASE_"])
 """The value of *PRINT-CASE* controls the case (upper, lower, or
 mixed) in which to print any uppercase characters in the names of
 symbols when vertical-bar syntax is not used.
@@ -3688,7 +3688,7 @@ symbols when vertical-bar syntax is not used.
 value of *PRINT-ESCAPE* is true unless inside an escape context
 (i.e., unless between vertical-bars or after a slash)."""
 
-setq("_print_circle_",          __standard_io_syntax__["_print_circle_"])
+setq("_PRINT_CIRCLE_",          __standard_io_syntax__["_PRINT_CIRCLE_"])
 """Controls the attempt to detect circularity and sharing in an object
 being printed.
 
@@ -3710,7 +3710,7 @@ Note that implementations should not use #n# notation when the Lisp
 reader would automatically assure sharing without it (e.g., as happens
 with interned symbols)."""
 
-setq("_print_escape_",          __standard_io_syntax__["_print_escape_"])
+setq("_PRINT_ESCAPE_",          __standard_io_syntax__["_PRINT_ESCAPE_"])
 """If false, escape characters and package prefixes are not output
 when an expression is printed.
 
@@ -3722,12 +3722,12 @@ For more specific details of how the value of *PRINT-ESCAPE* affects
 the printing of certain types, see Section 22.1.3 (Default
 Print-Object Methods)."""
 
-setq("_print_gensym_",          __standard_io_syntax__["_print_gensym_"])
+setq("_PRINT_GENSYM_",          __standard_io_syntax__["_PRINT_GENSYM_"])
 """Controls whether the prefix ``#:'' is printed before apparently
 uninterned symbols. The prefix is printed before such symbols if and
 only if the value of *PRINT-GENSYM* is true."""
 
-setq("_print_length_",          __standard_io_syntax__["_print_length_"])
+setq("_PRINT_LENGTH_",          __standard_io_syntax__["_PRINT_LENGTH_"])
 """*PRINT-LENGTH* controls how many elements at a given level are
 printed. If it is false, there is no limit to the number of components
 printed. Otherwise, it is an integer indicating the maximum number of
@@ -3741,7 +3741,7 @@ list, if the list contains exactly as many elements as the value of
 printed with a list-like syntax. They do not affect the printing of
 symbols, strings, and bit vectors."""
 
-setq("_print_level_",           __standard_io_syntax__["_print_level_"])
+setq("_PRINT_LEVEL_",           __standard_io_syntax__["_PRINT_LEVEL_"])
 """*PRINT-LEVEL* controls how many levels deep a nested object will
 print. If it is false, then no control is exercised. Otherwise, it is
 an integer indicating the maximum level to be printed. An object to be
@@ -3754,19 +3754,19 @@ components and is at a level equal to or greater than the value of
 printed with a list-like syntax. They do not affect the printing of
 symbols, strings, and bit vectors."""
 
-setq("_print_lines_",           __standard_io_syntax__["_print_lines_"])
+setq("_PRINT_LINES_",           __standard_io_syntax__["_PRINT_LINES_"])
 """When the value of *PRINT-LINES* is other than NIL, it is a limit on
 the number of output lines produced when something is pretty
 printed. If an attempt is made to go beyond that many lines, ``..'' is
 printed at the end of the last line followed by all of the suffixes
 (closing delimiters) that are pending to be printed."""
 
-setq("_print_miser_width_",     __standard_io_syntax__["_print_miser_width_"])
+setq("_PRINT_MISER_WIDTH_",     __standard_io_syntax__["_PRINT_MISER_WIDTH_"])
 """If it is not NIL, the pretty printer switches to a compact style of
 output (called miser style) whenever the width available for printing
 a substructure is less than or equal to this many ems."""
 
-setq("_print_pprint_dispatch_", __standard_io_syntax__["_print_pprint_dispatch_"])
+setq("_PRINT_PPRINT_DISPATCH_", __standard_io_syntax__["_PRINT_PPRINT_DISPATCH_"])
 """The PPRINT dispatch table which currently controls the pretty printer.
 
 Initial value is implementation-dependent, but the initial entries all
@@ -3775,7 +3775,7 @@ less than every priority that can be specified using
 SET-PPRINT-DISPATCH, so that the initial contents of any entry can be
 overridden."""
 
-setq("_print_pretty_",          __standard_io_syntax__["_print_pretty_"])
+setq("_PRINT_PRETTY_",          __standard_io_syntax__["_PRINT_PRETTY_"])
 """Controls whether the Lisp printer calls the pretty printer.
 
 If it is false, the pretty printer is not used and a minimum of
@@ -3788,7 +3788,7 @@ expressions more readable.
 *PRINT-PRETTY* has an effect even when the value of *PRINT-ESCAPE* is
 false."""
 
-setq("_print_radix_",           __standard_io_syntax__["_print_radix_"])
+setq("_PRINT_RADIX_",           __standard_io_syntax__["_PRINT_RADIX_"])
 """*PRINT-BASE* and *PRINT-RADIX* control the printing of
 rationals. The value of *PRINT-BASE* is called the current output
 base.
@@ -3801,7 +3801,7 @@ is #b, #o, or #x, respectively. For integers, base ten is indicated by
 a trailing decimal point instead of a leading radix specifier; for
 ratios, #10r is used."""
 
-setq("_print_readably_",        __standard_io_syntax__["_print_readably_"])
+setq("_PRINT_READABLY_",        __standard_io_syntax__["_PRINT_READABLY_"])
 """If *PRINT-READABLY* is true, some special rules for printing
 objects go into effect. Specifically, printing any object O1 produces
 a printed representation that, when seen by the Lisp reader while the
@@ -3830,7 +3830,7 @@ If *READ-EVAL* is false and *PRINT-READABLY* is true, any such method
 that would output a reference to the ``#.'' reader macro will either
 output something else or will signal an error (as described above)."""
 
-setq("_print_right_margin_",    __standard_io_syntax__["_print_right_margin_"])
+setq("_PRINT_RIGHT_MARGIN_",    __standard_io_syntax__["_PRINT_RIGHT_MARGIN_"])
 """If it is non-NIL, it specifies the right margin (as integer number
 of ems) to use when the pretty printer is making layout decisions.
 
@@ -3839,19 +3839,19 @@ such that output can be displayed without wraparound or truncation. If
 this cannot be determined, an implementation-dependent value is
 used."""
 
-setq("_read_base_",                 __standard_io_syntax__["_read_base_"])
+setq("_READ_BASE_",                 __standard_io_syntax__["_READ_BASE_"])
 """."""
 
-setq("_read_default_float_format_", __standard_io_syntax__["_read_default_float_format_"])
+setq("_READ_DEFAULT_FLOAT_FORMAT_", __standard_io_syntax__["_READ_DEFAULT_FLOAT_FORMAT_"])
 """."""
 
-setq("_read_eval_",                 __standard_io_syntax__["_read_eval_"])
+setq("_READ_EVAL_",                 __standard_io_syntax__["_READ_EVAL_"])
 """."""
 
-setq("_read_suppress_",             __standard_io_syntax__["_read_suppress_"])
+setq("_READ_SUPPRESS_",             __standard_io_syntax__["_READ_SUPPRESS_"])
 """."""
 
-setq("_readtable_",                 __standard_io_syntax__["_readtable_"])
+setq("_READTABLE_",                 __standard_io_syntax__["_READTABLE_"])
 """."""
 
 def _print_symbol(s, escape = None, gensym = None, case = None, package = None, readably = None):
@@ -3865,13 +3865,13 @@ def _print_symbol(s, escape = None, gensym = None, case = None, package = None, 
         #
         # Individual methods for PRINT-OBJECT, including user-defined methods,
         # are responsible for implementing these requirements.
-        package  = _defaulted_to_var(package,  "_package_")
+        package  = _defaulted_to_var(package,  "_PACKAGE_")
         if not packagep(package):
                 _here("------------------------------------------------------------\npackage is a %s: %s" % (type_of(package), package,))
-        readably = _defaulted_to_var(readably, "_print_readably_")
-        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
-        case     = _defaulted_to_var(case,     "_print_case_")   if not readably else t
-        gensym   = _defaulted_to_var(gensym,   "_print_gensym_") if not readably else t
+        readably = _defaulted_to_var(readably, "_PRINT_READABLY_")
+        escape   = _defaulted_to_var(escape,   "_PRINT_ESCAPE_") if not readably else t
+        case     = _defaulted_to_var(case,     "_PRINT_CASE_")   if not readably else t
+        gensym   = _defaulted_to_var(gensym,   "_PRINT_GENSYM_") if not readably else t
         # Because the #: syntax does not intern the following symbol, it is
         # necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
         # the same uninterned symbol appears several times in an expression to
@@ -3898,8 +3898,8 @@ printing of strings is not affected by *PRINT-ARRAY*. Only the active
 elements of the string are printed."""
         # XXX: "active elements of the string"
         # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
-        readably = _defaulted_to_var(readably, "_print_readably_")
-        escape   = _defaulted_to_var(escape,   "_print_escape_") if not readably else t
+        readably = _defaulted_to_var(readably, "_PRINT_READABLY_")
+        escape   = _defaulted_to_var(escape,   "_PRINT_ESCAPE_") if not readably else t
         return (x if not escape else
                 ("\"" + _without_condition_system(
                                 lambda: re.sub(r"([\"\\])", r"\\\1", x),
@@ -3944,21 +3944,21 @@ def write_to_string(object,
                     readably = None,
                     right_margin = None):
         "XXX: does not conform!"
-        array           = _defaulted_to_var(array,           "_print_array_")
-        base            = _defaulted_to_var(base,            "_print_base_")
-        case            = _defaulted_to_var(case,            "_print_case_")
-        circle          = _defaulted_to_var(circle,          "_print_circle_")
-        escape          = _defaulted_to_var(escape,          "_print_escape_")
-        gensym          = _defaulted_to_var(gensym,          "_print_gensym_")
-        length          = _defaulted_to_var(length,          "_print_length_")
-        level           = _defaulted_to_var(level,           "_print_level_")
-        lines           = _defaulted_to_var(lines,           "_print_lines_")
-        miser_width     = _defaulted_to_var(miser_width,     "_print_miser_width_")
-        pprint_dispatch = _defaulted_to_var(pprint_dispatch, "_print_pprint_dispatch_")
-        pretty          = _defaulted_to_var(pretty,          "_print_pretty_")
-        radix           = _defaulted_to_var(radix,           "_print_radix_")
-        readably        = _defaulted_to_var(readably,        "_print_readably_")
-        right_margin    = _defaulted_to_var(right_margin,    "_print_right_margin_")
+        array           = _defaulted_to_var(array,           "_PRINT_ARRAY_")
+        base            = _defaulted_to_var(base,            "_PRINT_BASE_")
+        case            = _defaulted_to_var(case,            "_PRINT_CASE_")
+        circle          = _defaulted_to_var(circle,          "_PRINT_CIRCLE_")
+        escape          = _defaulted_to_var(escape,          "_PRINT_ESCAPE_")
+        gensym          = _defaulted_to_var(gensym,          "_PRINT_GENSYM_")
+        length          = _defaulted_to_var(length,          "_PRINT_LENGTH_")
+        level           = _defaulted_to_var(level,           "_PRINT_LEVEL_")
+        lines           = _defaulted_to_var(lines,           "_PRINT_LINES_")
+        miser_width     = _defaulted_to_var(miser_width,     "_PRINT_MISER_WIDTH_")
+        pprint_dispatch = _defaulted_to_var(pprint_dispatch, "_PRINT_PPRINT_DISPATCH_")
+        pretty          = _defaulted_to_var(pretty,          "_PRINT_PRETTY_")
+        radix           = _defaulted_to_var(radix,           "_PRINT_RADIX_")
+        readably        = _defaulted_to_var(readably,        "_PRINT_READABLY_")
+        right_margin    = _defaulted_to_var(right_margin,    "_PRINT_RIGHT_MARGIN_")
         # assert(True
         #        and array is t
         #        and base is 10
@@ -4067,7 +4067,7 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
 ##
 ## Reader
 ##
-setq("_read_case_", _keyword("upcase"))
+setq("_READ_CASE_", _keyword("upcase"))
 
 def parse_integer(xs, junk_allowed = nil, radix = 10):
         l = len(xs)
@@ -4213,13 +4213,13 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
         return ret
 
 def read_line(stream = None, eof_error_p = True, eof_value = nil):
-        stream = _defaulted_to_var(stream, "_standard_input_")
+        stream = _defaulted_to_var(stream, "_STANDARD_INPUT_")
         return handler_case(lambda: stream.readline(),
                             (error_,
                              lambda c: error(end_of_file, "end of file on %s" % (stream,))))
 
 def read_char(stream = None, eof_error_p = True, eof_value = nil, recursivep = nil):
-        stream = _defaulted_to_var(stream, "_standard_input_")
+        stream = _defaulted_to_var(stream, "_STANDARD_INPUT_")
         ret = the(_io._IOBase, stream).read(1)
         return (ret       if ret             else
                 eof_value if not eof_error_p else
@@ -4248,7 +4248,7 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
                      lambda c: c not in " \t\n" if peek_type is t                             else
                      lambda c: c == peek_type   if stringp(peek_type) and len(peek_type) == 1 else
                      error("Invalid peek-type: '%s'.", peek_type))
-        stream = _defaulted(input_stream, symbol_value("_standard_input_"))
+        stream = _defaulted(input_stream, symbol_value("_STANDARD_INPUT_"))
         while True:
                 char = read_char(stream, eof_error_p, eof_value, recursive_p)
                 if criterion(char):
@@ -4408,11 +4408,11 @@ def make_two_way_stream(input, output):   return two_way_stream(input, output)
 def two_way_stream_input_stream(stream):  return stream.input
 def two_way_stream_output_stream(stream): return stream.output
 
-setq("_standard_input_",  sys.stdin)
-setq("_standard_output_", sys.stdout)
-setq("_error_output_",    sys.stderr)
-setq("_debug_io_",        make_two_way_stream(symbol_value("_standard_input_"), symbol_value("_standard_output_")))
-setq("_query_io_",        make_two_way_stream(symbol_value("_standard_input_"), symbol_value("_standard_output_")))
+setq("_STANDARD_INPUT_",  sys.stdin)
+setq("_STANDARD_OUTPUT_", sys.stdout)
+setq("_ERROR_OUTPUT_",    sys.stderr)
+setq("_DEBUG_IO_",        make_two_way_stream(symbol_value("_STANDARD_INPUT_"), symbol_value("_STANDARD_OUTPUT_")))
+setq("_QUERY_IO_",        make_two_way_stream(symbol_value("_STANDARD_INPUT_"), symbol_value("_STANDARD_OUTPUT_")))
 
 class broadcast_stream(stream):
         def __init__(self, *streams):
@@ -4454,7 +4454,7 @@ def stream_external_format(stream):
 
 def _coerce_to_stream(x):
         return (x                                 if streamp(x) else
-                symbol_value("_standard_output_") if x is t else
+                symbol_value("_STANDARD_OUTPUT_") if x is t else
                 error("%s cannot be coerced to a stream.", x))
 
 class stream_type_error(simple_condition, io.UnsupportedOperation):
@@ -4592,9 +4592,9 @@ def error(datum, *args, **keys):
 ##
 #
 
-setq("_presignal_hook_", nil)
-setq("_prehandler_hook_", nil)
-setq("_debugger_hook_",  nil)
+setq("_PRESIGNAL_HOOK_", nil)
+setq("_PREHANDLER_HOOK_", nil)
+setq("_DEBUGGER_HOOK_",  nil)
 
 def _report_handling_handover(cond, frame, hook):
         format(sys.stderr, "Handing over handling of %s to frame %s\n",
@@ -4605,7 +4605,7 @@ def signal(cond):
                 for type, handler in cluster:
                         if not stringp(type):
                                 if typep(cond, type):
-                                        hook = symbol_value("_prehandler_hook_")
+                                        hook = symbol_value("_PREHANDLER_HOOK_")
                                         if hook:
                                                 frame = assoc("__frame__", cluster)
                                                 assert(frame)
@@ -4616,12 +4616,12 @@ def signal(cond):
 def warn(datum, *args, **keys):
         cond = make_condition(datum, *args, default_type = simple_warning, **keys)
         signal(cond)
-        format(symbol_value("_error_output_"), "%s", cond)
+        format(symbol_value("_ERROR_OUTPUT_"), "%s", cond)
         return nil
 
 def invoke_debugger(cond):
         "XXX: non-compliant: doesn't actually invoke the debugger."
-        debugger_hook = symbol_value("_debugger_hook_")
+        debugger_hook = symbol_value("_DEBUGGER_HOOK_")
         if debugger_hook:
                 with env.let(_debugger_hook_ = nil):
                         debugger_hook(cond, debugger_hook)
@@ -4629,7 +4629,7 @@ def invoke_debugger(cond):
 
 __main_thread__ = threading.current_thread()
 def _report_condition(cond, stream = None, backtrace = None):
-        stream = _defaulted_to_var(stream, "_debug_io_")
+        stream = _defaulted_to_var(stream, "_DEBUG_IO_")
         format(stream, "%sondition of type %s: %s\n",
                (("In thread \"%s\": c" % threading.current_thread().name)
                 if threading.current_thread() is not __main_thread__ else
@@ -4645,7 +4645,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
                 def wrapped_hook(cond, hook_value):
                         "Let's honor the old hook."
                         _report_condition(cond,
-                                          stream = symbol_value("_debug_io_"),
+                                          stream = symbol_value("_DEBUG_IO_"),
                                           backtrace = backtrace)
                         if old_hook_value:
                                 old_hook_value(cond, old_hook_value)
@@ -4736,22 +4736,22 @@ def __cl_condition_handler__(condspec, frame):
                                 _here("Condition Upgrader: %s(%s) -> %s(%s)",
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
-                                      callers = 45, frame = symbol_value("_stack_top_hint_"))
+                                      callers = 45, frame = symbol_value("_STACK_TOP_HINT_"))
                         with env.let(_traceback_ = traceback,
                                      _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
-                                presignal_hook = symbol_value("_presignal_hook_")
+                                presignal_hook = symbol_value("_PRESIGNAL_HOOK_")
                                 if presignal_hook:
-                                        with env.let(_presignal_hook_ = nil):
+                                        with env.let(_PRESIGNAL_HOOK_ = nil):
                                                 presignal_hook(cond, presignal_hook)
                                 signal(cond)
-                                debugger_hook = symbol_value("_debugger_hook_")
+                                debugger_hook = symbol_value("_DEBUGGER_HOOK_")
                                 if debugger_hook:
-                                        with env.let(_debugger_hook_ = nil):
+                                        with env.let(_DEBUGGER_HOOK_ = nil):
                                                 debugger_hook(cond, debugger_hook)
                         return cond
                 else:
                         return raw_cond
-        with progv(_stack_top_hint_ = _caller_frame(caller_relative = 1)):
+        with progv(_STACK_TOP_HINT_ = _caller_frame(caller_relative = 1)):
                 cond = sys.call_tracing(continuation, tuple())
         if type_of(cond) not in __not_even_conditions__:
                 is_not_ball = type_of(cond) is not __catcher_throw__
@@ -5066,7 +5066,7 @@ def describe(x, stream = t, show_hidden = nil):
 ##
 ## Modules
 ##
-setq("_module_provider_functions_", [])
+setq("_MODULE_PROVIDER_FUNCTIONS_", [])
 
 def _module_filename(module):
         return "%s/%s.py" % (env.partus_path, _coerce_to_symbol_name(module))
@@ -5075,8 +5075,8 @@ def load(pathspec, verbose = None, print = None,
          if_does_not_exist = t,
          external_format = "default"):
         "XXX: not in compliance"
-        verbose = _defaulted_to_var(verbose, "_load_verbose_")
-        print   = _defaulted_to_var(verbose, "_load_print_")
+        verbose = _defaulted_to_var(verbose, "_LOAD_VERBOSE_")
+        print   = _defaulted_to_var(verbose, "_LOAD_PRINT_")
         filename = pathspec
         exec(compile(_file_as_string(filename), filename, "exec"))
         return True
@@ -5136,7 +5136,7 @@ def _coerce_to_expr(x):
 
 def _eval_python(expr_or_stmt):
         "In AST form, naturally."
-        package = symbol_value("_package_")
+        package = symbol_value("_PACKAGE_")
         exprp = typep(the(ast.AST, expr_or_stmt), (or_, ast.expr, ast.Expr))
         call = ast.fix_missing_locations(_ast_module(
                         [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
@@ -5149,7 +5149,7 @@ def _eval_python(expr_or_stmt):
                                      error("EVAL: error while trying to compile <%s>: %s",
                                            more_ast.pp_ast_as_code(expr_or_stmt), cond)))
         if boundp("_source_for_eval_"):
-                __eval_source_cache__[code] = symbol_value("_source_for_eval_")
+                __eval_source_cache__[code] = symbol_value("_SOURCE_FOR_EVAL_")
         # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         exec(code, _find_module(_lisp_symbol_name_python_name(package_name(package))).__dict__)
         values = (__evget__() if exprp else
@@ -5157,7 +5157,7 @@ def _eval_python(expr_or_stmt):
         return values if _tuplep(values) else (values,)
 
 def _callify(form, package = None, quoted = False):
-        package = _defaulted_to_var(package, "_package_")
+        package = _defaulted_to_var(package, "_PACKAGE_")
         def callify_call(sym, args):
                 func = function(the(symbol, sym))
                 paramspec = inspect.getfullargspec(func)
@@ -5212,7 +5212,7 @@ def _callify(form, package = None, quoted = False):
                 error("Unable to convert form %s", form)
 
 def eval_(form):
-        package = symbol_value("_package_")
+        package = symbol_value("_PACKAGE_")
         return _eval_python(_callify(form, package))
 
 def _valid_declaration_p(x):
