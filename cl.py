@@ -549,7 +549,10 @@ def _debug_printf(format_control, *format_args):
         _fprintf(sys.stderr, format_control + "\n", *format_args)
 
 def _locals_printf(locals, *local_names):
-        _fprintf(sys.stderr, ", ".join("%s: %%s" % x for x in local_names) + "\n", *(locals[x] for x in local_names))
+        # Unregistered Issue NEWLINE-COMMA-SEPARATION-NOT-PRETTY
+        _fprintf(sys.stderr, ", ".join((("%s: %%s" % x) if stringp(x) else "%s")
+                                       for x in local_names) + "\n",
+                 *((locals[x] if stringp(x) else "\n") for x in local_names))
 
 # >>> dir(f)
 # ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
@@ -828,11 +831,10 @@ def _separate(n, f, xs):
         return ss
 
 __combiners__ = { set: set.add, list: list.append }
-def _recombine(spec, f, *xss):
+def _recombine(spec, f, xss):
         accs  = tuple(f() for f in spec)
         combs = tuple(__combiners__[type(a)] for a in accs)
-        for xs in zip(*xss):
-                _debug_printf("reco: xs %s", xs)
+        for xs in xss:
                 for acc, comb, reselt in zip(accs, combs, f(xs)):
                         comb(acc, reselt)
         return accs
@@ -2093,6 +2095,31 @@ def _read_symbol(x, package = None, case = _keyword("upcase")):
 ##
 #
 
+###
+### Earlified streaming
+###
+
+def make_string_output_stream():
+        return io.StringIO()
+
+def get_output_stream_string(x):
+        return x.getvalue()
+
+def make_string_input_stream(x):
+        return io.StringIO(x)
+
+def close(x):
+        x.close()
+
+def file_position(x):
+        return x.seek(0, 1)
+
+def setf_file_position(x, posn):
+        return x.seek(posn)
+###
+##
+#
+
 def setf_fdefinition(symbol_name, function):
         symbol_name = string(symbol_name)
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
@@ -2514,26 +2541,27 @@ all AST-trees .. except for the case of tuples."""
                 error("The argument \"%s\" of %s must be of type \"%s\", but was a %s.",
                       name, (control % args), expected_type, princ_to_string(defacto_value))
         def astify_known(type, args):
-                type = ast.__dict__[type]
-                info = _find_ast_info(type)
-                fields, finfos = _recombine((list, list), identity, info.fields.items())
+                ast_type = ast.__dict__[type]
+                info = _find_ast_info(ast_type)
+                fields, finfos = _recombine((list, list), identity, list(info.fields.items()))
                 positional, optional = _prefix_suffix_if(lambda x: "default" in x, finfos)
                 nfixed, defacto = len(positional), len(args)
                 max = nfixed + len(optional)
                 if not (nfixed <= defacto <= max):
-                        argument_count_error(nfixed, max, defacto, "AST type %s", type[0])
+                        argument_count_error(nfixed, max, defacto, "AST type %s", type)
                 effective_args = args + mapcar(_indexing("default"), optional[defacto - nfixed:])
                 assert(len(effective_args) == max)
                 for val, name, finfo in zip(effective_args, fields, finfos):
-                        type = finfo.type
-                        if not typep(val, type):
-                                argument_type_error(name, type, val, "AST node %s", type[0])
-                return type(*args)
-        return (_astify_constant(tree)                                          if not _tuplep(tree)           else
-                error("The atree nodes cannot be zero-length.")                 if not tree                    else
-                error("The CAR of an atree must be a string, not %s.", tree[0]) if not stringp(tree[0])        else
-                unknown_ast_type_error(tree[0], tree)                           if tree[0] not in ast.__dict__ else
-                astify_known(tree[0], mapcar(_atree_ast, _from(1, tree))))
+                        subtype = finfo["type"]
+                        if not typep(val, subtype):
+                                argument_type_error(name, subtype, val, "AST node %s", type)
+                return ast_type(*args)
+        return ((_here("asis %s", tree) and tree)                                 if typep(tree, (or_, str, int)) else
+                (_here("t-a-const %s", tree) and _try_astify_constant(tree)[0])                                   if not _tuplep(tree)            else
+                error("The atree nodes cannot be zero-length.")                 if not tree                     else
+                error("The CAR of an atree must be a string, not %s.", tree[0]) if not stringp(tree[0])         else
+                unknown_ast_type_error(tree[0], tree)                           if tree[0] not in ast.__dict__  else
+                (_here("full %s", tree) and astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
 
 # mod = Module(stmt* body)
 #     | Interactive(stmt* body)
@@ -3581,9 +3609,7 @@ def macroexpand_1(form):
 
 def macroexpand(form):
         def do_macroexpand(form, expanded):
-                macex = macroexpand_1(form)
-                _here("macex: -> %s", macex)
-                expansion, expanded_again = macex
+                expansion, expanded_again = macroexpand_1(form)
                 return (do_macroexpand(expansion, t) if expanded_again else
                         (form, expanded))
         return do_macroexpand(form, nil)
@@ -3674,14 +3700,14 @@ def lisp(body):
                 error("In LISP %s: only toplevels in %s are allowed.",
                       form[0], __def_allowed_toplevels__)
         pve = pro, val, epi = compile_(form)
-        ast_ = pro_ast, val_ast, epi_ast = mapcar(_atree_ast, pve)
+        ast_ = pro_ast, val_ast, epi_ast = mapcar(_atree_ast, _triplerator(pve))
         if _debugging_compiler_p():
                 import more_ast
-                _debug_printf(";;; compilation AST output:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
-                              *mapcar(more_ast.pp_ast_as_code, ast_))
+                _debug_printf(";;; compilation AST output %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
+                              ast_, *mapcar(more_ast.pp_ast_as_code, ast_))
         _compiler_warn_discarded_epi(epi, "LISP %s", form[0])
         return _ast_compiled_name(body.__name__,
-                                  *pro,
+                                  ast_,
                                   globals_ = globals(),
                                   locals_  = locals())
 
@@ -4609,24 +4635,6 @@ For details on how the CONTROL-STRING is interpreted, see Section 22.3
 
 def write_line(string, stream = t):
         return write_string(string + "\n", stream)
-
-def make_string_output_stream():
-        return io.StringIO()
-
-def get_output_stream_string(x):
-        return x.getvalue()
-
-def make_string_input_stream(x):
-        return io.StringIO(x)
-
-def close(x):
-        x.close()
-
-def file_position(x):
-        return x.seek(0, 1)
-
-def setf_file_position(x, posn):
-        return x.seek(posn)
 
 def finish_output(stream = t):
         check_type(stream, (or_, stream_, (member_, t, nil)))
