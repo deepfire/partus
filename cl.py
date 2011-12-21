@@ -107,6 +107,9 @@ def _cold_format(destination, control_string, *args):
         else:
                 _write_string(string, sys.stderr if destination is t else destination)
 format = _cold_format
+def _cold_princ_to_string(x):
+        return repr(x)
+princ_to_string = _cold_princ_to_string
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
 
 ###
@@ -828,16 +831,17 @@ __combiners__ = { set: set.add, list: list.append }
 def _recombine(spec, f, *xss):
         accs  = tuple(f() for f in spec)
         combs = tuple(__combiners__[type(a)] for a in accs)
-        for xs in xss:
-                for acc, comb, reselt in zip(accs, combs, f(*xs)):
-                        combs(acc, reselt)
+        for xs in zip(*xss):
+                _debug_printf("reco: xs %s", xs)
+                for acc, comb, reselt in zip(accs, combs, f(xs)):
+                        comb(acc, reselt)
         return accs
-def _recombine_star(spec, f, xs):
+def _recombine_star(spec, f, *xss):
         accs  = tuple(f() for f in spec)
         combs = tuple(__combiners__[type(a)] for a in accs)
-        for xs in xss:
+        for xs in zip(*xss):
                 for acc, comb, reselt in zip(accs, combs, f(*xs)):
-                        combs(acc, reselt)
+                        comb(acc, reselt)
         return accs
 
 def _mapcar_star(f, xs):
@@ -2306,17 +2310,19 @@ def _ast_bound_free(astxs):
                         return info.bound_free(*mapcar(_slot_of(ast), type(ast)._fields))
                 return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
         with progv(_BOUND_FREE_RECURSOR_ = ast_rec):
-                return ast_rec(astxs)
+                return ast_rec(the((or_, ast.AST, (list_, ast.AST)),
+                                   astxs))
 
 def _atree_bound_free(atreexs):
-        def atree_rec(astxs):
+        def atree_rec(atreexs):
                 def bound_free(atree):
                         type = _coerce_to_ast_type(atree[0])
                         info = _find_ast_info(type)
                         return info.bound_free(*atree[1:])
                 return _separate(3, bound_free, remove(None, _ensure_list(atreexs)))
         with progv(_BOUND_FREE_RECURSOR_ = atree_rec):
-                return atree_rec(atreexs)
+                return atree_rec(the((or_, tuple, (list_, tuple)),
+                                     atreexs))
 
 def _atree_bound(atree): return _atree_bound_free(atree)[0]
 def _atree_free(atree):  return _atree_bound_free(atree)[1]
@@ -2508,9 +2514,9 @@ all AST-trees .. except for the case of tuples."""
                 error("The argument \"%s\" of %s must be of type \"%s\", but was a %s.",
                       name, (control % args), expected_type, princ_to_string(defacto_value))
         def astify_known(type, args):
-                type = ast.__dict__[node[0]]
+                type = ast.__dict__[type]
                 info = _find_ast_info(type)
-                fields, finfos = info.fields.items()
+                fields, finfos = _recombine((list, list), identity, info.fields.items())
                 positional, optional = _prefix_suffix_if(lambda x: "default" in x, finfos)
                 nfixed, defacto = len(positional), len(args)
                 max = nfixed + len(optional)
@@ -2524,10 +2530,10 @@ all AST-trees .. except for the case of tuples."""
                                 argument_type_error(name, type, val, "AST node %s", type[0])
                 return type(*args)
         return (_astify_constant(tree)                                          if not _tuplep(tree)           else
-                error("The atree nodes cannot contain empty forms.")            if not tree                    else
+                error("The atree nodes cannot be zero-length.")                 if not tree                    else
                 error("The CAR of an atree must be a string, not %s.", tree[0]) if not stringp(tree[0])        else
                 unknown_ast_type_error(tree[0], tree)                           if tree[0] not in ast.__dict__ else
-                _astify_known(tree[0], mapcar(_astify_tree, _from(1, tree))))
+                astify_known(tree[0], mapcar(_atree_ast, _from(1, tree))))
 
 # mod = Module(stmt* body)
 #     | Interactive(stmt* body)
@@ -2584,7 +2590,7 @@ def _ast_FunctionDef(name:            str,
                  (body_b, body_f, body_x),
                  (_,      deco_f, _),
                  (_,      retn_f, _)) = mapcar(_bound_free_recursor(), [args, body, decorator_list, returns])
-                body_bound = args_b | (body_b - body_x)
+                body_bound = set([name]) | args_b | (body_b - body_x)
                 body_free = body_f - body_bound
                 body_xtnl_writes = body_b & body_x
                 free = args_f | body_free | deco_f | retn_f
@@ -3094,9 +3100,9 @@ def _find_primitive(x):
 ###  expression.
 ###
 
-def _compile_lispy_lambda_list(context, list, allow_defaults = None):
-        if not _tuplep(list):
-                error("In %s: lambda list must be a tuple.", list)
+def _compile_lispy_lambda_list(context, list_, allow_defaults = None):
+        if not _tuplep(list_):
+                error("In %s: lambda list must be a tuple.", list_)
         def valid_parameter_specifier_p(x): return stringp(x) or (symbolp(x) and not keywordp(x))
         test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (_tuplep(x) and len(x) == 2 and
                                                               valid_parameter_specifier_p(x[0])),
@@ -3105,7 +3111,7 @@ def _compile_lispy_lambda_list(context, list, allow_defaults = None):
                                  (valid_parameter_specifier_p, "In %s: lambda list must consist of strings and non-keyword symbols: %s."))
         ### 0. locate lambda list keywords
         lambda_words = [_optional_, _rest_, _key_, _restkey_]
-        optpos,  restpos,  keypos,  restkeypos = lambda_posns = mapcar(lambda x: position(x, list), lambda_words)
+        optpos,  restpos,  keypos,  restkeypos = lambda_posns = mapcar(lambda x: position(x, list_), lambda_words)
         ### 1. ensure proper order of provided lambda list keywords
         optposp, restposp, keyposp, restkeyposp = mapcar(complement(_nonep), lambda_posns)
         def test_lambda_list_word_order():
@@ -3124,25 +3130,25 @@ def _compile_lispy_lambda_list(context, list, allow_defaults = None):
         ### 2. ensure correct amount of names for provided lambda list keywords
         if (restposp and keyposp and (keypos - restpos != 1) or
             restposp and (not keyposp) and restkeyposp and (restkeypos - restpos != 1) or
-            restkeyposp and (len(list) - restkeypos != 2)):
-                error("In %s: found garbage instead of a lambda list: %s", context, list)
+            restkeyposp and (len(list_) - restkeypos != 2)):
+                error("In %s: found garbage instead of a lambda list: %s", context, list_)
         ### 3. compute argument specifier sets, as determined by provided lambda list keywords
-        restkey = restkeyposp and list[restkeypos + 1] or None
-        _keys = list[keypos + 1:restkeypos or None] if keypos else tuple()
-        keys, keydefs = (tuple(_ensure_car(x)      for x in _keys),
-                         tuple(cdr(car(x)) or None for x in _keys))
-        rest = restposp and list[restpos + 1] or None
-        _optional = list[optpos + 1:restpos or keypos or restkeypos or None] if optposp else []
-        optional, optdefs = (tuple(_ensure_car(x)      for x in _optional),
-                             tuple(cdr(car(x)) or None for x in _optional))
-        fixed = list[0:optpos or restpos or keypos or restkeypos or None]
-        total = fixed + optional + (rest,) + keys + (restkey,) if restkey else tuple()
+        restkey = restkeyposp and list_[restkeypos + 1] or None
+        _keys = list(list_[keypos + 1:restkeypos or None]) if keypos else tuple()
+        keys, keydefs = (list(_ensure_car(x)      for x in _keys),
+                         list(cdr(car(x)) or None for x in _keys))
+        rest = restposp and list_[restpos + 1] or None
+        _optional = list(list_[optpos + 1:restpos or keypos or restkeypos or None]) if optposp else []
+        optional, optdefs = (list(_ensure_car(x)      for x in _optional),
+                             list(cdr(car(x)) or None for x in _optional))
+        fixed = list(list_[0:optpos or restpos or keypos or restkeypos or None])
+        total = fixed + optional + (rest,) + keys + (restkey,) if restkey else list()
         ### 4. validate syntax of the provided individual argument specifiers
         if not every(valid_parameter_specifier_p, total):
-                error(failure_message, context, list)
+                error(failure_message, context, list_)
         ### 5. check for duplicate lambda list specifiers
         if len(total) != len(set(total)):
-                error("In %s: duplicate parameter names in lambda list: %s.", context, list)
+                error("In %s: duplicate parameter names in lambda list: %s.", context, list_)
         ### 6. lower
         return ("arguments",
                 mapcar(lambda x: ("arg", string(x)), fixed + optional),
@@ -3169,9 +3175,9 @@ def _triplerator(pve):
                 yield x
 def _triplet_empty_p(pve):      return not (pve[0] or pve[1])
 def _triplet_expression_p(pve): return not (pve[0] or pve[2])
-def _triplet_bound(pve):        return _mapsetn(_atree_bound, _triplerator(pve))
-def _triplet_free(pve):         return _mapsetn(_atree_free,  _triplerator(pve))
-def _triplet_xtnls(pve):        return _mapsetn(_atree_xtnls, _triplerator(pve))
+def _triplet_bound(pve):        return _mapsetn(_atree_bound, _triplerator(the((tuple_, list, tuple, list), pve)))
+def _triplet_free(pve):         return _mapsetn(_atree_free,  _triplerator(the((tuple_, list, tuple, list), pve)))
+def _triplet_xtnls(pve):        return _mapsetn(_atree_xtnls, _triplerator(the((tuple_, list, tuple, list), pve)))
 
 ## Should, probably, be bound by the compiler itself.
 defvar("_COMPILER_TOPLEVEL_P_", t)
@@ -3358,6 +3364,7 @@ def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an ack
                         _compiler_warn_discarded_epi(epi, "DEF %s", name)
                         # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
                         # body_exprp = _triplet_expression_p(preliminary_body_pve) # Why we'd need that, again?
+                        # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                         return ([("FunctionDef", string(name), compiled_lambda_list,
                                                  body_ret)],
                                 compile_((quote_, (symbol_, string(name))))[1],
@@ -3604,10 +3611,9 @@ def compile_(form):
                                 # And so, let the rampant special-casing begin..
                                 if x[0] is symbol_:
                                         len(x) > 2 and error("Invalid SYMBOL pseudo-form: %s.", x)
-                                        return ([], x[1], [])
+                                        return _find_primitive(symbol_)[0](x[1])
                                 else:
-                                        funcall_compiler, _ = _find_primitive(funcall_)
-                                        return funcall_compiler(("tuple",) + x)
+                                        return _find_primitive(funcall_)[0](("tuple",) + x)
                         else:
                                 if symbolp(x[0]):
                                         # Urgent Issue COMPILER-MACRO-SYSTEM
@@ -3644,8 +3650,8 @@ def compile_(form):
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
         pve = lower(form)
         if _debugging_compiler_p():
-                _debug_printf(";;; compilation atree output:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
-                              *pve)
+                _debug_printf(";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
+                              form, *pve)
         return pve
 
 def lisp(body):
