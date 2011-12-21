@@ -2294,11 +2294,33 @@ __ast_infos__ = dict()
 def _find_ast_info(type):
         return __ast_infos__[_coerce_to_ast_type(type)]
 def _ast_fields(ast): return _find_ast_info(type(ast)).fields
+
+defvar("_BOUND_FREE_RECURSOR_")
+def _bound_free_recursor():
+        return symbol_value("_BOUND_FREE_RECURSOR_")
+
 def _ast_bound_free(astxs):
-        def bound_free(ast):
-                info = _find_ast_info(type_of(ast))
-                return info.bound_free(*mapcar(_slot_of(ast), type(ast)._fields))
-        return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
+        def ast_rec(astxs):
+                def bound_free(ast):
+                        info = _find_ast_info(type_of(ast))
+                        return info.bound_free(*mapcar(_slot_of(ast), type(ast)._fields))
+                return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
+        with progv(_BOUND_FREE_RECURSOR_ = ast_rec):
+                return ast_rec(astxs)
+
+def _atree_bound_free(atreexs):
+        def atree_rec(astxs):
+                def bound_free(atree):
+                        type = _coerce_to_ast_type(atree[0])
+                        info = _find_ast_info(type)
+                        return info.bound_free(*atree[1:])
+                return _separate(3, bound_free, remove(None, _ensure_list(atreexs)))
+        with progv(_BOUND_FREE_RECURSOR_ = atree_rec):
+                return atree_rec(atreexs)
+
+def _atree_bound(atree): return _atree_bound_free(atree)[0]
+def _atree_free(atree):  return _atree_bound_free(atree)[1]
+def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
 
 def defast(fn):
         ### generic tools
@@ -2409,7 +2431,8 @@ def defast(fn):
                                 [ast.Return(
                                  _ast_funcall("_separate",
                                               [ 3,
-                                                ast.Name("_ast_bound_free", ast.Load()),
+                                                _ast_funcall("_bound_free_recursor", []),
+                                                # ast.Name("_ast_bound_free", ast.Load()),
                                                 ast.List([ ast.Name(f["name"], ast.Load())
                                                            for f in fields.values()
                                                            if f["walk"] ],
@@ -2560,7 +2583,7 @@ def _ast_FunctionDef(name:            str,
                 ((args_b, args_f, _),
                  (body_b, body_f, body_x),
                  (_,      deco_f, _),
-                 (_,      retn_f, _)) = mapcar(_ast_bound_free, [args, body, decorator_list, returns])
+                 (_,      retn_f, _)) = mapcar(_bound_free_recursor(), [args, body, decorator_list, returns])
                 body_bound = args_b | (body_b - body_x)
                 body_free = body_f - body_bound
                 body_xtnl_writes = body_b & body_x
@@ -2589,7 +2612,7 @@ def _ast_ClassDef(name:            str,
                  (star_b, star_f, _),
                  (karg_b, karg_f, _),
                  (body_b, body_f, body_x),
-                 (deco_b, deco_f, _)) = mapcar(_ast_bound_free, [bases, keywords, starargs, kwargs, body, decorator_list])
+                 (deco_b, deco_f, _)) = mapcar(_bound_free_recursor(), [bases, keywords, starargs, kwargs, body, decorator_list])
                 # Unregistered Issue CLASS-BINDINGS-UNCLEAR
                 body_bound = body_b - body_x
                 body_free = body_f - body_bound
@@ -2611,7 +2634,7 @@ def _ast_Assign(targets: (list_, ast.expr),
                 value:    ast.expr):
         def bound_free():
                 ((targ_b, targ_f, _),
-                 (_,      valu_f, _)) = mapcar(_ast_bound_free, [targets, value])
+                 (_,      valu_f, _)) = mapcar(_bound_free_recursor(), [targets, value])
                 return (targ_b,
                         targ_f | valu_f,
                         set())
@@ -2622,13 +2645,13 @@ def _ast_AugAssign(target: ast.expr,
                    value:  ast.expr):
         def bound_free():
                 ((targ_b, targ_f, _),
-                 (_,      valu_f, _)) = mapcar(_ast_bound_free, [target, value])
+                 (_,      valu_f, _)) = mapcar(_bound_free_recursor(), [target, value])
                 return (targ_b,
                         targ_f | valu_f,
                         set())
 
 def _ast_body_bound_free(body, more_bound = set()):
-        body_b, body_f, body_x = _ast_bound_free(body)
+        body_b, body_f, body_x = _bound_free_recursor()(body)
         bound = more_bound | (body_b - body_x)
         return (bound,
                 body_f - bound,
@@ -2642,7 +2665,7 @@ def _ast_For(target:  ast.expr,
              orelse: (list_, ast.stmt)):
         def bound_free():
                 ((targ_b, targ_f, _),
-                 (_,      iter_f, _)) = mapcar(_ast_bound_free, [target, iter])
+                 (_,      iter_f, _)) = mapcar(_bound_free_recursor(), [target, iter])
                 # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
                 (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
                 return (bound,
@@ -2655,7 +2678,7 @@ def _ast_While(test:    ast.expr,
                body:   (list_, ast.stmt),
                orelse: (list_, ast.stmt)):
         def bound_free():
-                ((_, test_f, _)) = _ast_bound_free(test)
+                ((_, test_f, _)) = _bound_free_recursor()(test)
                 # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
                 (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
                 return (bound,
@@ -2667,7 +2690,7 @@ def _ast_If(test:    ast.expr,
             body:   (list_, ast.stmt),
             orelse: (list_, ast.stmt)):
         def bound_free():
-                ((_, test_f, _)) = _ast_bound_free(test)
+                ((_, test_f, _)) = _bound_free_recursor()(test)
                 # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
                 (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
                 return (bound,
@@ -2680,7 +2703,7 @@ def _ast_With(context_expr:   ast.expr,
               body:          (list_, ast.stmt)):
         def bound_free():
                 ((_,      ctxt_f, _),
-                 (optl_b, optl_f, _)) = mapcar(_ast_bound_free, [context_expr, optional_vars])
+                 (optl_b, optl_f, _)) = mapcar(_bound_free_recursor(), [context_expr, optional_vars])
                 body_bound, body_free, body_xtnls = _ast_body_bound_free(body, optl_b)
                 return (body_bound,
                         ctxt_f | optl_f | body_free,
@@ -2716,7 +2739,7 @@ def _ast_ImportFrom(module: (maybe_, str),
                     names:  (list_, ast.alias),
                     level:  (maybe_, int)):
         def bound_free():
-                return (_ast_bound_free(names)[0],
+                return (_bound_free_recursor()(names)[0],
                         set([module] if module else []),
                         set())
 #       | Global(identifier* names)
@@ -2756,7 +2779,7 @@ def _ast_Lambda(args: ast.arguments,
                 body: ast.expr):
         def bound_free():
                 ((args_b, args_f, _),
-                 (_,      body_f, _)) = mapcar(_ast_bound_free, [args, body])
+                 (_,      body_f, _)) = mapcar(_bound_free_recursor(), [args, body])
                 body_free = body_f - args_b
                 free = args_f | body_free
                 return (set(),
@@ -2778,7 +2801,7 @@ def _ast_Set(elts: (list_, ast.expr)): pass
 
 def _ast_gchain_bound_free(xs, acc_binds):
         if xs:
-                g_binds, g_free, _ = _ast_bound_free(xs[0])
+                g_binds, g_free, _ = _bound_free_recursor()(xs[0])
                 finbound, cfree = _ast_gchain_bound_free(xs[1:], acc_binds | g_binds)
                 return finbound, (g_free - acc_binds) | cfree
         else:
@@ -2786,7 +2809,7 @@ def _ast_gchain_bound_free(xs, acc_binds):
 
 def _ast_comprehension_bound_free(exprs, generators):
         gchain_bound, gchain_free = _ast_gchain_bound_free(generators, set())
-        _, exprs_f, _ = _separate(3, _ast_bound_free, exprs)
+        _, exprs_f, _ = _separate(3, _bound_free_recursor(), exprs)
         return (set(),
                 gchain_free | (exprs_f - gchain_bound),
                 set())
@@ -2826,7 +2849,7 @@ def _ast_Call(func:      ast.expr,
               keywords: (list_, ast.keyword),
               starargs: (maybe_, ast.expr) = None,
               kwargs:   (maybe_, ast.expr) = None):
-        def bound_free(): _separate(3, _ast_bound_free,
+        def bound_free(): _separate(3, _bound_free_recursor(),
                                     [func, args, keywords, starargs, kwargs])
 #      | Num(object n) -- a number as a PyObject.
 @defast
@@ -2960,7 +2983,7 @@ def _ast_comprehension(target: ast.expr,
         def bound_free():
                 ((_,      targ_f, _),
                  (iter_b, iter_f, _),
-                 (_,      iffs_f, _)) = mapcar(_ast_bound_free, [target, iter, ifs])
+                 (_,      iffs_f, _)) = mapcar(_bound_free_recursor(), [target, iter, ifs])
                 return (iter_b,
                         ((targ_f | iffs_f) - iter_b) | iter_f,
                         set())
@@ -2970,7 +2993,7 @@ def _ast_ExceptHandler(type: (maybe_, ast.expr),
                        name: (maybe_, str),
                        body: (list_, ast.stmt)):
         def bound_free():
-                (_,      type_f, _) = _ast_bound_free(type)
+                (_,      type_f, _) = _bound_free_recursor()(type)
                 (bound, free, xtnls) = _ast_body_bound_free(body, set([name] if name is not None else []))
                 return (bound,
                         type_f | free,
@@ -2990,10 +3013,10 @@ def _ast_arguments(args:             (list_, ast.arg),
                    defaults:         (list_, ast.expr),
                    kw_defaults:      (list_, ast.expr)):
         def bound_free():
-                arg_bound, arg_free, _ = _separate(3, _ast_bound_free, [args, kwonlyargs])
+                arg_bound, arg_free, _ = _separate(3, _bound_free_recursor(), [args, kwonlyargs])
                 arg_bound |= set(x for x in [vararg, kwarg]
                                  if x is not None)
-                _, other_free, _ = _separate(3, _ast_bound_free, [varargannotation, kwargannotation, defaults, kw_defaults])
+                _, other_free, _ = _separate(3, _bound_free_recursor(), [varargannotation, kwargannotation, defaults, kw_defaults])
                 return (arg_bound,
                         arg_free | other_free,
                         set())
@@ -3002,14 +3025,14 @@ def _ast_arguments(args:             (list_, ast.arg),
 def _ast_arg(arg:         str,
              annotation: (maybe_, ast.expr) = None):
         def bound_free(): (set([arg]),
-                           _ast_bound_free(annotation)[1],
+                           _bound_free_recursor()(annotation)[1],
                            set())
 # keyword = (identifier arg, expr value)
 @defast
 def _ast_keyword(arg:   str,
                  value: ast.expr):
         def bound_free(): (set([] if _nonep(asname) else [asname]),
-                           _ast_bound_free(value),
+                           _bound_free_recursor()(value),
                            set())
 # alias = (identifier name, identifier? asname)
 @defast
@@ -3154,7 +3177,7 @@ def _triplet_xtnls(pve):        return _mapsetn(_atree_xtnls, _triplerator(pve))
 defvar("_COMPILER_TOPLEVEL_P_", t)
 defvar("_COMPILER_DEF_",        nil)
 defvar("_COMPILER_QUOTE_",      nil)
-defvar("_COMPILER_TAILP_")
+defvar("_COMPILER_TAILP_",      nil)
 
 defvar("_COMPILER_DEBUG_P_",    nil)
 
@@ -3163,12 +3186,26 @@ def _debug_compiler(value = t):
 def _debugging_compiler_p():
         return symbol_value("_COMPILER_DEBUG_P_")
 
+__compiler_form_record__ = collections.defaultdict(lambda: 0)
+__compiler_form_record_threshold__ = 5
+def _compiler_track_compiled_form(form):
+        cur = __compiler_form_record__[id(form)]
+        if cur > __compiler_form_record_threshold__:
+                error("Apparent non-termination while compiling %s (happened over %d times).",
+                      form, __compiler_form_record_threshold__)
+        __compiler_form_record__[id(form)] += 1
+
 class _compiler_def(_servile):
         pass
 
 def _compiling_def():     return symbol_value("_COMPILER_DEF_")
 def _tail_position_p():   return symbol_value("_COMPILER_TAILP_")
 def _compiling_quote_p(): return symbol_value("_COMPILER_QUOTE_")
+
+def _compiler_report_context():
+        _here("def %s, tailp: %s, quote: %s", *mapcar(symbol_value, ["_COMPILER_DEF_",
+                                                                     "_COMPILER_TAILP_",
+                                                                     "_COMPILER_QUOTE_"]))
 
 _tail_position       = _defwith("_tail_position",
                                    lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = t)),
@@ -3223,8 +3260,7 @@ def symbol_(name):
                 [])
 
 def _compile_name(name, ctx = "Load"):
-        check_type(name, (or_, str, symbol,
-                   (tuple_, (eql_, symbol_), (or_, str, symbol))))
+        check_type(name, (or_, str, symbol, (tuple_, (eql_, symbol_), (or_, str, symbol))))
         if tuplep_(name) and ctx != "Load":
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
         return (compile_(name)[1] if tuplep_(name) else
@@ -3553,19 +3589,26 @@ def compile_(form):
         # - symbols not terribly clear
         # - proper quote processing
         if _debugging_compiler_p():
+                _compiler_track_compiled_form(form)
                 _debug_printf(";;; compiling: %s", form)
+                _compiler_report_context()
         def lower(x):
                 # NOTE: we are going to splice unquoting processing here, as we must be able
                 # to work in READ-less environment.
                 if _debugging_compiler_p():
                         _debug_printf(";;; lowering: %s", x)
                 if _tuplep(x):
+                        if not x:
+                                return lower((symbol_, "nil"))
                         if _compiling_quote_p():
-                                funcall_compiler, _ = _find_primitive(funcall_)
-                                return funcall_compiler(("tuple",) + x)
+                                # And so, let the rampant special-casing begin..
+                                if x[0] is symbol_:
+                                        len(x) > 2 and error("Invalid SYMBOL pseudo-form: %s.", x)
+                                        return ([], x[1], [])
+                                else:
+                                        funcall_compiler, _ = _find_primitive(funcall_)
+                                        return funcall_compiler(("tuple",) + x)
                         else:
-                                if not x:
-                                        return lower((symbol_, "nil"))
                                 if symbolp(x[0]):
                                         # Urgent Issue COMPILER-MACRO-SYSTEM
                                         compiler, primitivep = _find_primitive(the(symbol, x[0]))
@@ -3601,7 +3644,6 @@ def compile_(form):
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
         pve = lower(form)
         if _debugging_compiler_p():
-                import more_ast
                 _debug_printf(";;; compilation atree output:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
                               *pve)
         return pve
