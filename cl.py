@@ -15,6 +15,7 @@ import inspect
 import builtins
 import platform
 import functools
+import linecache   as _linecache
 import threading
 import collections
 
@@ -3720,6 +3721,26 @@ def compile_(form):
                 _debug_printf(";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
                               form, *pve)
         return pve
+
+# getsource
+#   getsourcelines
+#     findsource
+#       file = fn.__code__.co_filename
+#       sourcefile = getsourcefile = f(fn.__code__.co_filename)
+#       file = sourcefile or file
+#       module = getmodule()
+#       linecache.getlines(file)
+#     getblock
+#       <boring>
+__def_sources__ = collections.OrderedDict()
+__def_sources__[""] = "" # placeholder
+__def_sources_filename__ = "<lisp>"
+def _lisp_add_def(name, source):
+        if name in __def_sources__:
+                del __def_sources__[name]
+        __def_sources__[name] = source
+        total = "\n".join(__def_sources__.values())
+        linecache.cache[__def_sources_filename__] = len(total), int(time.time()), total.split("\n"), __def_sources_filename__
 
 def lisp(body):
         def _intern_astsexp(x):
