@@ -2564,17 +2564,14 @@ all AST-trees .. except for the case of tuples."""
                 assert(len(effective_args) == max)
                 for val, name, finfo in zip(effective_args, fields, finfos):
                         subtype = finfo["type"]
-                        _debug_printf("field %s, val %s", name, val)
                         if not typep(val, subtype):
                                 argument_type_error(name, subtype, val, "AST node %s", repr(type))
                 return ast_type(*effective_args)
-        ret =  ((# _here("asis %s", tree) and
-                 tree)
+        ret =  (tree
                 if typep(tree, (or_, str, int, (eql_, None))) else
                 mapcar(_atree_ast, tree)
                 if listp(tree)                  else
-                (# _here("t-a-const %s", tree) or
-                 _try_astify_constant(tree)[0])
+                _try_astify_constant(tree)[0]
                 if not _tuplep(tree)            else
                 error("The atree nodes cannot be zero-length.")
                 if not tree                     else
@@ -2582,7 +2579,6 @@ all AST-trees .. except for the case of tuples."""
                 if not stringp(tree[0])         else
                 unknown_ast_type_error(tree[0], tree) if tree[0] not in ast.__dict__  else
                 (astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
-        _debug_printf("t->r: %s   ->   %s", repr(tree), repr(ret))
         return ret
 
 # mod = Module(stmt* body)
@@ -3259,9 +3255,9 @@ def _tail_position_p():   return symbol_value("_COMPILER_TAILP_")
 def _compiling_quote_p(): return symbol_value("_COMPILER_QUOTE_")
 
 def _compiler_report_context():
-        _here("def %s, tailp: %s, quote: %s", *mapcar(symbol_value, ["_COMPILER_DEF_",
-                                                                     "_COMPILER_TAILP_",
-                                                                     "_COMPILER_QUOTE_"]))
+        _here("def %s\n      tailp: %s\n      quote: %s", *mapcar(symbol_value, ["_COMPILER_DEF_",
+                                                                                 "_COMPILER_TAILP_",
+                                                                                 "_COMPILER_QUOTE_"]))
 
 _tail_position       = _defwith("_tail_position",
                                    lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = t)),
@@ -3345,8 +3341,8 @@ def return_(x):
                 pro, val, epi = compile_(x)
                 # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-EPILOGUES
                 _compiler_warn_discarded_epi(epi, "RETURN %s", x)
-                return (pro,
-                        ("Return", val),
+                return (pro + [("Return", val)],
+                        None,
                         [])
 
 @defprimitive # Issue-free, per se.
@@ -3392,6 +3388,27 @@ def progn_(*body):
         # scope_mutation = (body_bound_vars or thunk_bound_vars or body_xtnls or thunk_xtnls)
         # if not (must_thunk or scope_mutation):
         #         return lowered_body
+
+@defprimitive
+def if_(test, consequent, antecedent = nil):
+        with _no_tail_position():
+                lo_test = pro_test, val_test, epi_test = compile_(test)
+        lo_cons, lo_ante = mapcar(compile_, [consequent, antecedent])
+        ((pro_cons, val_cons, epi_cons),
+         (pro_ante, val_ante, epi_ante)) = lo_cons, lo_ante
+        cons_expr_p, ante_expr_p = mapcar(_triplet_expression_p, [lo_cons, lo_ante])
+        if all([cons_expr_p, ante_expr_p]):
+                # Unregistered Issue EPILOGUE-IF-TEST-OF-EPI-IGNORED
+                return (pro_test,
+                        ("IfExp", val_test, val_cons, val_ante),
+                        [])
+        else:
+                with _gensymnames(x = "IF-BRANCH", n = 2) as name_cons, name_ante:
+                        cons_branch = cons_val if cons_expr_p else (symbol_, name_cons)
+                        ante_branch = ante_val if ante_expr_p else (symbol_, name_ante)
+                        return compile_((flet_, ((tuple() if cons_expr_p else ((name_cons, tuple()) + pro_cons + (val_cons,),),) +
+                                                 (tuple() if ante_expr_p else ((name_ante, tuple()) + pro_ante + (val_cons,),),)),
+                                         (if_, test, cons_branch, ante_branch)))
 
 @defprimitive
 def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an acknowledgement of the
@@ -3489,6 +3506,8 @@ def let_(bindings, *body):
 
 @defprimitive
 def unwind_protect_(form, *unwind_body):
+        if not unwind_body:
+                return compile_(form)
         temp_name = gensym("PROTECTED-FORM-VALUE")
         pro_form, val_form, epi_form = compile_((setq_, temp_name, form))
         pro_unwind, val_unwind, epi_unwind = compile_((progn,) + unwind_body)
@@ -3728,19 +3747,19 @@ def lisp(body):
                        remove_if(_nonep, _triplerator(pve)))
         if _debugging_compiler_p():
                 import more_ast
-                _debug_printf(";;; compilation AST output %s:\n;;;\n%s\n",
-                              form, "\n".join(more_ast.pp_ast_as_code(x) for x in stmts))
+                _debug_printf(";;; compilation Python output for %s:\n;;;\n%s\n",
+                              form, "".join(more_ast.pp_ast_as_code(x) for x in stmts))
         return _ast_compiled_name(body.__name__,
                                   *stmts,
                                   globals_ = globals(),
                                   locals_  = locals())
 
-# @lisp
-# def fdefinition_(name):
-#         (def_, fdefinition_, (name,),
-#          (if_, (stringp_, name),
-#           (_global, name),
-#           (symbol_function_, (the_, symbol, name))))
+@lisp
+def fdefinition_(name):
+        (def_, fdefinition_, (name,),
+         (if_, (stringp_, name),
+          (_global, name),
+          (symbol_function_, (the_, symbol, name))))
 
 ##
 ## Pretty-printing
