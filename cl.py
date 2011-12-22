@@ -3735,12 +3735,12 @@ def lisp(body):
                                   globals_ = globals(),
                                   locals_  = locals())
 
-@lisp
-def fdefinition_(name):
-        (def_, fdefinition_, (name,),
-         (if_, (stringp_, name),
-          (_global, name),
-          (symbol_function_, (the_, symbol, name))))
+# @lisp
+# def fdefinition_(name):
+#         (def_, fdefinition_, (name,),
+#          (if_, (stringp_, name),
+#           (_global, name),
+#           (symbol_function_, (the_, symbol, name))))
 
 ##
 ## Pretty-printing

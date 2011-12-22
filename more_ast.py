@@ -350,38 +350,35 @@ def pp_ast_as_code(x, tab = " " * 8):
                                          mapcar(lambda var, val: rec(var) + " = " + val,
                                                 kwonlyargs, iterate(kw_defaults)) +
                                          ([("**" + rec(kwarg))] if kwarg else []))
-                def pp_functiondef(x):
-                        "XXX: ignores __annotations__"
-                        res = indent() + "def " + x.name + "(" + rec(x.args) + "):\n"
-                        with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
-                                res += "\n".join(iterate(x.body))
-                        return res + "\n"
                 def pp_lambda(x):
                         args = rec(x.args)
                         return "lambda%s: %s" % (" " + args if args else "", rec(x.body))
-                def pp_for(x):
-                        res = indent() + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n"
+                def pp_subprogn(body):
                         with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
-                                res += "\n".join(iterate(x.body))
-                        if x.orelse:
-                                res += indent() + "else:\n"
-                                with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
-                                        res += "\n".join(iterate(x.orelse))
-                        return res + "\n"
-                # def pp_if(x):
-                #         res = indent() + "if " + rec(x.target) + " in " + rec(x.iterator) + ":\n"
-                #         with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
-                #                 res += "\n".join(iterate(x.body))
-                #         if x.orelse:
-                #                 res += indent() = "else:\n"
-                #                 with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
-                #                         res += "\n".join(iterate(x.orelse))
-                #         return res + "\n"
+                                return "\n".join(iterate(body)) + "\n"
+                def pp_functiondef(x):
+                        "XXX: ignores __annotations__"
+                        return (indent() + "def " + x.name + "(" + rec(x.args) + "):\n" +
+                                pp_subprogn(x.body))
+                def pp_for(x):
+                        return (indent() + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n" +
+                                pp_subprogn(x.body) +
+                                (indent() + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else "")
+                def pp_if(x):
+                        def ifrec(x, firstp):
+                                chainp = len(x.orelse) is 1 and typep(x.orelse[0], ast.If)
+                                return (indent() + ("" if firstp else "el") + "if " + rec(x.test) + ":\n" +
+                                        pp_subprogn(x.body) +
+                                        ("" if not x.orelse else
+                                         (ifrec(x.orelse[0], False) if chainp else
+                                          (indent() + "else:\n" +
+                                           pp_subprogn(x.orelse)))))
+                        return ifrec(x, True)
                 def pp_Expr(x):
-                        return indent() + pp_ast_as_code(x.value)
+                        return indent() + rec(x.value)
                 def pp_assign(x):
                         return indent() + "%s = %s" % (", ".join(iterate(x.targets)),
-                                                       pp_ast_as_code(x.value))
+                                                       rec(x.value))
                 def make_trivial_pper(x):
                         return lambda y: (indent() + x +
                                           ((" " + rec(y.value))
@@ -397,6 +394,7 @@ def pp_ast_as_code(x, tab = " " * 8):
                         ast.FunctionDef: pp_functiondef,
                         ast.Lambda:      pp_lambda,
                         ast.For:         pp_for,
+                        ast.If:          pp_if,
                         ast.Expr:        pp_Expr,
                         ast.Call:        pp_call,
                         ast.Attribute:   pp_attribute,
