@@ -1059,16 +1059,17 @@ def _invalid_type_specifier_error(x, complete_type = None):
 def _complex_type_mismatch(x, type):
         ctype_test = __type_predicate_map__[type[0]]
         ret = ctype_test(x, type)
-        return (ret if not (_tuplep(ret) and ret[0] is None) else
+        return (ret if not (_tuplep(ret) and ret[2]) else
                 _invalid_type_specifier_error(ret[1], complete_type = type))
 
 def _type_mismatch(x, type):
         """Determine, whether X does not belong to TYPE, and if so,
-return a tuple, specifying the specific parts of X and TYPE being in
-disagreement.  Otherwise, when X is of TYPE, a negative boolean value
-is returned."""
+return a triple, specifying the specific parts of X and TYPE being in
+disagreement and, as a third element, a boolean, denoting whether the
+type specifier was malformed.  Otherwise, when X is of TYPE, a
+negative boolean value is returned."""
         return (((not isinstance(x, type)) and
-                 (x, type))                     if isinstance(type, type_)             else
+                 (x, type, False))              if isinstance(type, type_)             else
                 nil                             if type is t                           else
                 _complex_type_mismatch(x, type) if (_tuplep(type) and type and
                                                     type[0] in __type_predicate_map__) else
@@ -1078,11 +1079,11 @@ def typep(x, type):
         return not _type_mismatch(x, type)
 
 def subtypep(sub, super):
-        return (issubclass(sub, super)                    if super is not t                            else
+        return (issubclass(sub, super)                         if super is not t                            else
                 _not_implemented("complex type relatioships: %s vs. %s.",
-                                 sub, super)              if _tuplep(sub) or _tuplep(super)            else
-                error("%s is not a valid type specifier") if not (typep(sub, (or_, type_, (eql_, t))) and
-                                                                  typep(sub, (or_, type_, (eql_, t)))) else
+                                 sub, super)                   if _tuplep(sub) or _tuplep(super)            else
+                error("%s is not a valid type specifier", sub) if not (typep(sub, (or_, type_, (eql_, t))) and
+                                                                       typep(sub, (or_, type_, (eql_, t)))) else
                 sub is super or super is t)
 
 def the(type, x):
@@ -2142,15 +2143,18 @@ def defun(f):
 __type_predicate_map__ = dict()
 
 ## Remember, we return type mismatches in these predicates!
+# Unregistered Issue NONE-VALUE-SAFETY
 def _some_type_mismatch(type, xs):
         "Determines, whether some member of XS mismatches TYPE."
         return some(_type_mismatch, xs, _infinite(type))
 
 @defun
 def or_(x, type):
-        return ((x, type) if len(type) is 1 else
-                (every(_type_mismatch, _infinite(x), _from(1, type)) and
-                 (x, type)))
+        return ((x, type, False) if len(type) is 1 else
+                let(mapcar(_type_mismatch, _infinite(x), _from(1, type)),
+                    lambda mismatches:
+                            (some(lambda m: m and m[2] and m, mismatches) or
+                            (every(identity, mismatches) and (x, type, False)))))
 
 @defun
 def and_(x, type):
@@ -2159,50 +2163,54 @@ def and_(x, type):
 
 @defun
 def not_(x, type):
-        return ((None, type) if len(type) is not 2             else
-                (x, type)    if not _type_mismatch(x, type[1]) else
-                nil)
+        return ((x, type, True) if len(type) is not 2 else
+                let(_type_mismatch(x, type[1]),
+                    lambda m: ((x, type, False) if not m      else
+                               m                if m and m[2] else
+                               nil)))
 
 @defun
 def member_(x, type):
         return ((x not in _from(1, type)) and
-                (x, type))
+                (x, type, False))
 
 @defun
 def maybe_(x, type):
-        return ((None, type) if len(type) is not 2               else
-                nil          if ((x is None or x is nil) or
-                                 not _type_mismatch(x, type[1])) else
-                (x, type))
+        return ((x, type, True)  if len(type) is not 2 else
+                let(_type_mismatch(x, type[1]),
+                    lambda m: (nil if not m      else
+                               m   if ((m and m[2]) or
+                                       not (x is nil or x is None)) else
+                               nil)))
 
 @defun
 def list_(x, type):
-        return ((None, type) if len(type) is not 2      else
-                (x, type)    if not isinstance(x, list) else
+        return ((x, type, True)  if len(type) is not 2      else
+                (x, type, False) if not isinstance(x, list) else
                 some(_type_mismatch, x, _infinite(type[1])))
 
 @defun
 def satisfies_(x, type):
-        return ((None, type) if ((len(type) is not 2) or
-                                 not functionp(type[1])) else
+        return ((x, type, True) if ((len(type) is not 2) or
+                                    not functionp(type[1])) else
                 ((not type[1](x)) and
-                 (x, type)))
+                 (x, type, False)))
 
 @defun
 def eql_(x, type):
-        return ((None, type) if len(type) is not 2 else
+        return ((x, type, True) if len(type) is not 2 else
                 ((not eql(x, type[1])) and
-                 (x, type)))
+                 (x, type, False)))
 
 @defun
 def tuple_(x, type):
-        return ((x, type) if not (_tuplep(x) and len(x) == len(type) - 1) else
+        return ((x, type, False) if not (_tuplep(x) and len(x) == len(type) - 1) else
                 some(_type_mismatch, x, _from(1, type)))
 # Unregistered Issue TEACHABLE-TYPE-CHECKING-PRACTICE-AND-TOOL-CONSTRUCTION
 
 @defun
 def partuple_(x, type):
-        return ((x, type) if not _tuplep(x) and len(x) < (len(type) - 1) else
+        return ((x, type, False) if not (_tuplep(x) and len(x) >= len(type) - 1) else
                 some(_type_mismatch, x, type[1:]))
 
 __variseq__ = (tuple_, (eql_, maybe_), t) # Meta-type, heh..
@@ -2211,7 +2219,7 @@ def varituple_(x, type):
         # correctness enforcement over speed?
         fixed_t, maybes_t = _prefix_suffix_if_not(_of_type(__variseq__), type[1:])
         if not every(_of_type(__variseq__), maybes_t):
-                return (None, type)   # fail
+                return (x, type, True)   # fail
         fixlen = len(fixed_t)
         return ((x, type) if len(x) < fixlen else
                 some(_type_mismatch, x[:fixlen], fixed_t) or
@@ -2220,7 +2228,7 @@ def varituple_(x, type):
 @defun
 def lambda_list_(x, type):
         if type:
-                return None # fail
+                return (x, type, True) # fail
         return typep(x, (tuple_,
                          (list_, str),
                          (list_, str),
@@ -2325,6 +2333,9 @@ __ast_infos__ = dict()
 def _find_ast_info(type):
         return __ast_infos__[_coerce_to_ast_type(type)]
 def _ast_fields(ast): return _find_ast_info(type(ast)).fields
+
+def _ast_ensure_stmt(x):
+        return x if typep(x, ast.stmt) else ast.Expr(the(ast.AST, x))
 
 defvar("_BOUND_FREE_RECURSOR_")
 def _bound_free_recursor():
@@ -2538,8 +2549,8 @@ all AST-trees .. except for the case of tuples."""
         def argument_count_error(min, max, given, control, *args):
                 error("%s requires between %d and %d arguments, but %d were given.", (control % args), min, max, given)
         def argument_type_error(name, expected_type, defacto_value, control, *args):
-                error("The argument \"%s\" of %s must be of type \"%s\", but was a %s.",
-                      name, (control % args), expected_type, princ_to_string(defacto_value))
+                error("The argument \"%s\" of %s must be of type %s, but was a %s.  Tree: %s.",
+                      name, (control % args), expected_type, princ_to_string(defacto_value), tree)
         def astify_known(type, args):
                 ast_type = ast.__dict__[type]
                 info = _find_ast_info(ast_type)
@@ -2553,15 +2564,26 @@ all AST-trees .. except for the case of tuples."""
                 assert(len(effective_args) == max)
                 for val, name, finfo in zip(effective_args, fields, finfos):
                         subtype = finfo["type"]
+                        _debug_printf("field %s, val %s", name, val)
                         if not typep(val, subtype):
-                                argument_type_error(name, subtype, val, "AST node %s", type)
-                return ast_type(*args)
-        return ((_here("asis %s", tree) and tree)                                 if typep(tree, (or_, str, int)) else
-                (_here("t-a-const %s", tree) and _try_astify_constant(tree)[0])                                   if not _tuplep(tree)            else
-                error("The atree nodes cannot be zero-length.")                 if not tree                     else
-                error("The CAR of an atree must be a string, not %s.", tree[0]) if not stringp(tree[0])         else
-                unknown_ast_type_error(tree[0], tree)                           if tree[0] not in ast.__dict__  else
-                (_here("full %s", tree) and astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
+                                argument_type_error(name, subtype, val, "AST node %s", repr(type))
+                return ast_type(*effective_args)
+        ret =  ((# _here("asis %s", tree) and
+                 tree)
+                if typep(tree, (or_, str, int, (eql_, None))) else
+                mapcar(_atree_ast, tree)
+                if listp(tree)                  else
+                (# _here("t-a-const %s", tree) or
+                 _try_astify_constant(tree)[0])
+                if not _tuplep(tree)            else
+                error("The atree nodes cannot be zero-length.")
+                if not tree                     else
+                error("The CAR of an atree must be a string, not %s.", tree[0])
+                if not stringp(tree[0])         else
+                unknown_ast_type_error(tree[0], tree) if tree[0] not in ast.__dict__  else
+                (astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
+        _debug_printf("t->r: %s   ->   %s", repr(tree), repr(ret))
+        return ret
 
 # mod = Module(stmt* body)
 #     | Interactive(stmt* body)
@@ -2612,7 +2634,7 @@ def _ast_FunctionDef(name:            str,
                      args:            ast.arguments,
                      body:           (list_, ast.stmt),
                      decorator_list: (list_, ast.expr) = list(),
-                     returns:        ast.expr = None):
+                     returns:        (maybe_, ast.expr) = None):
         def bound_free():
                 ((args_b, args_f, _),
                  (body_b, body_f, body_x),
@@ -3700,14 +3722,16 @@ def lisp(body):
                 error("In LISP %s: only toplevels in %s are allowed.",
                       form[0], __def_allowed_toplevels__)
         pve = pro, val, epi = compile_(form)
-        ast_ = pro_ast, val_ast, epi_ast = mapcar(_atree_ast, _triplerator(pve))
+        # Unregistered Issue SHOULD-REALLY-BE-HONEST-WITH-VALUE-EPILOGUE-IN-LISP
+        _compiler_warn_discarded_epi(epi, "LISP %s", form[0])
+        stmts = mapcar(_compose(_ast_ensure_stmt, _atree_ast),
+                       remove_if(_nonep, _triplerator(pve)))
         if _debugging_compiler_p():
                 import more_ast
-                _debug_printf(";;; compilation AST output %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
-                              ast_, *mapcar(more_ast.pp_ast_as_code, ast_))
-        _compiler_warn_discarded_epi(epi, "LISP %s", form[0])
+                _debug_printf(";;; compilation AST output %s:\n;;;\n%s\n",
+                              form, "\n".join(more_ast.pp_ast_as_code(x) for x in stmts))
         return _ast_compiled_name(body.__name__,
-                                  ast_,
+                                  *stmts,
                                   globals_ = globals(),
                                   locals_  = locals())
 
