@@ -3206,25 +3206,22 @@ def _compile_lispy_lambda_list(context, list_, allow_defaults = None):
                 keydefs), (fixed, optional, rest, keys, restkey, total)
 
 ###
-### Triplet intermediate IR
+### Tuple intermediate IR
 ###
-## A pro/val/epi triple:
+## A pro/val tuple:
 ## - prologue
 ## - value, can only contain ast.expr's
-## - epilogue, can not happen without prologue or value
 ##
-def _triplerator(pve):
+def _tuplerator(pve):
         for x in pve[0]:
                 yield x
         if pve[1] is not None:
                 yield pve[1]
-        for x in pve[2]:
-                yield x
-def _triplet_empty_p(pve):      return not (pve[0] or pve[1])
-def _triplet_expression_p(pve): return not (pve[0] or pve[2])
-def _triplet_bound(pve):        return _mapsetn(_atree_bound, _triplerator(the((tuple_, list, tuple, list), pve)))
-def _triplet_free(pve):         return _mapsetn(_atree_free,  _triplerator(the((tuple_, list, tuple, list), pve)))
-def _triplet_xtnls(pve):        return _mapsetn(_atree_xtnls, _triplerator(the((tuple_, list, tuple, list), pve)))
+def _tuple_empty_p(pve):      return not (pve[0] or pve[1])
+def _tuple_expression_p(pve): return not (pve[0])
+def _tuple_bound(pve):        return _mapsetn(_atree_bound, _tuplerator(the((tuple_, list, tuple), pve)))
+def _tuple_free(pve):         return _mapsetn(_atree_free,  _tuplerator(the((tuple_, list, tuple), pve)))
+def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((tuple_, list, tuple), pve)))
 
 ## Should, probably, be bound by the compiler itself.
 defvar("_COMPILER_TOPLEVEL_P_", t)
@@ -3276,9 +3273,6 @@ _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push(dict(_COMPILER_DEBUG_P_ = t)),
                                    lambda *_: _dynamic_scope_pop())
 
-def _compiler_warn_discarded_epi(epi, format_control, *format_args):
-        epi and warn("In %s: discarding epilogue %s.", format(nil, format_control, *format_args), epi)
-
 #### Issue stack:
 ## Tail position optimisations
 ### LET optimisation
@@ -3287,7 +3281,6 @@ def _compiler_warn_discarded_epi(epi, format_control, *format_args):
 ## Quote processing
 ## FUNCALL order of evaluation (closed?)
 ## is the value generally side-effect-free?
-### discarding, reordering evaluation against epilogue
 
 ###                                      (QUAQUOTE)    <-
 ###                                      (COMMA)       <-
@@ -3309,8 +3302,7 @@ def _compiler_warn_discarded_epi(epi, format_control, *format_args):
 def symbol_(name):
         check_type(name, (or_, str, symbol))
         return ([],
-                ("Name", string(name), ("Load",)),
-                [])
+                ("Name", string(name), ("Load",)))
 
 def _compile_name(name, ctx = "Load"):
         check_type(name, (or_, str, symbol, (tuple_, (eql_, symbol_), (or_, str, symbol))))
@@ -3321,30 +3313,25 @@ def _compile_name(name, ctx = "Load"):
 
 @defprimitive # Critical-issue-free.
 def setq_(name, value):
-        pro, val, epi = compile_(value)
-        return (pro + [("Assign", [_compile_name(name, "Store")])] + epi,
-                _compile_name(name, "Load"),
-                [])
+        pro, val = compile_(value)
+        return (pro + [("Assign", [_compile_name(name, "Store")])],
+                _compile_name(name, "Load"))
 
 @defprimitive # Critical-issue-free.
 def setf_values_(names, values):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         check_type(names, tuple)
-        pro, val, epi = compile_(values)
+        pro, val = compile_(values)
         return (pro + [("Assign", [ _compile_name(x, "Store") for x in names ],
                         val)],
-                ("Tuple", mapcar(_compile_name, names), ("Load",)),
-                epi)
+                ("Tuple", mapcar(_compile_name, names), ("Load",)))
 
 @defprimitive # Critical-issue-free.
 def return_(x):
         with _tail_position():
-                pro, val, epi = compile_(x)
-                # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-EPILOGUES
-                _compiler_warn_discarded_epi(epi, "RETURN %s", x)
+                pro, val = compile_(x)
                 return (pro + [("Return", val)],
-                        None,
-                        [])
+                        None)
 
 @defprimitive # Issue-free, per se.
 def quote_(x):
@@ -3361,23 +3348,20 @@ def comma_(x):
         with progv():
                 return compile_(x)
 
-def _compiler_prepend(pro, triplet):
-        return (pro + triplet[0],
-                triplet[1],
-                triplet[2])
+def _compiler_prepend(pro, tuple):
+        return (pro + tuple[0],
+                tuple[1])
 
 @defprimitive # Critical-issue-free.
 def progn_(*body):
         if not body:
                 return ([],
-                        compile_((symbol_, "nil")),
-                        [])
+                        compile_((symbol_, "nil")))
         pro, ntotal = [], len(body)
         with _no_tail_position():
-                for spro, val, epi in (compile_(x) for x in body[:-1]):
+                for spro, val in (compile_(x) for x in body[:-1]):
                         pro.extend(spro)
                         pro.append(("Expr", val))
-                        pro.extend(epi)
         with _maybe_tail_position():
                 return _compiler_prepend(pro,
                                          compile_(body[-1]))
@@ -3393,16 +3377,14 @@ def progn_(*body):
 @defprimitive
 def if_(test, consequent, antecedent = nil):
         with _no_tail_position():
-                lo_test = pro_test, val_test, epi_test = compile_(test)
+                lo_test = pro_test, val_test = compile_(test)
         lo_cons, lo_ante = mapcar(compile_, [consequent, antecedent])
-        ((pro_cons, val_cons, epi_cons),
-         (pro_ante, val_ante, epi_ante)) = lo_cons, lo_ante
-        cons_expr_p, ante_expr_p = mapcar(_triplet_expression_p, [lo_cons, lo_ante])
+        ((pro_cons, val_cons),
+         (pro_ante, val_ante)) = lo_cons, lo_ante
+        cons_expr_p, ante_expr_p = mapcar(_tuple_expression_p, [lo_cons, lo_ante])
         if all([cons_expr_p, ante_expr_p]):
-                # Unregistered Issue EPILOGUE-IF-TEST-OF-EPI-IGNORED
                 return (pro_test,
-                        ("IfExp", val_test, val_cons, val_ante),
-                        [])
+                        ("IfExp", val_test, val_cons, val_ante))
         else:
                 with _gensymnames(x = "IF-BRANCH", n = 2) as name_cons, name_ante:
                         cons_branch = cons_val if cons_expr_p else (symbol_, name_cons)
@@ -3427,16 +3409,12 @@ def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an ack
                                                total) = _compile_lispy_lambda_list("DEF %s" % name, lambda_list)
                         with _tail_position():
                                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                                pve = body_ret, _, epi = compile_((return_, (progn_, ) + body))
-                        # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-EPILOGUES
-                        _compiler_warn_discarded_epi(epi, "DEF %s", name)
-                        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
-                        # body_exprp = _triplet_expression_p(preliminary_body_pve) # Why we'd need that, again?
+                                pve = body_ret, _ = compile_((return_, (progn_, ) + body))
+                        # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                         # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                         return ([("FunctionDef", string(name), compiled_lambda_list,
                                                  body_ret)],
-                                compile_((quote_, (symbol_, string(name))))[1],
-                                [])
+                                compile_((quote_, (symbol_, string(name))))[1])
                 ## Xtnls feedback loop stabilisation scheme.
                 ##
                 ## This looks fairly ridiculous, but that reality for you:
@@ -3450,7 +3428,7 @@ def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an ack
                 while xtnls_guess != xtnls_actual:
                         cdef.xtnls = xtnls_guess = xtnls_actual
                         result = try_compile()
-                        xtnls_actual = _triplet_xtnls(result)
+                        xtnls_actual = _tuple_xtnls(result)
                 return result
 
 @defprimitive
@@ -3483,20 +3461,17 @@ def let_(bindings, *body):
         #                                 (_compiling_def().xtnls & set(names))):
         #         with _no_tail_position():
         #                 # Consciously discarding the values returned by (SETF VALUES)
-        #                 bind_pro, _, bind_epi = compile_((setf_values_,
-        #                                                   [ car(x) for x in bindings_thru_defaulting ],
-        #                                                   ("tuple",) + tuple(cdr(x) for x in bindings_thru_defaulting)))
-        #                 # Unregistered Issue UNWIND-PROTECTEDLY-EMIT-WORTHY-EPILOGUES
-        #                 _compiler_warn_discarded_epi(bind_epi, "LET %s", bindings)
+        #                 bind_pro, _ = compile_((setf_values_,
+        #                                         [ car(x) for x in bindings_thru_defaulting ],
+        #                                         ("tuple",) + tuple(cdr(x) for x in bindings_thru_defaulting)))
         #         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-        #         body_pro, body_val, body_epi = compile_((progn_,) + body)
+        #         body_pro, body_val = compile_((progn_,) + body)
         #         return (bind_pro + body_pro,
-        #                 body_val,
-        #                 body_epi)
-        if every(_triplet_expression_p, compiled_value_pves):
+        #                 body_val)
+        if every(_tuple_expression_p, compiled_value_pves):
                 return compile_(((lambda_, binding_thru_defaulting) + body,))
         else:
-                last_non_expr_posn = position_if_not(_triplet_expression_p, compiled_value_pves, from_end = t)
+                last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
                 n_nonexprs = last_non_expr_posn + 1
                 temp_names = [ _gensym("LET") for i in range(len(bindings)) ]
                 # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
@@ -3510,36 +3485,33 @@ def unwind_protect_(form, *unwind_body):
         if not unwind_body:
                 return compile_(form)
         temp_name = gensym("PROTECTED-FORM-VALUE")
-        pro_form, val_form, epi_form = compile_((setq_, temp_name, form))
-        pro_unwind, val_unwind, epi_unwind = compile_((progn,) + unwind_body)
+        pro_form, val_form = compile_((setq_, temp_name, form))
+        pro_unwind, val_unwind = compile_((progn,) + unwind_body)
         return ([("TryFinally",
                   # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
-                  pro_form + epi_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
+                  pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
                   # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
-                  pro_unwind + [("Expr", val_unwind)] + epi_unwind)],
-                (symbol_, temp_name),
-                [])
+                  pro_unwind + [("Expr", val_unwind)])],
+                (symbol_, temp_name))
 
 @defprimitive # /Seems/ alright.
 def funcall_(func, *args):
         # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
         if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
                           # - quote_ compilation in compile_
-                func_pro, func_val, func_epi = ([],
-                                            ("Name", func, ("Load",)),
-                                            [])
+                func_pro, func_val = ([],
+                                      ("Name", func, ("Load",)))
         else:
                 with _no_tail_position():
-                        func_pro, func_val, func_epi = compile_(func)
+                        func_pro, func_val = compile_(func)
         with _no_tail_position():
                 arg_pves = mapcar(compile_, args)
-        if every(_triplet_expression_p, arg_pves):
+        if every(_tuple_expression_p, arg_pves):
                 return (func_pro,
-                        ("Call", func_val, mapcar(second, arg_pves), []),
-                        func_epi)
+                        ("Call", func_val, mapcar(second, arg_pves), []))
         else:
                 with _gensyms(n = len(args), x = "FUNCALL-ARG") as temp_names:
-                        if _triplet_expression_p((func_pro, func_val, func_epi)):
+                        if _tuple_expression_p((func_pro, func_val)):
                                 func_binding, func_exp = (tuple(),
                                                           func)
                         else:
@@ -3567,12 +3539,11 @@ def lambda_(lambda_list, *body):
         # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
         # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
         preliminary_body_pve = _compile((progn_), + body)
-        body_exprp = _triplet_expression_p(preliminary_body_pve)
+        body_exprp = _tuple_expression_p(preliminary_body_pve)
         if body_exprp:
                 compiled_arguments, _ = _compile_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
                 return ([],
-                        ("Lambda", compiled_arguments, preliminary_body_pve[1]),
-                        [])
+                        ("Lambda", compiled_arguments, preliminary_body_pve[1]))
         else:
                 func_name = _gensymname("LET-BODY-")
                 return compile_((flet_, ((func_name, lambda_list) + body,),
@@ -3656,7 +3627,7 @@ def macroexpand(form):
                         (form, expanded))
         return do_macroexpand(form, nil)
 
-# _debug_compiler()
+_debug_compiler()
 # Urgent Issue COMPILER-MACRO-SYSTEM
 def compile_(form):
         # - tail position tracking
@@ -3718,7 +3689,7 @@ def compile_(form):
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
         pve = lower(form)
         if _debugging_compiler_p():
-                _debug_printf(";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s\n;;;\n;;; Epilogue\n;;;\n%s",
+                _debug_printf(";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
                               form, *pve)
         return pve
 
@@ -3756,16 +3727,14 @@ def lisp(body):
                 error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
                       "No more than one toplevel form is allowed per definition.")
         form = _intern_astsexp(body_ast[0])
-        ################ Thought paused here..
         __def_allowed_toplevels__ = set([def_])
         if form[0] not in __def_allowed_toplevels__:
                 error("In LISP %s: only toplevels in %s are allowed.",
                       form[0], __def_allowed_toplevels__)
-        pve = pro, val, epi = compile_(form)
-        # Unregistered Issue SHOULD-REALLY-BE-HONEST-WITH-VALUE-EPILOGUE-IN-LISP
-        _compiler_warn_discarded_epi(epi, "LISP %s", form[0])
+        pve = pro, val = compile_(form)
+        # Unregistered Issue SHOULD-REALLY-BE-HONEST-WITH-VALUE-IN-LISP
         stmts = mapcar(_compose(_ast_ensure_stmt, _atree_ast),
-                       remove_if(_nonep, _triplerator(pve)))
+                       remove_if(_nonep, _tuplerator(pve)))
         if _debugging_compiler_p():
                 import more_ast
                 _debug_printf(";;; compilation Python output for %s:\n;;;\n%s\n",
@@ -3776,11 +3745,11 @@ def lisp(body):
                                   locals_  = locals())
 
 @lisp
-def fdefinition_(name):
-        (def_, fdefinition_, (name,),
-         (if_, (stringp_, name),
+def fdefinition(name):
+        (def_, fdefinition, (name,),
+         (if_, (stringp, name),
           (_global, name),
-          (symbol_function_, (the_, symbol, name))))
+          (symbol_function, (the, symbol, name))))
 
 @lisp
 def stringp(x):
