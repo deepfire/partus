@@ -1866,6 +1866,9 @@ def symbol_function(x):
 
 def _symbol_macro_function(x):
         return gethash("function", x.__dict__)
+def _setf_symbol_macro_function(x):
+        # Unregistered Issue SETF-SYMBOL-MACRO-FUNCTION-SHOULD-BE-MORE-INTELLIGENT
+        return gethash("function", x.__dict__)
 
 class symbol():
         def __str__(self):
@@ -2122,6 +2125,7 @@ def setf_file_position(x, posn):
 ##
 #
 
+# Research Issue CL-DIFFERENCE-BETWEEN-FDEFINITION-AND-SYMBOL-FUNCTION
 def setf_fdefinition(symbol_name, function):
         symbol_name = string(symbol_name)
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
@@ -2135,11 +2139,12 @@ def setf_fdefinition(symbol_name, function):
         symbol.__code__        = function.__code__
         return function
 
-def defun(f):
+def _cold_defun(f):
         symbol_name = f.__name__
         setf_fdefinition(symbol_name, f)
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
         return _global(symbol_name)[0] # guaranteed to exist at this point
+defun = _cold_defun
 
 __type_predicate_map__ = dict()
 
@@ -3430,6 +3435,14 @@ def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an ack
                         result = try_compile()
                         xtnls_actual = _tuple_xtnls(result)
                 return result
+
+@defprimitive
+def defmacro(name, lambda_list, *body):
+        # 1. Transformation
+        #   - compile_((def_, name, lambda_list) + body)
+        # 2. Compile-time side-effect (see CLHS)
+        #   - obtain the function for compiled code
+        #   - _setf_symbol_macro_function()
 
 @defprimitive
 def let_(bindings, *body):
