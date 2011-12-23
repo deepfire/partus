@@ -3656,7 +3656,7 @@ def macroexpand(form):
                         (form, expanded))
         return do_macroexpand(form, nil)
 
-_debug_compiler()
+# _debug_compiler()
 # Urgent Issue COMPILER-MACRO-SYSTEM
 def compile_(form):
         # - tail position tracking
@@ -3695,9 +3695,9 @@ def compile_(form):
                                         # basic function call
                                         return lower((funcall_,) + form)
                                 elif (_tuplep(x[0]) and x[0] and x[0][0] is lambda_):
-                                        return lower((funcall_,) + form)
+                                        return lower((funcall_,) + x)
                                 elif stringp(x[0]): # basic function call
-                                        return lower((funcall_,) + form)
+                                        return lower((funcall_,) + x)
                                 else:
                                         error("Invalid form: %s.", princ_to_string(form))
                 elif symbolp(x):
@@ -3781,6 +3781,11 @@ def fdefinition_(name):
          (if_, (stringp_, name),
           (_global, name),
           (symbol_function_, (the_, symbol, name))))
+
+@lisp
+def stringp(x):
+        (def_, stringp, (x,),
+         ("isinstance", x, str))
 
 ##
 ## Pretty-printing
