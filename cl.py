@@ -1849,26 +1849,110 @@ def defpackage(name, use = [], export = []):
 def in_package(name):
         setq("_PACKAGE_", _coerce_to_package(name))
 
+###
+### CL namespaces
+###
+## Some factology:
+##
+# * (defmacro yay (x) `(a))
+# ; in: DEFMACRO YAY
+# ;     (LET* ((X (CAR (CDR #:WHOLE628))))
+# ;       (BLOCK YAY '(A)))
+# ; 
+# ; caught STYLE-WARNING:
+# ;   The variable X is defined but never used.
+# ; 
+# ; compilation unit finished
+# ;   caught 1 STYLE-WARNING condition
+#
+# YAY
+# * (fboundp 'yay)
+#
+# T
+# * (symbol-function 'yay)
+#
+# #<CLOSURE (LAMBDA (&REST SB-C::ARGS)) {1002CA2269}>
+# * (fdefinition 'yay)
+#
+# #<CLOSURE (LAMBDA (&REST SB-C::ARGS)) {1002CA2269}>
+# * (function yay)
+#
+# #<CLOSURE (LAMBDA (&REST SB-C::ARGS)) {1002CA2269}>
+#
+# * (setf (symbol-function 'yay) (lambda (z) z))
+#
+# #<FUNCTION (LAMBDA (Z)) {1002CC0099}>
+# * (symbol-function 'yay)
+#
+# #<FUNCTION (LAMBDA (Z)) {1002CC0099}>
+# * (fdefinition 'yay)
+#
+# #<FUNCTION (LAMBDA (Z)) {1002CC0099}>
+# * (setf (fdefinition 'yay) (lambda (z) z))
+#
+# #<FUNCTION (LAMBDA (Z)) {1002CE8F79}>
+# * (macroexpand-1 '(yay 1))
+#
+# (A)
+# T
+
 def fboundp(x):
-        return hasattr(the(symbol, x), "__call__")
+        return the(symbol, x).function
 
 def function(name):
-        # Unregistered Issue NAMESPACING-FUNCTIONS
+        # Unregistered Issue COMPLIANCE-NAMESPACING-FUNCTIONS
         pyname, module = _lisp_symbol_python_addr(name)
         return the(function_, _lisp_symbol_python_value(name))
 
 def symbol_function(x):
-        check_type(x, symbol)
-        func, fboundp = gethash("function", x.__dict__)
-        if not fboundp:
+        if not the(symbol, x).function:
                 error("The function %s is undefined.", x)
         return func
 
+# Research Issue CL-DIFFERENCE-BETWEEN-SETF-SYMBOL-FUNCTION-SETF-FDEFINITION-AND-DEFUN
+# ..because, this far, DEFMACRO wins over SETF-FDEFINITION -- only DEFUN is necessary to switch namespace..
+def setf_fdefinition(symbol_name, function):
+        symbol_name = string(symbol_name)
+        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+        symbol, therep = _global(symbol_name)
+        if not therep:
+                symbol = _intern0(symbol_name)
+                _setf_global(symbol_name, symbol)
+        symbol.function = function
+        return function
+
+def _warn_incompatible_function_redefinition(symbol, tons, fromns):
+        style_warn("%s is being redefined as a %s when it was previously defined to be a %s.",
+                           symbol, tons, fromns)
+def _install_function_definition(function):
+        return _do_install_function_definition(_intern0(function.__name__), function)
+def _do_install_function_definition(x, function):
+        if the(symbol, x).function:
+                _warn_incompatible_function_redefinition(x, "function", "macro")
+        else:
+                _warn_possible_redefinition(x.function, the(symbol, defun_))
+        x.function = value
+        _make_object_like_python_function(x, function)
+        return value
+
+def _cold_defun(f):
+        symbol_name = f.__name__
+        setf_fdefinition(symbol_name, f)
+        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+        return _global(symbol_name)[0] # guaranteed to exist at this point
+defun = _cold_defun
+
 def _symbol_macro_function(x):
-        return gethash("function", x.__dict__)
-def _setf_symbol_macro_function(x):
+        return gethash("macro_function", x.__dict__)
+def _install_macro_definition(symbol, value):
         # Unregistered Issue SETF-SYMBOL-MACRO-FUNCTION-SHOULD-BE-MORE-INTELLIGENT
-        return gethash("function", x.__dict__)
+        if x.function:
+                style_warn("%s is being redefined as a macro when it was previously defined to be a function.",
+                           symbol)
+                x.function = nil
+        _warn_possible_redefinition(gethash("macro_function", x.__dict__)[0], _intern0(defmacro_))
+        x.macro_function = value
+        return value
 
 class symbol():
         def __str__(self):
@@ -2124,28 +2208,6 @@ def setf_file_position(x, posn):
 ###
 ##
 #
-
-# Research Issue CL-DIFFERENCE-BETWEEN-FDEFINITION-AND-SYMBOL-FUNCTION
-def setf_fdefinition(symbol_name, function):
-        symbol_name = string(symbol_name)
-        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        symbol, therep = _global(symbol_name)
-        if not therep:
-                symbol = _intern0(symbol_name)
-                _setf_global(symbol_name, symbol)
-        symbol.function = function
-        symbol.__name__        = symbol_name
-        symbol.__annotations__ = {}
-        symbol.__code__        = function.__code__
-        return function
-
-def _cold_defun(f):
-        symbol_name = f.__name__
-        setf_fdefinition(symbol_name, f)
-        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        return _global(symbol_name)[0] # guaranteed to exist at this point
-defun = _cold_defun
-
 __type_predicate_map__ = dict()
 
 ## Remember, we return type mismatches in these predicates!
@@ -3397,10 +3459,19 @@ def if_(test, consequent, antecedent = nil):
                         return compile_((flet_, ((tuple() if cons_expr_p else ((name_cons, tuple()) + pro_cons + (val_cons,),),) +
                                                  (tuple() if ante_expr_p else ((name_ante, tuple()) + pro_ante + (val_cons,),),)),
                                          (if_, test, cons_branch, ante_branch)))
-
+# 1. I'd rather much separate:
+#    - named lambda compilation
+#        def thunk():
+#                def named(<lambda-list>):
+#                        <body>
+#                return named
+#        thunk()
+#    - installation of such named lambdas as global function definitions
+#        emit a decorator? install_fdefinition
 @defprimitive
-def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an acknowledgement of the
-                                    # need to represent a building block from the underlying system.
+def def_(name, lambda_list, *body, decorators = []):
+        # This is NOT a Lisp form, but rather an acknowledgement of the
+        # need to represent a building block from the underlying system.
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
         cdef = _compiler_def(name   = name,
                              parent = _compiling_def())
@@ -3417,8 +3488,14 @@ def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an ack
                                 pve = body_ret, _ = compile_((return_, (progn_, ) + body))
                         # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                         # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
+                        deco_vals = []
+                        for pro_deco, val_deco in (compile_(d) for d in decorators):
+                                if pro_deco:
+                                        error("in DEF %s: decorators must lower to python expressions.", name)
+                                
                         return ([("FunctionDef", string(name), compiled_lambda_list,
-                                                 body_ret)],
+                                                 body_ret,
+                                                 deco_vals)],
                                 compile_((quote_, (symbol_, string(name))))[1])
                 ## Xtnls feedback loop stabilisation scheme.
                 ##
@@ -3436,6 +3513,13 @@ def def_(name, lambda_list, *body): # This is NOT a Lisp form, but rather an ack
                         xtnls_actual = _tuple_xtnls(result)
                 return result
 
+def _install_macro_definition(fn):
+        name = fn.__name__
+        # Unregistered Issue COMPLIANCE-GLOBAL-DEFINITIONS-ONLY-IN-CURRENT-PACKAGE
+        sym = _intern0(name)
+        _setf_symbol_macro_function(sym, fn)
+        return sym
+
 @defprimitive
 def defmacro(name, lambda_list, *body):
         # 1. Transformation
@@ -3443,6 +3527,8 @@ def defmacro(name, lambda_list, *body):
         # 2. Compile-time side-effect (see CLHS)
         #   - obtain the function for compiled code
         #   - _setf_symbol_macro_function()
+        return compile_((def_, name, lambda_list) + body,
+                        decorators = [(_defmacro,)])
 
 @defprimitive
 def let_(bindings, *body):
