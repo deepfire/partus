@@ -61,6 +61,22 @@ def gethash(key, dict, default = None):
         inp = key in dict
         return (dict.get(key) if inp else default), key in dict
 
+def _cold_constantp(form):
+        # Coldness:
+        #  - slow handling of constant variables
+        #  - no handling of DEFCONSTANT-introduced variables
+        #  - additional constant forms
+        return (isinstance(form, (int, float, complex, str)) or
+                (type_of(form).__name__ == "symbol" and
+                 ((form.package.name == "KEYWORD") or
+                  (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
+                (_tuplep(form)                         and
+                 _len(form) == 2                       and
+                 type_of(form[0]).__name__ == "symbol" and
+                 form.package.name == "COMMON-LISP"    and
+                 form.name in ["QUOTE"]))
+constantp = _cold_constantp
+
 __core_symbol_names__ = [
         "QUOTE",
         "AND", "OR", "MEMBER", "EQL", "SATISFIES",
@@ -2284,6 +2300,60 @@ def _init_package_system_2():
 ###
 ### Symbol-related thaw
 ###
+
+def constantp(form, environment = None):
+        """constantp form &optional environment => generalized-boolean
+
+Arguments and Values:
+
+FORM---a form.
+
+environment---an environment object. The default is nil.
+
+GENERALIZED-BOOLEAN---a generalized boolean.
+
+Description:
+
+Returns true if FORM can be determined by the implementation to be a
+constant form in the indicated ENVIRONMENT;  otherwise, it returns
+false indicating either that the form is not a constant form or that
+it cannot be determined whether or not FORM is a constant form.
+
+The following kinds of forms are considered constant forms:
+
+* Self-evaluating objects (such as numbers, characters, and the
+  various kinds of arrays) are always considered constant forms and
+  must be recognized as such by CONSTANTP.
+
+* Constant variables, such as keywords, symbols defined by Common Lisp
+  as constant (such as NIL, T, and PI), and symbols declared as
+  constant by the user in the indicated ENVIRONMENT using DEFCONSTANT
+  are always considered constant forms and must be recognized as such
+  by CONSTANTP.
+
+* QUOTE forms are always considered constant forms and must be
+  recognized as such by CONSTANTP.
+
+* An implementation is permitted, but not required, to detect
+  additional constant forms.  If it does, it is also permitted, but
+  not required, to make use of information in the
+  ENVIRONMENT.  Examples of constant forms for which CONSTANTP might or
+  might not return true are: (SQRT PI), (+ 3 2), (LENGTH '(A B C)),
+  and (LET ((X 7)) (ZEROP X)).
+
+If an implementation chooses to make use of the environment
+information, such actions as expanding macros or performing function
+inlining are permitted to be used, but not required; however,
+expanding compiler macros is not permitted.
+
+Affected By:
+
+The state of the global environment (e.g., which symbols have been
+declared to be the names of constant variables)."""
+        return (isinstance(form, (int, float, complex, str)) or
+                keywordp(form) or form in [t, nil, pi] or
+                (_tuplep(form) and len(form) == 2 and form[0] is quote_))
+
 def null(x):
         return x is nil
 
