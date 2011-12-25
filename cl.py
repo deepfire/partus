@@ -2045,29 +2045,206 @@ def in_package(name):
 # (A)
 # T
 
-def fboundp(x):
-        return the(symbol, x).function
+def fboundp(name):
+        """fboundp name => generalized-boolean
+
+Pronunciation:
+
+[,ef'bandpee]
+
+Arguments and Values:
+
+NAME---a function name.
+
+GENERALIZED-BOOLEAN---a generalized boolean.
+
+Description:
+
+Returns true if NAME is fbound; otherwise, returns false."""
+        return t if the(symbol, name).function else nil
+
+def fmakunbound(name):
+        """fmakunbound name => name
+
+Pronunciation:
+
+[,ef'makuhn,band] or [,ef'maykuhn,band]
+
+Arguments and Values:
+
+NAME---a function name.
+
+Description:
+
+Removes the function or macro definition, if any, of NAME in the
+global environment."""
+        (the(symbol, name).function,
+         symbol.macro_function) = nil, nil
+        return name
 
 def function(name):
+        """function name => function
+
+Arguments and Values:
+
+NAME---a function name or lambda expression.
+
+FUNCTION---a function object.
+
+Description:
+
+The value of FUNCTION is the functional value of NAME in the current
+lexical environment.
+
+If NAME is a function name, the functional definition of that name is
+that established by the innermost lexically enclosing FLET, LABELS, or
+MACROLET form, if there is one.  Otherwise the global functional
+definition of the function name is returned.
+
+If NAME is a lambda expression, then a lexical closure is returned.
+In situations where a closure over the same set of bindings might be
+produced more than once, the various resulting closures might or might
+not be EQ.
+
+It is an error to use FUNCTION on a function name that does not denote
+a FUNCTION in the lexical environment in which the FUNCTION form
+appears.  Specifically, it is an error to use FUNCTION on a symbol
+that denotes a macro or special form.  An implementation may choose
+not to signal this error for performance reasons, but implementations
+are forbidden from defining the failure to signal an error as a useful
+behavior.
+
+"""
         # Unregistered Issue COMPLIANCE-NAMESPACING-FUNCTIONS
         pyname, module = _lisp_symbol_python_addr(name)
         return the(function_, _lisp_symbol_python_value(name))
 
 def symbol_function(symbol_):
+        """symbol-function symbol => contents
+
+(setf (symbol-function symbol) new-contents)
+
+Arguments and Values:
+
+SYMBOL---a symbol.
+
+CONTENTS--- If the SYMBOL is globally defined as a macro or a special
+operator, an object of implementation-dependent nature and identity is
+returned. If the SYMBOL is not globally defined as either a macro or a
+special operator, and if the SYMBOL is fbound, a function object is
+returned.
+
+NEW-CONTENTS---a function.
+
+Description:
+
+Accesses the SYMBOL's function cell.
+
+Affected By:
+
+DEFUN
+
+Exceptional Situations:
+
+Should signal an error of type TYPE-ERROR if SYMBOL is not a symbol.
+
+Should signal UNDEFINED-FUNCTION if SYMBOL is not fbound and an
+attempt is made to read its definition. (No such error is signaled on
+an attempt to write its definition.)"""
         return (the(symbol, symbol_).function or
                 error("The function %s is undefined.", symbol_))
 
 # Research Issue CL-DIFFERENCE-BETWEEN-SETF-SYMBOL-FUNCTION-SETF-FDEFINITION-AND-DEFUN
 # ..because, this far, DEFMACRO wins over SETF-FDEFINITION -- only DEFUN is necessary to switch namespace..
-def setf_fdefinition(symbol_name, function):
-        symbol_name = string(symbol_name)
+def setf_fdefinition(function_name, new_definition):
+        """fdefinition function-name => definition
+
+(setf (fdefinition function-name) new-definition)
+
+Arguments and Values:
+
+FUNCTION-NAME---a function name. In the non-SETF case, the name must be fbound in the global environment.
+
+DEFINITION---Current global function definition named by FUNCTION-NAME.
+
+NEW-DEFINITION---a function.
+
+Description:
+
+FDEFINITION accesses the current global function definition named by
+FUNCTION-NAME.  The definition may be a function or may be an object
+representing a special form or macro.  The value returned by
+FDEFINITION when FBOUNDP returns true but the FUNCTION-NAME denotes a
+macro or special form is not well-defined, but FDEFINITION does not
+signal an error."""
+        namestring = string(function_name)
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        symbol, therep = _global(symbol_name)
+        symbol, therep = _global(namestring)
         if not therep:
-                symbol = _intern0(symbol_name)
-                _setf_global(symbol_name, symbol)
-        symbol.function = function
-        return function
+                symbol = _intern0(namestring)
+                _setf_global(namestring, symbol)
+        symbol.function = new_definition
+        return new_definition
+
+def macro_function(symbol, environment = None):
+        """macro-function symbol &optional environment => function
+
+(setf (macro-function symbol &optional environment) new-function)
+
+Arguments and Values:
+
+SYMBOL---a symbol.
+
+ENVIRONMENT---an environment object.
+
+FUNCTION---a macro function or nil.
+
+NEW-FUNCTION---a macro function.
+
+Description:
+
+Determines whether SYMBOL has a function definition as a macro in the
+specified environment.
+
+If so, the macro expansion function, a function of two arguments, is
+returned.  If SYMBOL has no function definition in the lexical
+environment ENVIRONMENT, or its definition is not a macro,
+MACRO-FUNCTION returns NIL.
+
+It is possible for both MACRO-FUNCTION and SPECIAL-OPERATOR-P to
+return true of SYMBOL.  The macro definition must be available for use
+by programs that understand only the standard Common Lisp special
+forms.
+
+Affected By:
+
+(SETF MACRO-FUNCTION), DEFMACRO, and MACROLET.
+
+Exceptional Situations:
+
+The consequences are undefined if ENVIRONMENT is non-NIL in a use of
+SETF of MACRO-FUNCTION."""
+
+def special_operator_p(symbol):
+        """Syntax:
+
+special-operator-p symbol => generalized-boolean
+
+Arguments and Values:
+
+SYMBOL---a symbol.
+
+GENERALIZED-BOOLEAN---a generalized boolean.
+
+Description:
+
+Returns true if SYMBOL is a special operator; otherwise, returns
+false.
+
+Exceptional Situations:
+
+Should signal TYPE-ERROR if its argument is not a symbol."""
+        
 
 def _warn_incompatible_function_redefinition(symbol, tons, fromns):
         style_warn("%s is being redefined as a %s when it was previously defined to be a %s.",
