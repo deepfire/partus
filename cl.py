@@ -3857,7 +3857,9 @@ def macroexpand(form):
                         (form, expanded))
         return do_macroexpand(form, nil)
 
-_debug_compiler()
+# Unregistered Issue DEBUG-SCAFFOLDING
+if probe_file("/home/deepfire/.partus-debug-compiler"):
+        _debug_compiler()
 # Urgent Issue COMPILER-MACRO-SYSTEM
 def compile_(form):
         # - tail position tracking
