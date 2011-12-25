@@ -1904,10 +1904,9 @@ def function(name):
         pyname, module = _lisp_symbol_python_addr(name)
         return the(function_, _lisp_symbol_python_value(name))
 
-def symbol_function(x):
-        if not the(symbol, x).function:
-                error("The function %s is undefined.", x)
-        return func
+def symbol_function(symbol_):
+        return (the(symbol, symbol_).function or
+                error("The function %s is undefined.", symbol_))
 
 # Research Issue CL-DIFFERENCE-BETWEEN-SETF-SYMBOL-FUNCTION-SETF-FDEFINITION-AND-DEFUN
 # ..because, this far, DEFMACRO wins over SETF-FDEFINITION -- only DEFUN is necessary to switch namespace..
