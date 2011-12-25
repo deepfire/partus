@@ -8,6 +8,7 @@ import _io
 import ast
 import imp
 import sys
+import math
 import time
 import types
 import socket
@@ -41,6 +42,7 @@ def progn(*body):
 def _prognf(*body):
         return lambda: progn(*body)
 
+pi = math.pi
 most_positive_fixnum = 67108864
 
 def defstruct(name, *slots):
