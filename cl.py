@@ -1,45 +1,162 @@
 ###
-### Some surfacial Common Lisp compatibility.
-###
-import re
-import os
-import io
-import _io
-import ast
-import imp
-import sys
-import math
-import time
-import types       as _types
-import socket
-import inspect
-import builtins    as _builtins
-import platform
-import functools
-import linecache   as _linecache
-import threading
-import collections
-
-from collections import OrderedDict as _odict
-from functools import reduce
-from neutrality import stringp, _write_string
-
-# Namespace cleanup:
-from builtins import type as _type, isinstance as _isinstance, len as _len
-from builtins import int as _int, float as _float, complex as _complex, list as _list, str as _str, tuple as _tuple, set as _set
-from builtins import zip as _zip, range as _range, reversed as _reversed
-from builtins import id as _id, setattr as _setattr, getattr as _getattr, hasattr as _hasattr
-
-###
 ### Ring 0.
 ###
-function_  = _types.FunctionType.__mro__[0] # clashes with #'CL:FUNCTION
-integer    = _builtins.int
-float      = _builtins.float
-complex    = _builtins.complex
-string_    = _builtins.str                  # clashes with #'CL:STRING
-boolean    = _builtins.bool
-hash_table = _builtins.dict
+def _python_builtins_dictionary():
+        return _builtins.getattr(__builtins__, "__dict__", __builtins__)
+
+def _setf_python_builtins_dictionary(value):
+        global __builtins__
+        if hasattr(__builtins__, "__dict__"):
+                vars(__builtins__)["__dict__"] = value
+                # __builtins__.__dict__ = value
+        else:
+                __builtins__ = value
+        return value
+
+import builtins    as _builtins
+import collections as _collections
+
+class _dictator(_collections.UserDict):
+        def __hasattr__(self, name): return name in self.data
+        def __getattr__(self, name): return self.data[name]
+        def __setitem__(self, *_):   raise  self.data["Exception"]("Dictator.")
+        def __delitem__(self, *_):   raise  self.data["Exception"]("Dictator.")
+        def __setattr__(self, *_):   raise  self.data["Exception"]("Dictator.")
+        def __init__(self, dict):
+                self.__dict__.update(data = dict)
+
+_python = _dictator(_python_builtins_dictionary())
+_setf_python_builtins_dictionary(_python.dict(_python_builtins_dictionary()))
+
+# Obtained by the means of: list(sorted(sys.modules["__main__"].__builtins__.__dict__.keys()))
+_python_builtin_names = ['ArithmeticError', 'AssertionError', 'AttributeError',
+                         'BaseException', 'BufferError', 'BytesWarning',
+                         'DeprecationWarning',
+                         'EOFError', 'Ellipsis', 'EnvironmentError', 'Exception',
+                         ############ 'False' cannot be deleted
+                         'False', 'FloatingPointError', 'FutureWarning',
+                         'GeneratorExit',
+                         'IOError', 'ImportError', 'ImportWarning', 'IndentationError', 'IndexError',
+                         'KeyError', 'KeyboardInterrupt',
+                         'LookupError',
+                         'MemoryError',
+                         ############ 'None' cannot be deleted
+                         'NameError', 'None', 'NotImplemented', 'NotImplementedError',
+                         'OSError', 'OverflowError',
+                         'PendingDeprecationWarning',
+                         'ReferenceError', 'ResourceWarning', 'RuntimeError', 'RuntimeWarning',
+                         'StopIteration', 'SyntaxError', 'SyntaxWarning', 'SystemError', 'SystemExit',
+                         ############ 'True' cannot be deleted
+                         'TabError', 'True', 'TypeError',
+                         'UnboundLocalError', 'UnicodeDecodeError', 'UnicodeEncodeError', 'UnicodeError', 'UnicodeTranslateError', 'UnicodeWarning', 'UserWarning',
+                         'ValueError',
+                         'Warning',
+                         'ZeroDivisionError',
+                         ###### These are both sufficiently important and _-prefixed.
+                         '_', # '__build_class__', '__debug__', '__doc__', '__import__', '__name__', '__package__',
+                         'abs', 'all', 'any', 'ascii',
+                         'bin', 'bool', 'bytearray', 'bytes',
+                         'callable', 'chr', 'classmethod', 'compile', 'complex', 'copyright', 'credits',
+                         'delattr', 'dict', 'dir', 'divmod',
+                         'enumerate', 'eval', 'exec', 'exit',
+                         'filter', 'float', 'format', 'frozenset',
+                         'getattr', 'globals',
+                         'hasattr', 'hash', 'help', 'hex',
+                         'id', 'input', 'int', 'isinstance', 'issubclass', 'iter',
+                         'len', 'license', 'list', 'locals',
+                         'map', 'max', 'memoryview', 'min',
+                         'next',
+                         'object', 'oct', 'open', 'ord',
+                         'pow', 'print', 'property',
+                         'quit',
+                         'range', 'repr', 'reversed', 'round',
+                         'set', 'setattr', 'slice', 'sorted', 'staticmethod', 'str', 'sum', 'super',
+                         'tuple', 'type',
+                         'vars',
+                         'zip']
+### Clean up the namespace.
+def _distance_oneself_from_python():
+        for name in _python_builtin_names:
+                del _python_builtins_dictionary()[name]
+
+_distance_oneself_from_python()
+### What's left:
+## o  None, True, False -- notably are not AST-level, but still are invincible.
+## o  __(build_class | debug | doc | import | name | package)__
+## o  _python_builtins_dictionary, _python_builtin_names
+## o  _python
+
+###
+### Some surfacial Common Lisp compatibility.
+###
+import re          as _re
+import os          as _os
+import io          as _io
+import _io         as __io
+import ast         as _ast
+import imp         as _imp
+import sys         as _sys
+import math        as _math
+import time        as _time
+import types       as _types
+import socket      as _socket
+import inspect     as _inspect
+import platform    as _platform
+import functools   as _functools
+import linecache   as _linecache
+import threading   as _threading
+import collections as _collections
+
+import neutrality  as _neutrality
+
+from builtins import isinstance as _isinstance, len as _len, repr as _repr
+from builtins import zip as _zip, range as _range, reversed as _reversed, enumerate as _enumerate
+from builtins import id as _id, hasattr as _hasattr, getattr as _getattr, setattr as _setattr
+
+###
+### Types
+###
+## Naming policy:
+##
+## Two aspects are at play: the type aspect and the function aspect.
+##
+## In Python the type name has only one value associated with it, and
+## this value works both as a type specifier, and as its constructor
+## function -- everything in single value namespace.
+##
+## In CL this isn't so, and the symbol can have a function associated
+## with it, at the same time it can be interepreted as a type
+## specifier on its own, and still it might have no value attached to
+## it (this is, in fact, the common case).
+##
+## To be able to correctly reflect that picture, we need to introduce
+## an artificial split into the single python namespace.  So:
+##
+##  - 
+## 
+function_   = _types.FunctionType.__mro__[0] # clashes with #'CL:FUNCTION
+integer     = _builtins.int
+float       = _builtins.float
+complex     = _builtins.complex
+string_     = _builtins.str                  # clashes with #'CL:STRING
+boolean     = _builtins.bool
+hash_table  = _builtins.dict
+stream_     = __io._IOBase                   # clashes with keyword argument names
+_type       = _builtins.type
+_list       = _builtins.list
+_tuple      = _builtins.tuple
+_str        = _builtins.str
+_bytes      = _builtins.bytes
+_bytearray  = _builtins.bytearray
+_set        = _builtins.set
+_frozenset  = _builtins.frozenset
+_NoneType   = _type(None)
+
+###
+### Constants
+###
+pi                   = _math.pi
+most_positive_fixnum = 67108864
 
 def identity(x):
         return x
@@ -59,11 +176,26 @@ def progn(*body):
 def _prognf(*body):
         return lambda: progn(*body)
 
-pi = math.pi
-most_positive_fixnum = 67108864
+reduce = _functools.reduce
 
 def defstruct(name, *slots):
-        return collections.namedtuple(name, slots)
+        return _collections.namedtuple(name, slots)
+
+def _cold_constantp(form):
+        # Coldness:
+        #  - slow handling of constant variables
+        #  - no handling of DEFCONSTANT-introduced variables
+        #  - additional constant forms
+        return (_isinstance(form, (integer, float, complex, string_)) or
+                (type_of(form).__name__ == "symbol" and
+                 ((form.package.name == "KEYWORD") or
+                  (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
+                (_tuplep(form)                         and
+                 _len(form) == 2              and
+                 type_of(form[0]).__name__ == "symbol" and
+                 form.package.name == "COMMON-LISP"    and
+                 form.name in ["QUOTE"]))
+constantp = _cold_constantp
 
 def string_upcase(x):     return x.upper()
 def string_downcase(x):   return x.lower()
@@ -75,24 +207,8 @@ def upper_case_p(x):      return x.isupper()
 def lower_case_p(x):      return x.islower()
 
 def gethash(key, dict, default = None):
-        inp = key in dict
-        return (dict.get(key) if inp else default), key in dict
-
-def _cold_constantp(form):
-        # Coldness:
-        #  - slow handling of constant variables
-        #  - no handling of DEFCONSTANT-introduced variables
-        #  - additional constant forms
-        return (_isinstance(form, (_int, _float, _complex, _str)) or
-                (type_of(form).__name__ == "symbol" and
-                 ((form.package.name == "KEYWORD") or
-                  (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
-                (_tuplep(form)                         and
-                 _len(form) == 2              and
-                 type_of(form[0]).__name__ == "symbol" and
-                 form.package.name == "COMMON-LISP"    and
-                 form.name in ["QUOTE"]))
-constantp = _cold_constantp
+        therep = key in dict
+        return (dict.get(key) if therep else default), therep
 
 __core_symbol_names__ = [
         "QUOTE",
@@ -108,10 +224,10 @@ __more_symbol_names__ = [
         "SOME", "EVERY",
 ]
 
-_case_attribute_map = dict(UPCASE     = string_upcase,
-                           DOWNCASE   = string_downcase,
-                           CAPITALIZE = string_capitalize,
-                           PRESERVE   = identity)
+_case_attribute_map = _dict(UPCASE     = string_upcase,
+                            DOWNCASE   = string_downcase,
+                            CAPITALIZE = string_capitalize,
+                            PRESERVE   = identity)
 def _case_xform(type, s):
         return _case_attribute_map[type.name](s)
 
@@ -123,8 +239,6 @@ def _setf_global(value, name):
 def _global(name):
         return gethash(name, _builtins.globals())
 
-_NoneType = _type(None)
-
 ###
 ### Cold boot
 ###
@@ -133,7 +247,7 @@ def _cold_print_symbol(s, **keys):
 _print_symbol = _cold_print_symbol
 
 def _cold_error(datum, *args):
-        raise (Exception(datum % args) if stringp(datum) else
+        raise (_builtins.Exception(datum % args) if stringp(datum) else
                datum(*args))
 error = _cold_error
 def _cold_null(x): return not x
@@ -146,7 +260,7 @@ def _cold_format(destination, control_string, *args):
                 _write_string(string, sys.stderr if destination is t else destination)
 format = _cold_format
 def _cold_princ_to_string(x):
-        return repr(x)
+        return _repr(x)
 princ_to_string = _cold_princ_to_string
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
 def _cold_probe_file(pathname):
@@ -307,14 +421,14 @@ def _hash_table_alist(xs):
         return xs.items()
 
 def _alist_hash_table(xs):
-        return dict(xs)
+        return _dict(xs)
 
 class _cache(collections.UserDict):
         def __init__(self, filler):
                 self.filler = filler
-                self.data = dict()
+                self.data = _dict()
         def __getitem__(self, key):
-                check_type(key, tuple)
+                check_type(key, _tuple)
                 key, access_timestamp = key
                 if key not in self.data:
                         res = self.filler(key)
@@ -347,7 +461,7 @@ def _defaulted_to_var(x, variable, type = None):
         return _defaulted(x, symbol_value(variable), type = type)
 
 def _only_specified_keys(**keys):
-        return dict(((k, v) for k, v in keys if _specifiedp(k)))
+        return _dict(((k, v) for k, v in keys if _specifiedp(k)))
 
 def _read_case_xformed(x):
         return _case_xform(_symbol_value("_READ_CASE_"), x)
@@ -364,11 +478,11 @@ def _astp(x):        return typep(x, ast.AST)
 
 def _coerce_to_ast_type(type):
         return typecase(type,
-                        (type_,   lambda: (type if subtypep(type, ast.AST) else
+                        (_type,   lambda: (type if subtypep(type, ast.AST) else
                                            error("Provided type %s is not a proper subtype of ast.AST.", type))),
                         (string_, lambda: (ast.__dict__[type] if type in ast.__dict__ else
                                            error("Unknown AST type '%s'.", type))),
-                        (t,       lambda: error("Invalid AST type specifier: %s, %s, %s.", type, type_, typep(type, type_))))
+                        (t,       lambda: error("Invalid AST type specifier: %s, %s, %s.", type, _type, typep(type, _type))))
 
 def _text_ast(text):
         return _builtins.compile(text, "", 'exec', flags=ast.PyCF_ONLY_AST).body
@@ -387,7 +501,7 @@ def _ast_num(n):
 def _ast_bool(n):
         return ast.Bool(n = the(integer, n))
 def _ast_string(s):
-        return ast.Str(s = the(string, s))
+        return ast.Str(s = the(string_, s))
 def _ast_set(xs,   writep = False):
         return ast.Set(elts   = the((list_, ast.AST), xs), ctx = _ast_rw(writep))
 def _ast_list(xs,  writep = False):
@@ -487,11 +601,11 @@ def _argspec_lambda_spec(spec, astify_defaults = True):
         nfixargs = _argspec_nfixargs(spec)
         default_xform = _astify_constant if astify_defaults else identity
         return (spec.args[:nfixargs],
-                list(zip(spec.args[nfixargs:],
-                         mapcar(default_xform, spec.defaults or []))),
+                _list(_zip(spec.args[nfixargs:],
+                           mapcar(default_xform, spec.defaults or []))),
                 spec.varargs,
-                list(zip(spec.kwonlyargs,
-                     mapcar(default_xform, spec.kwonlydefaults or []))),
+                _list(_zip(spec.kwonlyargs,
+                      mapcar(default_xform, spec.kwonlydefaults or []))),
                 spec.varkw)
 def _lambda_spec_arguments(lambda_list_spec):
         fixed, optional, args, keyword, keys = lambda_list_spec
@@ -520,7 +634,7 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                   lambda:
                                   body(*mapcar(_ast_name, fixed),
                                        **_map_into_hash(lambda x: (x, _ast_name),
-                                                        (list(optional) + list(keyword) +
+                                                        (_list(optional) + _list(keyword) +
                                                          ([args] if args else []) +
                                                          ([keys] if keys else [])))))))
 ###
@@ -559,7 +673,7 @@ def _reregister_module_as_package(mod, parent_package = None):
                 parent_package.__children__.add(mod)
                 mod.__parent__ = parent_package
         if packagep:
-                mod.__children__ = set([])
+                mod.__children__ = _set()
 
 def _compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
         return _load_code_object_as_module(
@@ -628,11 +742,11 @@ def _frame_globals(f):           return f.f_globals
 def _frame_local_value(f, name): return f.f_locals[name]
 
 ### XXX: this is the price of Pythonic pain
-__ordered_frame_locals__ = dict()
+__ordered_frame_locals__ = _dict()
 def _frame_ordered_locals(f):
         global __ordered_frame_locals__
         if f not in __ordered_frame_locals__:
-                __ordered_frame_locals__[f] = list(f.f_locals.keys())
+                __ordered_frame_locals__[f] = _list(f.f_locals.keys())
         return __ordered_frame_locals__[f]
 
 def _fun_info(f):
@@ -685,7 +799,7 @@ def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_lin
                                      if not pretty else
                                      ("%s%s@%s:%d",
                                       _fun_name(fun),
-                                      (":" + str(_frame_lineno(f) - _fun_firstlineno(fun))) if print_fun_line else "",
+                                      (":" + _str(_frame_lineno(f) - _fun_firstlineno(fun))) if print_fun_line else "",
                                       _fun_filename(fun),
                                       _frame_lineno(f))))
         return ("..".join(mapcar(lambda f: _pp_frame_in_chain(f, t), xs) if all_pretty else
@@ -763,7 +877,7 @@ def _example_frame():
 #                        "== co %s\n  %s\n== def %s\n  %s\n" %
 #                        (f, listattr(f), cl._fun_name(cl._frame_fun(f)), listattr(cl._frame_fun(f))),
 #                        cl._frames_calling(cl._example_frame())))
-#                 (lambda x: "\n  ".join(map(lambda s: s + ": " + str(getattr(x, s)),
+#                 (lambda x: "\n  ".join(map(lambda s: s + ": " + _str(getattr(x, s)),
 #                                            cl.remove_if(lambda attr: "__" in attr or "builtins" in attr or "locals" in attr or "globals" in attr,
 #                                                         dir(x)))))))
 
@@ -969,7 +1083,7 @@ def _setp(o):       return _isinstance(o, (_set, _frozenset))
 def _nonep(o):      return o is None
 
 def _ensure_list(x):
-        return x if listp(x) else [x]
+        return x if _listp(x) else [x]
 def _ensure_car(x):
         return x[0] if _hasattr(x, "__len__") else x
 def _ensure_cons(x, default = None):
@@ -1048,8 +1162,8 @@ def _prefix_suffix_if_not(f, xs, key = identity):
         return _prefix_suffix_if(lambda x: not f(x), xs, key = key)
 
 def _defwith(name, enter, exit, **initargs):
-        initargs.update(dict(__enter__ = enter,
-                             __exit__  = exit))
+        initargs.update(_dict(__enter__ = enter,
+                              __exit__  = exit))
         return _type(name, (object,), initargs)
 
 ##
@@ -1130,13 +1244,13 @@ def cond(*clauses):
                         return body() if _isinstance(body, function_) else body
 def case(val, *clauses):
         for (cval, body) in clauses:
-                if ((val == cval or (cval is True) or (cval is t)) if not _isinstance(cval, list) else
+                if ((val == cval or (cval is True) or (cval is t)) if not _isinstance(cval, _list) else
                     val in cval):
                         return body() if _isinstance(body, function_) else body
 
 def ecase(val, *clauses):
         for (cval, body) in clauses:
-                if ((val == cval) if not _isinstance(cval, list) else
+                if ((val == cval) if not _isinstance(cval, _list) else
                     val in cval):
                         return body() if _isinstance(body, function_) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
@@ -1193,13 +1307,9 @@ class type_error(error_):
 class simple_type_error(simple_condition, type_error):
         pass
 
-type_   = _type    # Should we shadow org.python.type?
-stream_ = stream = _io._IOBase
-string_ = str
-
 def find_class(x, errorp = True):
         check_type(x, symbol)
-        return (x.value if typep(x.value, type_) else
+        return (x.value if typep(x.value, _type) else
                 nil     if not errorp            else
                 error("There is no class named %s.", x))
 
@@ -1233,7 +1343,7 @@ disagreement and, as a third element, a boolean, denoting whether the
 type specifier was malformed.  Otherwise, when X is of TYPE, a
 negative boolean value is returned."""
         return (((not _isinstance(x, type)) and
-                 (x, type, False))              if _isinstance(type, type_)   else
+                 (x, type, False))              if _isinstance(type, _type)   else
                 nil                             if type is t                           else
                 _complex_type_mismatch(x, type) if (_tuplep(type) and type and
                                                     type[0] in __type_predicate_map__) else
@@ -1246,8 +1356,8 @@ def subtypep(sub, super):
         return (issubclass(sub, super)                         if super is not t                            else
                 _not_implemented("complex type relatioships: %s vs. %s.",
                                  sub, super)                   if _tuplep(sub) or _tuplep(super)            else
-                error("%s is not a valid type specifier", sub) if not (typep(sub, (or_, type_, (eql_, t))) and
-                                                                       typep(sub, (or_, type_, (eql_, t)))) else
+                error("%s is not a valid type specifier", sub) if not (typep(sub, (or_, _type, (eql_, t))) and
+                                                                       typep(sub, (or_, _type, (eql_, t)))) else
                 sub is super or super is t)
 
 def the(type, x):
@@ -1281,10 +1391,10 @@ def integerp(o):      return _isinstance(o, integer)
 def floatp(o):        return _isinstance(o, float)
 def complexp(o):      return _isinstance(o, complex)
 def numberp(o):       return _isinstance(o, (integer, float, complex))
-def _listp(o):        return _isinstance(o, list)
+def _listp(o):        return _isinstance(o, _list)
 def _boolp(o):        return _isinstance(o, boolean)
 def sequencep(x):     return _getattr(_type(x), "__len__", None) is not None
-def hash_table_p(o):  return _isinstance(o, dict)
+def hash_table_p(o):  return _isinstance(o, hash_table)
 
 ##
 ## Predicates
@@ -1320,8 +1430,8 @@ def multiple_value_call(function, *values_forms):
 ## Conses
 ##
 def cons(x, y):       return (x, y)
-def consp(o):         return _isinstance(o, tuple) and _len(o) is 2
-def atom(o):          return not _isinstance(o, tuple)
+def consp(o):         return _isinstance(o, _tuple) and _len(o) is 2
+def atom(o):          return not _isinstance(o, _tuple)
 def car(x):           return x[0]   if x  else nil
 def cdr(x):           return x[1:]  if x  else nil
 def first(xs):        return xs[0]  if xs else nil
@@ -1331,7 +1441,7 @@ def rest(xs):         return xs[1:] if xs else nil
 def nth(n, xs):       return xs[n] if n < _len(xs) else nil
 
 def copy_list(x):
-        return list(the(list, x))
+        return _list(the(_list, x))
 
 def pop(xs):
         if xs:
@@ -1415,25 +1525,25 @@ def mapc(f, *xs):
                 f(*x)
         return xs[0]
 
-__allowed__ = frozenset([set, frozenset, tuple, list, bytes, bytearray, str])
+__allowed__ = _frozenset([string_, _set, _frozenset, _tuple, _list, _bytes, _bytearray])
 def _maprestype(x):
         type = type_of(x)
-        return type if type in __allowed__ else list
+        return type if type in __allowed__ else _list
 
 def remove_if(f, xs, key = identity):
-        if _isinstance(xs, dict):
+        if _isinstance(xs, _dict):
                 return              { k:x for k, x in xs.items() if not f(k, key(x))}
         else:
                 return _maprestype(xs) (x for x    in xs         if not f(key(x)))
 
 def remove_if_not(f, xs, key = identity):
-        if _isinstance(xs, dict):
+        if _isinstance(xs, _dict):
                 return              { k:x for k, x in xs.items() if f(k, key(x))}
         else:
                 return _maprestype(xs) (x for x    in xs         if f(key(x)))
 
 def remove(elt, xs, test = eql, key = identity):
-        if _isinstance(xs, dict):
+        if _isinstance(xs, _dict):
                 return              { k:x for k, x in xs.items() if not test(elt, key(x))}
         else:
                 return _maprestype(xs) (x for x    in xs         if not test(elt, key(x)))
@@ -1552,13 +1662,13 @@ fresh list of the elements of LIST that precede OBJECT in the
 list structure of LIST; otherwise, it returns a copy[2] of
 LIST."""
         if _len(object) > _len(list_):
-                return list(list_)
+                return _list(list_)
         else:
                 list_start = _len(list_) - _len(object)
                 if list_[list_start:] == object:
                         return list_[:list_start]
                 else:
-                        return list(list_)
+                        return _list(list_)
 
 ##
 ## Strings
@@ -1606,16 +1716,16 @@ def intersection(x, y):
 ## Dicts
 ##
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
-def _maphash(f, dict) -> list:
+def _maphash(f, dict) -> _list:
         return [ f(k, v) for k, v in dict.items() ]
 
-def _remap_hash_table(f, xs: dict) -> dict:
+def _remap_hash_table(f, xs: _dict) -> _dict:
         return { k: f(k, v) for k, v in xs.items() }
 
 def _map_into_hash(f, xs,
                    key_test = lambda k: k is not None,
-                   value_test = lambda _: True) -> dict:
-        acc = dict()
+                   value_test = lambda _: True) -> _dict:
+        acc = _dict()
         for x in xs:
                 k, v = f(x)
                 if key_test(k) and value_test(v):
@@ -1624,15 +1734,15 @@ def _map_into_hash(f, xs,
 
 def _map_into_hash_star(f, xs,
                         key_test = lambda k: k is not None,
-                        value_test = lambda _: t) -> dict:
-        acc = dict()
+                        value_test = lambda _: t) -> _dict:
+        acc = _dict()
         for x in xs:
                 k, v = f(*x)
                 if key_test(k) and value_test(v):
                         acc[k] = v
         return acc
 
-def _map_hash_table(f, hash_table, **keys) -> dict:
+def _map_hash_table(f, hash_table, **keys) -> _dict:
         return _map_into_hash_star(f, hash_table.items(), **keys)
 
 ##
@@ -1696,7 +1806,7 @@ def return_from(nonce, value):
 ##
 ## Dynamic scope
 ##
-__global_scope__ = dict()
+__global_scope__ = _dict()
 
 class thread_local_storage(threading.local):
         def __init__(self):
@@ -1796,7 +1906,7 @@ with progv(foovar = 3.14,
 ##
 ## Package system
 ##
-__packages__         = dict()
+__packages__         = _dict()
 __builtins_package__ = None
 __keyword_package__  = None
 __modular_noise__    = None
@@ -1823,7 +1933,7 @@ def symbols_not_accessible_error(package, syms):
 
 def _use_package_symbols(dest, src, syms):
         assert(packagep(dest) and packagep(src) and hash_table_p(syms))
-        conflict_set = _mapset(_slotting("name"), syms.values()) & set(dest.accessible.keys())
+        conflict_set = _mapset(_slotting("name"), syms.values()) & _set(dest.accessible.keys())
         for name in conflict_set:
                 if syms[name] is not dest.accessible[name]:
                         symbol_conflict_error("USE-PACKAGE", src, dest, syms[name], dest.accessible[name])
@@ -1859,6 +1969,7 @@ def _lisp_symbol_name_python_name(x):
         return ret
 
 def coerce(type, x):
+        ## Unregistered Issue COMPLIANCE-COERCE
         return (x if _isinstance(x, type) else
                 case(type,
                      (string_,    "".join(x)),
@@ -1926,12 +2037,12 @@ class package(collections.UserDict):
                      ignore_python = False, python_exports = True, boot = False):
                 self.name = string(name)
 
-                self.own         = set()                        # sym
-                self.imported    = set()                        # sym
+                self.own         = _set()                        # sym
+                self.imported    = _set()                        # sym
               # self.present     = own + imported
-                self.inherited   = collections.defaultdict(set) # sym -> set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
-                self.accessible  = dict()                       # str -> sym      ## accessible = present + inherited
-                self.external    = set()                        # sym             ## subset of accessible
+                self.inherited   = collections.defaultdict(_set) # sym -> _set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
+                self.accessible  = _dict()                       # str -> sym       ## accessible = present + inherited
+                self.external    = _set()                        # sym              ## subset of accessible
               # self.internal    = accessible - external
 
                 modname = _lisp_symbol_name_python_name(name)
@@ -1940,17 +2051,17 @@ class package(collections.UserDict):
                 # Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
                 coercer = (_ccoerce_to_package if boot else
                            _coerce_to_package)
-                self.used_packages  = set(mapcar(lambda x: coercer(x, if_null = "error"),
-                                                 use))
-                self.packages_using = set()
+                self.used_packages  = _set(mapcar(lambda x: coercer(x, if_null = "error"),
+                                                  use))
+                self.packages_using = _set()
                 assert(every(packagep, self.used_packages))
                 mapc(_curry(use_package, self), self.used_packages)
 
                 ## Import the corresponding python dictionary.  Intern depends on
                 if not ignore_python:
-                        moddict = dict(self.module.__dict__)
-                        explicit_exports = set(moddict["__all__"] if "__all__" in moddict else
-                                               [])
+                        moddict = _dict(self.module.__dict__)
+                        explicit_exports = _set(moddict["__all__"] if "__all__" in moddict else
+                                                [])
                         for (key, value) in moddict.items():
                                 ## intern the python symbol, when it is known not to be inherited
                                 if key not in self.accessible:
@@ -2215,7 +2326,15 @@ SETF of MACRO-FUNCTION."""
         _nonep(environment) or _not_implemented("query of environments other than global")
         return the((or_, function_, null_), the(symbol, symbol_).macro_function)
 
-def setf_macro_function()
+def setf_macro_function(new_function, symbol, environment = None):
+        "<See documentation for MACRO-FUNCTION>"
+        if symbol.function:
+                style_warn("%s is being redefined as a macro when it was previously defined to be a function.",
+                           symbol)
+                symbol.function = nil
+        _warn_possible_redefinition(gethash("macro_function", symbol.__dict__)[0], _intern0(defmacro_))
+        symbol.macro_function = new_function
+        return new_function
 
 # Research Issue CL-DIFFERENCE-BETWEEN-SETF-SYMBOL-FUNCTION-SETF-FDEFINITION-AND-DEFUN
 # ..because, this far, DEFMACRO wins over SETF-FDEFINITION -- only DEFUN is necessary to switch namespace..
@@ -2291,23 +2410,11 @@ def _cold_defun(f):
         return _global(symbol_name)[0] # guaranteed to exist at this point
 defun = _cold_defun
 
-def _symbol_macro_function(x):
-        return gethash("macro_function", x.__dict__)
-def _install_macro_definition(symbol, value):
-        # Unregistered Issue SETF-SYMBOL-MACRO-FUNCTION-SHOULD-BE-MORE-INTELLIGENT
-        if x.function:
-                style_warn("%s is being redefined as a macro when it was previously defined to be a function.",
-                           symbol)
-                x.function = nil
-        _warn_possible_redefinition(gethash("macro_function", x.__dict__)[0], _intern0(defmacro_))
-        x.macro_function = value
-        return value
-
 class symbol():
         def __str__(self):
                 return _print_symbol(self)
         def __repr__(self):
-                return str(self)
+                return _str(self)
         def __init__(self, name):
                 self.name, self.package, self.value, self.function = name, None, None, None
         def __hash__(self):
@@ -2415,8 +2522,8 @@ def export(symbols, package = None):
         for user in package.packages_using:
                 _use_package_symbols(user, package, symdict)
         # No conflicts?  Alright, we can proceed..
-        symset = set(symdict.values())
-        for_interning = symset & set(package.inherited)
+        symset = _set(symdict.values())
+        for_interning = symset & _set(package.inherited)
         for sym in for_interning:
                 del package.inherited[sym]
                 self.internal.add(sym)
@@ -2452,10 +2559,10 @@ def _init_package_system_0():
         global __keyword_package__
         global __modular_noise__
         global t, nil
-        __packages__ = dict()
+        __packages__ = _dict()
         __builtins_package__ = package("BUILTINS", boot = True)
         __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
-        __modular_noise__ = frozenset(_load_text_as_module("", "").__dict__)
+        __modular_noise__ = _frozenset(_load_text_as_module("", "").__dict__)
         cl = package("CL", use = ["BUILTINS"], boot = True)
         intern(".", cl)
 
@@ -2550,7 +2657,7 @@ Affected By:
 
 The state of the global environment (e.g., which symbols have been
 declared to be the names of constant variables)."""
-        return (_isinstance(form, (int, float, complex, str)) or
+        return (_isinstance(form, (integer, float, complex, string_)) or
                 keywordp(form) or form in [t, nil, pi]                 or
                 (_tuplep(form) and _len(form) == 2 and form[0] is quote_))
 
@@ -2611,7 +2718,7 @@ def setf_file_position(x, posn):
 ###
 ##
 #
-__type_predicate_map__ = dict()
+__type_predicate_map__ = _dict()
 
 ## Remember, we return type mismatches in these predicates!
 # Unregistered Issue NONE-VALUE-SAFETY
@@ -2656,8 +2763,8 @@ def maybe_(x, type):
 
 @defun
 def list_(x, type):
-        return ((x, type, True)  if _len(type) is not 2      else
-                (x, type, False) if not _isinstance(x, list) else
+        return ((x, type, True)  if _len(type) is not 2       else
+                (x, type, False) if not _isinstance(x, _list) else
                 some(_type_mismatch, x, _infinite(type[1])))
 
 @defun
@@ -2796,11 +2903,11 @@ deftype(varituple_,   varituple_)
 ##                          and much the same solution
 ##
 _ast_info = defstruct("_ast_info",
-                      "fields",     # each field is dict(name, type, walk, [default])
+                      "fields",     # each field is _dict(name, type, walk, [default])
                       "bound_free")
-__ast_walkable_field_types__ = set([ast.stmt, (list_, ast.expr), (maybe_, ast.expr),
-                                    ast.expr, (list_, ast.stmt)])
-__ast_infos__ = dict()
+__ast_walkable_field_types__ = _set([ast.stmt, (list_, ast.expr), (maybe_, ast.expr),
+                                     ast.expr, (list_, ast.stmt)])
+__ast_infos__ = _dict()
 def _find_ast_info(type):
         return __ast_infos__[_coerce_to_ast_type(type)]
 def _ast_fields(ast): return _find_ast_info(type(ast)).fields
@@ -2830,7 +2937,7 @@ def _atree_bound_free(atreexs):
                         return info.bound_free(*atree[1:])
                 return _separate(3, bound_free, remove(None, _ensure_list(atreexs)))
         with progv(_BOUND_FREE_RECURSOR_ = atree_rec):
-                return atree_rec(the((or_, tuple, (list_, tuple)),
+                return atree_rec(the((or_, _tuple, (list_, _tuple)),
                                      atreexs))
 
 def _atree_bound(atree): return _atree_bound_free(atree)[0]
@@ -2839,7 +2946,7 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
 
 def defast(fn):
         ### generic tools
-        def parse_defbody_ast(names, asts, valid_declarations = dict()):
+        def parse_defbody_ast(names, asts, valid_declarations = _dict()):
                 def _ast_call_to_name_p(name, x):
                         return (typep(x, ast.Expr)            and
                                 typep(x.value, ast.Call)      and
@@ -2916,7 +3023,7 @@ def defast(fn):
                 if _len(ast_field_types) != _len(ast_type._fields):
                         err("the amount of provided type specifiers (%d) does not match the AST _fields: %s",
                             _len(ast_field_types), ast_type._fields)
-                type = (or_, tuple, type_)
+                type = (or_, _tuple, _type)
                 if not every(_of_type(type), ast_field_types):
                         err("the AST field type specifiers must be of type %s", type)
                 for i, (fname, ast_fname) in enumerate(zip(ast_field_names, ast_type._fields)):
@@ -2929,8 +3036,8 @@ def defast(fn):
                 def process_ast_field_arglist_entry(name, type, default, fixed = t):
                         walkp = (type in __ast_walkable_field_types__ or
                                  declaredp(grouped_decls, p, "walk"))
-                        fields[p] = (dict(name = name, type = type, walk = walkp) if fixed else
-                                     dict(name = name, type = type, walk = walkp, default = default))
+                        fields[p] = (_dict(name = name, type = type, walk = walkp) if fixed else
+                                     _dict(name = name, type = type, walk = walkp, default = default))
                 for p, type, defaulted in zip(parameters[:nfix], ast_field_types[:nfix], with_defaults[:nfix]):
                         process_ast_field_arglist_entry(p, type, None,         fixed = t)
                 for p, type, defaulted in zip(parameters[nfix:], ast_field_types[nfix:], with_defaults[nfix:]):
@@ -2966,7 +3073,7 @@ def defast(fn):
                 if not_fdefn:
                         fail(not_fdefn)
                 specified_method_names = { x.name:x for x in body_ast }
-                invalid_methods = set(specified_method_names) - _mapset(_indexing(0), valid_methods)
+                invalid_methods = _set(specified_method_names) - _mapset(_indexing(0), valid_methods)
                 if invalid_methods:
                         fail(invalid_methods.pop().upper())
                 def process(method_name, default_maker):
@@ -2990,7 +3097,7 @@ def defast(fn):
         parameters, with_defaults = (lambda_list_names(lambda_list),
                                      lambda_list_names(lambda_list, remove_optional = nil))
         args_ast, body_ast = _function_ast(fn)
-        valid_declspecs = dict(walk  = 0)
+        valid_declspecs = _dict(walk  = 0)
         body, documentation, declarations = parse_defbody_ast(parameters, body_ast,
                                                               valid_declarations = valid_declspecs)
         grouped_decls = group_declarations(valid_declspecs, declarations)
@@ -3025,7 +3132,7 @@ all AST-trees .. except for the case of tuples."""
         def astify_known(type, args):
                 ast_type = ast.__dict__[type]
                 info = _find_ast_info(ast_type)
-                fields, finfos = _recombine((list, list), identity, list(info.fields.items()))
+                fields, finfos = _recombine((_list, _list), identity, _list(info.fields.items()))
                 positional, optional = _prefix_suffix_if(lambda x: "default" in x, finfos)
                 nfixed, defacto = _len(positional), _len(args)
                 max = nfixed + _len(optional)
@@ -3033,7 +3140,7 @@ all AST-trees .. except for the case of tuples."""
                         argument_count_error(nfixed, max, defacto, "AST type %s", type)
                 effective_args = args + mapcar(_indexing("default"), optional[defacto - nfixed:])
                 assert(_len(effective_args) == max)
-                for val, name, finfo in zip(effective_args, fields, finfos):
+                for val, name, finfo in _zip(effective_args, fields, finfos):
                         subtype = finfo["type"]
                         if not typep(val, subtype):
                                 argument_type_error(name, subtype, val, "AST node %s", repr(type))
@@ -3041,7 +3148,7 @@ all AST-trees .. except for the case of tuples."""
         ret =  (tree
                 if typep(tree, (or_, string_, integer, (eql_, None))) else
                 mapcar(_atree_ast, tree)
-                if listp(tree)                  else
+                if _listp(tree)                  else
                 _try_astify_constant(tree)[0]
                 if not _tuplep(tree)            else
                 error("The atree nodes cannot be zero-length.")
@@ -3100,20 +3207,20 @@ def _ast_Expression(body: ast.expr): pass
 def _ast_FunctionDef(name:            string_,
                      args:            ast.arguments,
                      body:           (list_, ast.stmt),
-                     decorator_list: (list_, ast.expr) = list(),
+                     decorator_list: (list_, ast.expr) = _list(),
                      returns:        (maybe_, ast.expr) = None):
         def bound_free():
                 ((args_b, args_f, _),
                  (body_b, body_f, body_x),
                  (_,      deco_f, _),
                  (_,      retn_f, _)) = mapcar(_bound_free_recursor(), [args, body, decorator_list, returns])
-                body_bound = set([name]) | args_b | (body_b - body_x)
+                body_bound = _set([name]) | args_b | (body_b - body_x)
                 body_free = body_f - body_bound
                 body_xtnl_writes = body_b & body_x
                 free = args_f | body_free | deco_f | retn_f
                 return (body_xtnl_writes, # names declared global/nonlocal and assigned to
                         free,
-                        set())            # these do not escape..
+                        _set())            # these do not escape..
 #       | ClassDef(identifier name,
 # 		   expr* bases,
 # 		   keyword* keywords,
@@ -3143,7 +3250,7 @@ def _ast_ClassDef(name:            string_,
                 free = base_f | keyw_f | star_f | karg_f | body_free | deco_f
                 return (body_xtnl_writes, # names declared global/nonlocal and assigned to
                         free,
-                        set())            # these do not escape..
+                        _set())            # these do not escape..
 #       | Return(expr? value)
 @defast
 def _ast_Return(value: (maybe_, ast.expr)): pass
@@ -3160,7 +3267,7 @@ def _ast_Assign(targets: (list_, ast.expr),
                  (_,      valu_f, _)) = mapcar(_bound_free_recursor(), [targets, value])
                 return (targ_b,
                         targ_f | valu_f,
-                        set())
+                        _set())
 #       | AugAssign(expr target, operator op, expr value)
 @defast
 def _ast_AugAssign(target: ast.expr,
@@ -3171,9 +3278,9 @@ def _ast_AugAssign(target: ast.expr,
                  (_,      valu_f, _)) = mapcar(_bound_free_recursor(), [target, value])
                 return (targ_b,
                         targ_f | valu_f,
-                        set())
+                        _set())
 
-def _ast_body_bound_free(body, more_bound = set()):
+def _ast_body_bound_free(body, more_bound = _set()):
         body_b, body_f, body_x = _bound_free_recursor()(body)
         bound = more_bound | (body_b - body_x)
         return (bound,
@@ -3258,21 +3365,21 @@ def _ast_Import(names: (list_, ast.alias)):
         declare((walk, names))
 #       | ImportFrom(identifier? module, alias* names, int? level)
 @defast
-def _ast_ImportFrom(module: (maybe_, str),
+def _ast_ImportFrom(module: (maybe_, string_),
                     names:  (list_, ast.alias),
-                    level:  (maybe_, int)):
+                    level:  (maybe_, integer)):
         def bound_free():
                 return (_bound_free_recursor()(names)[0],
-                        set([module] if module else []),
-                        set())
+                        _set([module] if module else []),
+                        _set())
 #       | Global(identifier* names)
 @defast
-def _ast_Global(names: (list_, str)):
-        def bound_free(): (set(), set(), set(names))
+def _ast_Global(names: (list_, string_)):
+        def bound_free(): (_set(), _set(), _set(names))
 #       | Nonlocal(identifier* names)
 @defast
-def _ast_Nonlocal(names: (list_, str)):
-        def bound_free(): (set(), set(), set(names))
+def _ast_Nonlocal(names: (list_, string_)):
+        def bound_free(): (_set(), _set(), _set(names))
 #       | Expr(expr value)
 @defast
 def _ast_Expr(value: ast.expr): pass
@@ -3305,9 +3412,9 @@ def _ast_Lambda(args: ast.arguments,
                  (_,      body_f, _)) = mapcar(_bound_free_recursor(), [args, body])
                 body_free = body_f - args_b
                 free = args_f | body_free
-                return (set(),
+                return (_set(),
                         free,
-                        set())
+                        _set())
 #      | IfExp(expr test, expr body, expr orelse)
 @defast
 def _ast_IfExp(test:   ast.expr,
@@ -3328,14 +3435,14 @@ def _ast_gchain_bound_free(xs, acc_binds):
                 finbound, cfree = _ast_gchain_bound_free(xs[1:], acc_binds | g_binds)
                 return finbound, (g_free - acc_binds) | cfree
         else:
-                return acc_binds, set()
+                return acc_binds, _set()
 
 def _ast_comprehension_bound_free(exprs, generators):
-        gchain_bound, gchain_free = _ast_gchain_bound_free(generators, set())
+        gchain_bound, gchain_free = _ast_gchain_bound_free(generators, _set())
         _, exprs_f, _ = _separate(3, _bound_free_recursor(), exprs)
-        return (set(),
+        return (_set(),
                 gchain_free | (exprs_f - gchain_bound),
-                set())
+                _set())
 
 @defast
 def _ast_ListComp(elt:         ast.expr,
@@ -3389,7 +3496,7 @@ def _ast_Ellipsis(): pass
 #      | Attribute(expr value, identifier attr, expr_context ctx)
 @defast
 def _ast_Attribute(value: ast.expr,
-                   attr:  str,
+                   attr:  string_,
                    ctx:   ast.expr_context): pass
 #      | Subscript(expr value, slice slice, expr_context ctx)
 @defast
@@ -3403,10 +3510,10 @@ def _ast_Starred(value: ast.expr,
                  ctx:   ast.expr_context): pass
 #      | Name(identifier id, expr_context ctx)
 @defast
-def _ast_Name(id:  str,
+def _ast_Name(id:  string_,
               ctx: ast.expr_context):
-        def bound_free(): ((set(), set([id])) if typep(ctx, (or_, ast.Load, ast.AugLoad, ast.Param)) else
-                           (set([id]), set()))
+        def bound_free(): ((_set(), _set([id])) if typep(ctx, (or_, ast.Load, ast.AugLoad, ast.Param)) else
+                           (_set([id]), _set()))
 #      | List(expr* elts, expr_context ctx)
 @defast
 def _ast_List(elts: (list_, ast.expr),
@@ -3509,7 +3616,7 @@ def _ast_comprehension(target: ast.expr,
                  (_,      iffs_f, _)) = mapcar(_bound_free_recursor(), [target, iter, ifs])
                 return (iter_b,
                         ((targ_f | iffs_f) - iter_b) | iter_f,
-                        set())
+                        _set())
 # excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
 @defast
 def _ast_ExceptHandler(type: (maybe_, ast.expr),
@@ -3517,7 +3624,7 @@ def _ast_ExceptHandler(type: (maybe_, ast.expr),
                        body: (list_, ast.stmt)):
         def bound_free():
                 (_,      type_f, _) = _bound_free_recursor()(type)
-                (bound, free, xtnls) = _ast_body_bound_free(body, set([name] if name is not None else []))
+                (bound, free, xtnls) = _ast_body_bound_free(body, _set([name] if name is not None else []))
                 return (bound,
                         type_f | free,
                         xtnls)
@@ -3537,33 +3644,33 @@ def _ast_arguments(args:             (list_, ast.arg),
                    kw_defaults:      (list_, ast.expr)):
         def bound_free():
                 arg_bound, arg_free, _ = _separate(3, _bound_free_recursor(), [args, kwonlyargs])
-                arg_bound |= set(x for x in [vararg, kwarg]
-                                 if x is not None)
+                arg_bound |= _set(x for x in [vararg, kwarg]
+                                  if x is not None)
                 _, other_free, _ = _separate(3, _bound_free_recursor(), [varargannotation, kwargannotation, defaults, kw_defaults])
                 return (arg_bound,
                         arg_free | other_free,
-                        set())
+                        _set())
 # arg = (identifier arg, expr? annotation)
 @defast
-def _ast_arg(arg:         str,
+def _ast_arg(arg:         string_,
              annotation: (maybe_, ast.expr) = None):
-        def bound_free(): (set([arg]),
+        def bound_free(): (_set([arg]),
                            _bound_free_recursor()(annotation)[1],
-                           set())
+                           _set())
 # keyword = (identifier arg, expr value)
 @defast
-def _ast_keyword(arg:   str,
+def _ast_keyword(arg:   string_,
                  value: ast.expr):
-        def bound_free(): (set([] if _nonep(asname) else [asname]),
+        def bound_free(): (_set([] if _nonep(asname) else [asname]),
                            _bound_free_recursor()(value),
-                           set())
+                           _set())
 # alias = (identifier name, identifier? asname)
 @defast
-def _ast_alias(name:    str,
-               asname: (maybe_, str) = None):
-        def bound_free(): (set([] if _nonep(asname) else [asname]),
-                           set(),
-                           set())
+def _ast_alias(name:    string_,
+               asname: (maybe_, string_) = None):
+        def bound_free(): (_set([] if _nonep(asname) else [asname]),
+                           _set(),
+                           _set())
 #####
 ####
 ###
@@ -3576,7 +3683,7 @@ def _anode_expression_p(x):
 ###
 ### A rudimentary Lisp -> Python compiler
 ###
-__primitive_form_compilers__ = dict()
+__primitive_form_compilers__ = _dict()
 def defprimitive(fn):
         name = fn.__name__
         fn.__name__ = "compile_" + fn.__name__
@@ -3728,7 +3835,7 @@ def _compiler_report_context():
                                                                                  "_COMPILER_QUOTE_"]))
 
 _tail_position       = _defwith("_tail_position",
-                                   lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = t)),
+                                   lambda *_: _dynamic_scope_push(_dict(_COMPILER_TAILP_ = t)),
                                    lambda *_: _dynamic_scope_pop())
 
 _maybe_tail_position = _defwith("_maybe_tail_position", # This is just a documentation feature.
@@ -3736,11 +3843,11 @@ _maybe_tail_position = _defwith("_maybe_tail_position", # This is just a documen
                                    lambda *_: None)
 
 _no_tail_position    = _defwith("_no_tail_position",
-                                   lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = nil)),
+                                   lambda *_: _dynamic_scope_push(_dict(_COMPILER_TAILP_ = nil)),
                                    lambda *_: _dynamic_scope_pop())
 
 _compiler_debug         = _defwith("_compiler_debug",
-                                   lambda *_: _dynamic_scope_push(dict(_COMPILER_DEBUG_P_ = t)),
+                                   lambda *_: _dynamic_scope_push(_dict(_COMPILER_DEBUG_P_ = t)),
                                    lambda *_: _dynamic_scope_pop())
 
 #### Issue stack:
@@ -3776,9 +3883,9 @@ def symbol_(name):
 
 def _compile_name(name, ctx = "Load"):
         check_type(name, (or_, str, symbol, (tuple_, (eql_, symbol_), (or_, str, symbol))))
-        if tuplep_(name) and ctx != "Load":
+        if _tuplep(name) and ctx != "Load":
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
-        return (compile_(name)[1] if tuplep_(name) else
+        return (compile_(name)[1] if _tuplep(name) else
                 ("Name", string(name), ctx))
 
 @defprimitive # Critical-issue-free.
@@ -3790,7 +3897,7 @@ def setq_(name, value):
 @defprimitive # Critical-issue-free.
 def setf_values_(names, values):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
-        check_type(names, tuple)
+        check_type(names, _tuple)
         pro, val = compile_(values)
         return (pro + [("Assign", [ _compile_name(x, "Store") for x in names ],
                         val)],
@@ -3852,15 +3959,15 @@ def if_(test, consequent, antecedent = nil):
         ((pro_cons, val_cons),
          (pro_ante, val_ante)) = lo_cons, lo_ante
         cons_expr_p, ante_expr_p = mapcar(_tuple_expression_p, [lo_cons, lo_ante])
-        if all([cons_expr_p, ante_expr_p]):
+        if _all([cons_expr_p, ante_expr_p]):
                 return (pro_test,
                         ("IfExp", val_test, val_cons, val_ante))
         else:
                 with _gensymnames(x = "IF-BRANCH", n = 2) as name_cons, name_ante:
                         cons_branch = cons_val if cons_expr_p else (symbol_, name_cons)
                         ante_branch = ante_val if ante_expr_p else (symbol_, name_ante)
-                        return compile_((flet_, ((tuple() if cons_expr_p else ((name_cons, tuple()) + pro_cons + (val_cons,),),) +
-                                                 (tuple() if ante_expr_p else ((name_ante, tuple()) + pro_ante + (val_cons,),),)),
+                        return compile_((flet_, ((_tuple() if cons_expr_p else ((name_cons, _tuple()) + pro_cons + (val_cons,),),) +
+                                                 (_tuple() if ante_expr_p else ((name_ante, _tuple()) + pro_ante + (val_cons,),),)),
                                          (if_, test, cons_branch, ante_branch)))
 # 1. I'd rather much separate:
 #    - named lambda compilation
@@ -3881,7 +3988,7 @@ def def_(name, lambda_list, *body, decorators = []):
         toplevelp = symbol_value("_COMPILER_TOPLEVEL_P_")
         with progv(_COMPILER_DEF_        = cdef,
                    _COMPILER_TOPLEVEL_P_ = nil):
-                check_type(name, (or_, string, (and_, symbol, (not_, (satisfies_, keywordp)))))
+                check_type(name, (or_, string_, (and_, symbol, (not_, (satisfies_, keywordp)))))
                 def try_compile():
                         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                         compiled_lambda_list, (fixed, optional, rest, keys, restkey,
@@ -3959,13 +4066,13 @@ def let_(bindings, *body):
         ##
         ## This optimisation is, currently, tactically broken, but for another reason: order of evaluation.
         # names = _mapset(ensure_car, bindings)
-        # if _tail_position_p() and not ((_mapsetn(_atree_free, body) - set(names)) or
-        #                                 (_compiling_def().xtnls & set(names))):
+        # if _tail_position_p() and not ((_mapsetn(_atree_free, body) - _set(names)) or
+        #                                 (_compiling_def().xtnls & _set(names))):
         #         with _no_tail_position():
         #                 # Consciously discarding the values returned by (SETF VALUES)
         #                 bind_pro, _ = compile_((setf_values_,
         #                                         [ car(x) for x in bindings_thru_defaulting ],
-        #                                         ("tuple",) + tuple(cdr(x) for x in bindings_thru_defaulting)))
+        #                                         ("tuple",) + _tuple(cdr(x) for x in bindings_thru_defaulting)))
         #         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
         #         body_pro, body_val = compile_((progn_,) + body)
         #         return (bind_pro + body_pro,
@@ -4028,10 +4135,10 @@ def flet_(bindings, *body):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
         # Unregistered Issue SINGLE-NAMESPACE
-        if not _every(_of_type((partuple_, symbol, tuple))):
+        if not _every(_of_type((partuple_, symbol, _tuple))):
                 error("FLET: malformed bindings: %s.", bindings)
-        return compile_((let_, tuple((name, (fdefinition_, (def_, _gensym(string(name)), lambda_list) + fbody))
-                                     for name, lambda_list, *fbody in bindings)) +
+        return compile_((let_, _tuple((name, (fdefinition_, (def_, _gensym(string(name)), lambda_list) + fbody))
+                                      for name, lambda_list, *fbody in bindings)) +
                          body)
 
 @defprimitive # Critical-issue-free.
@@ -4056,12 +4163,12 @@ def labels_(bindings, *body):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
         # Unregistered Issue SINGLE-NAMESPACE
-        if not _every(_of_type((partuple_, symbol, tuple))):
+        if not _every(_of_type((partuple_, symbol, _tuple))):
                 error("LABELS: malformed bindings: %s.", bindings)
         temp_name = _gensym("LABELS")
-        return compile_((flet, ((temp_name, tuple(),
-                                 tuple((def_, name, lambda_list, body)
-                                       for name, lambda_list, *body in bindings) +
+        return compile_((flet, ((temp_name, _tuple(),
+                                 _tuple((def_, name, lambda_list, body)
+                                        for name, lambda_list, *body in bindings) +
                                  body)),
                          (funcall_, temp_name)))
 
@@ -4219,19 +4326,19 @@ def _lisp_add_def(name, source):
 
 def lisp(body):
         def _intern_astsexp(x):
-                return (x.n                                       if _isinstance(x, ast.Num)   else
-                        x.s                                       if _isinstance(x, ast.Str)   else
-                        _read_symbol(x.id)                        if _isinstance(x, ast.Name)  else
-                        tuple(_intern_astsexp(e) for e in x)      if _isinstance(x, list)      else
-                        tuple(_intern_astsexp(e) for e in x.elts) if _isinstance(x, ast.Tuple) else
-                        _intern_astsexp(x.value)                  if _isinstance(x, ast.Expr)  else
+                return (x.n                                        if _isinstance(x, ast.Num)   else
+                        x.s                                        if _isinstance(x, ast.Str)   else
+                        _read_symbol(x.id)                         if _isinstance(x, ast.Name)  else
+                        _tuple(_intern_astsexp(e) for e in x)      if _isinstance(x, _list)     else
+                        _tuple(_intern_astsexp(e) for e in x.elts) if _isinstance(x, ast.Tuple) else
+                        _intern_astsexp(x.value)                   if _isinstance(x, ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
         args_ast, body_ast = _function_ast(body)
         if _len(body_ast) > 1:
                 error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
                       "No more than one toplevel form is allowed per definition.")
         form = _intern_astsexp(body_ast[0])
-        __def_allowed_toplevels__ = set([def_])
+        __def_allowed_toplevels__ = _set([def_])
         if form[0] not in __def_allowed_toplevels__:
                 error("In LISP %s: only toplevels in %s are allowed.",
                       form[0], __def_allowed_toplevels__)
@@ -4276,7 +4383,7 @@ class readtable(collections.UserDict):
         def __init__(self, case = _keyword("upcase")):
                 self.case = the((member_, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")),
                                 case)
-                self.dict = dict()
+                self.dict = _dict()
 
 def readtablep(x):     return typep(x, readtable)
 def readtable_case(x): return the(readtable, x).case
@@ -4284,33 +4391,33 @@ def readtable_case(x): return the(readtable, x).case
 def copy_readtable(x):
         check_type(x, readtable)
         new = readtable(case = readtable_case(x))
-        new.dict = dict(x.dict)
+        new.dict = _dict(x.dict)
         return new
 
-__standard_pprint_dispatch__ = dict() # XXX: this is crap!
+__standard_pprint_dispatch__ = _dict() # XXX: this is crap!
 __standard_readtable__       = readtable() # XXX: this is crap!
 
-__standard_io_syntax__ = dict(_PACKAGE_               = find_package("COMMON-LISP-USER"),
-                              _PRINT_ARRAY_           = t,
-                              _PRINT_BASE_            = 10,
-                              _PRINT_CASE_            = _keyword("upcase"),
-                              _PRINT_CIRCLE_          = nil,
-                              _PRINT_ESCAPE_          = t,
-                              _PRINT_GENSYM_          = t,
-                              _PRINT_LENGTH_          = nil,
-                              _PRINT_LEVEL_           = nil,
-                              _PRINT_LINES_           = nil,
-                              _PRINT_MISER_WIDTH_     = nil,
-                              _PRINT_PPRINT_DISPATCH_ = __standard_pprint_dispatch__,
-                              _PRINT_PRETTY_          = t,
-                              _PRINT_RADIX_           = nil,
-                              _PRINT_READABLY_        = nil,
-                              _PRINT_RIGHT_MARGIN_    = nil,
-                              _READ_BASE_                 = 10,
-                              _READ_DEFAULT_FLOAT_FORMAT_ = "single-float",
-                              _READ_EVAL_                 = t,
-                              _READ_SUPPRESS_             = nil,
-                              _READTABLE_                 = __standard_readtable__)
+__standard_io_syntax__ = _dict(_PACKAGE_               = find_package("COMMON-LISP-USER"),
+                               _PRINT_ARRAY_           = t,
+                               _PRINT_BASE_            = 10,
+                               _PRINT_CASE_            = _keyword("upcase"),
+                               _PRINT_CIRCLE_          = nil,
+                               _PRINT_ESCAPE_          = t,
+                               _PRINT_GENSYM_          = t,
+                               _PRINT_LENGTH_          = nil,
+                               _PRINT_LEVEL_           = nil,
+                               _PRINT_LINES_           = nil,
+                               _PRINT_MISER_WIDTH_     = nil,
+                               _PRINT_PPRINT_DISPATCH_ = __standard_pprint_dispatch__,
+                               _PRINT_PRETTY_          = t,
+                               _PRINT_RADIX_           = nil,
+                               _PRINT_READABLY_        = nil,
+                               _PRINT_RIGHT_MARGIN_    = nil,
+                               _READ_BASE_                 = 10,
+                               _READ_DEFAULT_FLOAT_FORMAT_ = "single-float",
+                               _READ_EVAL_                 = t,
+                               _READ_SUPPRESS_             = nil,
+                               _READTABLE_                 = __standard_readtable__)
 
 def with_standard_io_syntax(body):
         """Within the dynamic extent of the BODY of forms, all reader/printer
@@ -4669,7 +4776,7 @@ def write_to_string(object,
                 string = ""
                 def write_to_string_loop(object):
                         nonlocal string
-                        if listp(object) or _tuplep(object):
+                        if _listp(object) or _tuplep(object):
                                 string += "("
                                 max = _len(object)
                                 if max:
@@ -4697,7 +4804,7 @@ def write_to_string(object,
                         elif functionp(object):
                                 string += _print_function(object)
                         elif (not escape) and typep(object, (or_, restart, condition)):
-                                string += str(object)
+                                string += _str(object)
                         else:
                                 string += _print_unreadable(object)
                                 # error("Can't write object %s", object)
@@ -4756,17 +4863,17 @@ setq("_READ_CASE_", _keyword("upcase"))
 def parse_integer(xs, junk_allowed = nil, radix = 10):
         l = _len(xs)
         def hexcharp(x): return x.isdigit() or x in ["a", "b", "c", "d", "e", "f"]
-        (test, xform) = ((str.isdigit, identity)      if radix == 10 else
-                         (hexcharp,    float.fromhex) if radix == 16 else
+        (test, xform) = ((_str.isdigit, identity)      if radix == 10 else
+                         (hexcharp,    _builtins.float.fromhex) if radix == 16 else
                          _not_implemented("PARSE-INTEGER only implemented for radices 10 and 16."))
-        for end in range(0, l):
+        for end in _range(0, l):
                 if not test(xs[end]):
                         if junk_allowed:
                                 end -= 1
                                 break
                         else:
                                 error("Junk in string \"%s\".", xs)
-        return int(xform(xs[:(end + 1)]))
+        return _int(xform(xs[:(end + 1)]))
 
 end_of_file = EOFError
 
@@ -4797,7 +4904,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 return obj
         def skip_whitespace():
                 nonlocal pos
-                while string[pos] in frozenset([" ", "\t", "\n"]):
+                while string[pos] in _frozenset([" ", "\t", "\n"]):
                         pos += 1
         def read_list():
                 nonlocal pos
@@ -4811,7 +4918,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                                 break
                         else:
                                 obj = read()
-                                if not listp(obj) and obj is _find_symbol0("."):
+                                if not _listp(obj) and obj is _find_symbol0("."):
                                         error("Consing dot not implemented")
                                 ret += [obj]
                 # _here("< %s" % (ret,))
@@ -4844,10 +4951,10 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 handle_short_read_if(not token)
                 if _without_condition_system(lambda: re.match("^[0-9]+$", token),
                                              reason = "re.match"):
-                        ret = int(token)
+                        ret = _int(token)
                 elif _without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token),
                                                reason = "re.match"):
-                        ret = float(token)
+                        ret = _builtins.float(token)
                 else:
                         ret = _read_symbol(token)
                         # debug_printf("-- interned %s as %s", token, name)
@@ -4867,7 +4974,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                         if pos >= end:
                                 break
                         char = string[pos]
-                        if char in set([" ", "\t", "\n", "(", ")", "\"", "'"]):
+                        if char in _set([" ", "\t", "\n", "(", ")", "\"", "'"]):
                                 break
                         else:
                                 token += char
@@ -4888,7 +4995,7 @@ def read_line(stream = None, eof_error_p = True, eof_value = nil):
 
 def read_char(stream = None, eof_error_p = True, eof_value = nil, recursivep = nil):
         stream = _defaulted_to_var(stream, "_STANDARD_INPUT_")
-        ret = the(_io._IOBase, stream).read(1)
+        ret = the(stream_, stream).read(1)
         return (ret       if ret             else
                 eof_value if not eof_error_p else
                 error(end_of_file, "end of file on %s" % (stream,)))
@@ -4944,7 +5051,7 @@ def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_white
         def skip_whitespace():
                 while True:
                         c = read_char(stream, nil, nil)
-                        if c not in frozenset([" ", "\t", "\n"]):
+                        if c not in _frozenset([" ", "\t", "\n"]):
                                 if c is not nil:
                                         unread_char(c, stream)
                                 return
@@ -4959,7 +5066,7 @@ def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_white
                         else:
                                 unread_char(char, stream)
                                 obj = read_inner()
-                                if not listp(obj) and obj is _find_symbol0("."):
+                                if not _listp(obj) and obj is _find_symbol0("."):
                                         error("Consing dot not implemented")
                                 ret += [obj]
                 # _here("< %s" % (ret,))
@@ -4973,7 +5080,7 @@ def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_white
                                 break
                         elif char == "\\":
                                 char2 = read_char(stream)
-                                ret += (char2 if char2 in set(["\"", "\\"]) else
+                                ret += (char2 if char2 in _set(["\"", "\\"]) else
                                         error("READ-FROM-STRING: unrecognized escape character \"%s\".", char2))
                         else:
                                 ret += char
@@ -4983,10 +5090,10 @@ def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_white
                 token = read_token()
                 if _without_condition_system(lambda: re.match("^[0-9]+$", token),
                                              reason = "re.match"):
-                        ret = int(token)
+                        ret = _int(token)
                 elif _without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token),
                                                reason = "re.match"):
-                        ret = float(token)
+                        ret = _builtins.float(token)
                 else:
                         ret = _read_symbol(token)
                         # debug_printf("-- interned %s as %s", token, name)
@@ -4997,7 +5104,7 @@ def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_white
                 # _here(">> ..%s..%s" % (pos, end))
                 while True:
                         char = read_char(stream, nil, nil)
-                        if char in set([nil, " ", "\t", "\n", "(", ")", "\"", "'"]):
+                        if char in _set([nil, " ", "\t", "\n", "(", ")", "\"", "'"]):
                                 if char is not nil:
                                         unread_char(char, stream)
                                 break
@@ -5043,13 +5150,13 @@ at which the file specified by PATHSPEC was last written
         #
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # os.path.getmtime() returns microseconds..
-        return int(os.path.getmtime(pathspec))
+        return _int(os.path.getmtime(pathspec))
 
 ##
 ## Streams
 ##
 def open_stream_p(x):
-        return not the(stream, x).closed
+        return not the(stream_, x).closed
 
 def input_stream_p(x):
         return open_stream_p(x) and x.readable()
@@ -5167,7 +5274,7 @@ string or output to destination.
 For details on how the CONTROL-STRING is interpreted, see Section 22.3
 (Formatted Output)."""
         string = control_string % args
-        if  streamp(destination) or listp(destination) or destination is t:
+        if  streamp(destination) or _listp(destination) or destination is t:
                 # XXX: python strings are immutable, so lists will serve as adjustable arrays..
                 # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
                 write_string(string, destination)
@@ -5188,7 +5295,7 @@ def force_output(*args, **keys):
 ##
 ## Pythonese execution tracing: for HANDLER-BIND.
 ##
-__tracer_hooks__   = dict() # allowed keys: "call", "line", "return", "exception", "c_call", "c_return", "c_exception"
+__tracer_hooks__   = _dict() # allowed keys: "call", "line", "return", "exception", "c_call", "c_return", "c_exception"
 def _set_tracer_hook(type, fn):        __tracer_hooks__[type] = fn
 def     _tracer_hook(type):     return __tracer_hooks__.get(type) if type in __tracer_hooks__ else None
 
@@ -5360,12 +5467,11 @@ def _dump_thread_state():
                 _builtins.print(dump(o))
                 for slot, _ in _type(o)._fields_:
                         val = _getattr(o, slot)
-                        type_ = _type(val)
-                        _builtins.print(("%25s: " + ("%x" if type_ is int else "%s")) % (slot, val))
+                        _builtins.print(("%25s: " + ("%x" if integerp(val) else "%s")) % (slot, val))
         _without_condition_system(body,
                                   reason = "_dump_thread_state")
 
-__not_even_conditions__ = frozenset([SystemExit, __catcher_throw__])
+__not_even_conditions__ = _frozenset([SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
 def __cl_condition_handler__(condspec, frame):
@@ -5402,7 +5508,7 @@ def __cl_condition_handler__(condspec, frame):
                 else:
                         return raw_cond
         with progv(_STACK_TOP_HINT_ = _caller_frame(caller_relative = 1)):
-                cond = sys.call_tracing(continuation, tuple())
+                cond = sys.call_tracing(continuation, _tuple())
         if type_of(cond) not in __not_even_conditions__:
                 is_not_ball = type_of(cond) is not __catcher_throw__
                 _here("In thread '%s': unhandled condition : %s%s",
@@ -5431,7 +5537,7 @@ def handler_bind(fn, *handlers, no_error = identity):
         # ..inlined for speed.
         if _pytracer_enabled_p() and "exception" in __tracer_hooks__ and __tracer_hooks__["exception"] is __cl_condition_handler__:
                 for type, _ in handlers:
-                        if not (typep(type, type_) and subtypep(type, condition)):
+                        if not (typep(type, _type) and subtypep(type, condition)):
                                 error(simple_type_error, "While establishing handler: '%s' does not designate a known condition type.", type)
                 with env.let(__handler_clusters__ = env.__handler_clusters__ +
                              [handlers + (("__frame__", _caller_frame()),)]):
@@ -5513,9 +5619,9 @@ class restart(_servile):
 
 # restart_bind(body,
 #              name = ((lambda *args: 1),
-#                      dict(interactive_function = lambda: compute_invoke_restart_interactively_args(),
-#                           report_function      = lambda stream: print_restart_summary(stream),
-#                           test_function        = lambda cond: visible_p(cond))))
+#                      _dict(interactive_function = lambda: compute_invoke_restart_interactively_args(),
+#                            report_function      = lambda stream: print_restart_summary(stream),
+#                            test_function        = lambda cond: visible_p(cond))))
 setq("__restart_clusters__", [])
 
 def _restartp(x):
@@ -5526,11 +5632,11 @@ def restart_name(x):
 
 def _specs_restarts_args(restart_specs):
         # format (t, "_s_r: %s", restart_specs)
-        restarts_args = dict()
+        restarts_args = _dict()
         for name, spec in restart_specs.items():
                 function, options = ((spec[0], spec[1]) if _tuplep(spec) else
-                                     (spec, dict()))
-                restarts_args[name.upper()] = _updated_dict(options, dict(function = function)) # XXX: name mangling!
+                                     (spec, _dict()))
+                restarts_args[name.upper()] = _updated_dict(options, _dict(function = function)) # XXX: name mangling!
         return restarts_args
 
 ##
@@ -5544,10 +5650,10 @@ def _restart_bind(body, restarts_args):
 def restart_bind(body, **restart_specs):
         return _restart_bind(body, _specs_restarts_args(restart_specs))
 
-__valid_restart_options__ = frozenset(["interactive", "report", "test", "function"])
+__valid_restart_options__ = _frozenset(["interactive", "report", "test", "function"])
 def _restart_case(body, **restarts_args):
         def validate_restart_options(options):
-                unknown = set(options.keys()) - __valid_restart_options__
+                unknown = _set(options.keys()) - __valid_restart_options__
                 return t if not unknown else error(simple_type_error, "Acceptable restart options are: (%s), not (%s)",
                                                    " ".join(__valid_restart_options__), " ".join(options.keys()))
         nonce = gensym("RESTART-CASE")
@@ -5558,19 +5664,19 @@ def _restart_case(body, **restarts_args):
                                   lambda function, interactive, report:
                                           (validate_restart_options(restart_args) and
                                            _updated_dict(restart_args,
-                                                         dict(name                 = restart_name,
-                                                              function             =
-                                                              lambda *args, **keys:
-                                                                      return_from(nonce, function(*args, **keys)),
-                                                              interactive_function =
-                                                              (interactive                  if functionp(interactive) else
-                                                               lambda: []                   if null(interactive) else
-                                                               error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
-                                                              report_function      =
-                                                              (report                       if functionp(report) else
-                                                               _curry(write_string, report) if stringp(report) else
-                                                               nil                          if null(report) else
-                                                               error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
+                                                         _dict(name                 = restart_name,
+                                                               function             =
+                                                               lambda *args, **keys:
+                                                                       return_from(nonce, function(*args, **keys)),
+                                                               interactive_function =
+                                                               (interactive                  if functionp(interactive) else
+                                                                lambda: []                   if null(interactive) else
+                                                                error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
+                                                               report_function      =
+                                                               (report                       if functionp(report) else
+                                                                _curry(write_string, report) if stringp(report) else
+                                                                nil                          if null(report) else
+                                                                error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
                 for restart_name, restart_args in restarts_args.items () }
         return catch(nonce,
                      lambda: _restart_bind(body, wrapped_restarts_args))
@@ -5594,7 +5700,7 @@ The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
         description = (format_control_and_arguments if stringp(format_control_and_arguments) else
                        format(nil, format_control_and_arguments[0], *format_control_and_arguments[1:]))
         return restart_case(body, **{ name: (lambda: None,
-                                             dict(report = lambda stream: format(stream, "%s", description))) })
+                                             _dict(report = lambda stream: format(stream, "%s", description))) })
 
 def restart_condition_association_check(cond, restart):
         """
@@ -5661,8 +5767,8 @@ lists from repeated calls to COMPUTE-RESTARTS while in the same
 dynamic environment. The consequences are undefined if the list
 returned by COMPUTE-RESTARTS is every modified.
 """
-        restarts = list()
-        for cluster in reversed(env.__restart_clusters__):
+        restarts = _list()
+        for cluster in _reversed(env.__restart_clusters__):
                 # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                 restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
                                 if condition else
@@ -5711,7 +5817,7 @@ def describe(x, stream = t, show_hidden = nil):
         for attr, val in (x.__dict__ if _hasattr(x, "__dict__") else
                           { k: _getattr(x, k) for k in dir(x)}).items():
                 if show_hidden or "__" not in attr:
-                        write_line("%25s: %s" % (attr, ignore_errors(lambda: str(val))), stream)
+                        write_line("%25s: %s" % (attr, ignore_errors(lambda: _str(val))), stream)
 
 ##
 ## Modules
@@ -5746,7 +5852,7 @@ def require(name, pathnames = None):
 def get_universal_time():
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # time.time() returns microseconds..
-        return int(time.time())
+        return _int(time.time())
 
 def sleep(x):
         return time.sleep(x)
@@ -5775,7 +5881,7 @@ def _make_eval_context():
         return get, set
 __evget__, __evset__ = _make_eval_context()
 
-__eval_source_cache__ = dict() # :: code_object -> string
+__eval_source_cache__ = _dict() # :: code_object -> string
 
 def _evaluated_code_source(co):
         return gethash(co, __eval_source_cache__)
@@ -5803,7 +5909,7 @@ def _eval_python(expr_or_stmt):
         # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         _builtins.exec(code, _find_module(_lisp_symbol_name_python_name(package_name(package))).__dict__)
         values = (__evget__() if exprp else
-                  tuple())
+                  _tuple())
         return values if _tuplep(values) else (values,)
 
 def _callify(form, package = None, quoted = False):
@@ -5820,7 +5926,7 @@ def _callify(form, package = None, quoted = False):
                         error("odd number of &KEY arguments")
                 allow_other_keys = paramspec.varkw is not None
                 fixnames, keynames = (paramspec.args[0:nfix],
-                                      set(paramspec.args[nfix:] + paramspec.kwonlyargs))
+                                      _set(paramspec.args[nfix:] + paramspec.kwonlyargs))
                 fixargs = args[0:nfix]
                 keyargs = ({ _lisp_symbol_python_name(k):v
                              for k, v in _plist_alist(args[nfix:]) })
@@ -5836,16 +5942,16 @@ def _callify(form, package = None, quoted = False):
                                lambda k, x: (k, _callify(x, package)),
                                       keyargs))
         obj2ast_xform = {
-                False : _ast_name("False"),
-                None  : _ast_name("None"),
-                True  : _ast_name("True"),
-                str   : _ast_string,
-                int   : _ast_num,
+                False   : _ast_name("False"),
+                None    : _ast_name("None"),
+                True    : _ast_name("True"),
+                string_ : _ast_string,
+                integer : _ast_num,
                 }
-        if listp(form):
+        if _listp(form):
                 if quoted or (form[0] is _find_symbol0("QUOTE")):
                         return (_ast_list(mapcar(lambda x: _callify(x, package, True), form[1]))
-                                if listp(form[1]) else
+                                if _listp(form[1]) else
                                 _callify(form[1], package, True))
                 else:
                         return callify_call(form[0], form[1:])
@@ -6057,7 +6163,7 @@ class funcallable_standard_class(standard_object):
 class generic_function(funcallable_standard_class):
         "All generic functions are of this type."
         def __init__(self, **initargs): # Simulate a :BEFORE method.
-                self.__dependents__ = set()
+                self.__dependents__ = _set()
                 super().__init__(**initargs)
 
 # Dependent Maintenance Protocol
@@ -6429,31 +6535,31 @@ the specified initialization has taken effect."""
                 if not _specifiedp(lambda_list):
                         error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER "
                               "was provided, but :LAMBDA-LIST was not.")
-                elif not (listp(argument) and
-                          set(argument_precedence_order) == set(lambda_list[0])):
+                elif not (_listp(argument) and
+                          _set(argument_precedence_order) == _set(lambda_list[0])):
                         error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER, "
                               "when specified, must be a permutation of fixed arguments in :LAMBDA-LIST.")
-                generic_function.argument_precedence_order = tuple(argument_precedence_order)
+                generic_function.argument_precedence_order = _tuple(argument_precedence_order)
         elif _specifiedp(lambda_list):
-                generic_function.argument_precedence_order = tuple(lambda_list[0])
-        generic_function.declarations        = tuple(_defaulted(declarations, list(),
-                                                                type = (list_,
-                                                                        (satisfies_, _valid_declaration_p))))
+                generic_function.argument_precedence_order = _tuple(lambda_list[0])
+        generic_function.declarations        = _tuple(_defaulted(declarations, _list(),
+                                                                 type = (list_,
+                                                                         (satisfies_, _valid_declaration_p))))
         generic_function.documentation       = _defaulted(documentation, nil,
-                                              type = (or_, str, (eql_, nil)))
+                                              type = (or_, string_, (eql_, nil)))
         if _specifiedp(lambda_list):
                 # XXX: _not_implemented("lambda-list validation")
                 generic_function.lambda_list = lambda_list
         generic_function.method_combination  = _defaulted(method_combination, standard_method_combination,
                                                           type = method_combination)
         generic_function.method_class        = _defaulted(method_class, standard_method,
-                                                          type = type_) # method metaclass
+                                                          type = _type) # method metaclass
         generic_function.name                = _defaulted(name, nil)
         # The discriminating function may reuse the
         # list of applicable methods without calling
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
         # (ii) the generic function has not been reinitialized,
-        generic_function.__applicable_method_cache__ = dict() # (list_, type_) -> list
+        generic_function.__applicable_method_cache__ = _dict() # (list_, _type) -> _list
         filename, lineno = (_defaulted(filename, "<unknown>"),
                             _defaulted(lineno,   0))
         _update_generic_function_and_dependents(
@@ -6484,7 +6590,7 @@ def generic_function_name(x):                      return x.name
 def generic_function_p(x): return functionp(x) and _hasattr(x, "__methods__")  # XXX: CL+
 def method_p(x):           return functionp(x) and _hasattr(x, "specializers") # XXX: CL+
 def _specializerp(x):       return ((x is t)        or
-                                    typep(x, (or_, type_, (tuple_, (eql_, eql_), t))))
+                                    typep(x, (or_, _type, (_tuple, (eql_, eql_), t))))
 
 def _get_generic_fun_info(generic_function):
         return values(_len(generic_function.lambda_list[0]), # nreq
@@ -6495,7 +6601,7 @@ def _get_generic_fun_info(generic_function):
 
 def generic_function_methods(x):                   return x.__methods__.values()
 
-__method_combinations__ = dict()
+__method_combinations__ = _dict()
 
 def define_method_combination(name, method_group_specifiers, body,
                               arguments = None, generic_function = None):
@@ -6821,14 +6927,14 @@ executed."""
                   (list_,
                    (varituple_,
                     symbol,       # group name
-                    (or_, (list_, (or_, tuple, (eql_, star))), # We're off the spec a little here,
-                                                               # but it's a minor syntactic issue.
+                    (or_, (list_, (or_, _tuple, (eql_, star))), # We're off the spec a little here,
+                                                                # but it's a minor syntactic issue.
                           function_),
                     # the rest is actually a plist, but we cannot (yet) describe it
                     # in terms of a type.
                     (maybe_, (tuple_,
                               (eql_, _keyword("description")),
-                              str)),
+                              string_)),
                     (maybe_, (tuple_,
                               (eql_, _keyword("order")),
                               (member_,
@@ -6839,11 +6945,11 @@ executed."""
                               (member_, t, nil))))))
         # check_type(arguments, (maybe_, lambda_list_))
         check_type(arguments, (maybe_, (tuple_,
-                                        (list_, str),
-                                        (list_, str),
-                                        (maybe_, str),
-                                        (list_, str),
-                                        (maybe_, str))))
+                                        (list_, string_),
+                                        (list_, string_),
+                                        (maybe_, string_),
+                                        (list_, string_),
+                                        (maybe_, string_))))
         check_type(generic_function, (maybe_, symbol))
         ### VARI-BIND, anyone?
         # def vari_bind(x, body):
@@ -6856,7 +6962,7 @@ executed."""
                                  "description",
                                  "most_specific_first",
                                  "required")
-        groups = dict()
+        groups = _dict()
         for mgspec in method_group_specifiers:
                 gname, qualifier_spec = mgspec[:2]
                 options = mgspec[2:]
@@ -6897,9 +7003,9 @@ executed."""
                        for group in groups.values():
                                qualifier_spec = group.qualifier_spec
                                ## qualifier_spec:
-                               # (or_, (list_, (or_, star, list)),
+                               # (or_, (list_, (or_, star, _list)),
                                #       function),
-                               if ((listp(qualifier_spec) and
+                               if ((_listp(qualifier_spec) and
                                     some(curry(method_qualifiers_match_pattern_p, qualifiers),
                                                qualifier_spec))
                                    # must be an fbound symbol, as per the above TYPEP
@@ -6920,7 +7026,7 @@ executed."""
                # I guess, well, that we could play the CL games with that.
                # Yes, I'm thinking of real macros..
                # Maybe just arg it?
-               body_args = dict(grouped_methods)
+               body_args = _dict(grouped_methods)
                def call_method(method, next_methods = None):
                        next_methods = _defaulted(next_methods, [])
                        # sounds like we ought to look up the compiled METHOD-LAMBDA?
@@ -7194,7 +7300,7 @@ def _types_from_args(generic_function, arguments, type_modifier = None):
         nreq, applyp, metatypes, nkeys, arg_info = _get_generic_fun_info(generic_function)
         # (declare (ignore applyp metatypes nkeys))
         types_rev = []
-        for i in range(nreq):
+        for i in _range(nreq):
                 if not arguments:
                         error_need_at_least_n_args(generic_function_name(generic_function),
                                                    nreq)
@@ -7211,7 +7317,7 @@ def _compute_applicable_methods_using_types(generic_function, types_):
         # Not safe against method list modifications by another thread!
         for method in generic_function_methods(generic_function):
                 specls = method_specializers(method) # Was: if (consp method)
-                types = list(types_)
+                types = _list(types_)
                 possibly_applicable_p, applicable_p = t, t
                 for specl in specls:
                         _here("specl: %s", specl)
@@ -7229,7 +7335,7 @@ def _compute_applicable_methods_using_types(generic_function, types_):
                 # (declare (ignore nreq applyp metatypes nkeys))
                 precedence = _arg_info_precedence(arg_info)
                 return values(_sort_applicable_methods(precedence,
-                                                       reversed(possibly_applicable_methods),
+                                                       _reversed(possibly_applicable_methods),
                                                        types),
                               definite_p)
 
@@ -7301,8 +7407,8 @@ def _order_specializers(specl1, specl2, index, compare_classes_function):
                 specl2 if atom(type1)      else # is t?
                 specl1 if atom(type2)      else # is t?
                 case(car(type1),
-                     (type_, lambda: case(car(type2),
-                                          (type_, compare_classes_function(specl1, specl2, index)),
+                     (_type, lambda: case(car(type2),
+                                          (_type, compare_classes_function(specl1, specl2, index)),
                                           (t, specl2))),
                      # (prototype (case (car type2)
                      #             (class (funcall compare-classes-function
@@ -7364,26 +7470,26 @@ mutates the list returned by this generic function."""
 def error_need_at_least_n_args(function, n):
         error("The function %s requires at least %d arguments.", function, n)
 
-__sealed_classes__ = set([object,
-                          int, bool, float, complex,
-                          str, tuple, bytes,
-                          list, bytearray,
-                          set, frozenset,
-                          dict,
-                          function_,
-                          stream,
-                          BaseException, Exception] +
-                         mapcar(type_of,
-                                [None,           # NoneType
-                                 Ellipsis,       # ellipsis
-                                 NotImplemented, # NotImplementedType
-                                 int,            # type
-                                 "".find,        # builtin_function_or_method
-                                 ast,            # module
-                                 sys.stdin,      # _io.TextIOWrapper
-                                 car.__code__,   # code object
-                                 _this_frame(),  # frame
-                                 ]))
+__sealed_classes__ = _set([object,
+                           integer, boolean, float, complex,
+                           string_, _tuple, _bytes,
+                           _list, _bytearray,
+                           _set, _frozenset,
+                           hash_table,
+                           function_,
+                           stream_,
+                           BaseException, Exception] +
+                          mapcar(type_of,
+                                 [None,           # NoneType
+                                  Ellipsis,       # ellipsis
+                                  NotImplemented, # NotImplementedType
+                                  integer,        # type
+                                  "".find,        # builtin_function_or_method
+                                  ast,            # module
+                                  sys.stdin,      # __io.TextIOWrapper
+                                  car.__code__,   # code object
+                                  _this_frame(),  # frame
+                                  ]))
 
 def _class_sealed_p(x):
         return x in __sealed_classes__
@@ -7453,12 +7559,12 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                     generic_function.__code__.co_filename,
                     generic_function.__code__.co_lineno)
         fixed, optional, args, keyword, keys = lambda_list
-        nfixed = len(fixed)
+        nfixed = _len(fixed)
         def dfun_compute_applicable_methods(generic_function, args):
-                if len(args) < nfixed:
+                if _len(args) < nfixed:
                         error_need_at_least_n_args(function_name, nfixed)
                 dispatch_args      = args[:nfixed]
-                dispatch_arg_types = tuple(_type(x) for x in dispatch_args)
+                dispatch_arg_types = _tuple(_type(x) for x in dispatch_args)
                 # The discriminating function may reuse the
                 # list of applicable methods without calling
                 # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
@@ -7469,10 +7575,10 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                 # Issue COMPUTE-DISCRIMINATING-FUNCTION-REQUIREMENT-4-UNCLEAR-NOT-IMPLEMENTED
                 # (v) for any such memoized value, the class precedence list of
                 #     the class of each of the required arguments has not changed.
-                unsealed_classes = set(x for x in dispatch_arg_types if not _class_sealed_p(x))
+                unsealed_classes = _set(x for x in dispatch_arg_types if not _class_sealed_p(x))
                 applicable_method_cache_key = dispatch_arg_types + reduce(lambda acc, x: acc + x.__mro__,
-                                                                          sorted(unsealed_classes, key = lambda type: type.__name__),
-                                                                          tuple())
+                                                                          _sorted(unsealed_classes, key = lambda type: type.__name__),
+                                                                          _tuple())
                 # We ought to pay the high price of (iv) and (v), because we can't hook
                 # into the Python's object system.
                 applicable, hit = gethash(applicable_method_cache_key, applicable_method_cache)
@@ -7515,7 +7621,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                 import more_ast # Shall we concede, and import it all?
                 format(t, "; generic function '%s':\n%s",
                        function_name, more_ast.pp_ast_as_code(new_dfun_ast))
-        env = dict(compute_effective_method        = compute_effective_method,
+        env = _dict(compute_effective_method        = compute_effective_method,
                    _find_symbol_or_fail            = _find_symbol_or_fail,
                    dfun_compute_applicable_methods = dfun_compute_applicable_methods)
         return _ast_compiled_name(
@@ -7615,7 +7721,7 @@ GENERIC-FUNCTION argument is then returned."""
                 mapc(curry(remove_method, gfun), generic_function_methods(gfun))
         if lambda_list:
                 fixed, optional, args, keyword, keys = lambda_list
-                if some(lambda x: x[1] is not None, list(optional) + list(keyword)):
+                if some(lambda x: x[1] is not None, _list(optional) + _list(keyword)):
                         error("Generic function arglist cannot specify default parameter values.")
         initargs = _only_specified_keys(
                 argument_precedence_order = argument_precedence_order,
@@ -7696,7 +7802,7 @@ The second argument is FUNCTION-NAME. The remaining arguments are the
 complete set of keyword arguments received by
 ENSURE-GENERIC-FUNCTION."""
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        maybe_gfun, therep = _defaulted(_global(the(str, function_name)), nil)
+        maybe_gfun, therep = _defaulted(_global(the(string_, function_name)), nil)
         if functionp(maybe_gfun) and not generic_function_p(maybe_gfun):
                 error("%s already names an ordinary function.", function_name)
         return ensure_generic_function_using_class(maybe_gfun, function_name, **keys)
@@ -7917,11 +8023,11 @@ object2). Otherwise P1,i and P2,i do not agree.
 
 3. The two lists of qualifiers are the same under equal."""
         lambda_list = method_lambda_list(method)
-        return (len(lambda_list[0]) == len(specializers)         and
+        return (_len(lambda_list[0]) == _len(specializers)       and
                 every(lambda ms, s: ((ms is s) or
-                                     (listp(ms) and listp(s) and
-                                      len(ms) == len(s) == 2 and
-                                      ms[0] == s[0] == eql_  and
+                                     (_listp(ms) and _listp(s) and
+                                      _len(ms) == _len(s) == 2 and
+                                      ms[0] == s[0] == eql_    and
                                       eql(ms[1], s[1]))),
                       method_specializers(method), specializers) and
                 equal(method_qualifiers(method), qualifiers))
@@ -7967,12 +8073,12 @@ function will mention &key (but no keyword arguments)."""
 # Unregistered Issue COMPLIANCE-SPEC-UNCLEAR-LAST-PASSAGE-LAMBDA-LIST-CONGRUENCE
         gf_fixed, gf_optional, gf_args, gf_keyword, gf_keys = generic_function_lambda_list
         m_fixed,  m_optional,  m_args,  m_keyword,  m_keys  = method_lambda_list
-        return ((len(gf_fixed)    != len(m_fixed) and
+        return ((_len(gf_fixed)    != _len(m_fixed) and
                  "the method has %s required arguments than the generic function" %
-                 ("more" if len(m_fixed) > len(gf_fixed) else "less"))                                        or
-                (len(gf_optional) != len(m_optional) and
+                 ("more" if _len(m_fixed) > _len(gf_fixed) else "less"))                                      or
+                (_len(gf_optional) != _len(m_optional) and
                  "the method has %s optional arguments than the generic function" %
-                 ("more" if len(m_fixed) > len(gf_fixed) else "less"))                                        or
+                 ("more" if _len(m_fixed) > _len(gf_fixed) else "less"))                                      or
                 (_xorf(gf_args, m_args) and
                  "but the method and generic function differ in whether they accept &REST or &KEY arguments") or
                 # XXX: #3 compliance -- still looks fishy
@@ -7981,8 +8087,8 @@ function will mention &key (but no keyword arguments)."""
                  "but the method and generic function differ in whether they accept &REST or &KEY arguments") or
                 (((not gf_keyword) or
                   m_keys           or
-                  not (set(gf_keyword) - set(m_keyword))) and
-                 "but the method does not accept each of the &KEY arguments %s" % tuple([gf_keyword])))
+                  not (_set(gf_keyword) - _set(m_keyword))) and
+                 "but the method does not accept each of the &KEY arguments %s" % _tuple([gf_keyword])))
 
 def add_method(generic_function, method):
         """Arguments:
@@ -8204,7 +8310,7 @@ correspondences are as follows:"""
         #         if not typep(slot_definition, direct_slot_definition):
         #                 error("SHARED-INITIALIZE STANDARD-METHOD: the supplied value of :SLOT-DEFINITION must be an instance of a subclass of DIRECT-SLOT-DEFINITION.")
         method.documentation = _defaulted(documentation, nil,
-                                          type = (or_, str, (eql_, nil)))
+                                          type = (or_, string_, (eql_, nil)))
         return method
 
 def method_qualifiers(x):       return x.qualifiers
@@ -8609,9 +8715,9 @@ object."""
                 method_class,
                 qualifiers = [], # XXX
                 lambda_list = lambda_list,
-                specializers = tuple(_make_method_specializers(
-                                     mapcar(lambda name: gethash(name, method.__annotations__, t)[0],
-                                            fixed))),
+                specializers = _tuple(_make_method_specializers(
+                                      mapcar(lambda name: gethash(name, method.__annotations__, t)[0],
+                                             fixed))),
                 function = _not_implemented("somehow compile", methfun_lambda)
                 **methfun_args)
         add_method(generic_function, method)
@@ -8622,7 +8728,7 @@ def _make_method_specializers(specializers):
                 return (# name                                                    if specializerp(name) else
                         name                                                      if name is t          else
                                                                   # ..special-case, since T isn't a type..
-                        name                                                      if typep(name, type_) else
+                        name                                                      if typep(name, _type) else
                                                                   # Was: ((symbolp name) `(find-class ',name))
                         ecase(car(name),
                               (eql_,      lambda: intern_eql_specializer(name[1])),
