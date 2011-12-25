@@ -13,7 +13,7 @@ import time
 import types
 import socket
 import inspect
-import builtins
+import builtins    as _builtins
 import platform
 import functools
 import linecache   as _linecache
@@ -29,6 +29,9 @@ from neutrality import stringp, _write_string
 ###
 def identity(x):
         return x
+
+def type_of(x):
+        return _builtins.type(x)
 
 def let(*values_and_body):
         values, body = values_and_body[:-1], values_and_body[-1]
@@ -66,7 +69,7 @@ def _cold_constantp(form):
         #  - slow handling of constant variables
         #  - no handling of DEFCONSTANT-introduced variables
         #  - additional constant forms
-        return (isinstance(form, (int, float, complex, str)) or
+        return (_builtins.isinstance(form, (int, float, complex, str)) or
                 (type_of(form).__name__ == "symbol" and
                  ((form.package.name == "KEYWORD") or
                   (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
@@ -105,6 +108,8 @@ def _setf_global(name, value):
 
 def _global(name):
         return gethash(name, globals())
+
+_NoneType = _builtins.type(None)
 
 ###
 ### Cold boot
@@ -352,7 +357,7 @@ def _coerce_to_ast_type(type):
                         (t,     lambda: error("Invalid AST type specifier: %s, %s, %s.", type, type_, typep(type, type_))))
 
 def _text_ast(text):
-        return compile(text, "", 'exec', flags=ast.PyCF_ONLY_AST).body
+        return _builtins.compile(text, "", 'exec', flags=ast.PyCF_ONLY_AST).body
 
 def _function_ast(fn):
         fn_ast = _text_ast(inspect.getsource(fn))[0]
@@ -380,7 +385,7 @@ def _ast_tuple(xs, writep = False):
 __astifier_map__ = { str:             (False, _ast_string),
                      int:             (False, _ast_num),
                      bool:            (False, _ast_num),
-                     type(None):      (False, lambda x: _ast_name("None")),
+                     _NoneType:       (False, lambda x: _ast_name("None")),
                      list:            (True,  _ast_list),
                      tuple:           (True,  _ast_tuple),
                      set:             (True,  _ast_set),
@@ -391,7 +396,7 @@ def _register_astifier_for_type(type, recurse, astifier):
         __astifier_map__[type] = (recurse, astifier)
 
 def _astifiable_p(x):
-        return type(x) in __astifier_map__
+        return _builtins.type(x) in __astifier_map__
 
 def _try_astify_constant(x):
         if _astp(x):
@@ -421,7 +426,7 @@ def _ast_index(of, index, writep = False):   return ast.Subscript(value = of, sl
 def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x) else x)
 
 def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
-        check_type(args, (list_, (or_, ast.AST, type(None), (satisfies_, _astifiable_p))))
+        check_type(args, (list_, (or_, ast.AST, _NoneType, (satisfies_, _astifiable_p))))
         return ast.Call(func = (_ast_name(name) if stringp(name) else name),
                         args = mapcar(_coerce_to_ast, args),
                         keywords = _maphash(_ast_keyword, keys),
@@ -511,7 +516,7 @@ def _ast_functiondef(name, lambda_list_spec, body):
 ## modules/packages
 ##
 def _load_code_object_as_module(name, co, filename = "", builtins = None, globals_ = None, locals_ = None, register = True):
-        check_type(co, type(_load_code_object_as_module.__code__))
+        check_type(co, _builtins.type(_load_code_object_as_module.__code__))
         mod = imp.new_module(name)
         mod.__filename__ = filename
         if builtins:
@@ -520,13 +525,13 @@ def _load_code_object_as_module(name, co, filename = "", builtins = None, global
                 sys.modules[name] = mod
         globals_ = _defaulted(globals_, mod.__dict__)
         locals_  = _defaulted(locals_, mod.__dict__)
-        exec(co,
-             globals_,
-             locals_)
+        _builtins.exec(co,
+                       globals_,
+                       locals_)
         return mod, globals_, locals_
 
 def _load_text_as_module(name, text, filename = "", **keys):
-        return _load_code_object_as_module(name, compile(text, filename, "exec"),
+        return _load_code_object_as_module(name, _builtins.compile(text, filename, "exec"),
                                            filename = filename, **keys)[0]
 
 def _reregister_module_as_package(mod, parent_package = None):
@@ -536,7 +541,7 @@ def _reregister_module_as_package(mod, parent_package = None):
                 dotpos = mod.name.rindex(".")
                 assert(dotpos)
                 postdot_name = mod.name[dotpos + 1:]
-                setattr(parent_package, postdot_name, mod)
+                _builtins.setattr(parent_package, postdot_name, mod)
                 parent_package.__children__.add(mod)
                 mod.__parent__ = parent_package
         if packagep:
@@ -545,7 +550,7 @@ def _reregister_module_as_package(mod, parent_package = None):
 def _compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
         return _load_code_object_as_module(
                 modname,
-                compile(ast.fix_missing_locations(_ast_module(list(body), lineno = lineno)), filename, "exec"),
+                _builtins.compile(ast.fix_missing_locations(_ast_module(list(body), lineno = lineno)), filename, "exec"),
                 register = nil,
                 filename = filename,
                 **keys)
@@ -563,7 +568,7 @@ def _all_threads_frames():
 def _this_frame():
         return sys._getframe(1)
 
-_frame = type(_this_frame())
+_frame = _builtins.type(_this_frame())
 
 def _framep(x):
         return typep(x, _frame)
@@ -944,15 +949,15 @@ _curry = functools.partial
 def _compose(f, g):
         return lambda *args, **keys: f(g(*args, **keys))
 
-def _tuplep(x):     return type(x) is tuple
-def _frozensetp(o): return type(o) is frozenset
-def _setp(o):       return type(o) is set or _frozensetp(o)
+def _tuplep(x):     return _builtins.isinstance(x, tuple)
+def _frozensetp(o): return _builtins.isinstance(o, frozenset)
+def _setp(o):       return _builtins.isinstance(o, (set, frozenset))
 def _nonep(o):      return o is None
 
 def _ensure_list(x):
         return x if listp(x) else [x]
 def _ensure_car(x):
-        return x[0] if hasattr(x, "__len__") else x
+        return x[0] if _builtins.hasattr(x, "__len__") else x
 def _ensure_cons(x, default = None):
         return x if _tuplep(x) and len(x) == 2 else (x, default)
 
@@ -984,14 +989,14 @@ def _separate(n, f, xs):
 __combiners__ = { set: set.add, list: list.append }
 def _recombine(spec, f, xss):
         accs  = tuple(f() for f in spec)
-        combs = tuple(__combiners__[type(a)] for a in accs)
+        combs = tuple(__combiners__[_builtins.type(a)] for a in accs)
         for xs in xss:
                 for acc, comb, reselt in zip(accs, combs, f(xs)):
                         comb(acc, reselt)
         return accs
 def _recombine_star(spec, f, *xss):
         accs  = tuple(f() for f in spec)
-        combs = tuple(__combiners__[type(a)] for a in accs)
+        combs = tuple(__combiners__[_builtins.type(a)] for a in accs)
         for xs in zip(*xss):
                 for acc, comb, reselt in zip(accs, combs, f(*xs)):
                         comb(acc, reselt)
@@ -1000,9 +1005,9 @@ def _recombine_star(spec, f, *xss):
 def _mapcar_star(f, xs):
         return [ f(*x) for x in xs ]
 
-def _slotting(x):             return lambda y: getattr(y, x, None)
-def _slot_of(x):              return lambda y: getattr(x, y, None)
-def _slot_equal(slot, val):   return lambda y: getattr(y, slot, None) == val
+def _slotting(x):             return lambda y: _builtins.getattr(y, x, None)
+def _slot_of(x):              return lambda y: _builtins.getattr(x, y, None)
+def _slot_equal(slot, val):   return lambda y: _builtins.getattr(y, slot, None) == val
 
 def _indexing(*is_):          return lambda y: aref(y, *is_)
 def _index_of(xs):            return lambda *is_: aref(xs, *is_)
@@ -1031,14 +1036,14 @@ def _prefix_suffix_if_not(f, xs, key = identity):
 def _defwith(name, enter, exit, **initargs):
         initargs.update(dict(__enter__ = enter,
                              __exit__  = exit))
-        return type(name, (object,), initargs)
+        return _builtins.type(name, (object,), initargs)
 
 ##
 ## Lesser non-CL tools
 ##
 class _servile():
         def __repr__(self):
-                return "#%s(%s)" % (type(self).__name__,
+                return "#%s(%s)" % (_builtins.type(self).__name__,
                                     ", ".join(_maphash(lambda k, v: "%s = %s" % (k, v),
                                                        self.__dict__)))
         def __init__(self, **keys):
@@ -1078,9 +1083,6 @@ def iff(val, consequent, antecedent):
         "This restores sanity."
         return __iff__[not not val](consequent, antecedent)()
 
-def constantp(x):
-        return type(x) in set([str, int])
-
 def loop(body):
         while True:
                 body()
@@ -1094,7 +1096,7 @@ def eql(x, y):
         # True
         # >>> 257 is (256 + 1)
         # False
-        return (x is y) if not isinstance(x, int) else x == y
+        return (x is y) if not _builtins.isinstance(x, int) else x == y
 
 def equal(x, y):
         return x == y
@@ -1107,22 +1109,22 @@ def _destructuring_bind_keys(val, body):
 
 def when(test, body):
         if test:
-                return body() if isinstance(body, function_) else body
+                return body() if _builtins.isinstance(body, function_) else body
 def cond(*clauses):
         for (test, body) in clauses:
-                if test() if isinstance(test, function_) else test:
-                        return body() if isinstance(body, function_) else body
+                if test() if _builtins.isinstance(test, function_) else test:
+                        return body() if _builtins.isinstance(body, function_) else body
 def case(val, *clauses):
         for (cval, body) in clauses:
-                if ((val == cval or (cval is True) or (cval is t)) if not isinstance(cval, list) else
+                if ((val == cval or (cval is True) or (cval is t)) if not _builtins.isinstance(cval, list) else
                     val in cval):
-                        return body() if isinstance(body, function_) else body
+                        return body() if _builtins.isinstance(body, function_) else body
 
 def ecase(val, *clauses):
         for (cval, body) in clauses:
-                if ((val == cval) if not isinstance(cval, list) else
+                if ((val == cval) if not _builtins.isinstance(cval, list) else
                     val in cval):
-                        return body() if isinstance(body, function_) else body
+                        return body() if _builtins.isinstance(body, function_) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
 def _infinite(x):
@@ -1177,7 +1179,7 @@ class type_error(error_):
 class simple_type_error(simple_condition, type_error):
         pass
 
-type_   = builtins.type    # Should we shadow org.python.type?
+type_   = _builtins.type    # Should we shadow org.python.type?
 stream_ = stream = _io._IOBase
 string_ = str
 
@@ -1186,9 +1188,6 @@ def find_class(x, errorp = True):
         return (x.value if typep(x.value, type_) else
                 nil     if not errorp            else
                 error("There is no class named %s.", x))
-
-def type_of(x):
-        return type(x)
 
 def _of_type(x):
         return lambda y: typep(y, x)
@@ -1219,8 +1218,8 @@ return a triple, specifying the specific parts of X and TYPE being in
 disagreement and, as a third element, a boolean, denoting whether the
 type specifier was malformed.  Otherwise, when X is of TYPE, a
 negative boolean value is returned."""
-        return (((not isinstance(x, type)) and
-                 (x, type, False))              if isinstance(type, type_)             else
+        return (((not _builtins.isinstance(x, type)) and
+                 (x, type, False))              if _builtins.isinstance(type, type_)   else
                 nil                             if type is t                           else
                 _complex_type_mismatch(x, type) if (_tuplep(type) and type and
                                                     type[0] in __type_predicate_map__) else
@@ -1250,12 +1249,12 @@ def check_type(x, type):
 def typecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if isinstance(body, function_) else body
+                        return body() if _builtins.isinstance(body, function_) else body
 
 def etypecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if isinstance(body, function_) else body
+                        return body() if _builtins.isinstance(body, function_) else body
         else:
                 error(simple_type_error, "%s fell through ETYPECASE expression. Wanted one of (%s).",
                       val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
@@ -1272,15 +1271,15 @@ __function_types__ = frozenset([types.BuiltinFunctionType,
 function_ = types.FunctionType.__mro__[0]
 integer   = int
 
-def functionp(o):     return isinstance(o, function_)
-def integerp(o):      return type(o) is int
-def floatp(o):        return type(o) is float
-def complexp(o):      return type(o) is complex
-def numberp(o):       return type(o) in frozenset([float, int, complex])
-def listp(o):         return type(o) is list
-def boolp(o):         return type(o) is bool
-def sequencep(x):     return getattr(type(x), "__len__", None) is not None
-def hash_table_p(o):  return type(o) is dict
+def functionp(o):     return _builtins.isinstance(o, function_)
+def integerp(o):      return _builtins.isinstance(o, int)
+def floatp(o):        return _builtins.isinstance(o, float)
+def complexp(o):      return _builtins.isinstance(o, complex)
+def numberp(o):       return _builtins.isinstance(o, (float, int, complex))
+def listp(o):         return _builtins.isinstance(o, list)
+def boolp(o):         return _builtins.isinstance(o, bool)
+def sequencep(x):     return _builtins.getattr(_builtins.type(x), "__len__", None) is not None
+def hash_table_p(o):  return _builtins.isinstance(o, dict)
 
 ##
 ## Predicates
@@ -1316,8 +1315,8 @@ def multiple_value_call(function, *values_forms):
 ## Conses
 ##
 def cons(x, y):       return (x, y)
-def consp(o):         return type(o) is tuple and len(o) is 2
-def atom(o):          return type(o) is not tuple
+def consp(o):         return _builtins.isinstance(o, tuple) and len(o) is 2
+def atom(o):          return not _builtins.isinstance(o, tuple)
 def car(x):           return x[0]   if x  else nil
 def cdr(x):           return x[1:]  if x  else nil
 def first(xs):        return xs[0]  if xs else nil
@@ -1417,19 +1416,19 @@ def _maprestype(x):
         return type if type in __allowed__ else list
 
 def remove_if(f, xs, key = identity):
-        if isinstance(xs, dict):
+        if _builtins.isinstance(xs, dict):
                 return              { k:x for k, x in xs.items() if not f(k, key(x))}
         else:
                 return _maprestype(xs) (x for x    in xs         if not f(key(x)))
 
 def remove_if_not(f, xs, key = identity):
-        if isinstance(xs, dict):
+        if _builtins.isinstance(xs, dict):
                 return              { k:x for k, x in xs.items() if f(k, key(x))}
         else:
                 return _maprestype(xs) (x for x    in xs         if f(key(x)))
 
 def remove(elt, xs, test = eql, key = identity):
-        if isinstance(xs, dict):
+        if _builtins.isinstance(xs, dict):
                 return              { k:x for k, x in xs.items() if not test(elt, key(x))}
         else:
                 return _maprestype(xs) (x for x    in xs         if not test(elt, key(x)))
@@ -1671,7 +1670,7 @@ def __block__(fn):
         ret = (lambda *args, **keys:
                        catch(nonce,
                              lambda: fn(*args, **keys)))
-        setattr(ret, "ball", nonce)
+        _builtins.setattr(ret, "ball", nonce)
         return ret
 
 def block(nonce_or_fn, body = None):
@@ -1684,8 +1683,8 @@ of nonce-ing is to be handled manually."""
                 return catch(nonce_or_fn, body)
 
 def return_from(nonce, value):
-        nonce = (nonce if not isinstance(nonce, function_) else
-                 (getattr(nonce, "ball", None) or
+        nonce = (nonce if not _builtins.isinstance(nonce, function_) else
+                 (_builtins.getattr(nonce, "ball", None) or
                   error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
         throw(nonce, value)
 
@@ -1855,11 +1854,11 @@ def _lisp_symbol_name_python_name(x):
         return ret
 
 def coerce(type, x):
-        return (x if isinstance(x, type) else
+        return (x if _builtins.isinstance(x, type) else
                 case(type,
                      (str,  "".join(x)),
                      (dict, dict.fromkeys(x)),
-                     (t,    type(x))))
+                     (t,    _builtins.type(x))))
 
 def _python_name_lisp_symbol_name(x):
         "Heuristic to undo the effect of _lisp_symbol_name_python_name()."
@@ -1917,7 +1916,7 @@ class package(collections.UserDict):
         def __bool__(self):
                 return True
         def __hash__(self):
-                return hash(id(self))
+                return hash(_builtins.id(self))
         def __init__(self, name, use = [], filename = "",
                      ignore_python = False, python_exports = True, boot = False):
                 self.name = string(name)
@@ -2161,7 +2160,7 @@ def _intern(x, package = None):
         p = _coerce_to_package(package)
         s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
         if not (s is not None or stringp(x)):
-                error("Attempted to intern object >%s< of type %s into %s.", x, type(x), p)
+                error("Attempted to intern object >%s< of type %s into %s.", x, _builtins.type(x), p)
         if s:
                 # debug_printf("Found >%s< in %s.", s, p)
                 return s, p
@@ -2350,8 +2349,8 @@ Affected By:
 
 The state of the global environment (e.g., which symbols have been
 declared to be the names of constant variables)."""
-        return (isinstance(form, (int, float, complex, str)) or
-                keywordp(form) or form in [t, nil, pi] or
+        return (_builtins.isinstance(form, (int, float, complex, str)) or
+                keywordp(form) or form in [t, nil, pi]                 or
                 (_tuplep(form) and len(form) == 2 and form[0] is quote_))
 
 def null(x):
@@ -2457,7 +2456,7 @@ def maybe_(x, type):
 @defun
 def list_(x, type):
         return ((x, type, True)  if len(type) is not 2      else
-                (x, type, False) if not isinstance(x, list) else
+                (x, type, False) if not _builtins.isinstance(x, list) else
                 some(_type_mismatch, x, _infinite(type[1])))
 
 @defun
@@ -2616,7 +2615,7 @@ def _ast_bound_free(astxs):
         def ast_rec(astxs):
                 def bound_free(ast):
                         info = _find_ast_info(type_of(ast))
-                        return info.bound_free(*mapcar(_slot_of(ast), type(ast)._fields))
+                        return info.bound_free(*mapcar(_slot_of(ast), _builtins.type(ast)._fields))
                 return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
         with progv(_BOUND_FREE_RECURSOR_ = ast_rec):
                 return ast_rec(the((or_, ast.AST, (list_, ast.AST)),
@@ -2647,9 +2646,9 @@ def defast(fn):
                                 x.value.func.id == name)
                 def extract_sexp(ast_):
                         import more_ast
-                        return (x.id                                      if isinstance(ast_, ast.Name)  else
-                                x.n                                       if isinstance(ast_, ast.Num)   else
-                                tuple(extract_sexp(x) for x in ast_.elts) if isinstance(ast_, ast.Tuple) else
+                        return (x.id                                      if _builtins.isinstance(ast_, ast.Name)  else
+                                x.n                                       if _builtins.isinstance(ast_, ast.Num)   else
+                                tuple(extract_sexp(x) for x in ast_.elts) if _builtins.isinstance(ast_, ast.Tuple) else
                                 error("Invalid sexp: %s.", more_ast.pp_ast_as_code(ast_)))
                 def ensure_valid_declarations(decls):
                         # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
@@ -3509,11 +3508,11 @@ def _debugging_compiler_p():
 __compiler_form_record__ = collections.defaultdict(lambda: 0)
 __compiler_form_record_threshold__ = 5
 def _compiler_track_compiled_form(form):
-        cur = __compiler_form_record__[id(form)]
+        cur = __compiler_form_record__[_builtins.id(form)]
         if cur > __compiler_form_record_threshold__:
                 error("Apparent non-termination while compiling %s (happened over %d times).",
                       form, __compiler_form_record_threshold__)
-        __compiler_form_record__[id(form)] += 1
+        __compiler_form_record__[_builtins.id(form)] += 1
 
 class _compiler_def(_servile):
         pass
@@ -4019,12 +4018,12 @@ def _lisp_add_def(name, source):
 
 def lisp(body):
         def _intern_astsexp(x):
-                return (x.n                                       if isinstance(x, ast.Num)   else
-                        x.s                                       if isinstance(x, ast.Str)   else
-                        _read_symbol(x.id)                        if isinstance(x, ast.Name)  else
-                        tuple(_intern_astsexp(e) for e in x)      if isinstance(x, list)      else
-                        tuple(_intern_astsexp(e) for e in x.elts) if isinstance(x, ast.Tuple) else
-                        _intern_astsexp(x.value)                  if isinstance(x, ast.Expr)  else
+                return (x.n                                       if _builtins.isinstance(x, ast.Num)   else
+                        x.s                                       if _builtins.isinstance(x, ast.Str)   else
+                        _read_symbol(x.id)                        if _builtins.isinstance(x, ast.Name)  else
+                        tuple(_intern_astsexp(e) for e in x)      if _builtins.isinstance(x, list)      else
+                        tuple(_intern_astsexp(e) for e in x.elts) if _builtins.isinstance(x, ast.Tuple) else
+                        _intern_astsexp(x.value)                  if _builtins.isinstance(x, ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
         args_ast, body_ast = _function_ast(body)
         if len(body_ast) > 1:
@@ -4058,7 +4057,7 @@ def fdefinition(name):
 @lisp
 def stringp(x):
         (def_, stringp, (x,),
-         ("isinstance", x, str))
+         ("isinstance", x, str)) # Unregistered Issue REDUCE-BUILTINS-USAGE
 
 ##
 ## Pretty-printing
@@ -4069,7 +4068,7 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, "%s ", type_of(object).__name__)
         body()
         if identity:
-                format(stream, " {%x}", id(object))
+                format(stream, " {%x}", _builtins.id(object))
         write_string(">", stream)
 
 class readtable(collections.UserDict):
@@ -4486,8 +4485,8 @@ def write_to_string(object,
                                 string += str(object)
                         elif object is False or object is None or object is True:
                                 string += obj2lisp_xform[object]
-                        elif type(object).__name__ == "builtin_function_or_method":
-                                string += "\"#<BUILTIN-FUNCTION-OR-METHOD %s 0x%x>\"" % (object.__name__, id(object))
+                        elif _builtins.type(object).__name__ == "builtin_function_or_method":
+                                string += "\"#<BUILTIN-FUNCTION-OR-METHOD %s 0x%x>\"" % (object.__name__, _builtins.id(object))
                         elif stringp(object):
                                 # Honors *PRINT-ESCAPE* and *PRINT-READABLY*.
                                 string += _print_string(object)
@@ -5084,7 +5083,7 @@ def _report_condition(cond, stream = None, backtrace = None):
                (("In thread \"%s\": c" % threading.current_thread().name)
                 if threading.current_thread() is not __main_thread__ else
                 "C"),
-               type(cond), cond)
+               _builtins.type(cond), cond)
         if backtrace:
                 _backtrace(-1, stream)
         return t
@@ -5111,11 +5110,11 @@ def _dump_thread_state():
                 from ctypes import c_uint, c_char, c_ulong, POINTER, cast, pythonapi
                 def dump(obj):
                         for i, x in enumerate(hexlify(memoryview(obj)).decode()):
-                                print(x, end='')
+                                _builtins.print(x, end='')
                                 if i and not (i + 1)%8:
-                                        print(" ", end='')
+                                        _builtins.print(" ", end='')
                                 if i and not (i + 1)%32:
-                                        print("")
+                                        _builtins.print("")
                 class PyThreadState(ctypes.Structure):
                         _fields_ = [("next",               c_ulong),
                                     ("interp",             c_ulong),
@@ -5156,12 +5155,12 @@ def _dump_thread_state():
                 pythonapi.PyThreadState_Get.restype = PyThreadState
                 o = pythonapi.PyThreadState_Get()
 
-                print("o: %s, id: {%x}" % (o, id(o)))
-                print(dump(o))
-                for slot, _ in type(o)._fields_:
-                        val = getattr(o, slot)
-                        type_ = type(val)
-                        print(("%25s: " + ("%x" if type_ is int else "%s")) % (slot, val))
+                _builtins.print("o: %s, id: {%x}" % (o, _builtins.id(o)))
+                _builtins.print(dump(o))
+                for slot, _ in _builtins.type(o)._fields_:
+                        val = _builtins.getattr(o, slot)
+                        type_ = _builtins.type(val)
+                        _builtins.print(("%25s: " + ("%x" if type_ is int else "%s")) % (slot, val))
         _without_condition_system(body,
                                   reason = "_dump_thread_state")
 
@@ -5508,8 +5507,8 @@ executes the following:
 def describe(x, stream = t, show_hidden = nil):
         stream = _coerce_to_stream(stream)
         write_line("Object \"%s\" of type %s:" % (x, type_of(x)), stream)
-        for attr, val in (x.__dict__ if hasattr(x, "__dict__") else
-                          { k: getattr(x, k) for k in dir(x)}).items():
+        for attr, val in (x.__dict__ if _builtins.hasattr(x, "__dict__") else
+                          { k: _builtins.getattr(x, k) for k in dir(x)}).items():
                 if show_hidden or "__" not in attr:
                         write_line("%25s: %s" % (attr, ignore_errors(lambda: str(val))), stream)
 
@@ -5528,7 +5527,7 @@ def load(pathspec, verbose = None, print = None,
         verbose = _defaulted_to_var(verbose, "_LOAD_VERBOSE_")
         print   = _defaulted_to_var(verbose, "_LOAD_PRINT_")
         filename = pathspec
-        exec(compile(_file_as_string(filename), filename, "exec"))
+        _builtins.exec(_builtins.compile(_file_as_string(filename), filename, "exec"))
         return True
 
 def require(name, pathnames = None):
@@ -5593,7 +5592,7 @@ def _eval_python(expr_or_stmt):
                          _ast_Expr(_ast_funcall(_ast_name("__evset__"), [_coerce_to_expr(expr_or_stmt)]))]
                         if exprp else
                         [expr_or_stmt]))
-        code = handler_case(lambda: compile(call, "", "exec"),
+        code = handler_case(lambda: _builtins.compile(call, "", "exec"),
                             (error_,
                              lambda cond:
                                      error("EVAL: error while trying to compile <%s>: %s",
@@ -5601,7 +5600,7 @@ def _eval_python(expr_or_stmt):
         if boundp("_source_for_eval_"):
                 __eval_source_cache__[code] = symbol_value("_SOURCE_FOR_EVAL_")
         # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
-        exec(code, _find_module(_lisp_symbol_name_python_name(package_name(package))).__dict__)
+        _builtins.exec(code, _find_module(_lisp_symbol_name_python_name(package_name(package))).__dict__)
         values = (__evget__() if exprp else
                   tuple())
         return values if _tuplep(values) else (values,)
@@ -5655,7 +5654,7 @@ def _callify(form, package = None, quoted = False):
                         if quoted or keywordp(form) else
                         _lisp_symbol_ast(form, package))
         elif constantp(form):
-                return obj2ast_xform[type(form)](form)
+                return obj2ast_xform[_builtins.type(form)](form)
         elif form in obj2ast_xform:
                 return obj2ast_xform[form]
         else:
@@ -5673,7 +5672,7 @@ def _valid_declaration_p(x):
 ## An attempt at CLOS imitation
 ##
 def class_of(x):
-        return getattr(x, "__class__")
+        return _builtins.getattr(x, "__class__")
 
 class standard_object():
         def __init__(self, **initargs):
@@ -5684,10 +5683,10 @@ def make_instance(class_, **keys):
         "XXX: compliance?"
         return class_(**keys)
 
-def slot_boundp(object, slot):            return hasattr(object, slot)
+def slot_boundp(object, slot):            return _builtins.hasattr(object, slot)
 def slot_makunbound(object, slot):        del object.__dir__[slot]
-def slot_value(object, slot):             return getattr(object, slot)
-def setf_slot_value(object, slot, value): return setattr(object, slot, value)
+def slot_value(object, slot):             return _builtins.getattr(object, slot)
+def setf_slot_value(object, slot, value): return _builtins.setattr(object, slot, value)
 
 def initialize_instance(instance, **initargs):
         """Called by MAKE-INSTANCE to initialize a newly created INSTANCE. The
@@ -6281,8 +6280,8 @@ def generic_function_method_combination(x):        return x.method_combination
 def generic_function_method_class(x):              return x.method_class
 def generic_function_name(x):                      return x.name
 
-def generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")  # XXX: CL+
-def method_p(x):           return functionp(x) and hasattr(x, "specializers") # XXX: CL+
+def generic_function_p(x): return functionp(x) and _builtins.hasattr(x, "__methods__")  # XXX: CL+
+def method_p(x):           return functionp(x) and _builtins.hasattr(x, "specializers") # XXX: CL+
 def _specializerp(x):       return ((x is t)        or
                                     typep(x, (or_, type_, (tuple_, (eql_, eql_), t))))
 
@@ -7258,7 +7257,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                 if len(args) < nfixed:
                         error_need_at_least_n_args(function_name, nfixed)
                 dispatch_args      = args[:nfixed]
-                dispatch_arg_types = tuple(type(x) for x in dispatch_args)
+                dispatch_arg_types = tuple(_builtins.type(x) for x in dispatch_args)
                 # The discriminating function may reuse the
                 # list of applicable methods without calling
                 # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
