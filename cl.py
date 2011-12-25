@@ -3840,7 +3840,7 @@ def lambda_(lambda_list, *body):
         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
         # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
         # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
-        preliminary_body_pve = _compile((progn_), + body)
+        preliminary_body_pve = compile_((progn_), + body)
         body_exprp = _tuple_expression_p(preliminary_body_pve)
         if body_exprp:
                 compiled_arguments, _ = _compile_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
