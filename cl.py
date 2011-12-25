@@ -112,6 +112,138 @@ def _cold_princ_to_string(x):
         return repr(x)
 princ_to_string = _cold_princ_to_string
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
+def _cold_probe_file(pathname):
+        assert(stringp(pathname))
+        return os.path.exists(the(str, pathname))
+probe_file = _cold_probe_file
+def _cold_merge_pathnames(pathname, default_pathname = None, default_version = None):
+        """merge-pathnames pathname &optional default-pathname default-version
+
+=> merged-pathname
+
+Arguments and Values:
+
+PATHNAME---a pathname designator.
+
+DEFAULT-PATHNAME---a pathname designator. The default is the value of *DEFAULT-PATHNAME-DEFAULTS*.
+
+DEFAULT-VERSION---a valid pathname version. The default is :NEWEST.
+
+MERGED-PATHNAME---a pathname.
+
+Description:
+
+Constructs a pathname from PATHNAME by filling in any unsupplied
+components with the corresponding values from DEFAULT-PATHNAME and
+DEFAULT-VERSION.
+
+Defaulting of pathname components is done by filling in components
+taken from another pathname.  This is especially useful for cases such
+as a program that has an input file and an output file.  Unspecified
+components of the output pathname will come from the input pathname,
+except that the type should not default to the type of the input
+pathname but rather to the appropriate default type for output from
+the program; for example, see the function COMPILE-FILE-PATHNAME.
+
+If no version is supplied, DEFAULT-VERSION is used.  If DEFAULT-VERSION
+is NIL, the version component will remain unchanged.
+
+If PATHNAME explicitly specifies a host and not a device, and if the
+host component of DEFAULT-PATHNAME matches the host component of
+pathname, then the device is taken from the DEFAULT-PATHNAME;
+otherwise the device will be the default file device for that host.
+If PATHNAME does not specify a host, device, directory, name, or type,
+each such component is copied from DEFAULT-PATHNAME.  If PATHNAME does
+not specify a name, then the version, if not provided, will come from
+DEFAULT-PATHNAME, just like the other components.  If PATHNAME does
+specify a name, then the version is not affected by DEFAULT-PATHNAME.
+If this process leaves the version missing, the DEFAULT-VERSION is
+used.  If the host's file name syntax provides a way to input a
+version without a name or type, the user can let the name and type
+default but supply a version different from the one in
+DEFAULT-PATHNAME.
+
+If PATHNAME is a stream, PATHNAME effectively becomes (PATHNAME
+PATHNAME).  MERGE-PATHNAMES can be used on either an open or a closed
+stream.
+
+If PATHNAME is a pathname it represents the name used to open the
+file.  This may be, but is not required to be, the actual name of the
+file.
+
+MERGE-PATHNAMES recognizes a logical pathname namestring when
+DEFAULT-PATHNAME is a logical pathname, or when the namestring begins
+with the name of a defined logical host followed by a colon.  In the
+first of these two cases, the host portion of the logical pathname
+namestring and its following colon are optional.
+
+MERGE-PATHNAMES returns a logical pathname if and only if its first
+argument is a logical pathname, or its first argument is a logical
+pathname namestring with an explicit host, or its first argument does
+not specify a host and the DEFAULT-PATHNAME is a logical pathname.
+
+Pathname merging treats a relative directory
+specially. If (pathname-directory pathname) is a list whose car
+is :RELATIVE, and (pathname-directory default-pathname) is a list,
+then the merged directory is the value of
+
+ (append (pathname-directory default-pathname)
+         (cdr  ;remove :relative from the front
+           (pathname-directory pathname)))
+
+except that if the resulting list contains a string or :WILD
+immediately followed by :BACK, both of them are removed.  This removal
+of redundant :BACK keywords is repeated as many times as
+possible.  If (pathname-directory default-pathname) is not a list
+or (pathname-directory pathname) is not a list whose car is :RELATIVE,
+the merged directory is (or (pathname-directory
+pathname) (pathname-directory default-pathname))
+
+MERGE-PATHNAMES maps customary case in PATHNAME into customary case in
+the output pathname.
+
+Notes:
+
+The net effect is that if just a name is supplied, the host, device,
+directory, and type will come from DEFAULT-PATHNAME, but the version
+will come from DEFAULT-VERSION.  If nothing or just a directory is
+supplied, the name, type, and version will come from DEFAULT-PATHNAME
+together."""
+        # * (merge-pathnames "/a" "b")     # -NAME superseded by X
+        # #P"/a"
+        # * (merge-pathnames "a" "b")
+        # #P"a"
+        # * (merge-pathnames "a/a" "/b")   # when Y specifies the whole path, X takes over
+        # #P"/a/a"
+        # * (merge-pathnames "/a" "b/b")
+        # #P"/a"
+        # * (merge-pathnames "/a/" "b")    # non-conflicting components are merged
+        # #P"/a/b"
+        # * (merge-pathnames "b" "a/")
+        # #P"a/b"
+        # * (merge-pathnames "a/" "b")
+        # #P"a/b"
+        # * (merge-pathnames "b" "a/")
+        # #P"a/b"
+        # * (merge-pathnames "/a/" "/b/")
+        # #P"/a/"
+        ## Unregistered Issue MERGE-PATHNAMES-WEIRDLY-IMPLEMENTED
+        # * (merge-pathnames "a/" "b/")
+        # #P"b/a/"
+        # * (merge-pathnames "a/a" "b/b")
+        # P"b/a/a"
+        _not_implemented() # Gave up for the while.
+        default_pathname = _defaulted(default_pathname, os.getcwd() + os.sep)
+        dir_supplied_p = os.sep in pathname
+        name_supplied_p = pathname and pathname[-1] != os.sep
+        dir_defaulted_p = os.sep in default_pathname
+        net_effect_if = name_supplied_p and not dir_supplied_p # Unregistered Issue COMPLIANCE-MERGE-PATHNAMES-SIMPLIFICATION
+        if net_effect_if:
+                return os.path.join((default_pathname[:position(os.sep, default_pathname, from_end = True) + 1] if dir_defaulted_p else ""),
+                                    pathname)
+        elif not name_supplied_p:
+                pass
+        return os.path.join(x, y)
 
 ###
 ### Ring 1.
