@@ -145,6 +145,9 @@ _bytes            = _builtins.bytes
 _bytearray        = _builtins.bytearray
 _set              = _builtins.set
 _frozenset        = _builtins.frozenset
+
+_globals          = globals                        # ..a dependency half-broken..
+_locals           = locals                         # ..same doubts apply.
 _NoneType         = _type(None)
 
 pi                = _math.pi
@@ -238,11 +241,11 @@ def _case_xform(type, s):
 
 # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
 def _setf_global(value, name):
-        _builtins.globals()[name] = value
+        _globals()[name] = value
         return value
 
 def _global(name):
-        return gethash(name, _builtins.globals())
+        return gethash(name, _globals())
 
 ###
 ### Cold boot
@@ -1272,7 +1275,7 @@ def _from(n, xs):
 def every(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
                 if not fn(*xs): return False
-        return (xs or True) if "xs" in _builtins.locals() else True
+        return (xs or True) if "xs" in _locals() else True
 
 def notevery(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
@@ -1289,7 +1292,7 @@ def some(fn, *xss, start = 0):
 def notany(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
                 if fn(*xs): return False
-        return (xs or True) if "xs" in _builtins.locals() else True
+        return (xs or True) if "xs" in _locals() else True
 
 def _xorf(x, y):
         return (x or y) and not (x and y)
@@ -1331,9 +1334,6 @@ def _invalid_type_specifier_error(x, complete_type = None):
 # __type_predicate_map__ is declared after the package system is initialised
 def _complex_type_mismatch(x, type):
         ctype_test = __type_predicate_map__[type[0]]
-        _here("C-T-M %s for %s", type, x)
-        if _nonep(ctype_test):
-                _here("failed.")
         ret = ctype_test(x, type)
         return (ret if not (_tuplep(ret) and ret[2]) else
                 _invalid_type_specifier_error(ret[1], complete_type = type))
@@ -1488,7 +1488,7 @@ def getf(xs, key, default = None):
         else:
                 return _defaulted(default, nil)
 
-def setf_getf(xs, key, value):
+def setf_getf(value, xs, key):
         for i, x in enumerate(xs):
                 if not i%2 and x == key:
                         xs[i + 1] = value
@@ -2338,7 +2338,7 @@ def setf_macro_function(new_function, symbol, environment = None):
 
 # Research Issue CL-DIFFERENCE-BETWEEN-SETF-SYMBOL-FUNCTION-SETF-FDEFINITION-AND-DEFUN
 # ..because, this far, DEFMACRO wins over SETF-FDEFINITION -- only DEFUN is necessary to switch namespace..
-def setf_fdefinition(function_name, new_definition):
+def setf_fdefinition(new_definition, function_name):
         """fdefinition function-name => definition
 
 (setf (fdefinition function-name) new-definition)
@@ -2364,9 +2364,8 @@ signal an error."""
         symbol, therep = _global(namestring)
         if not therep:
                 symbol = _intern0(namestring)
-                _setf_global(namestring, symbol)
+                _setf_global(symbol, namestring)
         symbol.function = new_definition
-        assert new_definition
         return new_definition
 
 def special_operator_p(symbol):
@@ -2406,10 +2405,8 @@ def _do_install_function_definition(x, function):
 
 def _cold_defun(f):
         symbol_name = f.__name__
-        setf_fdefinition(symbol_name, f)
+        setf_fdefinition(f, symbol_name)
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        _here("_COLD-DEFUN %s: %s", symbol_name, _global(symbol_name)[0])
-        assert _global(symbol_name)[0]
         return _global(symbol_name)[0] # guaranteed to exist at this point
 defun = _cold_defun
 
@@ -2720,7 +2717,7 @@ def close(x):
 def file_position(x):
         return x.seek(0, 1)
 
-def setf_file_position(x, posn):
+def setf_file_position(posn, x):
         return x.seek(posn)
 ###
 ##
@@ -2732,6 +2729,12 @@ __type_predicate_map__ = _dict()
 def _some_type_mismatch(type, xs):
         "Determines, whether some member of XS mismatches TYPE."
         return some(_type_mismatch, xs, _infinite(type))
+
+@defun
+def null_(x, type):
+        return ((x, type, True)  if _len(type) is not 1 else
+                (x, type, False) if x is not nil else
+                nil)
 
 @defun
 def or_(x, type):
@@ -2828,6 +2831,7 @@ def deftype(name, test):
         return name
 
 ## Remember, the used predicates must return type mismatches!
+deftype(null_,        null_)
 deftype(or_,          or_)
 deftype(and_,         and_)
 deftype(not_,         not_)
@@ -2883,7 +2887,7 @@ deftype(varituple_,   varituple_)
 ##                 - honest FunctionDef/Lambda/comprehension/With bindings vs. *Assign/For
 ##                   - the owner is calculated much the same way, modulo global/nonlocal
 ##                   - the relevance of the possibility of actual un"bound"ed-ness..
-##                     ..patchable by the means of _builtins.locals()? : -D
+##                     ..patchable by the means of _locals()? : -D
 ##                   - we're bound (ha) to be overly-optimistic about "bound"ed-ness, as,
 ##                     due to the lack of CFA, we must be.
 ##### The thought process stopped here:
@@ -3098,7 +3102,7 @@ def defast(fn):
                         import more_ast
                         # _debug_printf("AST for %s.%s:\n%s", name, method_name, more_ast.pp_ast_as_code(x or default_maker(method_name)))
                         return _ast_compiled_name(method_name, x or default_maker(method_name),
-                                                  locals_ = _builtins.locals(), globals_ = _builtins.globals())
+                                                  locals_ = _locals(), globals_ = _globals())
                 return (process(*mspec) for mspec in valid_methods)
         lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
         ast_field_types = validate_defast_lambda_list(ast_type, lambda_list, fn.__annotations__)
@@ -3698,7 +3702,7 @@ def defprimitive(fn):
         sym, presentp = _global(name)
         if not presentp or not symbolp(sym):
                 sym = _intern0(name.upper())
-                _setf_global(name, sym)
+                _setf_global(sym, name)
         __primitive_form_compilers__[sym] = fn
         return sym # pass through
 def _find_primitive(x):
@@ -3755,7 +3759,7 @@ def _compile_lispy_lambda_list(context, list_, allow_defaults = None):
                         error("In %s: %s, %s, %s and %s must appear in that order in the lambda list, when specified.",
                               context, *lambda_words)
         test_lambda_list_word_order()
-        # _locals_printf(_builtins.locals(),
+        # _locals_printf(_locals(),
         #                "optpos",  "restpos",  "keypos",  "restkeypos",
         #                "optposp", "restposp", "keyposp", "restkeyposp",
         #               "toptpos", "trestpos", "tkeypos", "trestkeypos")
@@ -4035,7 +4039,7 @@ def _install_macro_definition(fn):
         name = fn.__name__
         # Unregistered Issue COMPLIANCE-GLOBAL-DEFINITIONS-ONLY-IN-CURRENT-PACKAGE
         sym = _intern0(name)
-        _setf_symbol_macro_function(sym, fn)
+        setf_macro_function(fn, sym)
         return sym
 
 @defprimitive
@@ -4044,7 +4048,7 @@ def defmacro(name, lambda_list, *body):
         #   - compile_((def_, name, lambda_list) + body)
         # 2. Compile-time side-effect (see CLHS)
         #   - obtain the function for compiled code
-        #   - _setf_symbol_macro_function()
+        #   - setf_macro_function()
         return compile_((def_, name, lambda_list) + body,
                         decorators = [(_defmacro,)])
 
@@ -4231,7 +4235,7 @@ def let__(bindings, *body): # Critical-issue-free.
 def macroexpand_1(form):
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
         return ((form, nil) if not _tuplep(form) else
-                _if_let((form and _symbol_macro_function(form[0])[0]),
+                _if_let((form and macro_function(form[0])[0]),
                         lambda expander:
                                 (expander(*form[1:]), t),
                         lambda:
@@ -4360,8 +4364,8 @@ def lisp(body):
                               form, "".join(more_ast.pp_ast_as_code(x) for x in stmts))
         return _ast_compiled_name(body.__name__,
                                   *stmts,
-                                  globals_ = _builtins.globals(),
-                                  locals_  = _builtins.locals())
+                                  globals_ = _globals(),
+                                  locals_  = _locals())
 
 @lisp
 def fdefinition(name):
@@ -5999,7 +6003,7 @@ def make_instance(class_, **keys):
 def slot_boundp(object, slot):            return _hasattr(object, slot)
 def slot_makunbound(object, slot):        del object.__dir__[slot]
 def slot_value(object, slot):             return _getattr(object, slot)
-def setf_slot_value(object, slot, value): return _setattr(object, slot, value)
+def setf_slot_value(value, object, slot): return _setattr(object, slot, value)
 
 def initialize_instance(instance, **initargs):
         """Called by MAKE-INSTANCE to initialize a newly created INSTANCE. The
@@ -6859,7 +6863,7 @@ Long form (snipped)
     effective method. When this form is evaluated during execution of
     the effective method, its value is the corresponding argument to
     the generic function; the consequences of using such a form as the
-    place in a setf form are undefined. Argument correspondence is
+    place in a SETF form are undefined. Argument correspondence is
     computed by dividing the :ARGUMENTS LAMBDA-LIST and the generic
     function LAMBDA-LIST into three sections: the required parameters,
     the optional parameters, and the keyword and rest parameters. The
@@ -7750,7 +7754,7 @@ GENERIC-FUNCTION argument is then returned."""
                 # The function name FUNCTION-NAME is set to name the generic function.
                 generic_function = make_instance(generic_function_class, **initargs)
                 # _standard_generic_function_shared_initialize is called by s-g-f.__init__
-                _setf_global(function_name, generic_function)
+                _setf_global(generic_function, function_name)
         else:
                 if class_of(generic_function) is not generic_function_class:
                         # If the class of the GENERIC-FUNCTION argument is not the same as the
