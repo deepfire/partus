@@ -4,15 +4,6 @@
 def _python_builtins_dictionary():
         return _builtins.getattr(__builtins__, "__dict__", __builtins__)
 
-def _setf_python_builtins_dictionary(value):
-        global __builtins__
-        if hasattr(__builtins__, "__dict__"):
-                vars(__builtins__)["__dict__"] = value
-                # __builtins__.__dict__ = value
-        else:
-                __builtins__ = value
-        return value
-
 import builtins    as _builtins
 import collections as _collections
 
@@ -25,8 +16,7 @@ class _dictator(_collections.UserDict):
         def __init__(self, dict):
                 self.__dict__.update(data = dict)
 
-_python = _dictator(_python_builtins_dictionary())
-_setf_python_builtins_dictionary(_python.dict(_python_builtins_dictionary()))
+_py = _dictator(_python_builtins_dictionary())
 
 # Obtained by the means of: list(sorted(sys.modules["__main__"].__builtins__.__dict__.keys()))
 _python_builtin_names = ['ArithmeticError', 'AssertionError', 'AttributeError',
@@ -76,11 +66,12 @@ _python_builtin_names = ['ArithmeticError', 'AssertionError', 'AttributeError',
                          'zip']
 ### Clean up the namespace.
 def _distance_oneself_from_python():
+        ## Unfortunately, the effect is global, and, seemingly,
+        ## cannot be constrained to a single module.
         for name in _python_builtin_names:
                 del _python_builtins_dictionary()[name]
 
-_distance_oneself_from_python()
-### What's left:
+### What's supposed to be left (but, actually, much more is):
 ## o  None, True, False -- notably are not AST-level, but still are invincible.
 ## o  __(build_class | debug | doc | import | name | package)__
 ## o  _python_builtins_dictionary, _python_builtin_names
@@ -133,29 +124,45 @@ from builtins import id as _id, hasattr as _hasattr, getattr as _getattr, setatt
 ## an artificial split into the single python namespace.  So:
 ##
 ##  - 
-## 
-function_   = _types.FunctionType.__mro__[0] # clashes with #'CL:FUNCTION
-integer     = _builtins.int
-float       = _builtins.float
-complex     = _builtins.complex
-string_     = _builtins.str                  # clashes with #'CL:STRING
-boolean     = _builtins.bool
-hash_table  = _builtins.dict
-stream_     = __io._IOBase                   # clashes with keyword argument names
-_type       = _builtins.type
-_list       = _builtins.list
-_tuple      = _builtins.tuple
-_str        = _builtins.str
-_bytes      = _builtins.bytes
-_bytearray  = _builtins.bytearray
-_set        = _builtins.set
-_frozenset  = _builtins.frozenset
-_NoneType   = _type(None)
+##
+###
+### Derived names
+### 
+function_         = _types.FunctionType.__mro__[0] # clashes with #'CL:FUNCTION
+integer           = _builtins.int
+float             = _builtins.float
+complex           = _builtins.complex
+string_           = _builtins.str                  # clashes with #'CL:STRING
+boolean           = _builtins.bool
+hash_table        = _builtins.dict
+stream_           = __io._IOBase                   # clashes with keyword argument names
+_type             = _builtins.type
+_list             = _builtins.list
+_tuple            = _builtins.tuple
+_dict             = _builtins.dict
+_str              = _builtins.str
+_bytes            = _builtins.bytes
+_bytearray        = _builtins.bytearray
+_set              = _builtins.set
+_frozenset        = _builtins.frozenset
+_NoneType         = _type(None)
+
+pi                = _math.pi
+reduce            = _functools.reduce
+sort              = _builtins.sorted
+_curry            = _functools.partial
+
+condition         = _builtins.BaseException
+error_            = _builtins.Exception
+serious_condition = _builtins.Exception
+end_of_file       = _builtins.EOFError
+
+stringp           = _neutrality.stringp
+_write_string     = _neutrality._write_string
 
 ###
 ### Constants
 ###
-pi                   = _math.pi
 most_positive_fixnum = 67108864
 
 def identity(x):
@@ -175,8 +182,6 @@ def progn(*body):
 
 def _prognf(*body):
         return lambda: progn(*body)
-
-reduce = _functools.reduce
 
 def defstruct(name, *slots):
         return _collections.namedtuple(name, slots)
@@ -257,7 +262,7 @@ def _cold_format(destination, control_string, *args):
         if not destination:
                 return string
         else:
-                _write_string(string, sys.stderr if destination is t else destination)
+                _write_string(string, _sys.stderr if destination is t else destination)
 format = _cold_format
 def _cold_princ_to_string(x):
         return _repr(x)
@@ -265,7 +270,7 @@ princ_to_string = _cold_princ_to_string
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
 def _cold_probe_file(pathname):
         assert(stringp(pathname))
-        return os.path.exists(the(string_, pathname))
+        return _os.path.exists(the(string_, pathname))
 probe_file = _cold_probe_file
 def _cold_merge_pathnames(pathname, default_pathname = None, default_version = None):
         """merge-pathnames pathname &optional default-pathname default-version
@@ -384,17 +389,17 @@ together."""
         # * (merge-pathnames "a/a" "b/b")
         # P"b/a/a"
         _not_implemented() # Gave up for the while.
-        default_pathname = _defaulted(default_pathname, os.getcwd() + os.sep)
-        dir_supplied_p = os.sep in pathname
-        name_supplied_p = pathname and pathname[-1] != os.sep
-        dir_defaulted_p = os.sep in default_pathname
+        default_pathname = _defaulted(default_pathname, _os.getcwd() + _os.sep)
+        dir_supplied_p = _os.sep in pathname
+        name_supplied_p = pathname and pathname[-1] != _os.sep
+        dir_defaulted_p = _os.sep in default_pathname
         net_effect_if = name_supplied_p and not dir_supplied_p # Unregistered Issue COMPLIANCE-MERGE-PATHNAMES-SIMPLIFICATION
         if net_effect_if:
-                return os.path.join((default_pathname[:position(os.sep, default_pathname, from_end = True) + 1] if dir_defaulted_p else ""),
+                return _os.path.join((default_pathname[:position(_os.sep, default_pathname, from_end = True) + 1] if dir_defaulted_p else ""),
                                     pathname)
         elif not name_supplied_p:
                 pass
-        return os.path.join(x, y)
+        return _os.path.join(x, y)
 
 ###
 ### Ring 1.
@@ -423,7 +428,7 @@ def _hash_table_alist(xs):
 def _alist_hash_table(xs):
         return _dict(xs)
 
-class _cache(collections.UserDict):
+class _cache(_collections.UserDict):
         def __init__(self, filler):
                 self.filler = filler
                 self.data = _dict()
@@ -474,43 +479,43 @@ def _coerce_to_symbol_name(x):
 ###
 ### AST basis.
 ###
-def _astp(x):        return typep(x, ast.AST)
+def _astp(x):        return typep(x, _ast.AST)
 
 def _coerce_to_ast_type(type):
         return typecase(type,
-                        (_type,   lambda: (type if subtypep(type, ast.AST) else
-                                           error("Provided type %s is not a proper subtype of ast.AST.", type))),
-                        (string_, lambda: (ast.__dict__[type] if type in ast.__dict__ else
+                        (_type,   lambda: (type if subtypep(type, _ast.AST) else
+                                           error("Provided type %s is not a proper subtype of _ast.AST.", type))),
+                        (string_, lambda: (_ast.__dict__[type] if type in _ast.__dict__ else
                                            error("Unknown AST type '%s'.", type))),
                         (t,       lambda: error("Invalid AST type specifier: %s, %s, %s.", type, _type, typep(type, _type))))
 
 def _text_ast(text):
-        return _builtins.compile(text, "", 'exec', flags=ast.PyCF_ONLY_AST).body
+        return _builtins.compile(text, "", 'exec', flags = _ast.PyCF_ONLY_AST).body
 
 def _function_ast(fn):
-        fn_ast = _text_ast(inspect.getsource(fn))[0]
+        fn_ast = _text_ast(_inspect.getsource(fn))[0]
         return fn_ast.args, fn_ast.body
 
 def _function_body_pass_p(fn):
         fn_body_ast = _function_ast(fn)[1]
-        return _len(fn_body_ast) == 1 and typep(fn_body_ast[0], ast.Pass)
+        return _len(fn_body_ast) == 1 and typep(fn_body_ast[0], _ast.Pass)
 
 ### literals
 def _ast_num(n):
-        return ast.Num(n = the(integer, n))
+        return _ast.Num(n = the(integer, n))
 def _ast_bool(n):
-        return ast.Bool(n = the(integer, n))
+        return _ast.Bool(n = the(integer, n))
 def _ast_string(s):
-        return ast.Str(s = the(string_, s))
+        return _ast.Str(s = the(string_, s))
 def _ast_set(xs,   writep = False):
-        return ast.Set(elts   = the((list_, ast.AST), xs), ctx = _ast_rw(writep))
+        return _ast.Set(elts   = the((list_, _ast.AST), xs), ctx = _ast_rw(writep))
 def _ast_list(xs,  writep = False):
-        return ast.List(elts  = the((list_, ast.AST), xs), ctx = _ast_rw(writep))
+        return _ast.List(elts  = the((list_, _ast.AST), xs), ctx = _ast_rw(writep))
 def _ast_tuple(xs, writep = False):
-        return ast.Tuple(elts = the((list_, ast.AST), xs), ctx = _ast_rw(writep))
+        return _ast.Tuple(elts = the((list_, _ast.AST), xs), ctx = _ast_rw(writep))
 
 ############################### recurse? AST-ifier
-__astifier_map__ = { string:          (False, _ast_string),
+__astifier_map__ = { string_:         (False, _ast_string),
                      integer:         (False, _ast_num),
                      boolean:         (False, _ast_num),
                      _NoneType:       (False, lambda x: _ast_name("None")),
@@ -537,25 +542,25 @@ def _try_astify_constant(x):
 def _astify_constant(x):
         ast, successp = _try_astify_constant(x)
         return (ast if successp else
-                error("Cannot convert value %s to AST.  Is it a literal?",
+                error("Cannot convert value %s to _AST.  Is it a literal?",
                       prin1_to_string(x)))
 
 def _coerce_to_ast(x):
         return _astify_constant(x) if not _astp(x) else x
 
 ### expressions
-def _ast_alias(name):                        return ast.alias(name = the(string_, name), asname = None)
-def _ast_keyword(name, value):               return ast.keyword(arg = the(string_, name), value = the(ast.expr, value))
+def _ast_alias(name):                        return _ast.alias(name = the(string_, name), asname = None)
+def _ast_keyword(name, value):               return _ast.keyword(arg = the(string_, name), value = the(_ast.expr, value))
 
-def _ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
-def _ast_name(name, writep = False):         return ast.Name(id = the(string_, name), ctx = _ast_rw(writep))
-def _ast_attribute(x, name, writep = False): return ast.Attribute(attr = name, value = x, ctx = _ast_rw(writep))
-def _ast_index(of, index, writep = False):   return ast.Subscript(value = of, slice = ast.Index(value = index), ctx = _ast_rw(writep))
+def _ast_rw(writep):                         return (_ast.Store() if writep else _ast.Load())
+def _ast_name(name, writep = False):         return _ast.Name(id = the(string_, name), ctx = _ast_rw(writep))
+def _ast_attribute(x, name, writep = False): return _ast.Attribute(attr = name, value = x, ctx = _ast_rw(writep))
+def _ast_index(of, index, writep = False):   return _ast.Subscript(value = of, slice = _ast.Index(value = index), ctx = _ast_rw(writep))
 def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x) else x)
 
 def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
-        check_type(args, (list_, (or_, ast.AST, _NoneType, (satisfies_, _astifiable_p))))
-        return ast.Call(func = (_ast_name(name) if stringp(name) else name),
+        check_type(args, (list_, (or_, _ast.AST, _NoneType, (satisfies_, _astifiable_p))))
+        return _ast.Call(func = (_ast_name(name) if stringp(name) else name),
                         args = mapcar(_coerce_to_ast, args),
                         keywords = _maphash(_ast_keyword, keys),
                         starargs = starargs or None,
@@ -563,24 +568,24 @@ def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
 
 ### statements
 def _ast_Expr(node):
-        return ast.Expr(value = the(ast.expr, node))
+        return _ast.Expr(value = the(_ast.expr, node))
 
 def _ast_module(body, lineno = 0):
-        return ast.Module(body = the((list_, ast.AST), body),
+        return _ast.Module(body = the((list_, _ast.AST), body),
                           lineno = lineno)
 
 def _ast_import(*names):
-        return ast.Import(names = mapcar(ast_alias, the((list_, str), names)))
+        return _ast.Import(names = mapcar(ast_alias, the((list_, str), names)))
 def _ast_import_from(module_name, names):
-        return ast.ImportFrom(module = the(string_, module_name),
+        return _ast.ImportFrom(module = the(string_, module_name),
                               names = mapcar(_ast_alias, the((list_, str), names)),
                               level = 0)
 
 def _ast_assign(to, value):
-        return ast.Assign(targets = the((list_, ast.AST), to),
-                          value = the(ast.AST, value))
+        return _ast.Assign(targets = the((list_, _ast.AST), to),
+                          value = the(_ast.AST, value))
 def _ast_return(node):
-        return ast.Return(value = the(ast.AST, node))
+        return _ast.Return(value = the(_ast.AST, node))
 
 ### lambda lists
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
@@ -591,7 +596,7 @@ def _ast_return(node):
 # arg = (identifier arg, expr? annotation)
 # keyword = (identifier arg, expr value)
 def _function_lambda_list(fn, astify_defaults = True):
-        return _argspec_lambda_spec(inspect.getfullargspec(fn), astify_defaults = astify_defaults)
+        return _argspec_lambda_spec(_inspect.getfullargspec(fn), astify_defaults = astify_defaults)
 
 def _argspec_nfixargs(paramspec):
         return _len(paramspec.args) - _len(paramspec.defaults or []) # ILTW Python implementors think..
@@ -609,11 +614,11 @@ def _argspec_lambda_spec(spec, astify_defaults = True):
                 spec.varkw)
 def _lambda_spec_arguments(lambda_list_spec):
         fixed, optional, args, keyword, keys = lambda_list_spec
-        return ast.arguments(args        = mapcar(lambda x: ast.arg(x, None),
+        return _ast.arguments(args        = mapcar(lambda x: _ast.arg(x, None),
                                                   fixed + mapcar(lambda x: x[0], optional)),
                              defaults    = mapcar(lambda x: x[1], optional),
                              vararg      = args,
-                             kwonlyargs  = mapcar(lambda x: ast.arg(x, None),
+                             kwonlyargs  = mapcar(lambda x: _ast.arg(x, None),
                                                   mapcar(lambda x: x[0], keyword)),
                              kw_defaults = mapcar(lambda x: x[1], keyword),
                              kwarg       = keys,
@@ -621,14 +626,14 @@ def _lambda_spec_arguments(lambda_list_spec):
                              kwargannotation  = None)
 def _ast_functiondef(name, lambda_list_spec, body):
         fixed, optional, args, keyword, keys = lambda_list_spec
-        return ast.FunctionDef(
+        return _ast.FunctionDef(
                 name = the(string_, name),
                 args = _lambda_spec_arguments(lambda_list_spec),
                 lineno = 0,
                 decorator_list = [],
                 returns = None,
                 body = etypecase(body,
-                                 ((list_, ast.AST),
+                                 ((list_, _ast.AST),
                                   body),
                                  (function_,
                                   lambda:
@@ -645,12 +650,12 @@ def _ast_functiondef(name, lambda_list_spec, body):
 ##
 def _load_code_object_as_module(name, co, filename = "", builtins = None, globals_ = None, locals_ = None, register = True):
         check_type(co, _type(_load_code_object_as_module.__code__))
-        mod = imp.new_module(name)
+        mod = _imp.new_module(name)
         mod.__filename__ = filename
         if builtins:
                 mod.__dict__["__builtins__"] = builtins
         if register:
-                sys.modules[name] = mod
+                _sys.modules[name] = mod
         globals_ = _defaulted(globals_, mod.__dict__)
         locals_  = _defaulted(locals_, mod.__dict__)
         _builtins.exec(co,
@@ -678,7 +683,7 @@ def _reregister_module_as_package(mod, parent_package = None):
 def _compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
         return _load_code_object_as_module(
                 modname,
-                _builtins.compile(ast.fix_missing_locations(_ast_module(list(body), lineno = lineno)), filename, "exec"),
+                _builtins.compile(_ast.fix_missing_locations(_ast_module(list(body), lineno = lineno)), filename, "exec"),
                 register = nil,
                 filename = filename,
                 **keys)
@@ -691,10 +696,10 @@ def _ast_compiled_name(name, *body, **keys):
 ## frames
 ##
 def _all_threads_frames():
-        return sys._current_frames()
+        return _sys._current_frames()
 
 def _this_frame():
-        return sys._getframe(1)
+        return _sys._getframe(1)
 
 _frame = _type(_this_frame())
 
@@ -705,13 +710,13 @@ def _next_frame(f):
         return f.f_back if f.f_back else error("Frame \"%s\" is the last frame.", _pp_frame(f, lineno = True))
 
 def _caller_frame(caller_relative = 0):
-        return sys._getframe(caller_relative + 2)
+        return _sys._getframe(caller_relative + 2)
 
 def _caller_name(n = 0):
-        return _fun_name(_frame_fun(sys._getframe(n + 2)))
+        return _fun_name(_frame_fun(_sys._getframe(n + 2)))
 
 def _exception_frame():
-        return sys.exc_info()[2].tb_frame
+        return _sys.exc_info()[2].tb_frame
 
 def _frames_calling(f = None, n = -1):
         "Semantics of N are slightly confusing, but the implementation is so simple.."
@@ -766,7 +771,7 @@ def _fun_bytecode(f):    return f.co_code
 def _fun_constants(f):   return f.co_consts
 
 def _print_function_arglist(f):
-        argspec = inspect.getargspec(f)
+        argspec = _inspect.getargspec(f)
         return ", ".join(argspec.args +
                          (["*" + argspec.varargs]   if argspec.varargs  else []) +
                          (["**" + argspec.keywords] if argspec.keywords else []))
@@ -811,8 +816,8 @@ def _pp_chain_of_frame(x, callers = 5, *args, **keys):
         fs.reverse()
         return _pp_frame_chain(fs, *args, **keys)
 
-def _here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
-        return _debug_printf("    (%s)  %s:\n      %s" % (threading.current_thread().name.upper(),
+def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
+        return _debug_printf("    (%s)  %s:\n      %s" % (_threading.current_thread().name.upper(),
                                                           _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
                                                                              callers = callers - 1,
                                                                              print_fun_line = print_fun_line,
@@ -830,12 +835,12 @@ def _fprintf(stream, format_control, *format_args):
                 return _write_string((format_control % format_args).encode("utf-8"), stream)
 
 def _debug_printf(format_control, *format_args):
-        _fprintf(sys.stderr, format_control + "\n", *format_args)
+        _fprintf(_sys.stderr, format_control + "\n", *format_args)
 
 def _locals_printf(locals, *local_names):
         # Unregistered Issue NEWLINE-COMMA-SEPARATION-NOT-PRETTY
-        _fprintf(sys.stderr, ", ".join((("%s: %%s" % x) if stringp(x) else "%s")
-                                       for x in local_names) + "\n",
+        _fprintf(_sys.stderr, ", ".join((("%s: %%s" % x) if stringp(x) else "%s")
+                                        for x in local_names) + "\n",
                  *((locals[x] if stringp(x) else "\n") for x in local_names))
 
 # >>> dir(f)
@@ -1026,10 +1031,6 @@ def _example_frame():
 ##
 ## Condition: not_implemented
 ##
-condition         = BaseException
-error_            = Exception
-serious_condition = Exception
-
 def _conditionp(x):
         return typep(x, condition)
 
@@ -1071,8 +1072,6 @@ def _when_let(x, consequent):
 def _lret(value, body):
         body(value)
         return value
-
-_curry = functools.partial
 
 def _compose(f, g):
         return lambda *args, **keys: f(g(*args, **keys))
@@ -1332,6 +1331,9 @@ def _invalid_type_specifier_error(x, complete_type = None):
 # __type_predicate_map__ is declared after the package system is initialised
 def _complex_type_mismatch(x, type):
         ctype_test = __type_predicate_map__[type[0]]
+        _here("C-T-M %s for %s", type, x)
+        if _nonep(ctype_test):
+                _here("failed.")
         ret = ctype_test(x, type)
         return (ret if not (_tuplep(ret) and ret[2]) else
                 _invalid_type_specifier_error(ret[1], complete_type = type))
@@ -1467,7 +1469,7 @@ def prog1(val, body):
 ## Sequences
 ##
 def stable_sort(xs, predicate):
-        return sorted(xs, key = functools.cmp_to_key(predicate))
+        return sorted(xs, key = _functools.cmp_to_key(predicate))
 
 def vector_push(vec, x):
         "XXX: compliance"
@@ -1626,8 +1628,6 @@ def count_if(p, xs, key = identity, start = 0):
                 if (i >= start) and p(key(x)):
                         c += 1
         return c
-
-sort = sorted
 
 def replace(sequence_1, sequence_2, start1 = 0, start2 = 0, end1 = None, end2 = None):
         """Destructively modifies sequence-1 by replacing the elements
@@ -1808,7 +1808,7 @@ def return_from(nonce, value):
 ##
 __global_scope__ = _dict()
 
-class thread_local_storage(threading.local):
+class thread_local_storage(_threading.local):
         def __init__(self):
                 self.dynamic_scope = []
 
@@ -2000,7 +2000,7 @@ def _lisp_symbol_python_names(sym):
                 _lisp_symbol_name_python_name(sym.package.name))
 
 def _find_module(name, if_does_not_exist = "error"):
-        return (gethash(name, sys.modules)[0] or
+        return (gethash(name, _sys.modules)[0] or
                 ecase(if_does_not_exist,
                       ("continue",
                        None),
@@ -2026,7 +2026,7 @@ def _lisp_symbol_ast(sym, current_package):
                                           "__dict__"),
                            _ast_string(symname)))
 
-class package(collections.UserDict):
+class package(_collections.UserDict):
         def __repr__ (self):
                 return "#<PACKAGE \"%s\">" % self.name
         def __bool__(self):
@@ -2037,12 +2037,12 @@ class package(collections.UserDict):
                      ignore_python = False, python_exports = True, boot = False):
                 self.name = string(name)
 
-                self.own         = _set()                        # sym
-                self.imported    = _set()                        # sym
+                self.own         = _set()                         # sym
+                self.imported    = _set()                         # sym
               # self.present     = own + imported
-                self.inherited   = collections.defaultdict(_set) # sym -> _set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
-                self.accessible  = _dict()                       # str -> sym       ## accessible = present + inherited
-                self.external    = _set()                        # sym              ## subset of accessible
+                self.inherited   = _collections.defaultdict(_set) # sym -> _set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
+                self.accessible  = _dict()                        # str -> sym       ## accessible = present + inherited
+                self.external    = _set()                         # sym              ## subset of accessible
               # self.internal    = accessible - external
 
                 modname = _lisp_symbol_name_python_name(name)
@@ -2279,10 +2279,10 @@ Should signal an error of type TYPE-ERROR if SYMBOL is not a symbol.
 Should signal UNDEFINED-FUNCTION if SYMBOL is not fbound and an
 attempt is made to read its definition. (No such error is signaled on
 an attempt to write its definition.)"""
-        return (the(symbol_, symbol).primitive_function or
-                symbol.macro_function                   or
-                the(function_, symbol.function)         or
-                error(undefined_function, symbol))
+        return (the(symbol, symbol_).primitive_function or
+                symbol_.macro_function                  or
+                the(function_, symbol_.function)        or
+                error(undefined_function, symbol_))
 
 def macro_function(symbol_, environment = None):
         """macro-function symbol &optional environment => function
@@ -2366,6 +2366,7 @@ signal an error."""
                 symbol = _intern0(namestring)
                 _setf_global(namestring, symbol)
         symbol.function = new_definition
+        assert new_definition
         return new_definition
 
 def special_operator_p(symbol):
@@ -2407,6 +2408,8 @@ def _cold_defun(f):
         symbol_name = f.__name__
         setf_fdefinition(symbol_name, f)
         # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+        _here("_COLD-DEFUN %s: %s", symbol_name, _global(symbol_name)[0])
+        assert _global(symbol_name)[0]
         return _global(symbol_name)[0] # guaranteed to exist at this point
 defun = _cold_defun
 
@@ -2416,7 +2419,11 @@ class symbol():
         def __repr__(self):
                 return _str(self)
         def __init__(self, name):
-                self.name, self.package, self.value, self.function = name, None, None, None
+                (self.name, self.package,
+                 (self.value,
+                  self.function,
+                  self.macro_function,
+                  self.primitive_function)) = name, None, (None, None, None, None)
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __call__(self, *args, **keys):
@@ -2581,7 +2588,7 @@ def _init_package_system_0():
         def pythonise_core_symbol_name(x):
                 return x.lower() + "_"
         for sym in __core_symbol_names__:
-                sys.modules['cl'].__dict__[pythonise_core_symbol_name(sym)] = _find_symbol_or_fail(sym, cl)
+                _sys.modules['cl'].__dict__[pythonise_core_symbol_name(sym)] = _find_symbol_or_fail(sym, cl)
         # secondary
         global star
         star = _intern0("*", cl)
@@ -2746,6 +2753,7 @@ def not_(x, type):
                     lambda m: ((x, type, False) if not m      else
                                m                if m and m[2] else
                                nil)))
+assert(not_)
 
 @defun
 def member_(x, type):
@@ -2905,15 +2913,15 @@ deftype(varituple_,   varituple_)
 _ast_info = defstruct("_ast_info",
                       "fields",     # each field is _dict(name, type, walk, [default])
                       "bound_free")
-__ast_walkable_field_types__ = _set([ast.stmt, (list_, ast.expr), (maybe_, ast.expr),
-                                     ast.expr, (list_, ast.stmt)])
+__ast_walkable_field_types__ = _set([_ast.stmt, (list_, _ast.expr), (maybe_, _ast.expr),
+                                     _ast.expr, (list_, _ast.stmt)])
 __ast_infos__ = _dict()
 def _find_ast_info(type):
         return __ast_infos__[_coerce_to_ast_type(type)]
 def _ast_fields(ast): return _find_ast_info(type(ast)).fields
 
 def _ast_ensure_stmt(x):
-        return x if typep(x, ast.stmt) else ast.Expr(the(ast.AST, x))
+        return x if typep(x, _ast.stmt) else _ast.Expr(the(_ast.AST, x))
 
 defvar("_BOUND_FREE_RECURSOR_")
 def _bound_free_recursor():
@@ -2926,7 +2934,7 @@ def _ast_bound_free(astxs):
                         return info.bound_free(*mapcar(_slot_of(ast), _type(ast)._fields))
                 return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
         with progv(_BOUND_FREE_RECURSOR_ = ast_rec):
-                return ast_rec(the((or_, ast.AST, (list_, ast.AST)),
+                return ast_rec(the((or_, _ast.AST, (list_, _ast.AST)),
                                    astxs))
 
 def _atree_bound_free(atreexs):
@@ -2948,15 +2956,15 @@ def defast(fn):
         ### generic tools
         def parse_defbody_ast(names, asts, valid_declarations = _dict()):
                 def _ast_call_to_name_p(name, x):
-                        return (typep(x, ast.Expr)            and
-                                typep(x.value, ast.Call)      and
-                                typep(x.value.func, ast.Name) and
+                        return (typep(x, _ast.Expr)            and
+                                typep(x.value, _ast.Call)      and
+                                typep(x.value.func, _ast.Name) and
                                 x.value.func.id == name)
                 def extract_sexp(ast_):
                         import more_ast
-                        return (x.id                                       if _isinstance(ast_, ast.Name)  else
-                                x.n                                        if _isinstance(ast_, ast.Num)   else
-                                _tuple(extract_sexp(x) for x in ast_.elts) if _isinstance(ast_, ast.Tuple) else
+                        return (x.id                                       if _isinstance(ast_, _ast.Name)  else
+                                x.n                                        if _isinstance(ast_, _ast.Num)   else
+                                _tuple(extract_sexp(x) for x in ast_.elts) if _isinstance(ast_, _ast.Tuple) else
                                 error("Invalid sexp: %s.", more_ast.pp_ast_as_code(ast_)))
                 def ensure_valid_declarations(decls):
                         # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
@@ -2964,14 +2972,14 @@ def defast(fn):
                                 import more_ast
                                 err("invalid declaration form: %s", more_ast.pp_ast_as_code(decls))
                         def ensure_valid_declaration(decl):
-                                typep(decl, ast.Tuple) and decl.elts and typep(decl.elts[0], ast.Name) or fail()
+                                typep(decl, _ast.Tuple) and decl.elts and typep(decl.elts[0], _ast.Name) or fail()
                                 decl_name = decl.elts[0].id
                                 if decl_name not in valid_declarations:
                                         err("unknown declaration: %s", decl_name.upper())
                                 n_decl_args = valid_declarations[decl_name]
                                 if _len(decl.elts) < 1 + n_decl_args + 1:
                                         err("invalid declaration %s: no parameter names specified", decl_name.upper())
-                                every(_of_type(ast.Name), decl.elts[1 + n_decl_args:]) or fail()
+                                every(_of_type(_ast.Name), decl.elts[1 + n_decl_args:]) or fail()
                                 decl_param_names = _tuple(x.id for x in decl.elts[1 + n_decl_args:])
                                 unknown_param_names = _set(decl_param_names) - _set(names)
                                 if unknown_param_names:
@@ -2982,7 +2990,7 @@ def defast(fn):
                                         decl_param_names)
                         not (decls.keywords or decls.starargs or decls.kwargs) or fail()
                         return mapcar(ensure_valid_declaration, decls.args)
-                content, _ = _prefix_suffix_if(_not_of_type(ast.Pass), asts)
+                content, _ = _prefix_suffix_if(_not_of_type(_ast.Pass), asts)
                 documentation, body = ((content[0], content[1:]) if content and stringp(content[0]) else
                                        (nil, content))
                 declarations, body = _prefix_suffix_if(_curry(_ast_call_to_name_p, "declare"), body)
@@ -3008,7 +3016,7 @@ def defast(fn):
                 if not name.startswith("_ast_"):
                         err("the AST name must be prefixed with \"_ast_\"")
                 name = name[5:]
-                ast_type, therep = gethash(name, ast.__dict__)
+                ast_type, therep = gethash(name, _ast.__dict__)
                 if not therep:
                         err("'%s' does not denote a known AST type", name)
                 return name, ast_type
@@ -3032,7 +3040,7 @@ def defast(fn):
                                     i, fname, ast_fname, ast_type._fields)
                 return ast_field_types
         def arglist_field_infos(parameters, nfix, with_defaults, ast_field_types):
-                fields = _odict()
+                fields = _collections.OrderedDict()
                 def process_ast_field_arglist_entry(name, type, default, fixed = t):
                         walkp = (type in __ast_walkable_field_types__ or
                                  declaredp(grouped_decls, p, "walk"))
@@ -3048,17 +3056,17 @@ def defast(fn):
                         # compile down to:
                         # return _separate(3, _ast_bound_free, [<fields>])
                         # ..where <fields> is [ f["name"] for f in fields if f["walk"] ]
-                        return ast.FunctionDef(
+                        return _ast.FunctionDef(
                                 name, arguments_ast,
-                                [ast.Return(
+                                [_ast.Return(
                                  _ast_funcall("_separate",
                                               [ 3,
                                                 _ast_funcall("_bound_free_recursor", []),
-                                                # ast.Name("_ast_bound_free", ast.Load()),
-                                                ast.List([ ast.Name(f["name"], ast.Load())
-                                                           for f in fields.values()
-                                                           if f["walk"] ],
-                                                         ast.Load()) ]))],
+                                                # _ast.Name("_ast_bound_free", _ast.Load()),
+                                                _ast.List([ _ast.Name(f["name"], _ast.Load())
+                                                            for f in fields.values()
+                                                            if f["walk"] ],
+                                                         _ast.Load()) ]))],
                                 [], None)
                 valid_methods = [("bound_free", make_default_bound_free)]
                 def fail(x):
@@ -3069,7 +3077,7 @@ def defast(fn):
                              (" and " if _len(valid_methods) > 1 else "") +
                              valid_methods[-1][0].upper()),
                              x if stringp(x) else more_ast.pp_ast_as_code(x))
-                not_fdefn = find_if_not(_of_type(ast.FunctionDef), body_ast)
+                not_fdefn = find_if_not(_of_type(_ast.FunctionDef), body_ast)
                 if not_fdefn:
                         fail(not_fdefn)
                 specified_method_names = { x.name:x for x in body_ast }
@@ -3083,10 +3091,10 @@ def defast(fn):
                         if x:
                                 x.name, x.args = method_name, arguments_ast # Splice in the common arglist.
                                 if _len(x.body) > 1:
-                                        if not typep(x.body[-1], ast.Return):
+                                        if not typep(x.body[-1], _ast.Return):
                                                 err("multi-line methods must use an explicit return statement")
-                                elif not(typep(x.body[0], ast.Return)):
-                                        x.body[0] = ast.Return(x.body[0].value)
+                                elif not(typep(x.body[0], _ast.Return)):
+                                        x.body[0] = _ast.Return(x.body[0].value)
                         import more_ast
                         # _debug_printf("AST for %s.%s:\n%s", name, method_name, more_ast.pp_ast_as_code(x or default_maker(method_name)))
                         return _ast_compiled_name(method_name, x or default_maker(method_name),
@@ -3102,7 +3110,7 @@ def defast(fn):
                                                               valid_declarations = valid_declspecs)
         grouped_decls = group_declarations(valid_declspecs, declarations)
         fields = arglist_field_infos(parameters, _len(fixed), with_defaults, ast_field_types)
-        [bound_free] = body_methods(args_ast, fields, remove_if(_of_type(ast.Pass), body))
+        [bound_free] = body_methods(args_ast, fields, remove_if(_of_type(_ast.Pass), body))
         # _debug_printf("bound_free for %s is %s", name, bound_free)
         __ast_infos__[ast_type] = _ast_info(fields     = fields,
                                             bound_free = bound_free)
@@ -3130,7 +3138,7 @@ all AST-trees .. except for the case of tuples."""
                 error("The argument \"%s\" of %s must be of type %s, but was a %s.  Tree: %s.",
                       name, (control % args), expected_type, princ_to_string(defacto_value), tree)
         def astify_known(type, args):
-                ast_type = ast.__dict__[type]
+                ast_type = _ast.__dict__[type]
                 info = _find_ast_info(ast_type)
                 fields, finfos = _recombine((_list, _list), identity, _list(info.fields.items()))
                 positional, optional = _prefix_suffix_if(lambda x: "default" in x, finfos)
@@ -3155,7 +3163,7 @@ all AST-trees .. except for the case of tuples."""
                 if not tree                     else
                 error("The CAR of an atree must be a string, not %s.", tree[0])
                 if not stringp(tree[0])         else
-                unknown_ast_type_error(tree[0], tree) if tree[0] not in ast.__dict__  else
+                unknown_ast_type_error(tree[0], tree) if tree[0] not in _ast.__dict__  else
                 (astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
         return ret
 
@@ -3163,11 +3171,11 @@ all AST-trees .. except for the case of tuples."""
 #     | Interactive(stmt* body)
 #     | Expression(expr body)
 @defast
-def _ast_Module(body: (list_, ast.stmt)): pass
+def _ast_Module(body: (list_, _ast.stmt)): pass
 @defast
-def _ast_Interactive(body: (list_, ast.stmt)): pass
+def _ast_Interactive(body: (list_, _ast.stmt)): pass
 @defast
-def _ast_Expression(body: ast.expr): pass
+def _ast_Expression(body: _ast.expr): pass
 # stmt = FunctionDef(identifier name,
 #                    arguments args,
 #                    stmt* body,
@@ -3205,10 +3213,10 @@ def _ast_Expression(body: ast.expr): pass
 # SyntaxError: name 'a' is parameter and global
 @defast
 def _ast_FunctionDef(name:            string_,
-                     args:            ast.arguments,
-                     body:           (list_, ast.stmt),
-                     decorator_list: (list_, ast.expr) = _list(),
-                     returns:        (maybe_, ast.expr) = None):
+                     args:            _ast.arguments,
+                     body:           (list_, _ast.stmt),
+                     decorator_list: (list_, _ast.expr) = _list(),
+                     returns:        (maybe_, _ast.expr) = None):
         def bound_free():
                 ((args_b, args_f, _),
                  (body_b, body_f, body_x),
@@ -3230,12 +3238,12 @@ def _ast_FunctionDef(name:            string_,
 # 		   expr* decorator_list)
 @defast
 def _ast_ClassDef(name:            string_,
-                  bases:          (list_, ast.expr),
-                  keywords:       (list_, ast.keyword),
-                  starargs:       (maybe_, ast.expr),
-                  kwargs:         (maybe_, ast.expr),
-                  body:           (list_, ast.stmt),
-                  decorator_list: (list_, ast.expr)):
+                  bases:          (list_, _ast.expr),
+                  keywords:       (list_, _ast.keyword),
+                  starargs:       (maybe_, _ast.expr),
+                  kwargs:         (maybe_, _ast.expr),
+                  body:           (list_, _ast.stmt),
+                  decorator_list: (list_, _ast.expr)):
         def bound_free():
                 ((base_b, base_f, _),
                  (keyw_b, keyw_f, _),
@@ -3253,15 +3261,15 @@ def _ast_ClassDef(name:            string_,
                         _set())            # these do not escape..
 #       | Return(expr? value)
 @defast
-def _ast_Return(value: (maybe_, ast.expr)): pass
+def _ast_Return(value: (maybe_, _ast.expr)): pass
 #       | Delete(expr* targets)
 @defast
-def _ast_Delete(targets: (list_, ast.expr)): pass
+def _ast_Delete(targets: (list_, _ast.expr)): pass
         # targets do ref, in this case!
 #       | Assign(expr* targets, expr value)
 @defast
-def _ast_Assign(targets: (list_, ast.expr),
-                value:    ast.expr):
+def _ast_Assign(targets: (list_, _ast.expr),
+                value:    _ast.expr):
         def bound_free():
                 ((targ_b, targ_f, _),
                  (_,      valu_f, _)) = mapcar(_bound_free_recursor(), [targets, value])
@@ -3270,9 +3278,9 @@ def _ast_Assign(targets: (list_, ast.expr),
                         _set())
 #       | AugAssign(expr target, operator op, expr value)
 @defast
-def _ast_AugAssign(target: ast.expr,
-                   op:     ast.operator,
-                   value:  ast.expr):
+def _ast_AugAssign(target: _ast.expr,
+                   op:     _ast.operator,
+                   value:  _ast.expr):
         def bound_free():
                 ((targ_b, targ_f, _),
                  (_,      valu_f, _)) = mapcar(_bound_free_recursor(), [target, value])
@@ -3289,10 +3297,10 @@ def _ast_body_bound_free(body, more_bound = _set()):
 
 #       | For(expr target, expr iter, stmt* body, stmt* orelse)
 @defast
-def _ast_For(target:  ast.expr,
-             iter:    ast.expr,
-             body:   (list_, ast.stmt),
-             orelse: (list_, ast.stmt)):
+def _ast_For(target:  _ast.expr,
+             iter:    _ast.expr,
+             body:   (list_, _ast.stmt),
+             orelse: (list_, _ast.stmt)):
         def bound_free():
                 ((targ_b, targ_f, _),
                  (_,      iter_f, _)) = mapcar(_bound_free_recursor(), [target, iter])
@@ -3304,9 +3312,9 @@ def _ast_For(target:  ast.expr,
 
 #       | While(expr test, stmt* body, stmt* orelse)
 @defast
-def _ast_While(test:    ast.expr,
-               body:   (list_, ast.stmt),
-               orelse: (list_, ast.stmt)):
+def _ast_While(test:    _ast.expr,
+               body:   (list_, _ast.stmt),
+               orelse: (list_, _ast.stmt)):
         def bound_free():
                 ((_, test_f, _)) = _bound_free_recursor()(test)
                 # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
@@ -3316,9 +3324,9 @@ def _ast_While(test:    ast.expr,
                         xtnls)
 #       | If(expr test, stmt* body, stmt* orelse)
 @defast
-def _ast_If(test:    ast.expr,
-            body:   (list_, ast.stmt),
-            orelse: (list_, ast.stmt)):
+def _ast_If(test:    _ast.expr,
+            body:   (list_, _ast.stmt),
+            orelse: (list_, _ast.stmt)):
         def bound_free():
                 ((_, test_f, _)) = _bound_free_recursor()(test)
                 # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
@@ -3328,9 +3336,9 @@ def _ast_If(test:    ast.expr,
                         xtnls)
 #       | With(expr context_expr, expr? optional_vars, stmt* body)
 @defast
-def _ast_With(context_expr:   ast.expr,
-              optional_vars: (maybe_, ast.expr),
-              body:          (list_, ast.stmt)):
+def _ast_With(context_expr:   _ast.expr,
+              optional_vars: (maybe_, _ast.expr),
+              body:          (list_, _ast.stmt)):
         def bound_free():
                 ((_,      ctxt_f, _),
                  (optl_b, optl_f, _)) = mapcar(_bound_free_recursor(), [context_expr, optional_vars])
@@ -3340,33 +3348,33 @@ def _ast_With(context_expr:   ast.expr,
                         body_xtnls)
 #       | Raise(expr? exc, expr? cause)
 @defast
-def _ast_Raise(exc:   (maybe_, ast.expr),
-               cause: (maybe_, ast.expr)): pass
+def _ast_Raise(exc:   (maybe_, _ast.expr),
+               cause: (maybe_, _ast.expr)): pass
 #       | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
 @defast
-def _ast_TryExcept(body:     (list_, ast.stmt),
-                   handlers: (list_, ast.excepthandler),
-                   orelse:   (list_, ast.stmt)):
+def _ast_TryExcept(body:     (list_, _ast.stmt),
+                   handlers: (list_, _ast.excepthandler),
+                   orelse:   (list_, _ast.stmt)):
         # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
         def bound_free(): _separate(3, _ast_body_bound_free, [body, handlers, orelse])
 #       | TryFinally(stmt* body, stmt* finalbody)
 @defast
-def _ast_TryFinally(body:      (list_, ast.stmt),
-                    finalbody: (list_, ast.stmt)):
+def _ast_TryFinally(body:      (list_, _ast.stmt),
+                    finalbody: (list_, _ast.stmt)):
         # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
         def bound_free(): _separate(3, _ast_body_bound_free, [body, handlers, orelse])
 #       | Assert(expr test, expr? msg)
 @defast
-def _ast_Assert(test: ast.expr,
-                msg:  ast.expr = None): pass
+def _ast_Assert(test: _ast.expr,
+                msg:  _ast.expr = None): pass
 #       | Import(alias* names)
 @defast
-def _ast_Import(names: (list_, ast.alias)):
+def _ast_Import(names: (list_, _ast.alias)):
         declare((walk, names))
 #       | ImportFrom(identifier? module, alias* names, int? level)
 @defast
 def _ast_ImportFrom(module: (maybe_, string_),
-                    names:  (list_, ast.alias),
+                    names:  (list_, _ast.alias),
                     level:  (maybe_, integer)):
         def bound_free():
                 return (_bound_free_recursor()(names)[0],
@@ -3382,7 +3390,7 @@ def _ast_Nonlocal(names: (list_, string_)):
         def bound_free(): (_set(), _set(), _set(names))
 #       | Expr(expr value)
 @defast
-def _ast_Expr(value: ast.expr): pass
+def _ast_Expr(value: _ast.expr): pass
 #       | Pass | Break | Continue
 @defast
 def _ast_Pass(): pass
@@ -3392,21 +3400,21 @@ def _ast_Break(): pass
 def _ast_Continue(): pass
 # expr = BoolOp(boolop op, expr* values)
 @defast
-def _ast_BoolOp(op:      ast.boolop,
-                values: (list_, ast.expr)): pass
+def _ast_BoolOp(op:      _ast.boolop,
+                values: (list_, _ast.expr)): pass
 #      | BinOp(expr left, operator op, expr right)
 @defast
-def _ast_BinOp(left:  ast.expr,
-               op:    ast.operator,
-               right: ast.expr): pass
+def _ast_BinOp(left:  _ast.expr,
+               op:    _ast.operator,
+               right: _ast.expr): pass
 #      | UnaryOp(unaryop op, expr operand)
 @defast
-def _ast_UnaryOp(op:      ast.unaryop,
-                 operand: ast.expr): pass
+def _ast_UnaryOp(op:      _ast.unaryop,
+                 operand: _ast.expr): pass
 #      | Lambda(arguments args, expr body)
 @defast
-def _ast_Lambda(args: ast.arguments,
-                body: ast.expr):
+def _ast_Lambda(args: _ast.arguments,
+                body: _ast.expr):
         def bound_free():
                 ((args_b, args_f, _),
                  (_,      body_f, _)) = mapcar(_bound_free_recursor(), [args, body])
@@ -3417,16 +3425,16 @@ def _ast_Lambda(args: ast.arguments,
                         _set())
 #      | IfExp(expr test, expr body, expr orelse)
 @defast
-def _ast_IfExp(test:   ast.expr,
-               body:   ast.expr,
-               orelse: ast.expr): pass
+def _ast_IfExp(test:   _ast.expr,
+               body:   _ast.expr,
+               orelse: _ast.expr): pass
 #      | Dict(expr* keys, expr* values)
 @defast
-def _ast_Dict(keys:   (list_, ast.expr),
-              values: (list_, ast.expr)): pass
+def _ast_Dict(keys:   (list_, _ast.expr),
+              values: (list_, _ast.expr)): pass
 #      | Set(expr* elts)
 @defast
-def _ast_Set(elts: (list_, ast.expr)): pass
+def _ast_Set(elts: (list_, _ast.expr)): pass
 #      | ListComp(expr elt, comprehension* generators)
 
 def _ast_gchain_bound_free(xs, acc_binds):
@@ -3445,40 +3453,40 @@ def _ast_comprehension_bound_free(exprs, generators):
                 _set())
 
 @defast
-def _ast_ListComp(elt:         ast.expr,
-                  generators: (list_, ast.comprehension)):
+def _ast_ListComp(elt:         _ast.expr,
+                  generators: (list_, _ast.comprehension)):
         def bound_free(): _ast_comprehension_bound_free([elt], generators)
 #      | SetComp(expr elt, comprehension* generators)
 @defast
-def _ast_SetComp(elt:         ast.expr,
-                 generators: (list_, ast.comprehension)):
+def _ast_SetComp(elt:         _ast.expr,
+                 generators: (list_, _ast.comprehension)):
         def bound_free(): _ast_comprehension_bound_free([elt], generators)
 #      | DictComp(expr key, expr value, comprehension* generators)
 @defast
-def _ast_DictComp(key:        ast.expr,
-                  value:      ast.expr,
-                  generators: (list_, ast.comprehension)):
+def _ast_DictComp(key:        _ast.expr,
+                  value:      _ast.expr,
+                  generators: (list_, _ast.comprehension)):
         def bound_free(): _ast_comprehension_bound_free([key, value], generators)
 #      | GeneratorExp(expr elt, comprehension* generators)
 @defast
-def _ast_GeneratorExp(elt:         ast.expr,
-                      generators: (list_, ast.comprehension)):
+def _ast_GeneratorExp(elt:         _ast.expr,
+                      generators: (list_, _ast.comprehension)):
         def bound_free(): _ast_comprehension_bound_free([elt], generators)
 #      | Yield(expr? value)
 @defast
-def _ast_Yield(value: (maybe_, ast.expr) = None): pass
+def _ast_Yield(value: (maybe_, _ast.expr) = None): pass
 #      | Compare(expr left, cmpop* ops, expr* comparators)
 @defast
-def _ast_Compare(left:         ast.expr,
-                 ops:         (list_, ast.cmpop),
-                 comparators: (list_, ast.expr)): pass
+def _ast_Compare(left:         _ast.expr,
+                 ops:         (list_, _ast.cmpop),
+                 comparators: (list_, _ast.expr)): pass
 #      | Call(expr func, expr* args, keyword* keywords, expr? starargs, expr? kwargs)
 @defast
-def _ast_Call(func:      ast.expr,
-              args:     (list_, ast.expr),
-              keywords: (list_, ast.keyword),
-              starargs: (maybe_, ast.expr) = None,
-              kwargs:   (maybe_, ast.expr) = None):
+def _ast_Call(func:      _ast.expr,
+              args:     (list_, _ast.expr),
+              keywords: (list_, _ast.keyword),
+              starargs: (maybe_, _ast.expr) = None,
+              kwargs:   (maybe_, _ast.expr) = None):
         def bound_free(): _separate(3, _bound_free_recursor(),
                                     [func, args, keywords, starargs, kwargs])
 #      | Num(object n) -- a number as a PyObject.
@@ -3495,33 +3503,33 @@ def _ast_Bytes(s: str): pass
 def _ast_Ellipsis(): pass
 #      | Attribute(expr value, identifier attr, expr_context ctx)
 @defast
-def _ast_Attribute(value: ast.expr,
+def _ast_Attribute(value: _ast.expr,
                    attr:  string_,
-                   ctx:   ast.expr_context): pass
+                   ctx:   _ast.expr_context): pass
 #      | Subscript(expr value, slice slice, expr_context ctx)
 @defast
-def _ast_Subscript(value: ast.expr,
-                   slice: ast.slice,
-                   ctx:   ast.expr_context):
+def _ast_Subscript(value: _ast.expr,
+                   slice: _ast.slice,
+                   ctx:   _ast.expr_context):
         declare((walk, slice))
 #      | Starred(expr value, expr_context ctx)
 @defast
-def _ast_Starred(value: ast.expr,
-                 ctx:   ast.expr_context): pass
+def _ast_Starred(value: _ast.expr,
+                 ctx:   _ast.expr_context): pass
 #      | Name(identifier id, expr_context ctx)
 @defast
 def _ast_Name(id:  string_,
-              ctx: ast.expr_context):
-        def bound_free(): ((_set(), _set([id])) if typep(ctx, (or_, ast.Load, ast.AugLoad, ast.Param)) else
+              ctx: _ast.expr_context):
+        def bound_free(): ((_set(), _set([id])) if typep(ctx, (or_, _ast.Load, _ast.AugLoad, _ast.Param)) else
                            (_set([id]), _set()))
 #      | List(expr* elts, expr_context ctx)
 @defast
-def _ast_List(elts: (list_, ast.expr),
-              ctx:   ast.expr_context): pass
+def _ast_List(elts: (list_, _ast.expr),
+              ctx:   _ast.expr_context): pass
 #      | Tuple(expr* elts, expr_context ctx)
 @defast
-def _ast_Tuple(elts: (list_, ast.expr),
-               ctx:   ast.expr_context): pass
+def _ast_Tuple(elts: (list_, _ast.expr),
+               ctx:   _ast.expr_context): pass
 # expr_context = Load | Store | Del | AugLoad | AugStore | Param
 @defast
 def _ast_Load(): pass
@@ -3535,16 +3543,16 @@ def _ast_AugStore(): pass
 def _ast_Param(): pass
 # slice = Slice(expr? lower, expr? upper, expr? step)
 @defast
-def _ast_Slice(lower: (maybe_, ast.expr) = None,
-               upper: (maybe_, ast.expr) = None,
-               step:  (maybe_, ast.expr) = None): pass
+def _ast_Slice(lower: (maybe_, _ast.expr) = None,
+               upper: (maybe_, _ast.expr) = None,
+               step:  (maybe_, _ast.expr) = None): pass
 #       | ExtSlice(slice* dims)
 @defast
-def _ast_ExtSlice(dims: (list_, ast.slice)):
+def _ast_ExtSlice(dims: (list_, _ast.slice)):
         declare((walk, dims))
 #       | Index(expr value)
 @defast
-def _ast_Index(value: ast.expr): pass
+def _ast_Index(value: _ast.expr): pass
 # boolop = And | Or
 @defast
 def _ast_And(): pass
@@ -3607,9 +3615,9 @@ def _ast_In(): pass
 def _ast_NotIn(): pass
 # comprehension = (expr target, expr iter, expr* ifs)
 @defast
-def _ast_comprehension(target: ast.expr,
-                       iter:   ast.expr,
-                       ifs:   (list_, ast.expr)):
+def _ast_comprehension(target: _ast.expr,
+                       iter:   _ast.expr,
+                       ifs:   (list_, _ast.expr)):
         def bound_free():
                 ((_,      targ_f, _),
                  (iter_b, iter_f, _),
@@ -3619,9 +3627,9 @@ def _ast_comprehension(target: ast.expr,
                         _set())
 # excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
 @defast
-def _ast_ExceptHandler(type: (maybe_, ast.expr),
+def _ast_ExceptHandler(type: (maybe_, _ast.expr),
                        name: (maybe_, str),
-                       body: (list_, ast.stmt)):
+                       body: (list_, _ast.stmt)):
         def bound_free():
                 (_,      type_f, _) = _bound_free_recursor()(type)
                 (bound, free, xtnls) = _ast_body_bound_free(body, _set([name] if name is not None else []))
@@ -3634,14 +3642,14 @@ def _ast_ExceptHandler(type: (maybe_, ast.expr),
 #              expr* kw_defaults)
 @defast
 ### These MAYBEs suggest a remapping facility.
-def _ast_arguments(args:             (list_, ast.arg),
+def _ast_arguments(args:             (list_, _ast.arg),
                    vararg:           (maybe_, str),
-                   varargannotation: (maybe_, ast.expr),
-                   kwonlyargs:       (list_, ast.arg),
+                   varargannotation: (maybe_, _ast.expr),
+                   kwonlyargs:       (list_, _ast.arg),
                    kwarg:            (maybe_, str),
-                   kwargannotation:  (maybe_, ast.expr),
-                   defaults:         (list_, ast.expr),
-                   kw_defaults:      (list_, ast.expr)):
+                   kwargannotation:  (maybe_, _ast.expr),
+                   defaults:         (list_, _ast.expr),
+                   kw_defaults:      (list_, _ast.expr)):
         def bound_free():
                 arg_bound, arg_free, _ = _separate(3, _bound_free_recursor(), [args, kwonlyargs])
                 arg_bound |= _set(x for x in [vararg, kwarg]
@@ -3653,14 +3661,14 @@ def _ast_arguments(args:             (list_, ast.arg),
 # arg = (identifier arg, expr? annotation)
 @defast
 def _ast_arg(arg:         string_,
-             annotation: (maybe_, ast.expr) = None):
+             annotation: (maybe_, _ast.expr) = None):
         def bound_free(): (_set([arg]),
                            _bound_free_recursor()(annotation)[1],
                            _set())
 # keyword = (identifier arg, expr value)
 @defast
 def _ast_keyword(arg:   string_,
-                 value: ast.expr):
+                 value: _ast.expr):
         def bound_free(): (_set([] if _nonep(asname) else [asname]),
                            _bound_free_recursor()(value),
                            _set())
@@ -3678,7 +3686,7 @@ def _ast_alias(name:    string_,
 #
 
 def _anode_expression_p(x):
-        return _tuplep(x) and issubclass(ast.__dict__(x[0]), ast.expr)
+        return _tuplep(x) and issubclass(_ast.__dict__(x[0]), _ast.expr)
 
 ###
 ### A rudimentary Lisp -> Python compiler
@@ -3787,7 +3795,7 @@ def _compile_lispy_lambda_list(context, list_, allow_defaults = None):
 ###
 ## A pro/val tuple:
 ## - prologue
-## - value, can only contain ast.expr's
+## - value, can only contain _ast.expr's
 ##
 def _tuplerator(pve):
         for x in pve[0]:
@@ -3813,7 +3821,7 @@ def _debug_compiler(value = t):
 def _debugging_compiler_p():
         return symbol_value("_COMPILER_DEBUG_P_")
 
-__compiler_form_record__ = collections.defaultdict(lambda: 0)
+__compiler_form_record__ = _collections.defaultdict(lambda: 0)
 __compiler_form_record_threshold__ = 5
 def _compiler_track_compiled_form(form):
         cur = __compiler_form_record__[_id(form)]
@@ -4314,7 +4322,7 @@ def compile_(form):
 #       linecache.getlines(file)
 #     getblock
 #       <boring>
-__def_sources__ = collections.OrderedDict()
+__def_sources__ = _collections.OrderedDict()
 __def_sources__[""] = "" # placeholder
 __def_sources_filename__ = "<lisp>"
 def _lisp_add_def(name, source):
@@ -4326,12 +4334,12 @@ def _lisp_add_def(name, source):
 
 def lisp(body):
         def _intern_astsexp(x):
-                return (x.n                                        if _isinstance(x, ast.Num)   else
-                        x.s                                        if _isinstance(x, ast.Str)   else
-                        _read_symbol(x.id)                         if _isinstance(x, ast.Name)  else
+                return (x.n                                        if _isinstance(x, _ast.Num)   else
+                        x.s                                        if _isinstance(x, _ast.Str)   else
+                        _read_symbol(x.id)                         if _isinstance(x, _ast.Name)  else
                         _tuple(_intern_astsexp(e) for e in x)      if _isinstance(x, _list)     else
-                        _tuple(_intern_astsexp(e) for e in x.elts) if _isinstance(x, ast.Tuple) else
-                        _intern_astsexp(x.value)                   if _isinstance(x, ast.Expr)  else
+                        _tuple(_intern_astsexp(e) for e in x.elts) if _isinstance(x, _ast.Tuple) else
+                        _intern_astsexp(x.value)                   if _isinstance(x, _ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
         args_ast, body_ast = _function_ast(body)
         if _len(body_ast) > 1:
@@ -4379,7 +4387,7 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, " {%x}", _id(object))
         write_string(">", stream)
 
-class readtable(collections.UserDict):
+class readtable(_collections.UserDict):
         def __init__(self, case = _keyword("upcase")):
                 self.case = the((member_, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")),
                                 case)
@@ -4875,8 +4883,6 @@ def parse_integer(xs, junk_allowed = nil, radix = 10):
                                 error("Junk in string \"%s\".", xs)
         return _int(xform(xs[:(end + 1)]))
 
-end_of_file = EOFError
-
 @block
 def read_from_string(string, eof_error_p = True, eof_value = nil,
                      start = 0, end = None, preserve_whitespace = None):
@@ -5000,7 +5006,7 @@ def read_char(stream = None, eof_error_p = True, eof_value = nil, recursivep = n
                 eof_value if not eof_error_p else
                 error(end_of_file, "end of file on %s" % (stream,)))
 
-def unread_char(x, stream = sys.stdin):
+def unread_char(x, stream = _sys.stdin):
         "XXX: conformance"
         # I've found out I don't really undestand how UNREAD-CHAR is supposed to work..
         posn = file_position(stream)
@@ -5031,7 +5037,7 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
                         return char
 
 @block
-def read(stream = sys.stdin, eof_error_p = True, eof_value = nil, preserve_whitespace = None, recursivep = nil):
+def read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         "Does not conform."
         def read_inner():
                 skip_whitespace()
@@ -5126,7 +5132,7 @@ def probe_file(pathname):
         "No, no real pathnames, just namestrings.."
         assert(stringp(pathname))
         return _without_condition_system(
-                lambda: os.path.exists(pathname),
+                lambda: _os.path.exists(pathname),
                 reason = "os.path.exists")
 
 def namestring(pathname):
@@ -5150,7 +5156,7 @@ at which the file specified by PATHSPEC was last written
         #
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # os.path.getmtime() returns microseconds..
-        return _int(os.path.getmtime(pathspec))
+        return _int(_os.path.getmtime(pathspec))
 
 ##
 ## Streams
@@ -5183,9 +5189,9 @@ def make_two_way_stream(input, output):   return two_way_stream(input, output)
 def two_way_stream_input_stream(stream):  return stream.input
 def two_way_stream_output_stream(stream): return stream.output
 
-setq("_STANDARD_INPUT_",  sys.stdin)
-setq("_STANDARD_OUTPUT_", sys.stdout)
-setq("_ERROR_OUTPUT_",    sys.stderr)
+setq("_STANDARD_INPUT_",  _sys.stdin)
+setq("_STANDARD_OUTPUT_", _sys.stdout)
+setq("_ERROR_OUTPUT_",    _sys.stderr)
 setq("_DEBUG_IO_",        make_two_way_stream(symbol_value("_STANDARD_INPUT_"), symbol_value("_STANDARD_OUTPUT_")))
 setq("_QUERY_IO_",        make_two_way_stream(symbol_value("_STANDARD_INPUT_"), symbol_value("_STANDARD_OUTPUT_")))
 
@@ -5305,11 +5311,11 @@ def _pytracer(frame, event, arg):
                 method(arg, frame)
         return _pytracer
 
-def _pytracer_enabled_p(): return sys.gettrace() is _pytracer
+def _pytracer_enabled_p(): return _sys.gettrace() is _pytracer
 def _enable_pytracer(reason = "", report = None):
-        sys.settrace(_pytracer); report and _debug_printf("_ENABLE (%s)", reason);  return True
+        _sys.settrace(_pytracer); report and _debug_printf("_ENABLE (%s)", reason);  return True
 def _disable_pytracer(reason = "", report = None):
-        sys.settrace(None);      report and _debug_printf("_DISABLE (%s)", reason); return True
+        _sys.settrace(None);      report and _debug_printf("_DISABLE (%s)", reason); return True
 
 def _set_condition_handler(fn):
         _set_tracer_hook("exception", fn)
@@ -5354,7 +5360,7 @@ setq("_PREHANDLER_HOOK_", nil)
 setq("_DEBUGGER_HOOK_",  nil)
 
 def _report_handling_handover(cond, frame, hook):
-        format(sys.stderr, "Handing over handling of %s to frame %s\n",
+        format(_sys.stderr, "Handing over handling of %s to frame %s\n",
                prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
 
 def signal(cond):
@@ -5384,12 +5390,12 @@ def invoke_debugger(cond):
                         debugger_hook(cond, debugger_hook)
         error(BaseError, "INVOKE-DEBUGGER fell through.")
 
-__main_thread__ = threading.current_thread()
+__main_thread__ = _threading.current_thread()
 def _report_condition(cond, stream = None, backtrace = None):
         stream = _defaulted_to_var(stream, "_DEBUG_IO_")
         format(stream, "%sondition of type %s: %s\n",
-               (("In thread \"%s\": c" % threading.current_thread().name)
-                if threading.current_thread() is not __main_thread__ else
+               (("In thread \"%s\": c" % _threading.current_thread().name)
+                if _threading.current_thread() is not __main_thread__ else
                 "C"),
                _type(cond), cond)
         if backtrace:
@@ -5508,11 +5514,11 @@ def __cl_condition_handler__(condspec, frame):
                 else:
                         return raw_cond
         with progv(_STACK_TOP_HINT_ = _caller_frame(caller_relative = 1)):
-                cond = sys.call_tracing(continuation, _tuple())
+                cond = _sys.call_tracing(continuation, _tuple())
         if type_of(cond) not in __not_even_conditions__:
                 is_not_ball = type_of(cond) is not __catcher_throw__
                 _here("In thread '%s': unhandled condition : %s%s",
-                      threading.current_thread().name, prin1_to_string(cond),
+                      _threading.current_thread().name, prin1_to_string(cond),
                       ("\n; Disabling CL condition system." if is_not_ball else
                        ""),
                       callers = 15)
@@ -5852,19 +5858,19 @@ def require(name, pathnames = None):
 def get_universal_time():
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # time.time() returns microseconds..
-        return _int(time.time())
+        return _int(_time.time())
 
 def sleep(x):
-        return time.sleep(x)
+        return _time.sleep(x)
 
 def user_homedir_pathname():
-        return os.path.expanduser("~")
+        return _os.path.expanduser("~")
 
 def lisp_implementation_type():    return "CPython"
-def lisp_implementation_version(): return sys.version
+def lisp_implementation_version(): return _sys.version
 
-def machine_instance():            return socket.gethostname()
-def machine_type():                return _without_condition_system(lambda: platform.machine(),
+def machine_instance():            return _socket.gethostname()
+def machine_type():                return _without_condition_system(lambda: _platform.machine(),
                                                                     reason = "platform.machine")
 def machine_version():             return "Unknown"
 
@@ -5887,14 +5893,14 @@ def _evaluated_code_source(co):
         return gethash(co, __eval_source_cache__)
 
 def _coerce_to_expr(x):
-        return (x.value if typep(x, ast.Expr) else
+        return (x.value if typep(x, _ast.Expr) else
                 x)
 
 def _eval_python(expr_or_stmt):
         "In AST form, naturally."
         package = symbol_value("_PACKAGE_")
-        exprp = typep(the(ast.AST, expr_or_stmt), (or_, ast.expr, ast.Expr))
-        call = ast.fix_missing_locations(_ast_module(
+        exprp = typep(the(_ast.AST, expr_or_stmt), (or_, _ast.expr, _ast.Expr))
+        call = _ast.fix_missing_locations(_ast_module(
                         [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
                          _ast_Expr(_ast_funcall(_ast_name("__evset__"), [_coerce_to_expr(expr_or_stmt)]))]
                         if exprp else
@@ -5916,7 +5922,7 @@ def _callify(form, package = None, quoted = False):
         package = _defaulted_to_var(package, "_PACKAGE_")
         def callify_call(sym, args):
                 func = function(the(symbol, sym))
-                paramspec = inspect.getfullargspec(func)
+                paramspec = _inspect.getfullargspec(func)
                 nfix = _argspec_nfixargs(paramspec)
                 _here("func: %s -> %s, paramspec: %s", sym, func, paramspec)
                 _here("nfix: %s", nfix)
@@ -6954,7 +6960,7 @@ executed."""
         ### VARI-BIND, anyone?
         # def vari_bind(x, body):
         #         # don't lambda lists actually rule this, hands down?
-        #         posnal, named = argspec_value_varivals(inspect.getfullargspec(body), x)
+        #         posnal, named = argspec_value_varivals(_inspect.getfullargspec(body), x)
         #         return body()
         method_group = defstruct("method_group",
                                  "name",
@@ -7486,7 +7492,7 @@ __sealed_classes__ = _set([object,
                                   integer,        # type
                                   "".find,        # builtin_function_or_method
                                   ast,            # module
-                                  sys.stdin,      # __io.TextIOWrapper
+                                  _sys.stdin,     # __io.TextIOWrapper
                                   car.__code__,   # code object
                                   _this_frame(),  # frame
                                   ]))

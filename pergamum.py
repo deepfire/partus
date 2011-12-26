@@ -1,7 +1,7 @@
 ###
 ### Some utilities, in the spirit of Common Lisp.
 ###
-from cl           import typep, consp, car, cdr, listp, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref, t
+from cl           import typep, consp, car, cdr, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref, t
 from cl           import evenp
 from functools    import reduce, partial
 from cl           import _of_type as of_type, _tuplep as tuplep, _setp as setp, _frozensetp as frozensetp
@@ -546,9 +546,9 @@ def string_to_complex(x_str, spec):
         assert(stringp(x_str))
         x = ast.literal_eval(x_str)
         def rec(x, subspec):
-                return fcond((functionp(subspec), lambda: subspec(x)),
-                             (    listp(subspec), lambda: listp(x) and every(lambda x: rec(x, subspec[0]), x)),
-                             (   tuplep(subspec), lambda: tuplep(x) and (len(x) == len(subspec)) and every(lambda v_t: rec(v_t[0], v_t[1]), zip(x, subspec))))
+                return fcond((functionp(subspec),        lambda: subspec(x)),
+                             (isinstance(subspec, list), lambda: isinstance(x, list) and every(lambda x: rec(x, subspec[0]), x)),
+                             (   tuplep(subspec),        lambda: tuplep(x) and (len(x) == len(subspec)) and every(lambda v_t: rec(v_t[0], v_t[1]), zip(x, subspec))))
         return x if rec(x, spec) is not False else None
 
 def strconcat(strs):

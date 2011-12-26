@@ -12,7 +12,7 @@ import sys
 
 import cl
 
-from cl         import typep, null, listp, integerp, floatp, boolp, sequencep, stringp, mapcar, mapc,\
+from cl         import typep, null, integerp, floatp, sequencep, stringp, mapcar, mapc,\
                        remove_if, sort, car, identity, every, find, with_output_to_string, error, reduce,\
                        defvar, symbol_value, progv
 from cl         import _ast_rw as ast_rw, _ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
@@ -224,7 +224,7 @@ def pp_ast(o, stream = sys.stdout):
             lmesg('<None>\n')
         elif stringp(x):
             lmesg("'" + x + "'\n")
-        elif bytesp(x) or integerp(x) or floatp(x) or boolp(x):
+        elif bytesp(x) or integerp(x) or floatp(x) or isinstance(x, bool):
             lmesg(str(x) + '\n')
         elif sequencep(x) and emptyp(x):
             lmesg('[]\n')
@@ -238,11 +238,11 @@ def pp_ast(o, stream = sys.stdout):
                     lmesg("<%s>: '%s', "%(k, v))
 
             lmesg('\n')
-            child_list_slots = list(reversed(sort([(k, v) for (k, v) in child_slots if listp(v)], key=car)))
+            child_list_slots = list(reversed(sort([(k, v) for (k, v) in child_slots if isinstance(v, list)], key=car)))
             child_list_slots_nr = len(child_list_slots)
 
             for (k, v) in child_slots:
-                if not listp(v) and not stringp(v):
+                if not isinstance(v, list) and not stringp(v):
                     do_pp_ast_rec(v, k, pspec + (([True] if child_list_slots_nr > 0 else [False])))
 
             for ((k, v), i) in zip(child_list_slots, range(0, child_list_slots_nr)):
