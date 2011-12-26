@@ -101,7 +101,7 @@ import collections as _collections
 import neutrality  as _neutrality
 
 from builtins import isinstance as _isinstance, len as _len, repr as _repr
-from builtins import zip as _zip, range as _range, reversed as _reversed, enumerate as _enumerate
+from builtins import zip as _zip, range as _range, reversed as _reversed, enumerate as _enumerate, all as _all
 from builtins import id as _id, hasattr as _hasattr, getattr as _getattr, setattr as _setattr
 
 ###
@@ -217,20 +217,6 @@ def lower_case_p(x):      return x.islower()
 def gethash(key, dict, default = None):
         therep = key in dict
         return (dict.get(key) if therep else default), therep
-
-__core_symbol_names__ = [
-        "QUOTE",
-        "AND", "OR", "MEMBER", "EQL", "SATISFIES",
-        "ABORT", "CONTINUE", "BREAK",
-        "LIST",
-        "_OPTIONAL", "_REST", "_KEY", "_BODY", "_ALLOW_OTHER_KEYS", "_WHOLE",
-        "_RESTKEY", # pythonism
-        # Heresy!  Extensions!
-        "TUPLE", "PARTUPLE", "VARITUPLE", "MAYBE", "CLASS", "CLASS_EQ", "LAMBDA_LIST"
-        ]
-__more_symbol_names__ = [
-        "SOME", "EVERY",
-]
 
 _case_attribute_map = _dict(UPCASE     = string_upcase,
                             DOWNCASE   = string_downcase,
@@ -1345,10 +1331,12 @@ disagreement and, as a third element, a boolean, denoting whether the
 type specifier was malformed.  Otherwise, when X is of TYPE, a
 negative boolean value is returned."""
         return (((not _isinstance(x, type)) and
-                 (x, type, False))              if _isinstance(type, _type)   else
-                nil                             if type is t                           else
-                _complex_type_mismatch(x, type) if (_tuplep(type) and type and
-                                                    type[0] in __type_predicate_map__) else
+                 (x, type, False))                       if _isinstance(type, _type)            else
+                nil                                      if type is t                           else
+                _complex_type_mismatch(x, tuple([type])) if (symbolp(type) and
+                                                             type in __type_predicate_map__)    else
+                _complex_type_mismatch(x, type)          if (_tuplep(type) and type and
+                                                             type[0] in __type_predicate_map__) else
                 _invalid_type_specifier_error(type))
 
 def typep(x, type):
@@ -1979,10 +1967,13 @@ def coerce(type, x):
 def _python_name_lisp_symbol_name(x):
         "Heuristic to undo the effect of _lisp_symbol_name_python_name()."
         def _sub(cs):
-                starred = _len(cs) > 1 and (cs[0] == cs[-1] == "_") # *very-nice*
-                anded   = _len(cs) > 1 and (cs[0] == "_" != cs[-1]) # &something    # This #\& heuristic might bite us quite well..
+                if _len(cs) > 1:
+                        starred = cs[0]  == cs[-1] == "_" # *very-nice*
+                        anded   = cs[0]  == "_" != cs[-1] # &something; This #\& heuristic might bite us quite sensibly..
+                        tailed  = cs[-1] == "_" != cs[0]  # something-in-conflict
                 pre, post, start, end = (("*", "*", 1, _len(cs) - 1) if starred else
-                                         ("&", "",  1, None)                  if anded   else
+                                         ("&", "",  1, None)         if anded   else
+                                         ("",  "",  0, _len(cs) - 1) if tailed  else
                                          ("",  "",  0, None))
                 return (pre +
                         coerce(string_,
@@ -2160,6 +2151,10 @@ def in_package(name):
 #
 # (A)
 # T
+def _make_object_like_python_function(x, function):
+        x.__doc__  = function.__doc__
+        x.__code__ = function.__code__
+        return x
 
 def fboundp(name):
         """fboundp name => generalized-boolean
@@ -2336,8 +2331,6 @@ def setf_macro_function(new_function, symbol, environment = None):
         symbol.macro_function = new_function
         return new_function
 
-# Research Issue CL-DIFFERENCE-BETWEEN-SETF-SYMBOL-FUNCTION-SETF-FDEFINITION-AND-DEFUN
-# ..because, this far, DEFMACRO wins over SETF-FDEFINITION -- only DEFUN is necessary to switch namespace..
 def setf_fdefinition(new_definition, function_name):
         """fdefinition function-name => definition
 
@@ -2368,7 +2361,7 @@ signal an error."""
         symbol.function = new_definition
         return new_definition
 
-def special_operator_p(symbol):
+def special_operator_p(symbol_):
         """Syntax:
 
 special-operator-p symbol => generalized-boolean
@@ -2387,7 +2380,7 @@ false.
 Exceptional Situations:
 
 Should signal TYPE-ERROR if its argument is not a symbol."""
-        
+        return t if _find_primitive(the(symbol, symbol_)) else nil
 
 def _warn_incompatible_function_redefinition(symbol, tons, fromns):
         style_warn("%s is being redefined as a %s when it was previously defined to be a %s.",
@@ -2404,10 +2397,15 @@ def _do_install_function_definition(x, function):
         return value
 
 def _cold_defun(f):
-        symbol_name = f.__name__
-        setf_fdefinition(f, symbol_name)
-        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        return _global(symbol_name)[0] # guaranteed to exist at this point
+        # The coldness is in:
+        #  - namespace impedance mismatch
+        #  - duplication of (SETF FDEFINITION) functionality
+        symbol_name = _python_name_lisp_symbol_name(f.__name__)
+        symbol = _intern0(symbol_name)
+        symbol.function = f
+        _make_object_like_python_function(symbol, f)
+        _setf_global(f, symbol) # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+        return symbol
 defun = _cold_defun
 
 class symbol():
@@ -2420,13 +2418,24 @@ class symbol():
                  (self.value,
                   self.function,
                   self.macro_function,
-                  self.primitive_function)) = name, None, (None, None, None, None)
+                  self.primitive_function)) = name, None, (None, nil, nil, nil)
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __call__(self, *args, **keys):
                 return symbol_function(self)(*args, **keys)
         def __bool__(self):
                 return self is not nil
+
+def _cold_make_nil():
+        nil = symbol.__new__(symbol)
+        nil.name = "NIL"
+        nil.package = None
+        (nil.value,
+         nil.function,
+         nil.macro_function,
+         nil.primitive_function) = nil, nil, nil, nil
+        return nil
+nil = _cold_make_nil()
 
 _register_astifier_for_type(symbol, False, (lambda sym:
                                              _ast_funcall("_find_symbol_or_fail",
@@ -2556,22 +2565,31 @@ def _condition_system_enabled_p():
         return (_pytracer_enabled_p() and
                 _tracer_hook("exception") is __cl_condition_handler__)
 
+
+__core_symbol_names__ = [
+        "QUOTE",
+        "ABORT", "CONTINUE", "BREAK",
+        "_OPTIONAL", "_REST", "_KEY", "_BODY", "_ALLOW_OTHER_KEYS", "_WHOLE",
+        "_RESTKEY", # pythonism
+        # Heresy!  Extensions!
+        ]
+__more_symbol_names__ = [
+        "SOME", "EVERY",
+]
 def _init_package_system_0():
-        # debug_printf("   --  -- [ package system init..")
         global __packages__
         global __builtins_package__
         global __keyword_package__
         global __modular_noise__
-        global t, nil
+        global t
         __packages__ = _dict()
         __builtins_package__ = package("BUILTINS", boot = True)
         __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
         __modular_noise__ = _frozenset(_load_text_as_module("", "").__dict__)
         cl = package("CL", use = ["BUILTINS"], boot = True)
+        nil.package = cl                             # NIL is so important it had to be made earlier.
         intern(".", cl)
-
-        t                  = _intern0("T", cl)       # Nothing much works without these..
-        nil                = _intern0("NIL", cl)
+        t                  = _intern0("T", cl)       # Nothing much works without this.
         t.value, nil.value = t, nil     # Self-evaluation.
         nil.__contains__   = lambda _: False
         nil.__getitem__    = lambda _, __: nil
@@ -2585,6 +2603,7 @@ def _init_package_system_0():
         def pythonise_core_symbol_name(x):
                 return x.lower() + "_"
         for sym in __core_symbol_names__:
+                # Unregistered Issue PACKAGE-SYSTEM-INIT-SHOULD-USE-GLOBAL-SETTER-INSTEAD-OF-CUSTOM-HACKERY
                 _sys.modules['cl'].__dict__[pythonise_core_symbol_name(sym)] = _find_symbol_or_fail(sym, cl)
         # secondary
         global star
@@ -4235,7 +4254,7 @@ def let__(bindings, *body): # Critical-issue-free.
 def macroexpand_1(form):
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
         return ((form, nil) if not _tuplep(form) else
-                _if_let((form and macro_function(form[0])[0]),
+                _if_let((form and macro_function(form[0])),
                         lambda expander:
                                 (expander(*form[1:]), t),
                         lambda:
@@ -5174,7 +5193,7 @@ def input_stream_p(x):
 def output_stream_p(x):
         return open_stream_p(x) and x.writable()
 
-class two_way_stream(stream):
+class two_way_stream(stream_):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
         def read(self, amount):
@@ -5199,7 +5218,7 @@ setq("_ERROR_OUTPUT_",    _sys.stderr)
 setq("_DEBUG_IO_",        make_two_way_stream(symbol_value("_STANDARD_INPUT_"), symbol_value("_STANDARD_OUTPUT_")))
 setq("_QUERY_IO_",        make_two_way_stream(symbol_value("_STANDARD_INPUT_"), symbol_value("_STANDARD_OUTPUT_")))
 
-class broadcast_stream(stream):
+class broadcast_stream(stream_):
         def __init__(self, *streams):
                 self.streams  = streams
         def write(self, data):
@@ -5214,25 +5233,25 @@ class broadcast_stream(stream):
 def make_broadcast_stream(*streams):  return broadcast_stream(*streams)
 def broadcast_stream_streams(stream): return stream.streams
 
-class synonym_stream(stream):
+class synonym_stream(stream_):
         def __init__(self, symbol):
                 self.symbol  = symbol
         def stream():
                 return symbol_value(self.symbol)
         def read(self, amount):
-                return stream().read(amount)
+                return self.stream().read(amount)
         def write(self, data):
-                return stream().write(data)
+                return self.stream().write(data)
         def flush(self):
-                return stream().flush()
-        def readable(self): return stream.readable()
-        def writable(self): return stream.writable()
+                return self.stream().flush()
+        def readable(self): return self.stream.readable()
+        def writable(self): return self.stream.writable()
 
 def make_synonym_stream(symbol):   return synonym_stream(symbol)
 def synonym_stream_symbol(stream): return stream.symbol
 
 def streamp(x):
-        return typep(x, stream)
+        return typep(x, stream_)
 
 def stream_external_format(stream):
         return _keyword(stream.encoding)
@@ -5242,7 +5261,7 @@ def _coerce_to_stream(x):
                 symbol_value("_STANDARD_OUTPUT_") if x is t else
                 error("%s cannot be coerced to a stream.", x))
 
-class stream_type_error(simple_condition, io.UnsupportedOperation):
+class stream_type_error(simple_condition, _io.UnsupportedOperation):
         pass
 
 def write_char(c, stream = t):
@@ -7495,7 +7514,7 @@ __sealed_classes__ = _set([object,
                                   NotImplemented, # NotImplementedType
                                   integer,        # type
                                   "".find,        # builtin_function_or_method
-                                  ast,            # module
+                                  _ast,           # module
                                   _sys.stdin,     # __io.TextIOWrapper
                                   car.__code__,   # code object
                                   _this_frame(),  # frame
