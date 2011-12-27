@@ -4385,11 +4385,15 @@ def _do_compile(name, definition = None):
                 check_type(definition, (partuple_, (eql_, lambda_), _tuple))
                 with _compilation_unit():
                         pv = pro, val = compile_(definition)
+                        # So, a bit of case analysis here:
+                        #  - either it's a LAMBDA
+                        #  - or it's a DEF
                         # Unregistered Issue SHOULD-REALLY-BE-HONEST-WITH-VALUE-IN-LISP
                         # The statement below is part of the reason why compile_ should really
                         # be called lower_.
                         stmts = mapcar(_compose(_ast_ensure_stmt, _atree_ast),
                                        remove_if(_nonep, _tuplerator(pv)))
+                        # We need the unsadulterated, RETURN-less piece here, to pass it down.
                         if _debugging_compiler_p():
                                 import more_ast
                                 _debug_printf(";;; compilation Python output for %s:\n;;;\n%s\n",
