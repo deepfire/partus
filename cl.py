@@ -2328,8 +2328,10 @@ def setf_macro_function(new_function, symbol, environment = None):
                 style_warn("%s is being redefined as a macro when it was previously defined to be a function.",
                            symbol)
                 symbol.function = nil
-        _warn_possible_redefinition(gethash("macro_function", symbol.__dict__)[0], _intern0(defmacro_))
-        symbol.macro_function = new_function
+        # T is used by DEFMACRO as a namespace toggle request token for COMPILE.
+        if symbol.macro_function is not "bonghits":
+                _warn_possible_redefinition(gethash("macro_function", symbol.__dict__)[0], _intern0(defmacro_))
+        symbol.macro_function = the((or_, (eql_, t), function_), new_function)
         return new_function
 
 def setf_fdefinition(new_definition, function_name):
@@ -2397,12 +2399,16 @@ def _do_install_function_definition(x, function):
         _make_object_like_python_function(x, function)
         return value
 
+def _read_python_def_toplevel(f):
+        symbol_name = _python_name_lisp_symbol_name(f.__name__)
+        symbol = _intern0(symbol_name)
+        return symbol, symbol_name, f.__name__
+
 def _cold_defun(f):
         # The coldness is in:
         #  - namespace impedance mismatch
         #  - duplication of (SETF FDEFINITION) functionality
-        symbol_name = _python_name_lisp_symbol_name(f.__name__)
-        symbol = _intern0(symbol_name)
+        symbol, symbol_name, _ = _read_python_def_toplevel(f)
         symbol.function = f
         _make_object_like_python_function(symbol, f)
         _setf_global(f, symbol_name) # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
@@ -4055,22 +4061,13 @@ def def_(name, lambda_list, *body, decorators = []):
                         xtnls_actual = _tuple_xtnls(result)
                 return result
 
-def _install_macro_definition(fn):
-        name = fn.__name__
-        # Unregistered Issue COMPLIANCE-GLOBAL-DEFINITIONS-ONLY-IN-CURRENT-PACKAGE
-        sym = _intern0(name)
-        setf_macro_function(fn, sym)
-        return sym
-
 @defprimitive
 def defmacro(name, lambda_list, *body):
-        # 1. Transformation
-        #   - compile_((def_, name, lambda_list) + body)
-        # 2. Compile-time side-effect (see CLHS)
-        #   - obtain the function for compiled code
-        #   - setf_macro_function()
-        return compile_((def_, name, lambda_list) + body,
-                        decorators = [(_defmacro,)])
+        setf_macro_function(t, name) # (SETF MACRO-FUNCTION) should be able to use that
+        fn, warnedp, failedp, stmts = _do_compile(the(symbol, name),
+                                                  (def_, name, lambda_list) + body)
+        return (stmts,
+                compile_((quote_, (symbol_, string(name))))[1])
 
 @defprimitive
 def let_(bindings, *body):
@@ -4357,6 +4354,7 @@ def _lisp_add_def(name, source):
         linecache.cache[__def_sources_filename__] = _len(total), _int(time.time()), total.split("\n"), __def_sources_filename__
 
 def lisp(body):
+        # Should probably be called COMPILE-TOPLEVEL
         def _intern_astsexp(x):
                 return (x.n                                        if _isinstance(x, _ast.Num)   else
                         x.s                                        if _isinstance(x, _ast.Str)   else
@@ -4374,18 +4372,92 @@ def lisp(body):
         if form[0] not in __def_allowed_toplevels__:
                 error("In LISP %s: only toplevels in %s are allowed.",
                       form[0], __def_allowed_toplevels__)
-        pve = pro, val = compile_(form)
-        # Unregistered Issue SHOULD-REALLY-BE-HONEST-WITH-VALUE-IN-LISP
-        stmts = mapcar(_compose(_ast_ensure_stmt, _atree_ast),
-                       remove_if(_nonep, _tuplerator(pve)))
-        if _debugging_compiler_p():
-                import more_ast
-                _debug_printf(";;; compilation Python output for %s:\n;;;\n%s\n",
-                              form, "".join(more_ast.pp_ast_as_code(x) for x in stmts))
-        return _ast_compiled_name(body.__name__,
-                                  *stmts,
-                                  globals_ = _globals(),
-                                  locals_  = _locals())
+        name, warnedp, failedp = compile(_intern0(body.__name__), form)
+        if failedp:
+                error("Compilation failed: errors while compiling %s.", name)
+        elif warnedp:
+                pass # Unregistered Issue LISP-TOPLEVEL-PROCESSOR-IGNORES-WARNINGS
+        return name
+
+def _do_compile(name, definition = None):
+        final_name = the(symbol, name) or gensym("ANONYMOUS") # Must has a name, as sometimes lambdas are exploded to DEFs..
+        if _tuplep(definition):
+                check_type(definition, (partuple_, (eql_, lambda_), _tuple))
+                with _compilation_unit():
+                        pv = pro, val = compile_(definition)
+                        # Unregistered Issue SHOULD-REALLY-BE-HONEST-WITH-VALUE-IN-LISP
+                        # The statement below is part of the reason why compile_ should really
+                        # be called lower_.
+                        stmts = mapcar(_compose(_ast_ensure_stmt, _atree_ast),
+                                       remove_if(_nonep, _tuplerator(pv)))
+                        if _debugging_compiler_p():
+                                import more_ast
+                                _debug_printf(";;; compilation Python output for %s:\n;;;\n%s\n",
+                                              definition, "".join(more_ast.pp_ast_as_code(x) for x in stmts))
+                        # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
+                        function = the(function_, _ast_compiled_name(final_name,
+                                                                     *stmts,
+                                                                     globals_ = _globals(),
+                                                                     locals_  = _locals()))
+                        warnings, style_warnings, errors = [], [], []
+                        for cond in _compilation_unit_conditions():
+                                if typep(cond, error_):
+                                        errors.append(cond)
+                                elif typep(cond, style_warning):
+                                        style_warnings.append(cond)
+                                elif typep(cond, warning):
+                                        warnings.append(cond)
+                        warnedp, failedp = (not not (errors or warnings or style_warnings),
+                                            not not (errors or warnings))
+        elif _nonep(definition):
+                function = the(function_, macro_function(name) or fdefinition(name))
+                warnedp, failedp = nil, nil
+                stmts = None
+        else:
+                error("Invalid input form: %s.", definition)
+        if name:
+                (setf_macro_function(function, name) if macro_function(name) else
+                 setf_fdefinition(function, name)    if fdefinition(name)    else
+                 error("Invariant missing."))
+                return (name,
+                        warnedp, failedp,
+                        stmts)
+        else:
+                return (function,
+                        warnedp, failedp,
+                        stmts)
+
+def compile(name, definition = None):
+        """compile name &optional definition => function, warnings-p, failure-p
+
+Arguments and Values:
+
+NAME---a function name, or nil.
+
+DEFINITION---a lambda expression or a function.  The default is the function definition of NAME if it names a function, or the macro function of name if it names a macro.  The consequences are undefined if no definition is supplied when the name is NIL.
+
+FUNCTION---the function-name, or a compiled function.
+
+WARNINGS-P---a generalized boolean.
+
+FAILURE-P---a generalized boolean.
+
+Description:
+
+Compiles an interpreted function.
+
+COMPILE produces a compiled function from DEFINITION.  If the definition is a lambda expression, it is coerced to a function.  If the DEFINITION is already a compiled function, COMPILE either produces that function itself (i.e., is an identity operation) or an equivalent function.
+
+If the NAME is NIL, the resulting compiled function is returned directly as the primary value.  If a non-NIL NAME is given, then the resulting compiled function replaces the existing function definition of NAME and the NAME is returned as the primary value; if NAME is a symbol that names a macro, its macro function is updated and the NAME is returned as the primary value.
+
+Literal objects appearing in code processed by the COMPILE function are neither copied nor coalesced.  The code resulting from the execution of COMPILE references objects that are EQL to the corresponding objects in the source code.
+
+COMPILE is permitted, but not required, to establish a handler for conditions of type ERROR.  For example, the handler might issue a warning and restart compilation from some implementation-dependent point in order to let the compilation proceed without manual intervention.
+
+The secondary value, WARNINGS-P, is false if no conditions of type ERROR or WARNING were detected by the compiler, and true otherwise.
+
+The tertiary value, FAILURE-P, is false if no conditions of type ERROR or WARNING (other than STYLE-WARNING) were detected by the compiler, and true otherwise."""
+        return _do_compile(name, definition)[:3]
 
 @lisp
 def fdefinition(name):

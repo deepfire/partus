@@ -706,3 +706,5 @@ Traceback (most recent call last):
 KeyError: 'gfun'
 
 Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+
+Issue SYMBOLS-MUST-BE-SHARED
