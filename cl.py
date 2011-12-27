@@ -100,10 +100,6 @@ import collections as _collections
 
 import neutrality  as _neutrality
 
-from builtins import isinstance as _isinstance, len as _len, repr as _repr
-from builtins import zip as _zip, range as _range, reversed as _reversed, enumerate as _enumerate, all as _all
-from builtins import id as _id, hasattr as _hasattr, getattr as _getattr, setattr as _setattr
-
 ###
 ### Types
 ###
@@ -156,6 +152,20 @@ reduce            = _functools.reduce
 sort              = _builtins.sorted
 _curry            = _functools.partial
 
+_isinstance       = _builtins.isinstance
+_issubclass       = _builtins.issubclass
+_len              = _builtins.len
+_repr             = _builtins.repr
+_zip              = _builtins.zip
+_range            = _builtins.range
+_reversed         = _builtins.reversed
+_enumerate        = _builtins.enumerate
+_all              = _builtins.all
+_id               = _builtins.id
+_hasattr          = _builtins.hasattr
+_getattr          = _builtins.getattr
+_setattr          = _builtins.setattr
+
 condition         = _builtins.BaseException
 error_            = _builtins.Exception
 serious_condition = _builtins.Exception
@@ -163,6 +173,7 @@ end_of_file       = _builtins.EOFError
 
 stringp           = _neutrality.stringp
 _write_string     = _neutrality._write_string
+
 
 ###
 ### Constants
@@ -1332,19 +1343,19 @@ disagreement and, as a third element, a boolean, denoting whether the
 type specifier was malformed.  Otherwise, when X is of TYPE, a
 negative boolean value is returned."""
         return (((not _isinstance(x, type)) and
-                 (x, type, False))                       if _isinstance(type, _type)            else
-                nil                                      if type is t                           else
-                _complex_type_mismatch(x, tuple([type])) if (symbolp(type) and
-                                                             type in __type_predicate_map__)    else
-                _complex_type_mismatch(x, type)          if (_tuplep(type) and type and
-                                                             type[0] in __type_predicate_map__) else
+                 (x, type, False))                        if _isinstance(type, _type)            else
+                nil                                       if type is t                           else
+                _complex_type_mismatch(x, _tuple([type])) if (symbolp(type) and
+                                                              type in __type_predicate_map__)    else
+                _complex_type_mismatch(x, type )          if (_tuplep(type) and type and
+                                                              type[0] in __type_predicate_map__) else
                 _invalid_type_specifier_error(type))
 
 def typep(x, type):
         return not _type_mismatch(x, type)
 
 def subtypep(sub, super):
-        return (issubclass(sub, super)                         if super is not t                            else
+        return (_issubclass(sub, super)                        if super is not t                            else
                 _not_implemented("complex type relatioships: %s vs. %s.",
                                  sub, super)                   if _tuplep(sub) or _tuplep(super)            else
                 error("%s is not a valid type specifier", sub) if not (typep(sub, (or_, _type, (eql_, t))) and
@@ -3716,7 +3727,7 @@ def _ast_alias(name:    string_,
 #
 
 def _anode_expression_p(x):
-        return _tuplep(x) and issubclass(_ast.__dict__(x[0]), _ast.expr)
+        return _tuplep(x) and _issubclass(_ast.__dict__(x[0]), _ast.expr)
 
 ###
 ### A rudimentary Lisp -> Python compiler
@@ -4333,6 +4344,49 @@ def _lower(form):
                               form, *pve)
         return pve
 
+def function_lambda_expression(function):
+        """function-lambda-expression function
+
+=> LAMBDA-EXPRESSION, CLOSURE-P, NAME
+
+Arguments and Values:
+
+FUNCTION---a function.
+
+LAMBDA-EXPRESSION---a lambda expression or NIL.
+
+CLOSURE-P---a generalized boolean.
+
+NAME---an object.
+
+Description:
+
+Returns information about function as follows:
+
+The primary value, LAMBDA-EXPRESSION, is function's defining lambda
+expression, or NIL if the information is not available.  The lambda
+expression may have been pre-processed in some ways, but it should
+remain a suitable argument to COMPILE or FUNCTION.  Any implementation
+may legitimately return NIL as the LAMBDA-EXPRESSION of any FUNCTION.
+
+The secondary value, CLOSURE-P, is NIL if FUNCTION's definition was
+enclosed in the null lexical environment or something non-NIL if
+FUNCTION's definition might have been enclosed in some non-null
+lexical environment.  Any implementation may legitimately return true
+as the CLOSURE-P of any function.
+
+The tertiary value, NAME, is the ``name'' of FUNCTION.  The name is
+intended for debugging only and is not necessarily one that would be
+valid for use as a name in DEFUN or FUNCTION, for example.  By
+convention, NIL is used to mean that FUNCTION has no name.  Any
+implementation may legitimately return NIL as the name of any
+FUNCTION."""
+        check_type(function, function_)
+        return values(gethash(slot, function.__dict__, default)
+                      for slot, default in [("lambda_expression", nil),
+                                            ("closure_p",         t),
+                                            ("name",              nil)])
+
 # getsource
 #   getsourcelines
 #     findsource
@@ -4359,7 +4413,7 @@ def lisp(body):
                 return (x.n                                        if _isinstance(x, _ast.Num)   else
                         x.s                                        if _isinstance(x, _ast.Str)   else
                         _read_symbol(x.id)                         if _isinstance(x, _ast.Name)  else
-                        _tuple(_intern_astsexp(e) for e in x)      if _isinstance(x, _list)     else
+                        _tuple(_intern_astsexp(e) for e in x)      if _isinstance(x, _list)      else
                         _tuple(_intern_astsexp(e) for e in x.elts) if _isinstance(x, _ast.Tuple) else
                         _intern_astsexp(x.value)                   if _isinstance(x, _ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
@@ -4380,58 +4434,6 @@ def lisp(body):
         return name
 
 def _compile(name, definition = None):
-        final_name = the(symbol, name) or gensym("ANONYMOUS") # Must has a name, as sometimes lambdas are exploded to DEFs..
-        if _tuplep(definition):
-                check_type(definition, (partuple_, (eql_, lambda_), _tuple))
-                with _compilation_unit():
-                        pv = pro, val = _lower(definition)
-                        # So, a bit of case analysis here:
-                        #  - either it's a LAMBDA
-                        #  - or it's a DEF
-                        # Unregistered Issue SHOULD-REALLY-BE-HONEST-WITH-VALUE-IN-LISP
-                        # The statement below is part of the reason why lower_ should really
-                        # be called lower_.
-                        stmts = mapcar(_compose(_ast_ensure_stmt, _atree_ast),
-                                       _tuplerator(pv))
-                        # We need the unsadulterated, RETURN-less piece here, to pass it down.
-                        if _debugging_compiler_p():
-                                import more_ast
-                                _debug_printf(";;; compilation Python output for %s:\n;;;\n%s\n",
-                                              definition, "".join(more_ast.pp_ast_as_code(x) for x in stmts))
-                        # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
-                        function = the(function_, _ast_compiled_name(final_name,
-                                                                     *stmts,
-                                                                     globals_ = _globals(),
-                                                                     locals_  = _locals()))
-                        warnings, style_warnings, errors = [], [], []
-                        for cond in _compilation_unit_conditions():
-                                if typep(cond, error_):
-                                        errors.append(cond)
-                                elif typep(cond, style_warning):
-                                        style_warnings.append(cond)
-                                elif typep(cond, warning):
-                                        warnings.append(cond)
-                        warnedp, failedp = (not not (errors or warnings or style_warnings),
-                                            not not (errors or warnings))
-        elif _nonep(definition):
-                function = the(function_, macro_function(name) or fdefinition(name))
-                warnedp, failedp = nil, nil
-                stmts = None
-        else:
-                error("Invalid input form: %s.", definition)
-        if name:
-                (setf_macro_function(function, name) if macro_function(name) else
-                 setf_fdefinition(function, name)    if fdefinition(name)    else
-                 error("Invariant missing."))
-                return (name,
-                        warnedp, failedp,
-                        stmts)
-        else:
-                return (function,
-                        warnedp, failedp,
-                        stmts)
-
-def compile(name, definition = None):
         """compile name &optional definition => function, warnings-p, failure-p
 
 Arguments and Values:
@@ -4461,6 +4463,55 @@ COMPILE is permitted, but not required, to establish a handler for conditions of
 The secondary value, WARNINGS-P, is false if no conditions of type ERROR or WARNING were detected by the compiler, and true otherwise.
 
 The tertiary value, FAILURE-P, is false if no conditions of type ERROR or WARNING (other than STYLE-WARNING) were detected by the compiler, and true otherwise."""
+        definition = (function_lambda_expression(macro_function(name) or fdefinition(name)) if not definition          else
+                      definition                                                            if functionp(definition)   else
+                      function_lambda_expression(definition)                                if not _tuplep(definition) else
+                      the((partuple_, (eql_, lambda_), _tuple), definition))
+        final_name = the(symbol, name) or gensym("ANONYMOUS") # Must has a name, as sometimes lambdas are exploded to DEFs..
+        with _compilation_unit():
+                pv = pro, val = _lower(definition)
+                if _debugging_compiler_p():
+                        import more_ast
+                        _debug_printf(";;; compilation Python output for %s:\n;;;\n%s\n",
+                                      definition, "".join(more_ast.pp_ast_as_code(x) for x in _tuplerator(pv)))
+                # So, a bit of case analysis here:
+                #  - either it's an ast.Lambda
+                #  - or it's a single ast.Def and an ast.Name as value
+                # We need the unadulterated, RETURN-less piece here, to pass it down.
+                # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
+                function = the(function_, _ast_compiled_name(final_name,
+                                                             *stmts,
+                                                             globals_ = _globals(),
+                                                             locals_  = _locals()))
+                warnings, style_warnings, errors = [], [], []
+                for cond in _compilation_unit_conditions():
+                        if typep(cond, error_):
+                                errors.append(cond)
+                        elif typep(cond, style_warning):
+                                style_warnings.append(cond)
+                        elif typep(cond, warning):
+                                warnings.append(cond)
+                warnedp, failedp = (not not (errors or warnings or style_warnings),
+                                    not not (errors or warnings))
+        elif _nonep(definition):
+                function = the(function_, )
+                warnedp, failedp = nil, nil
+                stmts = None
+        else:
+                error("Invalid input form: %s.", definition)
+        if name:
+                (setf_macro_function(function, name) if macro_function(name) else
+                 setf_fdefinition(function, name)    if fdefinition(name)    else
+                 error("Invariant missing."))
+                return (name,
+                        warnedp, failedp,
+                        stmts)
+        else:
+                return (function,
+                        warnedp, failedp,
+                        stmts)
+
+def compile(name, definition = None):
         return _compile(name, definition)[:3]
 
 @lisp
