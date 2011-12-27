@@ -3829,7 +3829,8 @@ def _lower_lispy_lambda_list(context, list_, allow_defaults = None):
 ##
 def _tuplerator(pve):
         for x in pve[0]:
-                yield x
+                if x is not None:
+                        yield x
         if pve[1] is not None:
                 yield pve[1]
 def _tuple_empty_p(pve):      return not (pve[0] or pve[1])
