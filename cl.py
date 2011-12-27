@@ -3724,7 +3724,7 @@ def _anode_expression_p(x):
 __primitive_form_compilers__ = _dict()
 def defprimitive(fn):
         name = fn.__name__
-        fn.__name__ = "compile_" + fn.__name__
+        fn.__name__ = "lower_" + fn.__name__
         sym, presentp = _global(name)
         if not presentp or not symbolp(sym):
                 sym = _intern0(name.upper())
@@ -3762,7 +3762,7 @@ def _find_primitive(x):
 ###  expression.
 ###
 
-def _compile_lispy_lambda_list(context, list_, allow_defaults = None):
+def _lower_lispy_lambda_list(context, list_, allow_defaults = None):
         if not _tuplep(list_):
                 error("In %s: lambda list must be a tuple.", list_)
         def valid_parameter_specifier_p(x): return stringp(x) or (symbolp(x) and not keywordp(x))
@@ -3919,49 +3919,48 @@ def symbol_(name):
         return ([],
                 ("Name", string(name), ("Load",)))
 
-def _compile_name(name, ctx = "Load"):
+def _lower_name(name, ctx = "Load"):
         check_type(name, (or_, str, symbol, (tuple_, (eql_, symbol_), (or_, str, symbol))))
         if _tuplep(name) and ctx != "Load":
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
-        return (compile_(name)[1] if _tuplep(name) else
-                ("Name", string(name), ctx))
+        return ("Name", string(name[1] if _tuplep(name) else name), ctx)
 
 @defprimitive # Critical-issue-free.
 def setq_(name, value):
-        pro, val = compile_(value)
-        return (pro + [("Assign", [_compile_name(name, "Store")])],
-                _compile_name(name, "Load"))
+        pro, val = lower_(value)
+        return (pro + [("Assign", [_lower_name(name, "Store")])],
+                _lower_name(name, "Load"))
 
 @defprimitive # Critical-issue-free.
 def setf_values_(names, values):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         check_type(names, _tuple)
-        pro, val = compile_(values)
-        return (pro + [("Assign", [ _compile_name(x, "Store") for x in names ],
+        pro, val = lower_(values)
+        return (pro + [("Assign", [ _lower_name(x, "Store") for x in names ],
                         val)],
-                ("Tuple", mapcar(_compile_name, names), ("Load",)))
+                ("Tuple", mapcar(_lower_name, names), ("Load",)))
 
 @defprimitive # Critical-issue-free.
 def return_(x):
         with _tail_position():
-                pro, val = compile_(x)
+                pro, val = lower_(x)
                 return (pro + [("Return", val)],
                         None)
 
 @defprimitive # Issue-free, per se.
 def quote_(x):
         with progv(_COMPILER_QUOTE_ = t):
-                return compile_(x)
+                return lower_(x)
 
 @defprimitive # imp?
 def quaquote_(x):
         with progv(_COMPILER_QUOTE_ = t):
-                return compile_(x)
+                return lower_(x)
 
 @defprimitive # imp?
 def comma_(x):
         with progv():
-                return compile_(x)
+                return lower_(x)
 
 def _compiler_prepend(pro, tuple):
         return (pro + tuple[0],
@@ -3971,17 +3970,17 @@ def _compiler_prepend(pro, tuple):
 def progn_(*body):
         if not body:
                 return ([],
-                        compile_((symbol_, "nil")))
+                        lower_((symbol_, "nil")))
         pro, ntotal = [], _len(body)
         with _no_tail_position():
-                for spro, val in (compile_(x) for x in body[:-1]):
+                for spro, val in (lower_(x) for x in body[:-1]):
                         pro.extend(spro)
                         pro.append(("Expr", val))
         with _maybe_tail_position():
                 return _compiler_prepend(pro,
-                                         compile_(body[-1]))
+                                         lower_(body[-1]))
         ## Not sure the stuff below still makes sense.  Still, am afraid to erase it.
-        # lowered_body = mapcan(compile_, body)
+        # lowered_body = mapcan(lower_, body)
         # (( body_bound_vars,  body_free_vars,  body_xtnls),
         #  (thunk_bound_vars, thunk_free_vars, thunk_xtnls)) = mapcar(_ast_bound_free, [lowered_body, thunks])
         # must_thunk = _len(lowered_body) > 1 or thunks
@@ -3992,8 +3991,8 @@ def progn_(*body):
 @defprimitive
 def if_(test, consequent, antecedent = nil):
         with _no_tail_position():
-                lo_test = pro_test, val_test = compile_(test)
-        lo_cons, lo_ante = mapcar(compile_, [consequent, antecedent])
+                lo_test = pro_test, val_test = lower_(test)
+        lo_cons, lo_ante = mapcar(lower_, [consequent, antecedent])
         ((pro_cons, val_cons),
          (pro_ante, val_ante)) = lo_cons, lo_ante
         cons_expr_p, ante_expr_p = mapcar(_tuple_expression_p, [lo_cons, lo_ante])
@@ -4004,9 +4003,9 @@ def if_(test, consequent, antecedent = nil):
                 with _gensymnames(x = "IF-BRANCH", n = 2) as name_cons, name_ante:
                         cons_branch = cons_val if cons_expr_p else (symbol_, name_cons)
                         ante_branch = ante_val if ante_expr_p else (symbol_, name_ante)
-                        return compile_((flet_, ((_tuple() if cons_expr_p else ((name_cons, _tuple()) + pro_cons + (val_cons,),),) +
-                                                 (_tuple() if ante_expr_p else ((name_ante, _tuple()) + pro_ante + (val_cons,),),)),
-                                         (if_, test, cons_branch, ante_branch)))
+                        return lower_((flet_, ((_tuple() if cons_expr_p else ((name_cons, _tuple()) + pro_cons + (val_cons,),),) +
+                                               (_tuple() if ante_expr_p else ((name_ante, _tuple()) + pro_ante + (val_cons,),),)),
+                                       (if_, test, cons_branch, ante_branch)))
 # 1. I'd rather much separate:
 #    - named lambda compilation
 #        def thunk():
@@ -4030,21 +4029,21 @@ def def_(name, lambda_list, *body, decorators = []):
                 def try_compile():
                         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                         compiled_lambda_list, (fixed, optional, rest, keys, restkey,
-                                               total) = _compile_lispy_lambda_list("DEF %s" % name, lambda_list)
+                                               total) = _lower_lispy_lambda_list("DEF %s" % name, lambda_list)
                         with _tail_position():
                                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                                pve = body_ret, _ = compile_((return_, (progn_, ) + body))
+                                pve = body_ret, _ = lower_((return_, (progn_, ) + body))
                         # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                         # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                         deco_vals = []
-                        for pro_deco, val_deco in (compile_(d) for d in decorators):
+                        for pro_deco, val_deco in (lower_(d) for d in decorators):
                                 if pro_deco:
                                         error("in DEF %s: decorators must lower to python expressions.", name)
                                 
                         return ([("FunctionDef", string(name), compiled_lambda_list,
                                                  body_ret,
                                                  deco_vals)],
-                                compile_((quote_, (symbol_, string(name))))[1])
+                                lower_((quote_, (symbol_, string(name))))[1])
                 ## Xtnls feedback loop stabilisation scheme.
                 ##
                 ## This looks fairly ridiculous, but that reality for you:
@@ -4064,10 +4063,10 @@ def def_(name, lambda_list, *body, decorators = []):
 @defprimitive
 def defmacro(name, lambda_list, *body):
         setf_macro_function(t, name) # (SETF MACRO-FUNCTION) should be able to use that
-        fn, warnedp, failedp, stmts = _do_compile(the(symbol, name),
-                                                  (def_, name, lambda_list) + body)
+        fn, warnedp, failedp, stmts = _compile(the(symbol, name),
+                                               (def_, name, lambda_list) + body)
         return (stmts,
-                compile_((quote_, (symbol_, string(name))))[1])
+                lower_((quote_, (symbol_, string(name))))[1])
 
 @defprimitive
 def let_(bindings, *body):
@@ -4083,7 +4082,7 @@ def let_(bindings, *body):
         # Unregistered Issue PRIMITIVE-DECLARATIONS
         bindings_thru_defaulting = _tuple(_ensure_cons(b, nil) for b in bindings)
         names, values = _recombine((_list, _list), identity, bindings_thru_defaulting)
-        compiled_value_pves = mapcar(compile_, values)
+        compiled_value_pves = mapcar(lower_, values)
         ## A great optimisation, but mutation can affect:
         ##  - scope of called outside functions
         ##    - cannot optimize if body could jump to local code depending on mutated locals
@@ -4099,32 +4098,32 @@ def let_(bindings, *body):
         #                                 (_compiling_def().xtnls & _set(names))):
         #         with _no_tail_position():
         #                 # Consciously discarding the values returned by (SETF VALUES)
-        #                 bind_pro, _ = compile_((setf_values_,
-        #                                         [ car(x) for x in bindings_thru_defaulting ],
-        #                                         ("tuple",) + _tuple(cdr(x) for x in bindings_thru_defaulting)))
+        #                 bind_pro, _ = lower_((setf_values_,
+        #                                       [ car(x) for x in bindings_thru_defaulting ],
+        #                                       ("tuple",) + _tuple(cdr(x) for x in bindings_thru_defaulting)))
         #         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-        #         body_pro, body_val = compile_((progn_,) + body)
+        #         body_pro, body_val = lower_((progn_,) + body)
         #         return (bind_pro + body_pro,
         #                 body_val)
         if every(_tuple_expression_p, compiled_value_pves):
-                return compile_(((lambda_, binding_thru_defaulting) + body,))
+                return lower_(((lambda_, binding_thru_defaulting) + body,))
         else:
                 last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
                 n_nonexprs = last_non_expr_posn + 1
                 temp_names = [ _gensym("LET") for i in _range(_len(bindings)) ]
                 # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
-                return compile_((progn_,) +
-                                _tuple((setq_, n, v) for n, v in _zip(temp_names, values[:n_nonexprs])) +
-                                ((let_, _tuple(_zip(names[:n_nonexprs], temp_names)),
-                                  ((lambda_, _tuple(_zip(names, temp_names + values[n_nonexprs:]))) + body,)),))
+                return lower_((progn_,) +
+                              _tuple((setq_, n, v) for n, v in _zip(temp_names, values[:n_nonexprs])) +
+                              ((let_, _tuple(_zip(names[:n_nonexprs], temp_names)),
+                                ((lambda_, _tuple(_zip(names, temp_names + values[n_nonexprs:]))) + body,)),))
 
 @defprimitive
 def unwind_protect_(form, *unwind_body):
         if not unwind_body:
-                return compile_(form)
+                return lower_(form)
         temp_name = gensym("PROTECTED-FORM-VALUE")
-        pro_form, val_form = compile_((setq_, temp_name, form))
-        pro_unwind, val_unwind = compile_((progn,) + unwind_body)
+        pro_form, val_form = lower_((setq_, temp_name, form))
+        pro_unwind, val_unwind = lower_((progn,) + unwind_body)
         return ([("TryFinally",
                   # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
                   pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
@@ -4136,14 +4135,14 @@ def unwind_protect_(form, *unwind_body):
 def funcall_(func, *args):
         # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
         if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
-                          # - quote_ compilation in compile_
+                          # - quote_ compilation in lower_
                 func_pro, func_val = ([],
                                       ("Name", func, ("Load",)))
         else:
                 with _no_tail_position():
-                        func_pro, func_val = compile_(func)
+                        func_pro, func_val = lower_(func)
         with _no_tail_position():
-                arg_pves = mapcar(compile_, args)
+                arg_pves = mapcar(lower_, args)
         if every(_tuple_expression_p, arg_pves):
                 return (func_pro,
                         ("Call", func_val, mapcar(second, arg_pves), []))
@@ -4156,8 +4155,8 @@ def funcall_(func, *args):
                                 func_name = _gensym("FUNCALL-FUNCNAME")
                                 func_binding, func_exp = (((func_name, func),),
                                                           (symbol_, func_name))
-                        return compile_((let_, func_binding + _tuple(_zip(temp_names, args)),
-                                         (funcall_, func_exp) + _tuple()))
+                        return lower_((let_, func_binding + _tuple(_zip(temp_names, args)),
+                                       (funcall_, func_exp) + _tuple()))
 
 @defprimitive # Critical issue-free.
 def flet_(bindings, *body):
@@ -4166,9 +4165,9 @@ def flet_(bindings, *body):
         # Unregistered Issue SINGLE-NAMESPACE
         if not _every(_of_type((partuple_, symbol, _tuple))):
                 error("FLET: malformed bindings: %s.", bindings)
-        return compile_((let_, _tuple((name, (fdefinition_, (def_, _gensym(string(name)), lambda_list) + fbody))
-                                      for name, lambda_list, *fbody in bindings)) +
-                         body)
+        return lower_((let_, _tuple((name, (fdefinition_, (def_, _gensym(string(name)), lambda_list) + fbody))
+                                    for name, lambda_list, *fbody in bindings)) +
+                       body)
 
 @defprimitive # Critical-issue-free.
 def lambda_(lambda_list, *body):
@@ -4176,16 +4175,16 @@ def lambda_(lambda_list, *body):
         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
         # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
         # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
-        preliminary_body_pve = compile_((progn_), + body)
+        preliminary_body_pve = lower_((progn_), + body)
         body_exprp = _tuple_expression_p(preliminary_body_pve)
         if body_exprp:
-                compiled_arguments, _ = _compile_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
+                compiled_arguments, _ = _lower_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
                 return ([],
                         ("Lambda", compiled_arguments, preliminary_body_pve[1]))
         else:
                 func_name = _gensymname("LET-BODY-")
-                return compile_((flet_, ((func_name, lambda_list) + body,),
-                                 (symbol_, func_name)))
+                return lower_((flet_, ((func_name, lambda_list) + body,),
+                               (symbol_, func_name)))
 
 @defprimitive # Critical-issue-free, per se, but depends on DEF_.
 def labels_(bindings, *body):
@@ -4195,11 +4194,11 @@ def labels_(bindings, *body):
         if not _every(_of_type((partuple_, symbol, _tuple))):
                 error("LABELS: malformed bindings: %s.", bindings)
         temp_name = _gensym("LABELS")
-        return compile_((flet, ((temp_name, _tuple(),
-                                 _tuple((def_, name, lambda_list, body)
-                                        for name, lambda_list, *body in bindings) +
-                                 body)),
-                         (funcall_, temp_name)))
+        return lower_((flet, ((temp_name, _tuple(),
+                               _tuple((def_, name, lambda_list, body)
+                                      for name, lambda_list, *body in bindings) +
+                               body)),
+                       (funcall_, temp_name)))
 
 ## Good news: our LET* will be honest:
 # >>> def let0():
@@ -4227,19 +4226,19 @@ def let__(bindings, *body): # Critical-issue-free.
                 error("LET*: malformed bindings: %s.", bindings)
         # Unregistered Issue PRIMITIVE-DECLARATIONS
         if not bindings:
-                return compile_((progn_,) + body)
+                return lower_((progn_,) + body)
         else:
-                return compile_((let_, bindings[:1],
-                                 (let__, bindings[1:]) + body))
+                return lower_((let_, bindings[:1],
+                               (let__, bindings[1:]) + body))
 
 ## Honest DEFUN, with real keyword arguments, is out of scope for now.
 # @defprimitive
 # def defun(name, lambda_list, *body):
-#         def compile_lambda_list(x):
+#         def _lower_lispy_lambda_list(x):
 #                 return ("arguments",
 #                         )
-#         return ("FunctionDef", name, compile_lambda_list(lambda_list),
-#                 mapcar(compile_, body),
+#         return ("FunctionDef", name, lower_lispy_lambda_list(lambda_list),
+#                 mapcar(lower_, body),
 #                 []) # no decorators and no return annotation
 
 # How is it do be determined, that a form must be passed through?
@@ -4269,7 +4268,7 @@ def macroexpand(form):
 if probe_file("/home/deepfire/.partus-debug-compiler"):
         _debug_compiler()
 # Urgent Issue COMPILER-MACRO-SYSTEM
-def compile_(form):
+def lower_(form):
         # - tail position tracking
         # - scopes
         # - symbols not terribly clear
@@ -4379,20 +4378,20 @@ def lisp(body):
                 pass # Unregistered Issue LISP-TOPLEVEL-PROCESSOR-IGNORES-WARNINGS
         return name
 
-def _do_compile(name, definition = None):
+def _compile(name, definition = None):
         final_name = the(symbol, name) or gensym("ANONYMOUS") # Must has a name, as sometimes lambdas are exploded to DEFs..
         if _tuplep(definition):
                 check_type(definition, (partuple_, (eql_, lambda_), _tuple))
                 with _compilation_unit():
-                        pv = pro, val = compile_(definition)
+                        pv = pro, val = lower_(definition)
                         # So, a bit of case analysis here:
                         #  - either it's a LAMBDA
                         #  - or it's a DEF
                         # Unregistered Issue SHOULD-REALLY-BE-HONEST-WITH-VALUE-IN-LISP
-                        # The statement below is part of the reason why compile_ should really
+                        # The statement below is part of the reason why lower_ should really
                         # be called lower_.
                         stmts = mapcar(_compose(_ast_ensure_stmt, _atree_ast),
-                                       remove_if(_nonep, _tuplerator(pv)))
+                                       _tuplerator(pv))
                         # We need the unsadulterated, RETURN-less piece here, to pass it down.
                         if _debugging_compiler_p():
                                 import more_ast
@@ -4461,7 +4460,7 @@ COMPILE is permitted, but not required, to establish a handler for conditions of
 The secondary value, WARNINGS-P, is false if no conditions of type ERROR or WARNING were detected by the compiler, and true otherwise.
 
 The tertiary value, FAILURE-P, is false if no conditions of type ERROR or WARNING (other than STYLE-WARNING) were detected by the compiler, and true otherwise."""
-        return _do_compile(name, definition)[:3]
+        return _compile(name, definition)[:3]
 
 @lisp
 def fdefinition(name):
