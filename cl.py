@@ -141,6 +141,7 @@ _list             = _builtins.list
 _tuple            = _builtins.tuple
 _dict             = _builtins.dict
 _str              = _builtins.str
+_int              = _builtins.int
 _bytes            = _builtins.bytes
 _bytearray        = _builtins.bytearray
 _set              = _builtins.set
@@ -2404,7 +2405,7 @@ def _cold_defun(f):
         symbol = _intern0(symbol_name)
         symbol.function = f
         _make_object_like_python_function(symbol, f)
-        _setf_global(f, symbol) # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
+        _setf_global(f, symbol_name) # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
         return symbol
 defun = _cold_defun
 
@@ -2722,13 +2723,13 @@ def _read_symbol(x, package = None, case = _keyword("upcase")):
 ###
 
 def make_string_output_stream():
-        return io.StringIO()
+        return _io.StringIO()
 
 def get_output_stream_string(x):
         return x.getvalue()
 
 def make_string_input_stream(x):
-        return io.StringIO(x)
+        return _io.StringIO(x)
 
 def close(x):
         x.close()
@@ -4724,7 +4725,7 @@ elements of the string are printed."""
         escape   = _defaulted_to_var(escape,   "_PRINT_ESCAPE_") if not readably else t
         return (x if not escape else
                 ("\"" + _without_condition_system(
-                                lambda: re.sub(r"([\"\\])", r"\\\1", x),
+                                lambda: _re.sub(r"([\"\\])", r"\\\1", x),
                                 reason = "re.sub") +
                  "\""))
 
@@ -4978,10 +4979,10 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
         def read_number_or_symbol():
                 token = read_token()
                 handle_short_read_if(not token)
-                if _without_condition_system(lambda: re.match("^[0-9]+$", token),
+                if _without_condition_system(lambda: _re.match("^[0-9]+$", token),
                                              reason = "re.match"):
                         ret = _int(token)
-                elif _without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token),
+                elif _without_condition_system(lambda: _re.match("^[0-9]+\\.[0-9]+$", token),
                                                reason = "re.match"):
                         ret = _builtins.float(token)
                 else:
@@ -5117,10 +5118,10 @@ def read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whit
                 return ret
         def read_number_or_symbol():
                 token = read_token()
-                if _without_condition_system(lambda: re.match("^[0-9]+$", token),
+                if _without_condition_system(lambda: _re.match("^[0-9]+$", token),
                                              reason = "re.match"):
                         ret = _int(token)
-                elif _without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token),
+                elif _without_condition_system(lambda: _re.match("^[0-9]+\\.[0-9]+$", token),
                                                reason = "re.match"):
                         ret = _builtins.float(token)
                 else:
@@ -5276,7 +5277,7 @@ def write_string(string, stream = t):
                 def handler():
                         try:
                                 return _write_string(string, _coerce_to_stream(stream))
-                        except io.UnsupportedOperation as cond:
+                        except _io.UnsupportedOperation as cond:
                                 error(stream_type_error, "%s is not an %s stream: \"%s\".",
                                       stream, ("output" if cond.args[0] == "not writable" else
                                                "adequate"),
