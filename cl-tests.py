@@ -271,7 +271,7 @@ print("READ-EOF-ERROR-P-NIL: passed")
 # def foo():
 #         pass
 
-@defgeneric
+@defgeneric()
 def gfun(x):
         pass
 

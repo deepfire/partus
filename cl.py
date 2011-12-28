@@ -462,7 +462,7 @@ def _specifiedp(x):
         return x is not None
 
 def _defaulted(x, value, type = None):
-        if type is not None:
+        if x is not None and type is not None:
                 check_type(x, type) # Not a macro, so cannot access the actual defaulted name..
         return x if x is not None else value
 
@@ -470,7 +470,8 @@ def _defaulted_to_var(x, variable, type = None):
         return _defaulted(x, symbol_value(variable), type = type)
 
 def _only_specified_keys(**keys):
-        return _dict(((k, v) for k, v in keys if _specifiedp(k)))
+        return _dict(((k, v) for k, v in keys.items()
+                      if _specifiedp(k)))
 
 def _read_case_xformed(x):
         return _case_xform(_symbol_value("_READ_CASE_"), x)
@@ -6193,7 +6194,7 @@ def class_of(x):
 
 class standard_object():
         def __init__(self, **initargs):
-                super().__init__(**initargs)
+                super().__init__() # Unregistered Issue PYTHON-OBJECT-DOES-NOT-ACCEPT-ARGUMENTS-BUT-SEE-SUPER-CONSIDERED-HARMFUL
                 initialize_instance(self, **initargs)
 
 def make_instance(class_, **keys):
@@ -6570,7 +6571,7 @@ code:
         # Unregistered Issue COMPLIANCE-UPDATE-DEPENDENT-DOES-NOT-REALLY-DO-ANYTHING
         pass
 
-class method_combination():
+class method_combination_():
         "All method combinations are of this type."
 
 class standard_method(method):
@@ -6745,10 +6746,12 @@ the specified initialization has taken effect."""
                 if not _specifiedp(lambda_list):
                         error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER "
                               "was provided, but :LAMBDA-LIST was not.")
-                elif not (_listp(argument) and
+                elif not (_listp(argument_precedence_order) and
                           _set(argument_precedence_order) == _set(lambda_list[0])):
                         error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER, "
-                              "when specified, must be a permutation of fixed arguments in :LAMBDA-LIST.")
+                              "when specified, must be a permutation of fixed arguments in :LAMBDA-LIST.  "
+                              "Was: %s;  fixed LAMBDA-LIST args: %s.",
+                              argument_precedence_order, lambda_list[0])
                 generic_function.argument_precedence_order = _tuple(argument_precedence_order)
         elif _specifiedp(lambda_list):
                 generic_function.argument_precedence_order = _tuple(lambda_list[0])
@@ -6761,7 +6764,7 @@ the specified initialization has taken effect."""
                 # XXX: _not_implemented("lambda-list validation")
                 generic_function.lambda_list = lambda_list
         generic_function.method_combination  = _defaulted(method_combination, standard_method_combination,
-                                                          type = method_combination)
+                                                          type = method_combination_)
         generic_function.method_class        = _defaulted(method_class, standard_method,
                                                           type = _type) # method metaclass
         generic_function.name                = _defaulted(name, nil)
@@ -7914,7 +7917,7 @@ GENERIC-FUNCTION argument is then returned."""
         # Unregistered Issue COMPLIANCE-GENERIC-FUNCTION-REINITIALIZE-INSTANCE-SURROGATE-CALLED
         ###
         ### First step, "compute the set of initialization arguments":
-        if gfun:
+        if generic_function:
                 # DEFGENERIC (CLHS) documentation speaks so about method removal/addition:
                 ## The effect of the DEFGENERIC macro is as if the following three steps
                 ## were performed: first, methods defined by previous DEFGENERIC forms
@@ -7928,9 +7931,10 @@ GENERIC-FUNCTION argument is then returned."""
                 ## is called, it immediately calls ENSURE-GENERIC-FUNCTION-USING-CLASS and
                 ## returns that result as its own.
                 # ..and so, we decide that AMOP trumps CLHS.
-                mapc(curry(remove_method, gfun), generic_function_methods(gfun))
+                mapc(curry(remove_method, generic_function),
+                     generic_function_methods(generic_function))
         if lambda_list:
-                fixed, optional, args, keyword, keys = lambda_list
+                fixed, optional, args, keyword, kwarg = lambda_list
                 if some(lambda x: x[1] is not None, _list(optional) + _list(keyword)):
                         error("Generic function arglist cannot specify default parameter values.")
         initargs = _only_specified_keys(
@@ -8018,7 +8022,7 @@ ENSURE-GENERIC-FUNCTION."""
         return ensure_generic_function_using_class(maybe_gfun, function_name, **keys)
 
 def defgeneric(_ = None,
-               argument_precedence_order = _keyword("most-specific-first"),
+               argument_precedence_order = None,
                documentation = None,
                method_combination = standard_method_combination,
                generic_function_class = standard_generic_function,
