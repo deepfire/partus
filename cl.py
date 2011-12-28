@@ -226,6 +226,9 @@ def char_downcase(x):     return x.lower()
 def upper_case_p(x):      return x.isupper()
 def lower_case_p(x):      return x.islower()
 
+def make_hash_table():
+        return _dict()
+
 def gethash(key, dict, default = None):
         therep = key in dict
         return (dict.get(key) if therep else default), therep
@@ -576,10 +579,10 @@ def _ast_module(body, lineno = 0):
                           lineno = lineno)
 
 def _ast_import(*names):
-        return _ast.Import(names = mapcar(ast_alias, the((list_, str), names)))
+        return _ast.Import(names = mapcar(ast_alias, the((list_, string_), names)))
 def _ast_import_from(module_name, names):
         return _ast.ImportFrom(module = the(string_, module_name),
-                              names = mapcar(_ast_alias, the((list_, str), names)),
+                              names = mapcar(_ast_alias, the((list_, string_), names)),
                               level = 0)
 
 def _ast_assign(to, value):
@@ -681,7 +684,7 @@ def _reregister_module_as_package(mod, parent_package = None):
         if packagep:
                 mod.__children__ = _set()
 
-def _compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
+def _py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
         return _load_code_object_as_module(
                 modname,
                 _builtins.compile(_ast.fix_missing_locations(_ast_module(list(body), lineno = lineno)), filename, "exec"),
@@ -690,7 +693,7 @@ def _compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
                 **keys)
 
 def _ast_compiled_name(name, *body, **keys):
-        mod, globals, locals = _compile_and_load(*body, **keys)
+        mod, globals, locals = _py_compile_and_load(*body, **keys)
         return locals[name]
 
 ##
@@ -805,7 +808,7 @@ def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_lin
                                      if not pretty else
                                      ("%s%s@%s:%d",
                                       _fun_name(fun),
-                                      (":" + _str(_frame_lineno(f) - _fun_firstlineno(fun))) if print_fun_line else "",
+                                      (":" + _py.str(_frame_lineno(f) - _fun_firstlineno(fun))) if print_fun_line else "",
                                       _fun_filename(fun),
                                       _frame_lineno(f))))
         return ("..".join(mapcar(lambda f: _pp_frame_in_chain(f, t), xs) if all_pretty else
@@ -883,7 +886,7 @@ def _example_frame():
 #                        "== co %s\n  %s\n== def %s\n  %s\n" %
 #                        (f, listattr(f), cl._fun_name(cl._frame_fun(f)), listattr(cl._frame_fun(f))),
 #                        cl._frames_calling(cl._example_frame())))
-#                 (lambda x: "\n  ".join(map(lambda s: s + ": " + _str(getattr(x, s)),
+#                 (lambda x: "\n  ".join(map(lambda s: s + ": " + _py.str(getattr(x, s)),
 #                                            cl.remove_if(lambda attr: "__" in attr or "builtins" in attr or "locals" in attr or "globals" in attr,
 #                                                         dir(x)))))))
 
@@ -1185,7 +1188,7 @@ def _gensymname(x = "N"):
         # Unregistered Issue GENSYM-NOT-THREAD-SAFE
         global __gensym_counter__
         __gensym_counter__ += 1
-        return x + _str(__gensym_counter__)
+        return x + _py.str(__gensym_counter__)
 def gensym(x = "G"):
         return make_symbol(_gensymname(x))
 
@@ -2254,6 +2257,12 @@ class _cold_undefined_function(error_):
                 return self.__str__()
 undefined_function = _cold_undefined_function
 
+def _symbol_function(symbol):
+        return (symbol.primitive_function                        or
+                symbol.macro_function                            or
+                (functionp(symbol.function) and symbol.function) or
+                error(undefined_function, symbol))
+
 def symbol_function(symbol_):
         """symbol-function symbol => contents
 
@@ -2286,10 +2295,7 @@ Should signal an error of type TYPE-ERROR if SYMBOL is not a symbol.
 Should signal UNDEFINED-FUNCTION if SYMBOL is not fbound and an
 attempt is made to read its definition. (No such error is signaled on
 an attempt to write its definition.)"""
-        return (the(symbol, symbol_).primitive_function or
-                symbol_.macro_function                  or
-                the(function_, symbol_.function)        or
-                error(undefined_function, symbol_))
+        return _symbol_function(the(symbol, symbol_))
 
 def macro_function(symbol_, environment = None):
         """macro-function symbol &optional environment => function
@@ -2430,7 +2436,7 @@ class symbol():
         def __str__(self):
                 return _print_symbol(self)
         def __repr__(self):
-                return _str(self)
+                return _py.str(self)
         def __init__(self, name):
                 (self.name, self.package,
                  (self.value,
@@ -2440,7 +2446,7 @@ class symbol():
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __call__(self, *args, **keys):
-                return symbol_function(self)(*args, **keys)
+                return _symbol_function(self)(*args, **keys)
         def __bool__(self):
                 return self is not nil
 
@@ -2856,11 +2862,11 @@ def lambda_list_(x, type):
         if type:
                 return (x, type, True) # fail
         return typep(x, (tuple_,
-                         (list_, _str),
-                         (list_, _str),
-                         (maybe_, _str),
-                         (list_, _str),
-                         (maybe_, _str)))
+                         (list_, string_),
+                         (list_, string_),
+                         (maybe_, string_),
+                         (list_, string_),
+                         (maybe_, string_)))
 
 def deftype(name, test):
         "XXX: should analyse the lambda list of TEST.."
@@ -3992,7 +3998,7 @@ def progn_(*body):
                 return _compiler_prepend(pro,
                                          _lower(body[-1]))
         ## Not sure the stuff below still makes sense.  Still, am afraid to erase it.
-        # lowered_body = mapcan(lower_, body)
+        # lowered_body = mapcan(_lower, body)
         # (( body_bound_vars,  body_free_vars,  body_xtnls),
         #  (thunk_bound_vars, thunk_free_vars, thunk_xtnls)) = mapcar(_ast_bound_free, [lowered_body, thunks])
         # must_thunk = _len(lowered_body) > 1 or thunks
@@ -4004,7 +4010,7 @@ def progn_(*body):
 def if_(test, consequent, antecedent = nil):
         with _no_tail_position():
                 lo_test = pro_test, val_test = _lower(test)
-        lo_cons, lo_ante = mapcar(lower_, [consequent, antecedent])
+        lo_cons, lo_ante = mapcar(_lower, [consequent, antecedent])
         ((pro_cons, val_cons),
          (pro_ante, val_ante)) = lo_cons, lo_ante
         cons_expr_p, ante_expr_p = mapcar(_tuple_expression_p, [lo_cons, lo_ante])
@@ -4074,10 +4080,10 @@ def def_(name, lambda_list, *body, decorators = []):
 
 @defprimitive
 def defmacro(name, lambda_list, *body):
-        setf_macro_function(t, name) # (SETF MACRO-FUNCTION) should be able to use that
-        fn, warnedp, failedp, stmts = _compile(the(symbol, name),
-                                               (def_, name, lambda_list) + body)
-        return (stmts,
+        setf_macro_function(t, name) # COMPILE should be able to use that
+        fn, warnedp, failedp, [macfundef] = _compile(the(symbol, name),
+                                                      (lambda_, lambda_list) + body)
+        return ([the((varituple_, (eql_, def_), _tuple), macfundef)],
                 _lower((quote_, (symbol_, string(name))))[1])
 
 @defprimitive
@@ -4094,7 +4100,7 @@ def let_(bindings, *body):
         # Unregistered Issue PRIMITIVE-DECLARATIONS
         bindings_thru_defaulting = _tuple(_ensure_cons(b, nil) for b in bindings)
         names, values = _recombine((_list, _list), identity, bindings_thru_defaulting)
-        compiled_value_pves = mapcar(lower_, values)
+        compiled_value_pves = mapcar(_lower, values)
         ## A great optimisation, but mutation can affect:
         ##  - scope of called outside functions
         ##    - cannot optimize if body could jump to local code depending on mutated locals
@@ -4154,7 +4160,7 @@ def funcall_(func, *args):
                 with _no_tail_position():
                         func_pro, func_val = _lower(func)
         with _no_tail_position():
-                arg_pves = mapcar(lower_, args)
+                arg_pves = mapcar(_lower, args)
         if every(_tuple_expression_p, arg_pves):
                 return (func_pro,
                         ("Call", func_val, mapcar(second, arg_pves), []))
@@ -4250,7 +4256,7 @@ def let__(bindings, *body): # Critical-issue-free.
 #                 return ("arguments",
 #                         )
 #         return ("FunctionDef", name, lower_lispy_lambda_list(lambda_list),
-#                 mapcar(lower_, body),
+#                 mapcar(_lower, body),
 #                 []) # no decorators and no return annotation
 
 # How is it do be determined, that a form must be passed through?
@@ -4381,8 +4387,7 @@ valid for use as a name in DEFUN or FUNCTION, for example.  By
 convention, NIL is used to mean that FUNCTION has no name.  Any
 implementation may legitimately return NIL as the name of any
 FUNCTION."""
-        check_type(function, function_)
-        return values(gethash(slot, function.__dict__, default)
+        return values(gethash(slot, the(function_, function).__dict__, default)[0]
                       for slot, default in [("lambda_expression", nil),
                                             ("closure_p",         t),
                                             ("name",              nil)])
@@ -4417,21 +4422,30 @@ def lisp(body):
                         _tuple(_intern_astsexp(e) for e in x.elts) if _isinstance(x, _ast.Tuple) else
                         _intern_astsexp(x.value)                   if _isinstance(x, _ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
+        symbol, symbol_name, python_name = _read_python_def_toplevel(body)
         args_ast, body_ast = _function_ast(body)
         if _len(body_ast) > 1:
                 error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
-                      "No more than one toplevel form is allowed per definition.")
+                      "No more than one toplevel form is allowed per definition.", symbol)
         form = _intern_astsexp(body_ast[0])
-        __def_allowed_toplevels__ = _set([def_])
+        __def_allowed_toplevels__ = _set([def_, defmacro])
         if form[0] not in __def_allowed_toplevels__:
                 error("In LISP %s: only toplevels in %s are allowed.",
                       form[0], __def_allowed_toplevels__)
-        name, warnedp, failedp = compile(_intern0(body.__name__), form)
+        name, warnedp, failedp, _ = _compile_toplevel_def(symbol, form,
+                                                          globalp = t,
+                                                          macrop = form[0] is defmacro,
+                                                          lambda_expression = (lambda_,) + form[1:])
         if failedp:
                 error("Compilation failed: errors while compiling %s.", name)
         elif warnedp:
                 pass # Unregistered Issue LISP-TOPLEVEL-PROCESSOR-IGNORES-WARNINGS
         return name
+
+def compile(name, definition = None):
+        # Multiple values would have reduced, if not obviated, the need for such..
+        # Research Issue COMPLIANCE-SPECIFIED-FUNCTIONS-RETURNING-ADDITIONAL-VALUES
+        return _compile(name, definition)[:3]
 
 def _compile(name, definition = None):
         """compile name &optional definition => function, warnings-p, failure-p
@@ -4440,7 +4454,10 @@ Arguments and Values:
 
 NAME---a function name, or nil.
 
-DEFINITION---a lambda expression or a function.  The default is the function definition of NAME if it names a function, or the macro function of name if it names a macro.  The consequences are undefined if no definition is supplied when the name is NIL.
+DEFINITION---a lambda expression or a function.  The default is the
+function definition of NAME if it names a function, or the macro
+function of name if it names a macro.  The consequences are undefined
+if no definition is supplied when the name is NIL.
 
 FUNCTION---the function-name, or a compiled function.
 
@@ -4452,39 +4469,83 @@ Description:
 
 Compiles an interpreted function.
 
-COMPILE produces a compiled function from DEFINITION.  If the definition is a lambda expression, it is coerced to a function.  If the DEFINITION is already a compiled function, COMPILE either produces that function itself (i.e., is an identity operation) or an equivalent function.
+COMPILE produces a compiled function from DEFINITION.  If the
+definition is a lambda expression, it is coerced to a function.  If
+the DEFINITION is already a compiled function, COMPILE either produces
+that function itself (i.e., is an identity operation) or an equivalent
+function.
 
-If the NAME is NIL, the resulting compiled function is returned directly as the primary value.  If a non-NIL NAME is given, then the resulting compiled function replaces the existing function definition of NAME and the NAME is returned as the primary value; if NAME is a symbol that names a macro, its macro function is updated and the NAME is returned as the primary value.
+If the NAME is NIL, the resulting compiled function is returned
+directly as the primary value.  If a non-NIL NAME is given, then the
+resulting compiled function replaces the existing function definition
+of NAME and the NAME is returned as the primary value; if NAME is a
+symbol that names a macro, its macro function is updated and the NAME
+is returned as the primary value.
 
-Literal objects appearing in code processed by the COMPILE function are neither copied nor coalesced.  The code resulting from the execution of COMPILE references objects that are EQL to the corresponding objects in the source code.
+Literal objects appearing in code processed by the COMPILE function
+are neither copied nor coalesced.  The code resulting from the
+execution of COMPILE references objects that are EQL to the
+corresponding objects in the source code.
 
-COMPILE is permitted, but not required, to establish a handler for conditions of type ERROR.  For example, the handler might issue a warning and restart compilation from some implementation-dependent point in order to let the compilation proceed without manual intervention.
+COMPILE is permitted, but not required, to establish a handler for
+conditions of type ERROR.  For example, the handler might issue a
+warning and restart compilation from some implementation-dependent
+point in order to let the compilation proceed without manual
+intervention.
 
-The secondary value, WARNINGS-P, is false if no conditions of type ERROR or WARNING were detected by the compiler, and true otherwise.
+The secondary value, WARNINGS-P, is false if no conditions of type
+ERROR or WARNING were detected by the compiler, and true otherwise.
 
-The tertiary value, FAILURE-P, is false if no conditions of type ERROR or WARNING (other than STYLE-WARNING) were detected by the compiler, and true otherwise."""
-        definition = (function_lambda_expression(macro_function(name) or fdefinition(name)) if not definition          else
-                      definition                                                            if functionp(definition)   else
-                      function_lambda_expression(definition)                                if not _tuplep(definition) else
-                      the((partuple_, (eql_, lambda_), _tuple), definition))
-        final_name = the(symbol, name) or gensym("ANONYMOUS") # Must has a name, as sometimes lambdas are exploded to DEFs..
+The tertiary value, FAILURE-P, is false if no conditions of type ERROR
+or WARNING (other than STYLE-WARNING) were detected by the compiler,
+and true otherwise."""
+        if _tuplep(definition):
+                lambda_expression = check_type(definition, (partuple_, (eql_, lambda_), _tuple))
+        else:
+                fun = definition or macro_function(name) or fdefinition(name)
+                lambda_expression, _, _ = function_lambda_expression(fun)
+                if not definition:
+                        # Not much we can do, but return the original function.
+                        return fun, nil, nil, nil
+        final_name = the(symbol, name) or gensym("compiled_lambda")
+        # Must has a name, for two reasons:
+        #  - _ast_compiled_name() requires one
+        #  - THERE-EXIST lambdas non-expressible in Python
+        # Coerce the lambda to a named def, for _ast_compiled_name purposes:
+        form = (def_, final_name) + lambda_expression[1:]
+        if name:
+                # The load-time effect must establish an appropriate definition.
+                macrop = not not macro_function(name)
+                form = (decorate_, ((attr_, (symbol_, "cl"),
+                                            (symbol_, (_install_macro_definition if macrop else
+                                                       _install_function_definition))),),
+                        form)
+        return _compile_toplevel_def(final_name, form,
+                                     globalp = name,
+                                     macrop = name and macrop,
+                                     lambda_expression = lambda_expression)
+
+def _compile_toplevel_def(name, form, globalp = nil, macrop = nil, lambda_expression = None):
         with _compilation_unit():
-                pv = pro, val = _lower(definition)
+                pv = pro, _ = _lower(form)
+                pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(pv))
                 if _debugging_compiler_p():
                         import more_ast
                         _debug_printf(";;; compilation Python output for %s:\n;;;\n%s\n",
-                                      definition, "".join(more_ast.pp_ast_as_code(x) for x in _tuplerator(pv)))
-                # So, a bit of case analysis here:
-                #  - either it's an ast.Lambda
-                #  - or it's a single ast.Def and an ast.Name as value
-                # We need the unadulterated, RETURN-less piece here, to pass it down.
+                                      form, "".join(more_ast.pp_ast_as_code(x) for x in pro_ast))
                 # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
-                function = the(function_, _ast_compiled_name(final_name,
-                                                             *stmts,
+                function = the(function_, _ast_compiled_name(string(name),
+                                                             *pro_ast,
                                                              globals_ = _globals(),
                                                              locals_  = _locals()))
+                # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
+                # Feed FUNCTION-LAMBDA-EXPRESSION:
+                if _specifiedp(lambda_expression):
+                        function.lambda_expression = lambda_expression
+                function.closure_p         = nil
+                function.name              = name # Debug name, as per F-L-E spec.
                 warnings, style_warnings, errors = [], [], []
-                for cond in _compilation_unit_conditions():
+                for cond in _compilation_unit_get("conditions"):
                         if typep(cond, error_):
                                 errors.append(cond)
                         elif typep(cond, style_warning):
@@ -4493,26 +4554,23 @@ The tertiary value, FAILURE-P, is false if no conditions of type ERROR or WARNIN
                                 warnings.append(cond)
                 warnedp, failedp = (not not (errors or warnings or style_warnings),
                                     not not (errors or warnings))
-        elif _nonep(definition):
-                function = the(function_, )
-                warnedp, failedp = nil, nil
-                stmts = None
-        else:
-                error("Invalid input form: %s.", definition)
-        if name:
-                (setf_macro_function(function, name) if macro_function(name) else
-                 setf_fdefinition(function, name)    if fdefinition(name)    else
-                 error("Invariant missing."))
-                return (name,
-                        warnedp, failedp,
-                        stmts)
-        else:
-                return (function,
-                        warnedp, failedp,
-                        stmts)
+                return ((name if globalp else function),
+                        warnedp,
+                        failedp,
+                        pro)
 
-def compile(name, definition = None):
-        return _compile(name, definition)[:3]
+def _make_compilation_unit():
+        unit = _dict(conditions = [])
+        return unit
+_compilation_unit = _defwith("_compilation_unit",
+                             lambda *_: _dynamic_scope_push(_dict(_COMPILATION_UNIT_ = _make_compilation_unit())
+                                                            if not boundp("_COMPILATION_UNIT_") else
+                                                            _dict()),
+                             lambda *_: _dynamic_scope_pop())
+def _compilation_unit_set(k, v):
+        symbol_value("_COMPILATION_UNIT_")[k] = v
+def _compilation_unit_get(k):
+        return symbol_value("_COMPILATION_UNIT_")[k]
 
 @lisp
 def fdefinition(name):
@@ -4520,11 +4578,6 @@ def fdefinition(name):
          (if_, (stringp, name),
           (_global, name),
           (symbol_function, (the, symbol, name))))
-
-@lisp
-def stringp(x):
-        (def_, stringp, (x,),
-         ("isinstance", x, str)) # Unregistered Issue REDUCE-BUILTINS-USAGE
 
 ##
 ## Pretty-printing
@@ -4949,7 +5002,7 @@ def write_to_string(object,
                                 # XXX: in particular, *PRINT-ESCAPE* is honored only partially.
                                 string += _print_symbol(object)
                         elif integerp(object) or floatp(object):
-                                string += _str(object)
+                                string += _py.str(object)
                         elif object is False or object is None or object is True:
                                 string += obj2lisp_xform[object]
                         elif _type(object).__name__ == "builtin_function_or_method":
@@ -4963,7 +5016,7 @@ def write_to_string(object,
                         elif functionp(object):
                                 string += _print_function(object)
                         elif (not escape) and typep(object, (or_, restart, condition)):
-                                string += _str(object)
+                                string += _py.str(object)
                         else:
                                 string += _print_unreadable(object)
                                 # error("Can't write object %s", object)
@@ -5974,7 +6027,7 @@ def describe(x, stream = t, show_hidden = nil):
         for attr, val in (x.__dict__ if _hasattr(x, "__dict__") else
                           { k: _getattr(x, k) for k in dir(x)}).items():
                 if show_hidden or "__" not in attr:
-                        write_line("%25s: %s" % (attr, ignore_errors(lambda: _str(val))), stream)
+                        write_line("%25s: %s" % (attr, ignore_errors(lambda: _py.str(val))), stream)
 
 ##
 ## Modules
