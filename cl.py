@@ -4580,6 +4580,24 @@ def fdefinition(name):
           (_global, name),
           (symbol_function, (the, symbol, name))))
 
+def compile_file_pathname(input_file, output_file = None):
+        _not_implemented()
+        return
+
+def compile_file(input_file, output_file = None,
+                 compile_verbose = None, compile_print = None, external_format = None,
+                 # Extension:
+                 trace_file = None):
+        _not_implemented()
+        with open(input_file, "r") as input:
+                form = read(input)
+                while form:
+                        cfun, errp, warnp, stmts = _compile((lambda_, tuple(), form))
+                        form = read(input)
+        return (abort_p,
+                warnings_p,
+                failure_p)
+
 ##
 ## Pretty-printing
 ##
