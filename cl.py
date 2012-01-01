@@ -252,7 +252,7 @@ def _global(name):
 ### Cold boot
 ###
 def _cold_print_symbol(s, **keys):
-        return s.package.name + ":" + s.name
+        return (s.package.name if s.package else "#") + ":" + s.name
 _print_symbol = _cold_print_symbol
 
 def _cold_error(datum, *args):
@@ -1193,18 +1193,13 @@ def _gensymname(x = "N"):
 def gensym(x = "G"):
         return make_symbol(_gensymname(x))
 
-def _init_gen(self, n = 1, x = "G", gen = gensym):
+def _gen(n = 1, x = "G", gen = gensym):
         if zerop(n):
-                error("WITH-GEN: we are very very much against this, please stop doing it!")
-        self.gen, self.x, self.n = gen, x, n
-_gen = _defwith("_gen",
-                lambda self: (self.gen(self.x) if self.n == 1 else
-                              _tuple(self.gen(self.x) for i in _range(self.n))),
-                lambda *_: None,
-                __init__ = _init_gen)
-
-def _gensyms(**initargs):     return _get(gen = gensym,      **initargs)
-def _gensymnames(**initargs): return _get(gen = _gensymname, **initargs)
+                error("_GEN: we are very very much against this, please stop doing it!")
+        return (_py.tuple(gen(x)
+                for i in _py.range(n)))
+def _gensyms(**initargs):     return _gen(gen = gensym,      **initargs)
+def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
 ##
 ## Basic
@@ -2959,14 +2954,46 @@ deftype(varituple_,   varituple_)
 ##                          and much the same solution
 ##
 _ast_info = defstruct("_ast_info",
+                      "type",
                       "fields",     # each field is _dict(name, type, walk, [default])
-                      "bound_free")
+                      "bound_free",
+                      "nfixed")
 __ast_walkable_field_types__ = _set([_ast.stmt, (list_, _ast.expr), (maybe_, _ast.expr),
                                      _ast.expr, (list_, _ast.stmt)])
 __ast_infos__ = _dict()
 def _find_ast_info(type):
         return __ast_infos__[_coerce_to_ast_type(type)]
-def _ast_fields(ast): return _find_ast_info(type(ast)).fields
+def _ast_info_check_args_type(info, args, atreep = True):
+        if len(args) < info.nfixed:
+                error("AST type '%s' requires %s %d arguments, but only %d were provided: %s.",
+                      info.type.__name__, "exactly" if len(info.fields) == info.nfixed else "at least", info.nfixed,
+                      len(args), args)
+        def check_arg_type(arg, type):
+                def maybe_typespec_p(x): return typep(x, (tuple_, (eql_, maybe_), t))
+                def list_typespec_p(x):  return typep(x, (tuple_, (eql_, list_), t))
+                def simple_typespec_p(x):
+                        return typep(x, (or_, (member_, integer, string_),
+                                              (tuple_, (eql_, maybe_), (member_, integer, string_))))
+                def atree_simple_typep(x, type):
+                        _debug_printf("tuplep %s, stringpx0, %s, x0 %s, type %s",
+                                      _tuplep(x), stringp(x[0]), _py.repr(x[0]), type)
+                        return (_tuplep(x) and stringp(x[0]) and
+                                _find_ast_info(x[0]) and _py.issubclass(_find_ast_info(x[0]).type, type))
+                if atreep and not simple_typespec_p(type):
+                        maybe_typep, list_typep, type = ((True,  False, type[1]) if maybe_typespec_p(type) else
+                                                         (False,  True, type[1]) if list_typespec_p(type)  else
+                                                         (False, False, type))
+                        _locals_printf(locals(), "maybe_typep", "list_typep", "type", "arg")
+                        return (maybe_typep                                                       if arg is None else
+                                _listp(arg) and every(lambda x: atree_simple_typep(x, type), arg) if list_typep  else
+                                atree_simple_typep(arg, type))
+                else:
+                        return typep(arg, type)
+        for i, (field, arg) in enumerate(zip(info.fields.values(), args)):
+                if not check_arg_type(arg, field["type"]):
+                        error("Argument %d (field %s) of AST '%s' must correspond to type %s, but was an instance of %s, instead: %s.",
+                              i, _py.repr(field["name"]), info.type.__name__, field["type"], type_of(arg), _py.repr(arg))
+        return t
 
 def _ast_ensure_stmt(x):
         return x if typep(x, _ast.stmt) else _ast.Expr(the(_ast.AST, x))
@@ -2979,7 +3006,9 @@ def _ast_bound_free(astxs):
         def ast_rec(astxs):
                 def bound_free(ast):
                         info = _find_ast_info(type_of(ast))
-                        return info.bound_free(*mapcar(_slot_of(ast), _type(ast)._fields))
+                        args = mapcar(_slot_of(ast), _type(ast)._fields)
+                        _ast_info_check_args_type(info, args, atreep = nil)
+                        return info.bound_free(*args)
                 return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
         with progv(_BOUND_FREE_RECURSOR_ = ast_rec):
                 return ast_rec(the((or_, _ast.AST, (list_, _ast.AST)),
@@ -2988,9 +3017,13 @@ def _ast_bound_free(astxs):
 def _atree_bound_free(atreexs):
         def atree_rec(atreexs):
                 def bound_free(atree):
+                        check_type(atree, (partuple_, string_))
                         type = _coerce_to_ast_type(atree[0])
                         info = _find_ast_info(type)
-                        return info.bound_free(*atree[1:])
+                        args = atree[1:]
+                        _debug_printf("args: %s", args)
+                        _ast_info_check_args_type(info, args, atreep = t)
+                        return info.bound_free(*args)
                 return _separate(3, bound_free, remove(None, _ensure_list(atreexs)))
         with progv(_BOUND_FREE_RECURSOR_ = atree_rec):
                 return atree_rec(the((or_, _tuple, (list_, _tuple)),
@@ -3160,12 +3193,54 @@ def defast(fn):
         fields = arglist_field_infos(parameters, _len(fixed), with_defaults, ast_field_types)
         [bound_free] = body_methods(args_ast, fields, remove_if(_of_type(_ast.Pass), body))
         # _debug_printf("bound_free for %s is %s", name, bound_free)
-        __ast_infos__[ast_type] = _ast_info(fields     = fields,
-                                            bound_free = bound_free)
+        __ast_infos__[ast_type] = _ast_info(type       = ast_type,
+                                            fields     = fields,
+                                            bound_free = bound_free,
+                                            nfixed     = _len(fixed))
 
 ###
 ### ATrees (low-level IR)
 ###
+def _try_atreeify_list(xs):
+        ret = []
+        for x in xs:
+                atree, atreeifiedp = _try_atreeify_constant(x)
+                if not atreeifiedp:
+                        return None, None
+                ret.append(atree)
+        return ret, True
+__atreeifier_map__ = { string_:         (False, lambda x: ("Str", x)),
+                       integer:         (False, lambda x: ("Num", x)),
+                       boolean:         (False, lambda x: ("Name", ("True" if x else "False"), ("Load",))),
+                       _NoneType:       (False, lambda x: ("Name", "None", ("Load",))),
+                       _list:           (True,  lambda x: ("List", x, ("Load"))),
+                       _tuple:          (True,  lambda x: ("Tuple", x, ("Load"))),
+                       _set:            (True,  lambda x: ("Set", x)),
+                       ## symbol: see below
+                     }
+def _register_atreeifier_for_type(type, recurse, atreeifier):
+        "Please, list the added atreeifiers above."
+        __atreeifier_map__[type] = (recurse, atreeifier)
+
+def _astifiable_p(x):
+        return _type(x) in __atreeifier_map__
+
+def _try_atreeify_constant(x):
+        (rec, atreeifier), atreeifiablep = gethash(type_of(x), __atreeifier_map__,
+                                                   ((nil, nil), nil))
+        if not atreeifiablep:
+                return None, None
+        if rec:
+                atree, successp = _try_atreeify_list(x)
+                return (atreeifier(atree), True) if successp else (None, None)
+        return atreeifier(atree if rec else x), True
+
+def _atreeify_constant(x):
+        atree, successp = _try_atreeify_constant(x)
+        return (atree if successp else
+                error("Cannot atreeify value %s.  Is it a literal?",
+                      prin1_to_string(x)))
+
 def _atree_ast(tree):
         """Flip an atree to its AST geminae.
 
@@ -3816,13 +3891,18 @@ def _lower_lispy_lambda_list(context, list_, allow_defaults = None):
         restkey = restkeyposp and list_[restkeypos + 1] or None
         _keys = _list(list_[keypos + 1:restkeypos or None]) if keypos else _tuple()
         keys, keydefs = (_list(_ensure_car(x)      for x in _keys),
-                         _list(cdr(car(x)) or None for x in _keys))
+                         _list((x[1] if _tuplep(x) else nil)
+                               for x in _keys))
         rest = restposp and list_[restpos + 1] or None
         _optional = _list(list_[optpos + 1:restpos or keypos or restkeypos or None]) if optposp else []
-        optional, optdefs = (_list(_ensure_car(x)      for x in _optional),
-                             _list(cdr(car(x)) or None for x in _optional))
-        fixed = _list(list_[0:optpos or restpos or keypos or restkeypos or None])
-        total = fixed + optional + (rest,) + keys + (restkey,) if restkey else _list()
+        optional, optdefs = (_list(_ensure_car(x)     for x in _optional),
+                             _list((x[1] if _tuplep(x) else nil)
+                                   for x in _optional))
+        fixed = _list(list_[0:optpos or restpos or keypos or restkeypos or 0])
+        _locals_printf(locals(), "list_", "optpos", "fixed", "optional", "optdefs")
+        if not every(symbolp, fixed):
+                error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, find_if_not(symbolp, fixed))
+        total = fixed + optional + ([rest] if rest else []) + keys + ([restkey] if restkey else [])
         ### 4. validate syntax of the provided individual argument specifiers
         if not every(valid_parameter_specifier_p, total):
                 error(failure_message, context, list_)
@@ -3830,13 +3910,17 @@ def _lower_lispy_lambda_list(context, list_, allow_defaults = None):
         if _len(total) != _len(_set(total)):
                 error("In %s: duplicate parameter names in lambda list: %s.", context, list_)
         ### 6. lower
-        return ("arguments",
-                mapcar(lambda x: ("arg", string(x)), fixed + optional),
-                rest and string(rest), None,
-                mapcar(lambda x: ("arg", string(x)), keys),
-                restkey and string(restkey), None,
-                optdefs,
-                keydefs), (fixed, optional, rest, keys, restkey, total)
+        _debug_printf("f %s", fixed)
+        _debug_printf("o %s", optional)
+        return (("arguments",
+                 mapcar(lambda x: ("arg", string(x)), fixed + optional),
+                 rest and string(rest), None,
+                 mapcar(lambda x: ("arg", string(x)), keys),
+                 restkey and string(restkey), None,
+                 optdefs,
+                 keydefs),
+                (fixed, optional, rest, keys, restkey, total),
+                (optdefs, keydefs))
 
 ###
 ### Tuple intermediate IR
@@ -3874,9 +3958,10 @@ __compiler_form_record__ = _collections.defaultdict(lambda: 0)
 __compiler_form_record_threshold__ = 5
 def _compiler_track_compiled_form(form):
         cur = __compiler_form_record__[_id(form)]
-        if cur > __compiler_form_record_threshold__:
-                error("Apparent non-termination while compiling %s (happened over %d times).",
-                      form, __compiler_form_record_threshold__)
+        ## Unregistered Issue NONTERMINATION-SAFETY-CHECK-BUGGY
+        # if cur > __compiler_form_record_threshold__:
+        #         error("Apparent non-termination while compiling %s (happened over %d times).",
+        #               form, __compiler_form_record_threshold__)
         __compiler_form_record__[_id(form)] += 1
 
 class _compiler_def(_servile):
@@ -3942,13 +4027,13 @@ def _lower_name(name, ctx = "Load"):
         check_type(name, (or_, str, symbol, (tuple_, (eql_, symbol_), (or_, str, symbol))))
         if _tuplep(name) and ctx != "Load":
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
-        return ("Name", string(name[1] if _tuplep(name) else name), ctx)
+        return ("Name", string(name[1] if _tuplep(name) else name), (ctx,))
 
 @defprimitive # Critical-issue-free.
 def setq_(name, value):
         pro, val = _lower(value)
-        return (pro + [("Assign", [_lower_name(name, "Store")])],
-                _lower_name(name, "Load"))
+        return (pro + [("Assign", [_lower_name(name, "Store")], val)],
+                _lower_name(name))
 
 @defprimitive # Critical-issue-free.
 def setf_values_(names, values):
@@ -4019,12 +4104,13 @@ def if_(test, consequent, antecedent = nil):
                 return (pro_test,
                         ("IfExp", val_test, val_cons, val_ante))
         else:
-                with _gensymnames(x = "IF-BRANCH", n = 2) as name_cons, name_ante:
-                        cons_branch = cons_val if cons_expr_p else (symbol_, name_cons)
-                        ante_branch = ante_val if ante_expr_p else (symbol_, name_ante)
-                        return _lower((flet_, ((_tuple() if cons_expr_p else ((name_cons, _tuple()) + pro_cons + (val_cons,),),) +
-                                               (_tuple() if ante_expr_p else ((name_ante, _tuple()) + pro_ante + (val_cons,),),)),
-                                       (if_, test, cons_branch, ante_branch)))
+                name_cons, name_ante = _gensyms(x = "IF-BRANCH", n = 2)
+                cons, cons_fdefn = ((consequent,           _tuple()) if cons_expr_p else
+                                    ((symbol_, name_cons), ((name_cons, _tuple()) + (consequent,),)))
+                ante, ante_fdefn = ((antecedent,           _tuple()) if ante_expr_p else
+                                    ((symbol_, name_ante), ((name_ante, _tuple()) + (antecedent,),)))
+                return _lower((flet_, cons_fdefn + ante_fdefn,
+                               (if_, test, cons, ante)))
 # 1. I'd rather much separate:
 #    - named lambda compilation
 #        def thunk():
@@ -4047,8 +4133,10 @@ def def_(name, lambda_list, *body, decorators = []):
                 check_type(name, (or_, string_, (and_, symbol, (not_, (satisfies_, keywordp)))))
                 def try_compile():
                         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                        compiled_lambda_list, (fixed, optional, rest, keys, restkey,
-                                               total) = _lower_lispy_lambda_list("DEF %s" % name, lambda_list)
+                        (compiled_lambda_list,
+                         (fixed, optional, rest, keys, restkey,
+                                 total),
+                         (optdefs, keydefs)) = _lower_lispy_lambda_list("DEF %s" % name, lambda_list)
                         with _tail_position():
                                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
                                 pve = body_ret, _ = _lower((return_, (progn_, ) + body))
@@ -4076,8 +4164,14 @@ def def_(name, lambda_list, *body, decorators = []):
                 while xtnls_guess != xtnls_actual:
                         cdef.xtnls = xtnls_guess = xtnls_actual
                         result = try_compile()
+                        _debug_printf("result: %s", result)
                         xtnls_actual = _tuple_xtnls(result)
                 return result
+([('FunctionDef', 'if-branch23', ('arguments', [], None, None, [], None, None, [], []),
+   [('Assign', [('Name', 'name', ('Store'))]),
+    ('Return', ('Name', 'name', ('Load',)))],
+   [])],
+ ('Name', 'if-branch23', ('Load',)))
 
 @defprimitive
 def defmacro(name, lambda_list, *body):
@@ -4096,7 +4190,7 @@ def let_(bindings, *body):
         #    - free in some other local expression
         #    - falls out, sort of.. (see below)
         if not (_tuplep(bindings) and
-                _every(_of_type((or_, symbol, (tuple_, symbol, t))))):
+                every(_of_type((or_, symbol, (tuple_, symbol, t))))):
                 error("LET: malformed bindings: %s.", bindings)
         # Unregistered Issue PRIMITIVE-DECLARATIONS
         bindings_thru_defaulting = _tuple(_ensure_cons(b, nil) for b in bindings)
@@ -4125,16 +4219,17 @@ def let_(bindings, *body):
         #         return (bind_pro + body_pro,
         #                 body_val)
         if every(_tuple_expression_p, compiled_value_pves):
-                return _lower(((lambda_, binding_thru_defaulting) + body,))
+                return _lower(((lambda_, bindings_thru_defaulting) + body,))
         else:
                 last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
                 n_nonexprs = last_non_expr_posn + 1
-                temp_names = [ _gensym("LET") for i in _range(_len(bindings)) ]
+                temp_names = [ gensym("LET") for i in _range(_len(bindings)) ]
                 # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                 return _lower((progn_,) +
                               _tuple((setq_, n, v) for n, v in _zip(temp_names, values[:n_nonexprs])) +
                               ((let_, _tuple(_zip(names[:n_nonexprs], temp_names)),
-                                ((lambda_, _tuple(_zip(names, temp_names + values[n_nonexprs:]))) + body,)),))
+                                ((lambda_, (_optional_,) +
+                                  _tuple(_zip(names, temp_names + values[n_nonexprs:]))) + body,)),))
 
 @defprimitive
 def unwind_protect_(form, *unwind_body):
@@ -4166,25 +4261,28 @@ def funcall_(func, *args):
                 return (func_pro,
                         ("Call", func_val, mapcar(second, arg_pves), []))
         else:
-                with _gensyms(n = _len(args), x = "FUNCALL-ARG") as temp_names:
-                        if _tuple_expression_p((func_pro, func_val)):
-                                func_binding, func_exp = (_tuple(),
-                                                          func)
-                        else:
-                                func_name = _gensym("FUNCALL-FUNCNAME")
-                                func_binding, func_exp = (((func_name, func),),
-                                                          (symbol_, func_name))
-                        return _lower((let_, func_binding + _tuple(_zip(temp_names, args)),
-                                       (funcall_, func_exp) + _tuple()))
+                temp_names = _gensyms(n = _len(args), x = "FUNCALL-ARG")
+                if _tuple_expression_p((func_pro, func_val)):
+                        func_binding, func_exp = (_tuple(),
+                                                  func)
+                else:
+                        func_name = gensym("FUNCALL-FUNCNAME")
+                        func_binding, func_exp = (((func_name, func),),
+                                                  (symbol_, func_name))
+                _debug_printf("tn %s, args %s", temp_names, args)
+                return _lower((let_, func_binding + _tuple(_zip(temp_names, args)),
+                               (funcall_, func_exp) + _tuple()))
 
 @defprimitive # Critical issue-free.
 def flet_(bindings, *body):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
         # Unregistered Issue SINGLE-NAMESPACE
-        if not _every(_of_type((partuple_, symbol, _tuple))):
+        if not every(_of_type((partuple_, symbol, _tuple)), bindings):
                 error("FLET: malformed bindings: %s.", bindings)
-        return _lower((let_, _tuple((name, (fdefinition_, (def_, _gensym(string(name)), lambda_list) + fbody))
+        _debug_printf("bindings: %s", bindings)
+        _debug_printf("body: %s", body)
+        return _lower((let_, _tuple((name, (fdefinition, (def_, gensym(string(name)), lambda_list) + _py.tuple(fbody)))
                                     for name, lambda_list, *fbody in bindings)) +
                        body)
 
@@ -4194,12 +4292,20 @@ def lambda_(lambda_list, *body):
         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
         # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
         # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
-        preliminary_body_pve = _lower((progn_), + body)
+        preliminary_body_pve = _lower((progn_,) + body)
         body_exprp = _tuple_expression_p(preliminary_body_pve)
         if body_exprp:
-                compiled_arguments, _ = _lower_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
-                return ([],
-                        ("Lambda", compiled_arguments, preliminary_body_pve[1]))
+                (compiled_arguments,
+                 _,
+                 (optdefs, keydefs)) = _lower_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
+                if not (optdefs or keydefs):
+                        return ([],
+                                ("Lambda", compiled_arguments, preliminary_body_pve[1]))
+                else:
+                        opt_pros, opt_vals = _recombine((_py.list, _py.list), _lower, optdefs)
+                        key_pros, key_vals = _recombine((_py.list, _py.list), _lower, keydefs)
+                        if not some(identity, opt_pros + key_pros):
+                                
         else:
                 func_name = _gensymname("LET-BODY-")
                 return _lower((flet_, ((func_name, lambda_list) + body,),
@@ -4210,9 +4316,9 @@ def labels_(bindings, *body):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
         # Unregistered Issue SINGLE-NAMESPACE
-        if not _every(_of_type((partuple_, symbol, _tuple))):
+        if not every(_of_type((partuple_, symbol, _tuple))):
                 error("LABELS: malformed bindings: %s.", bindings)
-        temp_name = _gensym("LABELS")
+        temp_name = gensym("LABELS")
         return _lower((flet, ((temp_name, _tuple(),
                                _tuple((def_, name, lambda_list, body)
                                       for name, lambda_list, *body in bindings) +
@@ -4241,7 +4347,7 @@ def labels_(bindings, *body):
 @defprimitive
 def let__(bindings, *body): # Critical-issue-free.
         if not (_tuplep(bindings) and
-                _every(_of_type((or_, symbol, (tuple_, symbol, t))))):
+                every(_of_type((or_, symbol, (tuple_, symbol, t))))):
                 error("LET*: malformed bindings: %s.", bindings)
         # Unregistered Issue PRIMITIVE-DECLARATIONS
         if not bindings:
@@ -4336,20 +4442,19 @@ def _lower(form):
                                 return rec((symbol_, string(x)))
                 else:
                         # NOTE: we don't care about quoting here, as constants are self-evaluating.
-                        ast, astifiedp = _try_astify_constant(x) # NOTE: this allows to directly pass through ASTs.
-                        if astifiedp:
+                        atree, successp = _try_atreeify_constant(x) # NOTE: this allows to directly pass through ASTs.
+                        if successp:
                                 # ..in turn, this requires the atree astifier to directly pass through ASTs,
                                 # or, alternatively (and more desirably), we could call _try_atreeify_constant.
                                 return ([],
-                                        x,
-                                        [])
+                                        atree)
                         else:
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
-        pve = rec(form)
+        pv = rec(form)
         if _debugging_compiler_p():
                 _debug_printf(";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
-                              form, *pve)
-        return pve
+                              form, *pv)
+        return pv
 
 def function_lambda_expression(function):
         """function-lambda-expression function
@@ -4579,6 +4684,13 @@ def fdefinition(name):
          (if_, (stringp, name),
           (_global, name),
           (symbol_function, (the, symbol, name))))
+
+@lisp
+def foo(name):
+        (def_, foo, (name,),
+         (if_, (stringp, name),
+          1,
+          (setq_, name, 2)))
 
 def compile_file_pathname(input_file, output_file = None):
         _not_implemented()
