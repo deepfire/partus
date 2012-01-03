@@ -4296,8 +4296,8 @@ def let_(bindings, *body):
                 # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                 return ((progn_,) +
                         _tuple((setq_, n, v) for n, v in _zip(temp_names, values[:n_nonexprs])) +
-                        (((lambda_, (_optional_,) +
-                           _tuple(_zip(names, temp_names + values[n_nonexprs:]))) + body,),))
+                        (_ir(lambda_, (_optional_,) + _tuple(_zip(names, temp_names + values[n_nonexprs:])), *body,
+                             dont_delay_defaults = t),))
 
 @defknown(("atom", " ", "sex",
            1, ["sex", "\n"]))
