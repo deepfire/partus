@@ -3931,7 +3931,7 @@ def _lower_lispy_lambda_list(context, lambda_list_, allow_defaults = None, defau
         optional, optdefs = (_list(_ensure_car(x)     for x in _optional),
                              _list((x[1] if _tuplep(x) else default_expr)
                                    for x in _optional))
-        fixed = _list(lambda_list_[0:optpos or restpos or keypos or restkeypos or 0])
+        fixed = _list(lambda_list_[0:_defaulted(optpos, restpos or keypos or restkeypos or None)])
         _locals_printf(locals(), "lambda_list_", "optpos", "fixed", "optional", "optdefs")
         if not every(symbolp, fixed):
                 error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, find_if_not(symbolp, fixed))
@@ -4265,7 +4265,7 @@ def let_(bindings, *body):
         #                 body_val)
         if every(_tuple_expression_p, compiled_value_pves):
                 _debug_printf(" -- LET: simple all-expression LAMBDA case")
-                return (funcall_, (lambda_, bindings_thru_defaulting) + body)
+                return (funcall_, (lambda_, (_optional_,) + bindings_thru_defaulting) + body)
         else:
                 _debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
                 last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
