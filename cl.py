@@ -4814,8 +4814,8 @@ def _compile_toplevel_def(name, form, globalp = nil, macrop = nil, lambda_expres
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(pv))
                 if _debugging_compiler_p():
                         import more_ast
-                        _debug_printf(";;; compilation Python output for %s:\n;;;\n%s\n",
-                                      form, "".join(more_ast.pp_ast_as_code(x) for x in pro_ast))
+                        _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
+                                      _pp_sex(form), "".join(more_ast.pp_ast_as_code(x) for x in pro_ast))
                 # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
                 function = the(function_, _ast_compiled_name(string(name),
                                                              *pro_ast,
