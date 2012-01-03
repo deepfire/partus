@@ -426,6 +426,10 @@ def _plist_alist(xs):
                 acc.append((xs[i], xs[i + 1]))
         return acc
 
+def _plist_keys(xs):        return xs[::2]
+def _plist_values(xs):      return xs[1::2]
+def _plist_keys_values(xs): return xs[::2], xs[1::2]
+
 def _hash_table_alist(xs):
         return xs.items()
 
@@ -3837,7 +3841,8 @@ def _compiler_error(control, *args):
 _known = defstruct("known",
                    "name",
                    "pp_code",
-                   "compiler")
+                   "compiler",
+                   "compiler_params")
 __knowns__ = _dict()
 def defknown(pp_code_or_fn):
         def do_defknown(fn, pp_code = pp_code_or_fn):
@@ -3847,9 +3852,11 @@ def defknown(pp_code_or_fn):
                 if not presentp or not symbolp(sym):
                         sym = _intern0(name.upper())
                         _setf_global(sym, name)
+                compiler_params = _function_lambda_list(fn)[3]
                 __knowns__[sym] = _known(name = sym,
                                          pp_code = pp_code,
-                                         compiler = fn)
+                                         compiler = fn,
+                                         compiler_params = _mapset(_indexing(0), compiler_params))
                 return sym # pass through
         return (do_defknown(pp_code_or_fn, pp_code = ("atom", " ", ["sex", " "])) if functionp(pp_code_or_fn) else
                 do_defknown                                                       if _tuplep(pp_code_or_fn)   else
@@ -4055,6 +4062,22 @@ _compiler_debug         = _defwith("_compiler_debug",
 ###              PROGN | FLET, SYMBOL <- (LAMBDA)      <-
 ###                FLET, DEF, FUNCALL <- (LABELS)      <-
 ###                 PROGN | LET, LET* <- (LET*)        <-
+
+@defknown(("atom", "\n", "sex", "\n", "atom"))
+def _ir_args_():
+        pass
+def _maybe_ir_args(x):
+        return (((t, x[1], x[2]) if _py.len(x) == 3 and _tuplep(x[1]) and _tuplep(x[2]) and evenp(_py.len(x[2])) else
+                 error("Malformed IR-ARGS node: %s.", x)) if x and _tuplep(x) and x[0] is _ir_args_ else
+                (nil, x, _py.tuple()))
+def _ir(*ir, **keys):
+        "This is meant to be used to pass extended arguments down."
+        known = _find_known(the(symbol, ir[0]))
+        invalid_params = _py.set(keys.keys()) - known.compiler_params
+        if invalid_params:
+                error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
+                      known.name, known.compiler_params, invalid_params)
+        return (_ir_args_, ir, _alist_plist(_hash_table_alist(keys)))
 
 @defknown # Critical-issue-free.
 def symbol_(name):
@@ -4542,12 +4565,12 @@ def _lower(form):
                         def puntedp(x):
                                 "Whether the primitive compiler requested recompilation."
                                 return x and _tuplep(x) and symbolp(x[0])
-                        def maybe_call_primitive_compiler(name, forms):
+                        def maybe_call_primitive_compiler(name, forms, args):
                                 known = _find_known(name)
                                 if not known:
                                         return nil, nil
                                 not noisep(name) and _compiler_debug_printf(">>> %s\n%s", name, "\n".join(_py.repr(f) for f in forms))
-                                ret = known.compiler(*forms)
+                                ret = known.compiler(*forms, **_alist_hash_table(_plist_alist(args)))
                                 if puntedp(ret):
                                         not noisep(name) and _debug_printf("%s===========================\n"
                                                                            "%s\n%s-------------------------->\n%s\n"
@@ -4572,8 +4595,9 @@ def _lower(form):
                                         return maybe_call_primitive_compiler(funcall_, [("tuple",) + x])[0]
                         else:
                                 if symbolp(x[0]):
+                                        argsp, form, args = _maybe_ir_args(x)
                                         # Urgent Issue COMPILER-MACRO-SYSTEM
-                                        ret, primitivep = maybe_call_primitive_compiler(the(symbol, x[0]), x[1:])
+                                        ret, primitivep = maybe_call_primitive_compiler(form[0], form[1:], args)
                                         if primitivep:
                                                 # Unregistered Issue COMPILE-CANNOT-EVEN-MENTION-KWARGS
                                                 return ret
