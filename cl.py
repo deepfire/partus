@@ -3886,8 +3886,7 @@ def _find_known(x):
 ###  expression.
 ###
 
-# Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
-def _lower_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
+def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (symbol_, "None"))
         if not _tuplep(lambda_list_):
                 error("In %s: lambda list must be a tuple.", lambda_list_)
@@ -3914,7 +3913,7 @@ def _lower_lispy_lambda_list(context, lambda_list_, allow_defaults = None, defau
         # _locals_printf(_locals(),
         #                "optpos",  "restpos",  "keypos",  "restkeypos",
         #                "optposp", "restposp", "keyposp", "restkeyposp",
-        #               "toptpos", "trestpos", "tkeypos", "trestkeypos")
+        #                "toptpos", "trestpos", "tkeypos", "trestkeypos")
         ### 2. ensure correct amount of names for provided lambda list keywords
         if (restposp and keyposp and (keypos - restpos != 1) or
             restposp and (not keyposp) and restkeyposp and (restkeypos - restpos != 1) or
@@ -3942,23 +3941,25 @@ def _lower_lispy_lambda_list(context, lambda_list_, allow_defaults = None, defau
         ### 5. check for duplicate lambda list specifiers
         if _len(total) != _len(_set(total)):
                 error("In %s: duplicate parameter names in lambda list: %s.", context, lambda_list_)
-        ### 6. lower
+        return (total,
+                (fixed, optional, rest, keys, restkey),
+                (optdefs, keydefs))
+
+def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_defaults, key_defaults):
+        assert _py.len(optional) == _py.len(opt_defaults)
+        assert _py.len(keys) == _py.len(key_defaults)
         ((odef_pros, odef_vals),
          (kdef_pros, kdef_vals)) = mapcar(lambda x: _recombine((_py.list, _py.list), _lower, x),
-                                          [optdefs, keydefs])
+                                          [opt_defaults, key_defaults])
         if odef_pros or kdef_pros:
-                _compiler_error("In %s: invariant failed: target lambda lists must have expressible defaults: %s.", lambda_list_)
-        _debug_printf("f %s", fixed)
-        _debug_printf("o %s", optional)
-        return (("arguments",
-                 mapcar(lambda x: ("arg", string(x)), fixed + optional),
-                 rest and string(rest), None,
-                 mapcar(lambda x: ("arg", string(x)), keys),
-                 restkey and string(restkey), None,
-                 odef_vals,
-                 kdef_vals),
-                (fixed, optional, rest, keys, restkey, total),
-                (optdefs, keydefs))
+                _compiler_error("In LAMBDA %s: invariant failed: target lambda lists must have expressible defaults: %s.", context)
+        return ("arguments",
+                mapcar(lambda x: ("arg", string(x)), fixed + optional),
+                rest and string(rest), None,
+                mapcar(lambda x: ("arg", string(x)), keys),
+                restkey and string(restkey), None,
+                odef_vals,
+                kdef_vals)
 
 ###
 ### Tuple intermediate IR
@@ -4179,10 +4180,8 @@ def def_(name, lambda_list, *body, decorators = []):
                 check_type(name, (or_, string_, (and_, symbol, (not_, (satisfies_, keywordp)))))
                 def try_compile():
                         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                        (compiled_lambda_list,
-                         (fixed, optional, rest, keys, restkey,
-                                 total),
-                         (optdefs, keydefs)) = _lower_lispy_lambda_list("DEF %s" % name, lambda_list)
+                        total, args, defaults = _prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
+                        compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
                         with _tail_position():
                                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
                                 pve = body_ret, _ = _lower((return_, (progn_, ) + body))
@@ -4274,9 +4273,8 @@ def let_(bindings, *body):
                 # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                 return ((progn_,) +
                         _tuple((setq_, n, v) for n, v in _zip(temp_names, values[:n_nonexprs])) +
-                        ((let_, _tuple(_zip(names[:n_nonexprs], temp_names)),
-                          ((lambda_, (_optional_,) +
-                            _tuple(_zip(names, temp_names + values[n_nonexprs:]))) + body,)),))
+                        (((lambda_, (_optional_,) +
+                           _tuple(_zip(names, temp_names + values[n_nonexprs:]))) + body,),))
 
 @defknown(("atom", " ", "sex",
            1, ["sex", "\n"]))
@@ -4333,15 +4331,16 @@ def flet_(bindings, *body):
         if not every(_of_type((partuple_, symbol, _tuple)), bindings):
                 error("FLET: malformed bindings: %s.", bindings)
         # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
-        return ((let_, _tuple((name, (progn_,
-                                      (def_, gensym(string(name)), lambda_list) + _py.tuple(fbody),
-                                      (symbol_, name)))
+        return ((let_, _tuple(let(gensym(string(name)),
+                                  lambda temp_fname: (name, (progn_,
+                                                             (def_, temp_fname, lambda_list) + _py.tuple(fbody),
+                                                             (symbol_, temp_fname))))
                               for name, lambda_list, *fbody in bindings)) +
                   body)
 
 @defknown(("atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))   # Critical-issue-free.
-def lambda_(lambda_list, *body):
+def lambda_(lambda_list, *body, dont_delay_defaults = nil):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
@@ -4350,14 +4349,20 @@ def lambda_(lambda_list, *body):
         preliminary_body_pve = _lower((progn_,) + body)
         body_exprp = _tuple_expression_p(preliminary_body_pve)
         if body_exprp:
-                (compiled_arguments,
-                 (fixed, optional, rest, keys, restkey, total),
-                 (optdefs, keydefs)) = _lower_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
+                total, args, defaults = _prepare_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
+                (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
                 if not (optional or keys):
                         _debug_printf(" -- LAMBDA: simple")
                         return ([],
-                                ("Lambda", compiled_arguments, preliminary_body_pve[1]))
-                elif not (rest or restkey):
+                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
+                elif rest or restkey:
+                        _not_implemented("rest/restkey-ful defaulting lambda list")
+                elif dont_delay_defaults:
+                        # duplicate code here, but the checking "issue" is not understood well-enough..
+                        _debug_printf(" -- LAMBDA: undelayed defaults")
+                        return ([],
+                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
+                else:
                         ## Delay evaluation of default values.
                         def defaulting_expr(arg, default):
                                 return (if_, (eq, arg, (symbol_, "None")),
@@ -4369,8 +4374,6 @@ def lambda_(lambda_list, *body):
                                                   for arg, default in _py.zip(optional + keys,
                                                                               optdefs + keydefs))) +
                                    body)
-                else:
-                        _not_implemented("rest/restkey-ful defaulting lambda list")
                                 
         else:
                 _debug_printf(" -- LAMBDA: non-expression FLET")
@@ -4428,15 +4431,9 @@ def let__(bindings, *body): # Critical-issue-free.
                 return (let_, bindings[:1],
                          (let__, bindings[1:]) + body)
 
-## Honest DEFUN, with real keyword arguments, is out of scope for now.
-# @defknown
-# def defun(name, lambda_list, *body):
-#         def _lower_lispy_lambda_list(x):
-#                 return ("arguments",
-#                         )
-#         return ("FunctionDef", name, lower_lispy_lambda_list(lambda_list),
-#                 mapcar(_lower, body),
-#                 []) # no decorators and no return annotation
+###
+### Honest DEFUN, with real keyword arguments, is out of scope for now.
+###
 
 # How is it do be determined, that a form must be passed through?
 # - directly AST-ifiable (in terms of _astify_constant)
