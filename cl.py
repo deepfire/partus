@@ -4476,10 +4476,10 @@ def _compiler_debug_printf(control, *args):
         def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
         _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
 def _pp_sex(sex):
-        code = ("atom"                                                              if not _tuplep(sex) or not sex      else
-                _find_known(sex[0]).pp_code                                         if _find_known(sex[0])              else
-                ("atom", " ", ["sex", " "])                                         if symbolp(sex[0])                  else
-                ("sex", "\n", ["sex", " "])                                         if _tuplep(sex[0]) and sex[0] and sex[0][0] is lambda_ else
+        code = ("atom"                        if not _tuplep(sex) or not sex   else
+                _find_known(sex[0]).pp_code   if _find_known(sex[0])           else
+                ("atom", " ", ["sex", " "])   if symbolp(sex[0])               else
+                ("sex", "\n", ["sex", " "])   if _tuplep(sex[0]) and sex[0] and sex[0][0] is lambda_ else
                 error("Don't know how to pretty-print SEX %s.", sex))
         def separatorp(x, require = nil): return ((x, 1, nil)              if x == " "    else
                                                   (x + _sex_space(), 0, t) if x == "\n"   else
@@ -4487,8 +4487,8 @@ def _pp_sex(sex):
                                                   ("", 0, nil)             if not require else
                                                   error("Invalid separator specification %s.", _py.repr(x)))
         def code_interp_rec(spec, sex, continue_ = nil):
-                def structure_interp(spec, sex):
-                        with progv({"*SEX-JUSTIFICATION*": symbol_value("*SEX-JUSTIFICATION*") + 1}): # 1 == #\(
+                def structure_interp(spec, sex, increment = 1):
+                        with progv({"*SEX-JUSTIFICATION*": symbol_value("*SEX-JUSTIFICATION*") + increment}):
                                 @block
                                 def horz_run(spec, sex):
                                         def horz_rec(acc, spec, sex):
@@ -4506,22 +4506,22 @@ def _pp_sex(sex):
                                         return horz_rec("", spec, sex)
                                 acc = ""
                                 while spec:
-                                       sub, inc, spec, sex = horz_run(spec, sex)
-                                       setq("*SEX-JUSTIFICATION*", symbol_value("*SEX-JUSTIFICATION*") + inc)
-                                       acc += sub + separatorp("\n" if sex else "")[0]
+                                        sub, inc, spec, sex = horz_run(spec, sex)
+                                        setq("*SEX-JUSTIFICATION*", _sex_justification() + inc)
+                                        acc += sub + separatorp("\n" if sex else "")[0]
                                 return acc
                 if spec == "atom":  # primitive
                         return (symbol_name(sex).lower() if symbolp(sex) else _py.repr(sex))
                 elif _tuplep(spec): # fixed structure
-                        return "(" + structure_interp(spec, sex) + ")"
-                elif _listp(spec):  # iteration
-                        _tuplep(sex) or error("List spec %s does not match SEX %s.", spec, sex)
+                        return "(" + structure_interp(spec, sex, increment = 1) + ")"
+                elif _listp(spec):  # iteration: exactly like a homogenous fixed structure with an interspersed separator
+                        _tuplep(sex) or error("List spec %s does not match SEX %s.", _py.repr(spec), sex)
                         spec, sepspec = spec
-                        return separatorp(sepspec, require = t)[0].join(code_interp_rec(spec, x) for x in sex)
+                        return structure_interp(_py.tuple(_intersperse(sepspec, (spec,) * _py.len(sex))), sex, increment = 0)
                 elif spec == "sex": # recursion
                         return _pp_sex(sex)
                 else:
-                        error("Invalid spec %s, while pretty-printing %s.", spec, sex)
+                        error("Invalid spec %s, while pretty-printing %s.", _py.repr(spec), sex)
         ret = code_interp_rec(code, sex)
         return ret
 
@@ -4552,9 +4552,14 @@ def _lower(form):
                                 not noisep(name) and _compiler_debug_printf(">>> %s\n%s", name, "\n".join(_py.repr(f) for f in forms))
                                 ret = known.compiler(*forms)
                                 if puntedp(ret):
-                                        not noisep(name) and _debug_printf("--> rewritten\n%s as\n%s",
+                                        not noisep(name) and _debug_printf("%s===========================\n"
+                                                                           "%s\n%s-------------------------->\n%s\n"
+                                                                           "%s...........................",
+                                                                           _sex_space(),
                                                                            _sex_space() + _pp_sex((name,) + forms),
-                                                                           _sex_space() + _pp_sex(ret))
+                                                                           _sex_space(),
+                                                                           _sex_space() + _pp_sex(ret),
+                                                                           _sex_space())
                                         return _sex_deeper(4, lambda: _rec(ret)), t
                                 else:
                                         not noisep(name) and _compiler_debug_printf("=== %s done", name)
