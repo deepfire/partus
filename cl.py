@@ -4429,11 +4429,74 @@ def macroexpand(form):
 # Unregistered Issue DEBUG-SCAFFOLDING
 if probe_file("/home/deepfire/.partus-debug-compiler"):
         _debug_compiler()
-defvar("*COMPILER-DEPTH*", 0)
+
+defvar("*SEX-JUSTIFICATION*", 0)
+def _sex_justification(): return symbol_value("*SEX-JUSTIFICATION*")
+def _sex_space():         return " " * _sex_justification()
+def _sex_deeper(n, body):
+        with progv({"*SEX-JUSTIFICATION*": symbol_value("*SEX-JUSTIFICATION*") + n}):
+                return body()
 def _compiler_debug_printf(control, *args):
-        justify = "     " * symbol_value("*COMPILER-DEPTH*")
-        def fix_string(x): return x.replace("\n", "\n" + justify) if stringp(x) else x
-        _debug_printf(justify + fix_string(control), *_py.tuple(fix_string(a) for a in args))
+        justification = _sex_space()
+        def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
+        _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
+def _pp_sex(sex):
+        code = ("atom"                                                              if not _tuplep(sex) or not sex      else
+                ("atom", " ", ([("atom", " ", "sex"), "\n"],), 1, ["sex", "\n"])    if sex[0] in [let_, let__]          else
+                ("atom", " ", ([("atom", " ", "sex", 1, ["sex", "\n"]), "\n"],), 1,
+                 ["sex", "\n"])                                                     if sex[0] in [flet_, labels_]       else
+                ("atom", 1, ["sex", "\n"])                                          if sex[0] is progn_                 else
+                ("atom", " ", "atom", " ", (["atom", " "],), 1, ["sex", "\n"])      if sex[0] is def_                   else
+                ("atom", " ", (["atom", " "],), 1, ["sex", "\n"])                   if sex[0] is lambda_                else
+                ("atom", " ", "sex")                                                if sex[0] in [quote_, symbol_]      else
+                ("atom", " ", "sex", 4, "sex", "\n", "sex")                         if sex[0] is if_                    else
+                ("atom", " ", ["sex", " "])                                         if symbolp(sex[0])                  else
+                ("sex", "\n", ["sex", " "])                                         if _tuplep(sex[0]) and sex[0] and sex[0][0] is lambda_ else
+                error("Don't know how to pretty-print SEX %s.", sex))
+        def separatorp(x, require = nil): return ((x, 1, nil)              if x == " "    else
+                                                  (x + _sex_space(), 0, t) if x == "\n"   else
+                                                  ("", x, t)               if integerp(x) else
+                                                  ("", 0, nil)             if not require else
+                                                  error("Invalid separator specification %s.", _py.repr(x)))
+        def code_interp_rec(spec, sex, continue_ = nil):
+                def structure_interp(spec, sex):
+                        with progv({"*SEX-JUSTIFICATION*": symbol_value("*SEX-JUSTIFICATION*") + 1}): # 1 == #\(
+                                @block
+                                def horz_run(spec, sex):
+                                        def horz_rec(acc, spec, sex):
+                                                if not spec:
+                                                        return acc, 0, nil, nil
+                                                if _listp(spec[0]):
+                                                        return acc + code_interp_rec(spec[0], sex), 0, nil, nil
+                                                sep, inc, reset = separatorp(spec[0])
+                                                if reset:
+                                                        return_from(horz_run, (acc, inc, spec[1:], sex))
+                                                elif sep:
+                                                        return _sex_deeper(inc, lambda: horz_rec(acc + sep, spec[1:], sex))
+                                                sub = code_interp_rec(spec[0], sex[0])
+                                                return _sex_deeper(_py.len(sub), lambda: horz_rec(acc + sub, spec[1:], sex[1:]))
+                                        return horz_rec("", spec, sex)
+                                acc = ""
+                                while spec:
+                                       sub, inc, spec, sex = horz_run(spec, sex)
+                                       setq("*SEX-JUSTIFICATION*", symbol_value("*SEX-JUSTIFICATION*") + inc)
+                                       acc += sub + separatorp("\n" if sex else "")[0]
+                                return acc
+                if spec == "atom":  # primitive
+                        return (symbol_name(sex).lower() if symbolp(sex) else _py.repr(sex))
+                elif _tuplep(spec): # fixed structure
+                        return "(" + structure_interp(spec, sex) + ")"
+                elif _listp(spec):  # iteration
+                        _tuplep(sex) or error("List spec %s does not match SEX %s.", spec, sex)
+                        spec, sepspec = spec
+                        return separatorp(sepspec, require = t)[0].join(code_interp_rec(spec, x) for x in sex)
+                elif spec == "sex": # recursion
+                        return _pp_sex(sex)
+                else:
+                        error("Invalid spec %s, while pretty-printing %s.", spec, sex)
+        ret = code_interp_rec(code, sex)
+        return ret
+
 # Urgent Issue COMPILER-MACRO-SYSTEM
 def _lower(form):
         # - tail position tracking
@@ -4450,6 +4513,7 @@ def _lower(form):
                 if _debugging_compiler_p():
                         _debug_printf(";;; lowering: %s", x)
                 if _tuplep(x):
+                        def noisep(x): return x in [symbol_]
                         def puntedp(x):
                                 "Whether the primitive compiler requested recompilation."
                                 return x and _tuplep(x) and symbolp(x[0])
@@ -4457,14 +4521,15 @@ def _lower(form):
                                 compiler = _find_primitive(name)[0]
                                 if not compiler:
                                         return nil, nil
-                                _compiler_debug_printf(">>> %s\n%s", name, "\n".join(_py.repr(f) for f in forms))
+                                not noisep(name) and _compiler_debug_printf(">>> %s\n%s", name, "\n".join(_py.repr(f) for f in forms))
                                 ret = compiler(*forms)
                                 if puntedp(ret):
-                                        _compiler_debug_printf("--> %s punted to %s", name, ret[0])
-                                        with progv({"*COMPILER-DEPTH*": symbol_value("*COMPILER-DEPTH*") + 1}):
-                                                return _rec(ret), t
+                                        not noisep(name) and _debug_printf("--> rewritten\n%s as\n%s",
+                                                                           _sex_space() + _pp_sex((name,) + forms),
+                                                                           _sex_space() + _pp_sex(ret))
+                                        return _sex_deeper(4, lambda: _rec(ret)), t
                                 else:
-                                        _compiler_debug_printf("=== %s done", name)
+                                        not noisep(name) and _compiler_debug_printf("=== %s done", name)
                                         return ret, t
                         if not x:
                                 return _rec((symbol_, "nil"))
