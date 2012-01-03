@@ -4056,13 +4056,13 @@ def _lower_name(name, ctx = "Load"):
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
         return ("Name", string(name[1] if _tuplep(name) else name), (ctx,))
 
-@defknown # Critical-issue-free.
+@defknown(("atom", " ", "atom", " ", "sex")) # Critical-issue-free.
 def setq_(name, value):
         pro, val = _lower(value)
         return (pro + [("Assign", [_lower_name(name, "Store")], val)],
                 _lower_name(name))
 
-@defknown(("atom", (["atom", " "],), "sex")) # Critical-issue-free.
+@defknown(("atom", " ", (["atom", " "],), " ", "sex")) # Critical-issue-free.
 def setf_values_(names, values):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         check_type(names, _tuple)
@@ -4153,7 +4153,7 @@ def if_(test, consequent, antecedent = nil):
 #        thunk()
 #    - installation of such named lambdas as global function definitions
 #        emit a decorator? install_fdefinition
-@defknown(("atom", " ", "atom", " ", (["atom", " "],),
+@defknown(("atom", " ", "atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))
 def def_(name, lambda_list, *body, decorators = []):
         ## Unregistered Issue GLOBAL-NONLOCAL-DECLARATIONS-MISSING
@@ -4204,7 +4204,7 @@ def def_(name, lambda_list, *body, decorators = []):
                         try_ += 1
                 return result
 
-@defknown(("atom", " ", "atom", " ", (["atom", " "],),
+@defknown(("atom", " ", "atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))
 def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
@@ -4311,7 +4311,7 @@ def funcall_(func, *args):
                 return (let_, func_binding + _tuple(_zip(temp_names, args)),
                          (funcall_, func_exp) + _tuple())
 
-@defknown(("atom", " ", ([("atom", " ", "sex",
+@defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
                            1, ["sex", "\n"]), "\n"],),
            1, ["sex", "\n"])) # Critical issue-free.
 def flet_(bindings, *body):
@@ -4328,7 +4328,7 @@ def flet_(bindings, *body):
                               for name, lambda_list, *fbody in bindings)) +
                   body)
 
-@defknown(("atom", " ", (["atom", " "],),
+@defknown(("atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))   # Critical-issue-free.
 def lambda_(lambda_list, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
@@ -4367,7 +4367,7 @@ def lambda_(lambda_list, *body):
                 return (flet_, ((func_name, lambda_list) + body,),
                          (symbol_, func_name))
 
-@defknown(("atom", " ", ([("atom", " ", "sex",
+@defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
                            1, ["sex", "\n"]), "\n"],),
            1, ["sex", "\n"])) # Critical-issue-free, per se, but depends on DEF_.
 def labels_(bindings, *body):
