@@ -2357,7 +2357,7 @@ false.
 Exceptional Situations:
 
 Should signal TYPE-ERROR if its argument is not a symbol."""
-        return t if _find_primitive(the(symbol, symbol_)) else nil
+        return t if _find_known(the(symbol, symbol_)) else nil
 
 def _warn_incompatible_function_redefinition(symbol, tons, fromns):
         style_warn("%s is being redefined as a %s when it was previously defined to be a %s.",
@@ -3823,18 +3823,29 @@ class _simple_compiler_error(simple_condition, _compiler_error_):
 def _compiler_error(control, *args):
         return _simple_compiler_error(control, *args)
 
-__primitive_form_compilers__ = _dict()
-def defprimitive(fn):
-        name = fn.__name__
-        fn.__name__ = "_lower_" + fn.__name__
-        sym, presentp = _global(name)
-        if not presentp or not symbolp(sym):
-                sym = _intern0(name.upper())
-                _setf_global(sym, name)
-        __primitive_form_compilers__[sym] = fn
-        return sym # pass through
-def _find_primitive(x):
-        return gethash(x, __primitive_form_compilers__)
+_known = defstruct("known",
+                   "name",
+                   "pp_code",
+                   "compiler")
+__knowns__ = _dict()
+def defknown(pp_code_or_fn):
+        def do_defknown(fn, pp_code = pp_code_or_fn):
+                name = fn.__name__
+                fn.__name__ = "_lower_" + fn.__name__
+                sym, presentp = _global(name)
+                if not presentp or not symbolp(sym):
+                        sym = _intern0(name.upper())
+                        _setf_global(sym, name)
+                __knowns__[sym] = _known(name = sym,
+                                         pp_code = pp_code,
+                                         compiler = fn)
+                return sym # pass through
+        return (do_defknown(pp_code_or_fn, pp_code = ("atom", " ", ["sex", " "])) if functionp(pp_code_or_fn) else
+                do_defknown                                                       if _tuplep(pp_code_or_fn)   else
+                error("In DEFKNOWN: argument must be either a function or a pretty-printer code tuple, was: %s.",
+                      pp_code_or_fn))
+def _find_known(x):
+        return gethash(x, __knowns__)[0]
 
 ###
 ### Thunking is defined as code movement, introduced by the need for
@@ -4033,7 +4044,7 @@ _compiler_debug         = _defwith("_compiler_debug",
 ###                FLET, DEF, FUNCALL <- (LABELS)      <-
 ###                 PROGN | LET, LET* <- (LET*)        <-
 
-@defprimitive # Critical-issue-free.
+@defknown # Critical-issue-free.
 def symbol_(name):
         check_type(name, (or_, str, symbol))
         return ([],
@@ -4045,13 +4056,13 @@ def _lower_name(name, ctx = "Load"):
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
         return ("Name", string(name[1] if _tuplep(name) else name), (ctx,))
 
-@defprimitive # Critical-issue-free.
+@defknown # Critical-issue-free.
 def setq_(name, value):
         pro, val = _lower(value)
         return (pro + [("Assign", [_lower_name(name, "Store")], val)],
                 _lower_name(name))
 
-@defprimitive # Critical-issue-free.
+@defknown(("atom", (["atom", " "],), "sex")) # Critical-issue-free.
 def setf_values_(names, values):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         check_type(names, _tuple)
@@ -4060,24 +4071,24 @@ def setf_values_(names, values):
                         val)],
                 ("Tuple", mapcar(_lower_name, names), ("Load",)))
 
-@defprimitive # Critical-issue-free.
+@defknown # Critical-issue-free.
 def return_(x):
         with _tail_position():
                 pro, val = _lower(x)
                 return (pro + [("Return", val)],
                         None)
 
-@defprimitive # Issue-free, per se.
+@defknown # Issue-free, per se.
 def quote_(x):
         with progv(_COMPILER_QUOTE_ = t):
                 return x
 
-@defprimitive # imp?
+@defknown # imp?
 def quaquote_(x):
         with progv(_COMPILER_QUOTE_ = t):
                 return x
 
-@defprimitive # imp?
+@defknown # imp?
 def comma_(x):
         with progv():
                 return x
@@ -4086,7 +4097,8 @@ def _compiler_prepend(pro, tuple):
         return (pro + tuple[0],
                 tuple[1])
 
-@defprimitive # Critical-issue-free.
+@defknown(("atom",
+           1, ["sex", "\n"]))   # Critical-issue-free.
 def progn_(*body):
         if not body:
                 return ([],
@@ -4108,7 +4120,9 @@ def progn_(*body):
         # if not (must_thunk or scope_mutation):
         #         return lowered_body
 
-@defprimitive
+@defknown(("atom", " ", "sex",
+           4, "sex",
+           "\n", "sex"))
 def if_(test, consequent, antecedent = nil):
         with _no_tail_position():
                 lo_test = pro_test, val_test = _lower(test)
@@ -4139,7 +4153,8 @@ def if_(test, consequent, antecedent = nil):
 #        thunk()
 #    - installation of such named lambdas as global function definitions
 #        emit a decorator? install_fdefinition
-@defprimitive
+@defknown(("atom", " ", "atom", " ", (["atom", " "],),
+           1, ["sex", "\n"]))
 def def_(name, lambda_list, *body, decorators = []):
         ## Unregistered Issue GLOBAL-NONLOCAL-DECLARATIONS-MISSING
         # This is NOT a Lisp form, but rather an acknowledgement of the
@@ -4189,7 +4204,8 @@ def def_(name, lambda_list, *body, decorators = []):
                         try_ += 1
                 return result
 
-@defprimitive
+@defknown(("atom", " ", "atom", " ", (["atom", " "],),
+           1, ["sex", "\n"]))
 def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
         setf_macro_function(t, name) # COMPILE should be able to use that
@@ -4198,7 +4214,8 @@ def defmacro(name, lambda_list, *body):
         return ([the((varituple_, (eql_, def_), _tuple), macfundef)],
                 _lower((quote_, (symbol_, string(name))))[1])
 
-@defprimitive
+@defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
+           1, ["sex", "\n"]))
 def let_(bindings, *body):
         # Potential optimisations:
         #  - better tail position detection: non-local-transfer-of-control-free and ending with RETURN.
@@ -4250,7 +4267,8 @@ def let_(bindings, *body):
                           ((lambda_, (_optional_,) +
                             _tuple(_zip(names, temp_names + values[n_nonexprs:]))) + body,)),))
 
-@defprimitive
+@defknown(("atom", " ", "sex",
+           1, ["sex", "\n"]))
 def unwind_protect_(form, *unwind_body):
         if not unwind_body:
                 return _lower(form)
@@ -4264,7 +4282,7 @@ def unwind_protect_(form, *unwind_body):
                   pro_unwind + [("Expr", val_unwind)])],
                 _lower((symbol_, temp_name))[1])
 
-@defprimitive # /Seems/ alright.
+@defknown # /Seems/ alright.
 def funcall_(func, *args):
         # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
         if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
@@ -4293,7 +4311,9 @@ def funcall_(func, *args):
                 return (let_, func_binding + _tuple(_zip(temp_names, args)),
                          (funcall_, func_exp) + _tuple())
 
-@defprimitive # Critical issue-free.
+@defknown(("atom", " ", ([("atom", " ", "sex",
+                           1, ["sex", "\n"]), "\n"],),
+           1, ["sex", "\n"])) # Critical issue-free.
 def flet_(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -4308,7 +4328,8 @@ def flet_(bindings, *body):
                               for name, lambda_list, *fbody in bindings)) +
                   body)
 
-@defprimitive # Critical-issue-free.
+@defknown(("atom", " ", (["atom", " "],),
+           1, ["sex", "\n"]))   # Critical-issue-free.
 def lambda_(lambda_list, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
@@ -4346,7 +4367,9 @@ def lambda_(lambda_list, *body):
                 return (flet_, ((func_name, lambda_list) + body,),
                          (symbol_, func_name))
 
-@defprimitive # Critical-issue-free, per se, but depends on DEF_.
+@defknown(("atom", " ", ([("atom", " ", "sex",
+                           1, ["sex", "\n"]), "\n"],),
+           1, ["sex", "\n"])) # Critical-issue-free, per se, but depends on DEF_.
 def labels_(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -4381,7 +4404,8 @@ def labels_(bindings, *body):
 #   File "<stdin>", line 8, in body0
 #   File "<stdin>", line 4, in val0_body1
 # NameError: global name 'val1' is not defined
-@defprimitive
+@defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
+           1, ["sex", "\n"]))
 def let__(bindings, *body): # Critical-issue-free.
         if not (_tuplep(bindings) and
                 every(_of_type((or_, symbol, (tuple_, symbol, t))))):
@@ -4394,7 +4418,7 @@ def let__(bindings, *body): # Critical-issue-free.
                          (let__, bindings[1:]) + body)
 
 ## Honest DEFUN, with real keyword arguments, is out of scope for now.
-# @defprimitive
+# @defknown
 # def defun(name, lambda_list, *body):
 #         def _lower_lispy_lambda_list(x):
 #                 return ("arguments",
@@ -4442,14 +4466,7 @@ def _compiler_debug_printf(control, *args):
         _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
 def _pp_sex(sex):
         code = ("atom"                                                              if not _tuplep(sex) or not sex      else
-                ("atom", " ", ([("atom", " ", "sex"), "\n"],), 1, ["sex", "\n"])    if sex[0] in [let_, let__]          else
-                ("atom", " ", ([("atom", " ", "sex", 1, ["sex", "\n"]), "\n"],), 1,
-                 ["sex", "\n"])                                                     if sex[0] in [flet_, labels_]       else
-                ("atom", 1, ["sex", "\n"])                                          if sex[0] is progn_                 else
-                ("atom", " ", "atom", " ", (["atom", " "],), 1, ["sex", "\n"])      if sex[0] is def_                   else
-                ("atom", " ", (["atom", " "],), 1, ["sex", "\n"])                   if sex[0] is lambda_                else
-                ("atom", " ", "sex")                                                if sex[0] in [quote_, symbol_]      else
-                ("atom", " ", "sex", 4, "sex", "\n", "sex")                         if sex[0] is if_                    else
+                _find_known(sex[0]).pp_code                                         if _find_known(sex[0])              else
                 ("atom", " ", ["sex", " "])                                         if symbolp(sex[0])                  else
                 ("sex", "\n", ["sex", " "])                                         if _tuplep(sex[0]) and sex[0] and sex[0][0] is lambda_ else
                 error("Don't know how to pretty-print SEX %s.", sex))
@@ -4518,11 +4535,11 @@ def _lower(form):
                                 "Whether the primitive compiler requested recompilation."
                                 return x and _tuplep(x) and symbolp(x[0])
                         def maybe_call_primitive_compiler(name, forms):
-                                compiler = _find_primitive(name)[0]
-                                if not compiler:
+                                known = _find_known(name)
+                                if not known:
                                         return nil, nil
                                 not noisep(name) and _compiler_debug_printf(">>> %s\n%s", name, "\n".join(_py.repr(f) for f in forms))
-                                ret = compiler(*forms)
+                                ret = known.compiler(*forms)
                                 if puntedp(ret):
                                         not noisep(name) and _debug_printf("--> rewritten\n%s as\n%s",
                                                                            _sex_space() + _pp_sex((name,) + forms),
