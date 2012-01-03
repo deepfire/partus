@@ -4079,7 +4079,7 @@ def _ir(*ir, **keys):
                       known.name, known.compiler_params, invalid_params)
         return (_ir_args_, ir, _alist_plist(_hash_table_alist(keys)))
 
-@defknown # Critical-issue-free.
+@defknown
 def symbol_(name):
         check_type(name, (or_, str, symbol))
         return ([],
@@ -4091,13 +4091,14 @@ def _lower_name(name, ctx = "Load"):
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
         return ("Name", string(name[1] if _tuplep(name) else name), (ctx,))
 
-@defknown(("atom", " ", "atom", " ", "sex")) # Critical-issue-free.
+@defknown(("atom", " ", "atom", " ", "sex"))
 def setq_(name, value):
+        # Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
         pro, val = _lower(value)
         return (pro + [("Assign", [_lower_name(name, "Store")], val)],
                 _lower_name(name))
 
-@defknown(("atom", " ", (["atom", " "],), " ", "sex")) # Critical-issue-free.
+@defknown(("atom", " ", (["atom", " "],), " ", "sex"))
 def setf_values_(names, values):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         check_type(names, _tuple)
@@ -4106,14 +4107,14 @@ def setf_values_(names, values):
                         val)],
                 ("Tuple", mapcar(_lower_name, names), ("Load",)))
 
-@defknown # Critical-issue-free.
+@defknown
 def return_(x):
         with _tail_position():
                 pro, val = _lower(x)
                 return (pro + [("Return", val)],
                         None)
 
-@defknown # Issue-free, per se.
+@defknown
 def quote_(x):
         with progv(_COMPILER_QUOTE_ = t):
                 return x
@@ -4133,7 +4134,7 @@ def _compiler_prepend(pro, tuple):
                 tuple[1])
 
 @defknown(("atom",
-           1, ["sex", "\n"]))   # Critical-issue-free.
+           1, ["sex", "\n"]))
 def progn_(*body):
         if not body:
                 return ([],
@@ -4191,7 +4192,7 @@ def if_(test, consequent, antecedent = nil):
 @defknown(("atom", " ", "atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))
 def def_(name, lambda_list, *body, decorators = []):
-        ## Unregistered Issue GLOBAL-NONLOCAL-DECLARATIONS-MISSING
+        ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
         # This is NOT a Lisp form, but rather an acknowledgement of the
         # need to represent a building block from the underlying system.
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
@@ -4314,7 +4315,7 @@ def unwind_protect_(form, *unwind_body):
                   pro_unwind + [("Expr", val_unwind)])],
                 _lower((symbol_, temp_name))[1])
 
-@defknown # /Seems/ alright.
+@defknown
 def funcall_(func, *args):
         # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
         if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
@@ -4345,7 +4346,7 @@ def funcall_(func, *args):
 
 @defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
                            1, ["sex", "\n"]), "\n"],),
-           1, ["sex", "\n"])) # Critical issue-free.
+           1, ["sex", "\n"]))
 def flet_(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -4362,7 +4363,7 @@ def flet_(bindings, *body):
                   body)
 
 @defknown(("atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))   # Critical-issue-free.
+           1, ["sex", "\n"]))
 def lambda_(lambda_list, *body, dont_delay_defaults = nil):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
@@ -4406,7 +4407,7 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
 
 @defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
                            1, ["sex", "\n"]), "\n"],),
-           1, ["sex", "\n"])) # Critical-issue-free, per se, but depends on DEF_.
+           1, ["sex", "\n"]))
 def labels_(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -4443,7 +4444,7 @@ def labels_(bindings, *body):
 # NameError: global name 'val1' is not defined
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
            1, ["sex", "\n"]))
-def let__(bindings, *body): # Critical-issue-free.
+def let__(bindings, *body):
         if not (_tuplep(bindings) and
                 every(_of_type((or_, symbol, (tuple_, symbol, t))))):
                 error("LET*: malformed bindings: %s.", bindings)
