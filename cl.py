@@ -1666,6 +1666,17 @@ LIST."""
                 else:
                         return _list(list_)
 
+def _intersperse(x, xs):
+        """Return a sequence of elements, with X inserted between every two
+adjacent elements of XS."""
+        acc = []
+        if xs:
+                for ix in xs[:-1]:
+                        acc.append(ix)
+                        acc.append(x)
+                acc.append(xs[-1])
+        return acc
+
 ##
 ## Strings
 ##
