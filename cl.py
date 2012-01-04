@@ -1238,10 +1238,6 @@ def _destructuring_bind_keys(val, body):
 def when(test, body):
         if test:
                 return body() if _isinstance(body, function_) else body
-def cond(*clauses):
-        for (test, body) in clauses:
-                if test() if _isinstance(test, function_) else test:
-                        return body() if _isinstance(body, function_) else body
 def case(val, *clauses):
         for (cval, body) in clauses:
                 if ((val == cval or (cval is True) or (cval is t)) if not _isinstance(cval, _list) else
@@ -2309,7 +2305,12 @@ The consequences are undefined if ENVIRONMENT is non-NIL in a use of
 SETF of MACRO-FUNCTION."""
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-PROVIDED-ENVIRONMENT-IGNORED
         _nonep(environment) or _not_implemented("query of environments other than global")
-        return the((or_, function_, null_), the(symbol, symbol_).macro_function)
+        ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
+        return the((or_, function_, null_, (eql_, t)), the(symbol, symbol_).macro_function)
+
+def _warn_possible_redefinition(x, type):
+        if x:
+                style_warn("In %s: %s is being redefined.", type, x.name)
 
 def setf_macro_function(new_function, symbol, environment = None):
         "<See documentation for MACRO-FUNCTION>"
@@ -2319,7 +2320,7 @@ def setf_macro_function(new_function, symbol, environment = None):
                 symbol.function = nil
         # T is used by DEFMACRO as a namespace toggle request token for COMPILE.
         if symbol.macro_function is not "bonghits":
-                _warn_possible_redefinition(gethash("macro_function", symbol.__dict__)[0], _intern0(defmacro_))
+                _warn_possible_redefinition(gethash("macro_function", symbol.__dict__)[0], defmacro)
         symbol.macro_function = the((or_, (eql_, t), function_), new_function)
         return new_function
 
@@ -2376,17 +2377,27 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 
 def _warn_incompatible_function_redefinition(symbol, tons, fromns):
         style_warn("%s is being redefined as a %s when it was previously defined to be a %s.",
-                           symbol, tons, fromns)
+                   symbol, tons, fromns)
 def _install_function_definition(function):
         return _do_install_function_definition(_intern0(function.__name__), function)
 def _do_install_function_definition(x, function):
-        if the(symbol, x).function:
+        if the(symbol, x).macro_function:
                 _warn_incompatible_function_redefinition(x, "function", "macro")
         else:
                 _warn_possible_redefinition(x.function, the(symbol, defun_))
-        x.function = value
+        x.function, x.macro_function = function, nil
         _make_object_like_python_function(x, function)
-        return value
+        return x
+def _install_macro_definition(function):
+        return _do_install_macro_definition(_intern0(function.__name__), function)
+def _do_install_macro_definition(x, function):
+        if the(symbol, x).function:
+                _warn_incompatible_function_redefinition(x, "macro", "function")
+        else:
+                _warn_possible_redefinition(x.macro_function, the(symbol, defmacro_))
+        x.function, x.macro_function = nil, function
+        _make_object_like_python_function(x, function)
+        return x
 
 def _read_python_def_toplevel(f):
         symbol_name = _python_name_lisp_symbol_name(f.__name__)
@@ -4063,6 +4074,10 @@ _compiler_debug         = _defwith("_compiler_debug",
 ###                FLET, DEF, FUNCALL <- (LABELS)      <-
 ###                 PROGN | LET, LET* <- (LET*)        <-
 
+def _lower_expr(x, fn):
+        pro, val = lower(x)
+        return (pro, fn(val))
+
 @defknown(("atom", "\n", "sex", "\n", "atom"))
 def _ir_args_():
         pass
@@ -4242,11 +4257,15 @@ def def_(name, lambda_list, *body, decorators = []):
            1, ["sex", "\n"]))
 def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
+        ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
         setf_macro_function(t, name) # COMPILE should be able to use that
         fn, warnedp, failedp, [macfundef] = _compile(the(symbol, name),
                                                      (lambda_, lambda_list) + body)
         return ([the((varituple_, (eql_, def_), _tuple), macfundef)],
                 _lower((quote_, (symbol_, string(name))))[1])
+
+@defknown
+def not_(x): return _lower_expr(x, lambda val: ("UnaryOp", ("Not",), val))
 
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
            1, ["sex", "\n"]))
@@ -4554,13 +4573,13 @@ def _lower(form):
         # - proper quote processing
         if _debugging_compiler_p():
                 _compiler_track_compiled_form(form)
-                _debug_printf(";;; compiling: %s", form)
+                _debug_printf(";;; compiling:\n%s", _pp_sex(form))
                 _compiler_report_context()
         def _rec(x):
                 # NOTE: we are going to splice unquoting processing here, as we must be able
                 # to work in READ-less environment.
                 if _debugging_compiler_p():
-                        _debug_printf(";;; lowering: %s", x)
+                        _debug_printf(";;; lowering:\n%s", _pp_sex(x))
                 if _tuplep(x):
                         def noisep(x): return x in [symbol_]
                         def puntedp(x):
@@ -4784,7 +4803,7 @@ The tertiary value, FAILURE-P, is false if no conditions of type ERROR
 or WARNING (other than STYLE-WARNING) were detected by the compiler,
 and true otherwise."""
         if _tuplep(definition):
-                lambda_expression = check_type(definition, (partuple_, (eql_, lambda_), _tuple))
+                lambda_expression = the((partuple_, (eql_, lambda_), _tuple), definition)
         else:
                 fun = definition or macro_function(name) or fdefinition(name)
                 lambda_expression, _, _ = function_lambda_expression(fun)
@@ -4800,10 +4819,9 @@ and true otherwise."""
         if name:
                 # The load-time effect must establish an appropriate definition.
                 macrop = not not macro_function(name)
-                form = (decorate_, ((attr_, (symbol_, "cl"),
-                                            (symbol_, (_install_macro_definition if macrop else
-                                                       _install_function_definition))),),
-                        form)
+                form = _ir(*form,
+                            decorators = (_install_macro_definition if macrop else
+                                          _install_function_definition))
         return _compile_toplevel_def(final_name, form,
                                      globalp = name,
                                      macrop = name and macrop,
@@ -4864,11 +4882,17 @@ def fdefinition(name):
           (symbol_function, (the, symbol, name))))
 
 @lisp
-def foo(name):
-        (def_, foo, (name,),
-         (if_, (stringp, name),
-          1,
-          (setq_, name, 2)))
+def cond(*clauses):
+        (defmacro, cond, (_rest_, clauses),
+         (if_, (not_, clauses),
+          nil,
+          (let_, ((clause, (first, clauses)),
+                  (rest, (rest, clauses))),
+           (let_, ((test, (first, clause)),
+                   (body, (rest, clause))),
+            (quaquote_, (if_, (unquote_, test),
+                         (progn_, (splice_, body)),
+                         (cond, (splice_, rest))))))))
 
 def compile_file_pathname(input_file, output_file = None):
         _not_implemented()
