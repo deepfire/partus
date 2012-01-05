@@ -4139,10 +4139,13 @@ def quaquote_(x):
         with progv(_COMPILER_QUOTE_ = t):
                 return x
 
-@defknown # imp?
+@defknown
 def comma_(x):
-        with progv():
-                return x
+        error("Comma not inside a backquote.")
+
+@defknown
+def splice_(x):
+        error("Comma not inside a backquote.")
 
 def _compiler_prepend(pro, tuple):
         return (pro + tuple[0],
@@ -4182,11 +4185,11 @@ def if_(test, consequent, antecedent = nil):
          (pro_ante, val_ante)) = lo_cons, lo_ante
         cons_expr_p, ante_expr_p = mapcar(_tuple_expression_p, [lo_cons, lo_ante])
         if _all([cons_expr_p, ante_expr_p]):
-                _debug_printf(" -- IF: simple all-expression case")
+                _compiler_debug_printf(" -- IF: simple all-expression case")
                 return (pro_test,
                         ("IfExp", val_test, val_cons, val_ante))
         else:
-                _debug_printf(" -- IF: complex FLET-based case")
+                _compiler_debug_printf(" -- IF: complex FLET-based case")
                 ## Unregistered Issue FUNCALL-MISSING
                 name_cons, name_ante = _gensyms(x = "IF-BRANCH", n = 2)
                 cons, cons_fdefn = ((consequent,           _tuple()) if cons_expr_p else
@@ -4246,9 +4249,9 @@ def def_(name, lambda_list, *body, decorators = []):
                 xtnls_guess, xtnls_actual, try_ = None, _set(), 0
                 while xtnls_guess != xtnls_actual:
                         cdef.xtnls = xtnls_guess = xtnls_actual
-                        _debug_printf(" -- DEF: try %d", try_)
+                        _compiler_debug_printf(" -- DEF: try %d", try_)
                         result = try_compile()
-                        _debug_printf(" -- DEF: result\n%s", result)
+                        _compiler_debug_printf(" -- DEF: result\n%s", result)
                         xtnls_actual = _tuple_xtnls(result)
                         try_ += 1
                 return result
@@ -4306,10 +4309,10 @@ def let_(bindings, *body):
         #         return (bind_pro + body_pro,
         #                 body_val)
         if every(_tuple_expression_p, compiled_value_pves):
-                _debug_printf(" -- LET: simple all-expression LAMBDA case")
+                _compiler_debug_printf(" -- LET: simple all-expression LAMBDA case")
                 return (funcall_, (lambda_, (_optional_,) + bindings_thru_defaulting) + body)
         else:
-                _debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
+                _compiler_debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
                 last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
                 n_nonexprs = last_non_expr_posn + 1
                 temp_names = [ gensym("LET-NONEXPR-VAL") for i in _range(_len(bindings)) ]
@@ -4347,11 +4350,11 @@ def funcall_(func, *args):
         with _no_tail_position():
                 arg_pves = mapcar(_lower, args)
         if every(_tuple_expression_p, arg_pves):
-                _debug_printf(" -- FUNCALL: simple case")
+                _compiler_debug_printf(" -- FUNCALL: simple case")
                 return (func_pro,
                         ("Call", func_val, mapcar(second, arg_pves), []))
         else:
-                _debug_printf(" -- FUNCALL: complex LET + FUNCALL")
+                _compiler_debug_printf(" -- FUNCALL: complex LET + FUNCALL")
                 temp_names = _gensyms(n = _len(args), x = "FUNCALL-ARG")
                 if _tuple_expression_p((func_pro, func_val)):
                         func_binding, func_exp = (_tuple(),
@@ -4395,14 +4398,14 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
                 total, args, defaults = _prepare_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
                 (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
                 if not (optional or keys):
-                        _debug_printf(" -- LAMBDA: simple")
+                        _compiler_debug_printf(" -- LAMBDA: simple")
                         return ([],
                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
                 elif rest or restkey:
                         _not_implemented("rest/restkey-ful defaulting lambda list")
                 elif dont_delay_defaults:
                         # duplicate code here, but the checking "issue" is not understood well-enough..
-                        _debug_printf(" -- LAMBDA: undelayed defaults")
+                        _compiler_debug_printf(" -- LAMBDA: undelayed defaults")
                         return ([],
                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
                 else:
@@ -4411,7 +4414,7 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
                                 return (if_, (eq, arg, (symbol_, "None")),
                                              default,
                                              arg)
-                        _debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
+                        _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
                         return (lambda_, _py.tuple(fixed + [_optional_] + optional + keys),
                                  (let_, _py.tuple((arg, defaulting_expr(arg, default))
                                                   for arg, default in _py.zip(optional + keys,
@@ -4419,7 +4422,7 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
                                    body)
                                 
         else:
-                _debug_printf(" -- LAMBDA: non-expression FLET")
+                _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
                 func_name = _gensymname("LET-BODY-")
                 return (flet_, ((func_name, lambda_list) + body,),
                          (symbol_, func_name))
@@ -4435,7 +4438,7 @@ def labels_(bindings, *body):
         if not every(_of_type((partuple_, symbol, _tuple))):
                 error("LABELS: malformed bindings: %s.", bindings)
         temp_name = gensym("LABELS")
-        _debug_printf(" -- LABELS: to DEF + FLET")
+        _compiler_debug_printf(" -- LABELS: to DEF + FLET")
         return (flet_, ((temp_name, _tuple(),
                          _tuple((def_, name, lambda_list, body)
                                 for name, lambda_list, *body in bindings) +
