@@ -1321,9 +1321,8 @@ def _invalid_type_specifier_error(x, complete_type = None):
               x, ("" if not complete_type else
                   (" (within type specifier %s)" % (complete_type,))))
 
-# __type_predicate_map__ is declared after the package system is initialised
 def _complex_type_mismatch(x, type):
-        ret = type[0].type_predicate_function(x, type)
+        ret = type[0].type_predicate(x, type)
         if _tuplep(ret) and _py.len(ret) != 3:
                 error("Type matcher for %s returned an invalid value: %s.", type[0], _py.repr(ret))
         return (ret if not (_tuplep(ret) and ret[2]) else
@@ -1336,12 +1335,14 @@ disagreement and, as a third element, a boolean, denoting whether the
 type specifier was malformed.  Otherwise, when X is of TYPE, a
 negative boolean value is returned."""
         return (((not _isinstance(x, type)) and
-                 (x, type, False))                        if _isinstance(type, _type)            else
-                nil                                       if type is t                           else
-                _complex_type_mismatch(x, _tuple([type])) if (symbolp(type) and
-                                                              _py.hasattr(type, "type_predicate_function"))   else
-                _complex_type_mismatch(x, type)          if (_tuplep(type) and type and
-                                                             _py.hasattr(type[0], "type_predicate_function")) else
+                 (x, type, False))                    if _isinstance(type, _type)                 else
+                nil                                   if type is t                                else
+                (((not _isinstance(x, type.type)) and
+                  (x, type, False))                        if _py.hasattr(type, "type")           else
+                 _complex_type_mismatch(x, _tuple([type])) if _py.hasattr(type, "type_predicate") else
+                 _invalid_type_specifier_error(type)) if symbolp(type)                            else
+                _complex_type_mismatch(x, type)       if (_tuplep(type) and type and
+                                                          _py.hasattr(type[0], "type_predicate")) else
                 _invalid_type_specifier_error(type))
 
 def typep(x, type):
@@ -1851,6 +1852,16 @@ def symbol_value(symbol):
                 error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
                       symbol))
 
+def _symbol_known(symbol_):
+        return symbol_.known
+def _symbol_type(symbol, if_not_a_type = "error"):
+        return (symbol_.type                                                 if _py.hasattr(the(symbol, symbol_), "type") else
+                nil                                                                        if if_not_a_type == "continue" else
+                error("In %%SYMBOL-TYPE %s: symbol does not designate a known type.", symbol) if if_not_a_type == "error" else
+                error("In %%SYMBOL-TYPE: the :IF-NOT-A-TYPE keyword argument must be one of ('error, 'continue')."))
+def _symbol_type_predicate(symbol):
+        return symbol_.type_predicate if _py.hasattr(the(symbol, symbol_), "type_predicate") else nil
+
 def setq(name, value):
         name = _coerce_to_symbol_name(name)
         frame = (_find_dynamic_frame(name) or
@@ -2218,7 +2229,7 @@ class _cold_undefined_function(error_):
 undefined_function = _cold_undefined_function
 
 def _symbol_function(symbol):
-        return (symbol.primitive_function                        or
+        return (symbol.known                                     or
                 symbol.macro_function                            or
                 (functionp(symbol.function) and symbol.function) or
                 error(undefined_function, symbol))
@@ -2408,7 +2419,7 @@ def _cold_defun(symbol_name_or_fn):
                 return symbol
         return (do_cold_defun(symbol_name_or_fn, symbol_name = _python_name_lisp_symbol_name(symbol_name_or_fn.__name__)) if functionp(symbol_name_or_fn) else
                 do_cold_defun                                                       if stringp(symbol_name_or_fn)   else
-                error("In %COLD-DEFUN: argument must be either a function or a string, was: %s.",
+                error("In %%COLD-DEFUN: argument must be either a function or a string, was: %s.",
                       symbol_or_fn))
 defun = _cold_defun
 
@@ -2422,7 +2433,7 @@ class symbol():
                  (self.value,
                   self.function,
                   self.macro_function,
-                  self.primitive_function)) = name, None, (None, nil, nil, nil)
+                  self.known)) = name, None, (None, nil, nil, nil)
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __call__(self, *args, **keys):
@@ -2437,7 +2448,7 @@ def _cold_make_nil():
         (nil.value,
          nil.function,
          nil.macro_function,
-         nil.primitive_function) = nil, nil, nil, nil
+         nil.known) = nil, nil, nil, nil
         return nil
 nil = _cold_make_nil()
 
@@ -2806,7 +2817,7 @@ def _some_type_mismatch(type, xs):
 def deftype(type_name_or_fn):
         def do_deftype(fn, type_name = type_name_or_fn):
                 symbol = _intern0(type_name)
-                symbol.type_predicate_function = fn
+                symbol.type_predicate = fn
                 return symbol
         return (do_deftype(type_name_or_fn, type_name = _python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
                 do_deftype                                                                                       if stringp(type_name_or_fn)   else
@@ -3843,7 +3854,6 @@ _known = defstruct("known",
                    "pp_code",
                    "compiler",
                    "compiler_params")
-__knowns__ = _dict()
 def defknown(pp_code_or_fn):
         def do_defknown(fn, pp_code = pp_code_or_fn):
                 name = fn.__name__
@@ -3853,17 +3863,17 @@ def defknown(pp_code_or_fn):
                         sym = _intern0(name.upper())
                         _setf_global(sym, name)
                 compiler_params = _function_lambda_list(fn)[3]
-                __knowns__[sym] = _known(name = sym,
-                                         pp_code = pp_code,
-                                         compiler = fn,
-                                         compiler_params = _mapset(_indexing(0), compiler_params))
+                sym.known = _known(name = sym,
+                                   pp_code = pp_code,
+                                   compiler = fn,
+                                   compiler_params = _mapset(_indexing(0), compiler_params))
                 return sym # pass through
         return (do_defknown(pp_code_or_fn, pp_code = ("atom", " ", ["sex", " "])) if functionp(pp_code_or_fn) else
                 do_defknown                                                       if _tuplep(pp_code_or_fn)   else
                 error("In DEFKNOWN: argument must be either a function or a pretty-printer code tuple, was: %s.",
                       pp_code_or_fn))
 def _find_known(x):
-        return gethash(x, __knowns__)[0]
+        return _symbol_known(the(symbol, x))
 
 ###
 ### Thunking is defined as code movement, introduced by the need for
