@@ -1427,12 +1427,7 @@ def multiple_value_call(function, *values_forms):
 ##
 ## Conses
 ##
-def cons(x, y):       return (x, y)
-def consp(o):         return _isinstance(o, _tuple) and _len(o) is 2
-def atom(o):          return not _isinstance(o, _tuple)
-def car(x):           return x[0]   if x  else nil
 def cdr(x):           return x[1:]  if x  else nil
-def first(xs):        return xs[0]  if xs else nil
 def second(xs):       return xs[1]  if _len(xs) > 1 else nil
 def third(xs):        return xs[2]  if _len(xs) > 2 else nil
 def rest(xs):         return xs[1:] if xs else nil
@@ -4073,6 +4068,22 @@ _compiler_debug         = _defwith("_compiler_debug",
 ###              PROGN | FLET, SYMBOL <- (LAMBDA)      <-
 ###                FLET, DEF, FUNCALL <- (LABELS)      <-
 ###                 PROGN | LET, LET* <- (LET*)        <-
+@defun
+def atom(x):        return not _tuplep(x)
+@defun
+def consp(x):       return _tuplep(x)
+@defun
+def listp(x):       return x is nil or _tuplep(x)
+@defun
+def list(*xs):      return _py.tuple(*xs)
+@defun
+def append(*xs):    return _py.sum(xs, _py.tuple())
+@defun
+def cons(car, cdr): return (x, y)
+@defun
+def car(x):         return x[0] if x else nil
+@defun
+def first(x):       return x[0] if x else nil
 
 def _lower_expr(x, fn):
         pro, val = lower(x)
@@ -4134,10 +4145,28 @@ def quote_(x):
         with progv(_COMPILER_QUOTE_ = t):
                 return x
 
-@defknown # imp?
+@defknown
 def quaquote_(x):
-        with progv(_COMPILER_QUOTE_ = t):
-                return x
+        def rec(x):
+                if atom(x):
+                        return x
+                else:
+                        acc = _py.tuple()
+                        run = []
+                        for ix in x:
+                                if _tuplep(ix):
+                                        if not ix or ix[0] not in [comma_, splice_]:
+                                                run.append(rec(ix))
+                                        elif ix[0] is comma_:
+                                                if _py.len(ix) != 2:
+                                                        error("In quasi-quoted form %s: bad comma expression %s.", x, ix)
+                                                run.append(ix[1])
+                                        elif ix[0] is splice_:
+                                                if _py.len(ix) != 2:
+                                                        error("In quasi-quoted form %s: bad splice expression %s.", x, ix)
+                                                acc.append()
+                        return (list,)
+        return rec(x)
 
 @defknown
 def comma_(x):
