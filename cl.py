@@ -4066,13 +4066,13 @@ _compiler_debug         = _defwith("_compiler_debug",
 ###                 PROGN | LET, LET* <- (LET*)        <-
 @defun
 def atom(x):        return not _tuplep(x)
-@defun
+@defun # Unregistered Issue LIST-CONSNESS
 def consp(x):       return _tuplep(x)
-@defun
+@defun # Unregistered Issue LIST-CONSNESS
 def listp(x):       return x is nil or _tuplep(x)
-@defun
+@defun # Unregistered Issue LIST-CONSNESS
 def list(*xs):      return xs
-@defun
+@defun # Unregistered Issue LIST-CONSNESS
 def append(*xs):    return _py.sum(xs, _py.tuple())
 @defun
 def cons(car, cdr): return (x, y)
@@ -4148,25 +4148,30 @@ def quote(x):
 
 @defknown
 def quaquote(x):
+        # Unregistered Issue COMPILER-QUASIQUOTE-PROCESSING-TAKING-OVER-READER-FUNCTIONALITY
         def rec(x):
                 if atom(x):
-                        return x
+                        return (quote, x)
                 else:
                         acc = None
-                        run = [list, ]
+                        run = [list]
                         for ix in x:
-                                if _tuplep(ix):
-                                        if not ix or ix[0] not in [comma, splice]:
-                                                run.append(rec(ix))
-                                        elif ix[0] is comma:
-                                                if _py.len(ix) != 2:
-                                                        error("In quasi-quoted form %s: bad comma expression %s.", x, ix)
-                                                run.append(ix[1])
-                                        elif ix[0] is splice:
-                                                if _py.len(ix) != 2:
-                                                        error("In quasi-quoted form %s: bad splice expression %s.", x, ix)
-                                                acc.append()
-                        return (list,)
+                                if not _tuplep(ix) or not ix or ix[0] not in [comma, splice]:
+                                        run.append(rec(ix))
+                                elif len(ix) != 2:
+                                        error("In quasi-quoted form %s: bad %s expression %s.", x, ix[0], ix)
+                                elif ix[0] is comma:
+                                        run.append(ix[1])
+                                elif ix[0] is splice:
+                                        if acc is None:
+                                                acc = [append, _py.tuple(run)]
+                                        acc.append(ix[1])
+                                        run = [list]
+                        if acc:
+                                acc.append(_py.tuple(run))
+                        else:
+                                acc = run
+                        return _py.tuple(remove((list,), acc))
         return rec(x)
 
 @defknown
@@ -4681,7 +4686,7 @@ def _lower(form):
         if _debugging_compiler_p():
                 _debug_printf(";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
                               form, *pv)
-        return pv
+        return the(pytuple, pv)
 
 def function_lambda_expression(function_):
         """function-lambda-expression function
