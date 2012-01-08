@@ -207,12 +207,12 @@ def _cold_constantp(form):
         #  - slow handling of constant variables
         #  - no handling of DEFCONSTANT-introduced variables
         #  - additional constant forms
-        return (_py.isinstance(form, (integer, float, complex, string)) or
+        return (_py.isinstance(form, (_py.int, _py.float, _py.complex, _py.str)) or
                 (type_of(form).__name__ == "_symbol" and
                  ((form.package.name == "KEYWORD") or
                   (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
-                (_tuplep(form)                         and
-                 _len(form) == 2              and
+                (_tuplep(form)                          and
+                 _len(form) == 2                        and
                  type_of(form[0]).__name__ == "_symbol" and
                  form.package.name == "COMMON-LISP"     and
                  form.name in ["QUOTE"]))
@@ -2564,7 +2564,7 @@ Affected By:
 
 The state of the global environment (e.g., which symbols have been
 declared to be the names of constant variables)."""
-        return (_py.isinstance(form, (integer, float, complex, string)) or
+        return (typep(form, (or_, integer, float, complex, string)) or
                 keywordp(form) or form in [t, nil, pi]                 or
                 (_tuplep(form) and _len(form) == 2 and form[0] is quote_))
 
@@ -3240,10 +3240,18 @@ def _register_atreeifier_for_type(type, recurse, atreeifier):
         "Please, list the added atreeifiers above."
         __atreeifier_map__[type] = (recurse, atreeifier)
 
-def _astifiable_p(x):
-        return type_of(x) in __atreeifier_map__
+def _atreeifiable_p(x):
+        type = type_of(x)
+        type_recipe, _ = gethash(type, __atreeifier_map__)
+        if not type_recipe:
+                return False
+        recursep, _ = type_recipe
+        if not recursep:
+                return True
+        return every(_atreeifiable_p, x)
 
 def _try_atreeify_constant(x):
+        "It's more efficient to try doing it, than to do a complete check and then to 'try' again."
         (rec, atreeifier), atreeifiablep = gethash(type_of(x), __atreeifier_map__,
                                                    ((nil, nil), nil))
         if not atreeifiablep:
@@ -3632,13 +3640,13 @@ def _ast_Call(func:      _ast.expr,
                                     [func, args, keywords, starargs, kwargs])
 #      | Num(object n) -- a number as a PyObject.
 @defast
-def _ast_Num(n: int): pass
+def _ast_Num(n: integer): pass
 #      | Str(string s) -- need to specify raw, unicode, etc?
 @defast
-def _ast_Str(s: str): pass
+def _ast_Str(s: string): pass
 #      | Bytes(string s)
 @defast
-def _ast_Bytes(s: str): pass
+def _ast_Bytes(s: string): pass
 #      | Ellipsis
 @defast
 def _ast_Ellipsis(): pass
@@ -3769,7 +3777,7 @@ def _ast_comprehension(target: _ast.expr,
 # excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
 @defast
 def _ast_ExceptHandler(type: (maybe, _ast.expr),
-                       name: (maybe, str),
+                       name: (maybe, string),
                        body: (pylist, _ast.stmt)):
         def bound_free():
                 (_,      type_f, _) = _bound_free_recursor()(type)
@@ -3784,10 +3792,10 @@ def _ast_ExceptHandler(type: (maybe, _ast.expr),
 @defast
 ### These MAYBEs suggest a remapping facility.
 def _ast_arguments(args:             (pylist, _ast.arg),
-                   vararg:           (maybe, str),
+                   vararg:           (maybe, string),
                    varargannotation: (maybe, _ast.expr),
                    kwonlyargs:       (pylist, _ast.arg),
-                   kwarg:            (maybe, str),
+                   kwarg:            (maybe, string),
                    kwargannotation:  (maybe, _ast.expr),
                    defaults:         (pylist, _ast.expr),
                    kw_defaults:      (pylist, _ast.expr)):
