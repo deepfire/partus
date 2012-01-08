@@ -99,6 +99,7 @@ import threading   as _threading
 import collections as _collections
 
 import neutrality  as _neutrality
+import frost       as _frost
 
 ###
 ### Types
@@ -124,26 +125,12 @@ import neutrality  as _neutrality
 ###
 ### Derived names
 ### 
-_globals          = globals                        # ..a dependency half-broken..
-_locals           = locals                         # ..same doubts apply.
 _NoneType         = _py.type(None)
 
 pi                = _math.pi
 reduce            = _functools.reduce
 sort              = _py.sorted
 _curry            = _functools.partial
-
-_len              = _py.len
-_repr             = _py.repr
-_zip              = _py.zip
-_range            = _py.range
-_reversed         = _py.reversed
-_enumerate        = _py.enumerate
-_all              = _py.all
-_id               = _py.id
-_hasattr          = _py.hasattr
-_getattr          = _py.getattr
-_setattr          = _py.setattr
 
 condition         = _py.BaseException
 error_            = _py.Exception
@@ -152,7 +139,6 @@ end_of_file       = _py.EOFError
 
 stringp           = _neutrality.stringp
 _write_string     = _neutrality._write_string
-
 
 ###
 ### Constants
@@ -212,7 +198,7 @@ def _cold_constantp(form):
                  ((form.package.name == "KEYWORD") or
                   (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
                 (_tuplep(form)                          and
-                 _len(form) == 2                        and
+                 _py.len(form) == 2                        and
                  type_of(form[0]).__name__ == "_symbol" and
                  form.package.name == "COMMON-LISP"     and
                  form.name in ["QUOTE"]))
@@ -243,14 +229,6 @@ def _case_xform(type, s):
                 error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", _py.type(type), _cold_print_symbol(type))
         return _case_attribute_map[type.name](s)
 
-# Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-def _setf_global(value, name):
-        _globals()[name] = value
-        return value
-
-def _global(name):
-        return gethash(name, _globals())
-
 ###
 ### Cold boot
 ###
@@ -276,7 +254,7 @@ def _cold_format(destination, control_string, *args):
                 _write_string(string, _sys.stderr if destination is t else destination)
 format = _cold_format
 def _cold_princ_to_string(x):
-        return _repr(x)
+        return _py.repr(x)
 princ_to_string = _cold_princ_to_string
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
 def _cold_probe_file(pathname):
@@ -429,7 +407,7 @@ def _alist_plist(xs):
 
 def _plist_alist(xs):
         acc = []
-        for i in _range(0, _len(xs), 2):
+        for i in _py.range(0, _py.len(xs), 2):
                 acc.append((xs[i], xs[i + 1]))
         return acc
 
@@ -498,7 +476,7 @@ def _coerce_to_symbol_name(x):
 ##
 ## modules/packages
 ##
-def _load_code_object_as_module(name, co, filename = "", builtins = None, globals_ = None, locals_ = None, register = True):
+def _load_code_object_as_module(name, co, filename = "", builtins = None, globals = None, locals = None, register = True):
         check_type(co, _py.type(_load_code_object_as_module.__code__))
         mod = _imp.new_module(name)
         mod.__filename__ = filename
@@ -506,12 +484,10 @@ def _load_code_object_as_module(name, co, filename = "", builtins = None, global
                 mod.__dict__["__builtins__"] = builtins
         if register:
                 _sys.modules[name] = mod
-        globals_ = _defaulted(globals_, mod.__dict__)
-        locals_  = _defaulted(locals_, mod.__dict__)
-        _py.exec(co,
-                 globals_,
-                 locals_)
-        return mod, globals_, locals_
+        globals = _defaulted(globals, mod.__dict__)
+        locals  = _defaulted(locals, mod.__dict__)
+        _py.exec(co, globals, locals)
+        return mod, globals, locals
 
 def _load_text_as_module(name, text, filename = "", **keys):
         return _load_code_object_as_module(name, _py.compile(text, filename, "exec"),
@@ -524,7 +500,7 @@ def _reregister_module_as_package(mod, parent_package = None):
                 dotpos = mod.name.rindex(".")
                 assert dotpos
                 postdot_name = mod.name[dotpos + 1:]
-                _setattr(parent_package, postdot_name, mod)
+                _py.setattr(parent_package, postdot_name, mod)
                 parent_package.__children__.add(mod)
                 mod.__parent__ = parent_package
         if packagep:
@@ -631,7 +607,7 @@ def _pp_frame(f, align = None, handle_overflow = None, lineno = None):
         fun_name, fun_params, filename = _fun_info(fun)[:3]
         align = ((align or 10) if handle_overflow else
                  _defaulted(align, 0))
-        return ("%s%s %s(%s)" % (filename + ("" if align else ":") + (" " * (align - (_len(filename) % align if align else 0))),
+        return ("%s%s %s(%s)" % (filename + ("" if align else ":") + (" " * (align - (_py.len(filename) % align if align else 0))),
                                  ("%d:" % _frame_lineno(f)) if lineno else "",
                                  fun_name, ", ".join(fun_params)))
 
@@ -640,7 +616,7 @@ def _print_frame(f, stream = None, **keys):
 
 def _print_frames(fs, stream = None):
         mapc(lambda i, f: format(_defaulted_to_var(stream, "*DEBUG-IO*"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
-             *_zip(*_enumerate(fs)))
+             *_py.zip(*_py.enumerate(fs)))
 
 def _backtrace(x = -1, stream = None):
         _print_frames(_frames_calling(_this_frame())[1:x],
@@ -712,7 +688,7 @@ def _locals_printf(locals, *local_names):
 def _example_frame():
         "cellvars: closed over non-globals;  varnames: bound"
         def xceptor(xceptor_arg):
-                "names: globals;  varnames: args + otherbind;  locals: _len(varnames)"
+                "names: globals;  varnames: args + otherbind;  locals: _py.len(varnames)"
                 try:
                         error("This is xceptor talking: %s.", xceptor_arg)
                 except Exception as cond:
@@ -746,7 +722,7 @@ def _example_frame():
 #   co_argcount: 1
 #   co_cellvars: ()
 #   co_code: b'y\x11\x00t\x00\x00d\x01\x00|\x00\x00\x83\x02\x00\x01Wn,\x00\x04t\x01\x00k\n\x00r?\x00\x01}\x01\x00\x01z\x0c\x00t\x02\x00\x83\x00\x00SWYd\x02\x00d\x02\x00}\x01\x00~\x01\x00Xn\x01\x00Xd\x02\x00S'
-#   co_consts: ('names: globals;  varnames: args + otherbind;  locals: _len(varnames)', 'This is xceptor talking: %s.', None)
+#   co_consts: ('names: globals;  varnames: args + otherbind;  locals: _py.len(varnames)', 'This is xceptor talking: %s.', None)
 #   co_filename: cl.py
 #   co_firstlineno: 199
 #   co_flags: 83
@@ -936,7 +912,7 @@ def _ensure_list(x):
 def _ensure_car(x):
         return x[0] if _tuplep(x) else x
 def _ensure_cons(x, default = None):
-        return x if _tuplep(x) and _len(x) == 2 else (x, default)
+        return x if _tuplep(x) and _py.len(x) == 2 else (x, default)
 
 def _mapset(f, xs):
         acc = _py.set()
@@ -957,9 +933,9 @@ def _mapseparaten(f, xs):
         return s0, s1
 
 def _separate(n, f, xs):
-        ss = _py.tuple(_py.set() for _ in _range(n))
+        ss = _py.tuple(_py.set() for _ in _py.range(n))
         for rss in (f(x) for x in xs):
-                for s, rs in _zip(ss, rss):
+                for s, rs in _py.zip(ss, rss):
                         s |= rs
         return ss
 
@@ -968,23 +944,23 @@ def _recombine(spec, f, xss):
         accs  = _py.tuple(f() for f in spec)
         combs = _py.tuple(__combiners__[_py.type(a)] for a in accs)
         for xs in xss:
-                for acc, comb, reselt in _zip(accs, combs, f(xs)):
+                for acc, comb, reselt in _py.zip(accs, combs, f(xs)):
                         comb(acc, reselt)
         return accs
 def _recombine_star(spec, f, *xss):
         accs  = _py.tuple(f() for f in spec)
         combs = _py.tuple(__combiners__[_py.type(a)] for a in accs)
-        for xs in _zip(*xss):
-                for acc, comb, reselt in _zip(accs, combs, f(*xs)):
+        for xs in _py.zip(*xss):
+                for acc, comb, reselt in _py.zip(accs, combs, f(*xs)):
                         comb(acc, reselt)
         return accs
 
 def _mapcar_star(f, xs):
         return [ f(*x) for x in xs ]
 
-def _slotting(x):             return lambda y: _getattr(y, x, None)
-def _slot_of(x):              return lambda y: _getattr(x, y, None)
-def _slot_equal(slot, val):   return lambda y: _getattr(y, slot, None) == val
+def _slotting(x):             return lambda y: _py.getattr(y, x, None)
+def _slot_of(x):              return lambda y: _py.getattr(x, y, None)
+def _slot_equal(slot, val):   return lambda y: _py.getattr(y, slot, None) == val
 
 def _indexing(*is_):          return lambda y: aref(y, *is_)
 def _index_of(xs):            return lambda *is_: aref(xs, *is_)
@@ -1002,7 +978,7 @@ def _file_as_string(filename):
                 return _stream_as_string(f)
 
 def _prefix_suffix_if(f, xs, key = identity):
-        for i, x in _enumerate(xs):
+        for i, x in _py.enumerate(xs):
                 if not f(key(x)):
                         return xs[:i], xs[i:]
         return xs, []
@@ -1072,26 +1048,26 @@ def _from(n, xs):
                 yield x
 
 def every(fn, *xss, start = 0):
-        for xs in _from(start, _zip(*xss)):
+        for xs in _from(start, _py.zip(*xss)):
                 if not fn(*xs): return False
-        return (xs or True) if "xs" in _locals() else True
+        return (xs or True) if "xs" in _py.locals() else True
 
 def notevery(fn, *xss, start = 0):
-        for xs in _from(start, _zip(*xss)):
+        for xs in _from(start, _py.zip(*xss)):
                 ret = fn(*xs)
                 if not ret: return ret or True
         return False
 
 def some(fn, *xss, start = 0):
-        for xs in _from(start, _zip(*xss)):
+        for xs in _from(start, _py.zip(*xss)):
                 ret = fn(*xs)
                 if ret: return ret or True
         return False
 
 def notany(fn, *xss, start = 0):
-        for xs in _from(start, _zip(*xss)):
+        for xs in _from(start, _py.zip(*xss)):
                 if fn(*xs): return False
-        return (xs or True) if "xs" in _locals() else True
+        return (xs or True) if "xs" in _py.locals() else True
 
 def _xorf(x, y):
         return (x or y) and not (x and y)
@@ -1182,7 +1158,7 @@ def complexp(o):      return _py.isinstance(o, _py.complex)
 def numberp(o):       return _py.isinstance(o, (_py.int, _py.float, _py.complex))
 def _listp(o):        return _py.isinstance(o, _py.list)
 def _boolp(o):        return _py.isinstance(o, _py.bool)
-def sequencep(x):     return _getattr(_py.type(x), "__len__", None) is not None
+def sequencep(x):     return _py.getattr(_py.type(x), "__len__", None) is not None
 def hash_table_p(o):  return _py.isinstance(o, _cold_hash_table_type)
 
 ##
@@ -1219,10 +1195,10 @@ def multiple_value_call(function, *values_forms):
 ## Conses
 ##
 def cdr(x):           return x[1:]  if x  else nil
-def second(xs):       return xs[1]  if _len(xs) > 1 else nil
-def third(xs):        return xs[2]  if _len(xs) > 2 else nil
+def second(xs):       return xs[1]  if _py.len(xs) > 1 else nil
+def third(xs):        return xs[2]  if _py.len(xs) > 2 else nil
 def rest(xs):         return xs[1:] if xs else nil
-def nth(n, xs):       return xs[n] if n < _len(xs) else nil
+def nth(n, xs):       return xs[n] if n < _py.len(xs) else nil
 
 def copy_list(x):
         _not_implemented()
@@ -1264,14 +1240,14 @@ def vector_push_extend(vec, x):
         return vec
 
 def getf(xs, key, default = None):
-        for i, x in _enumerate(xs):
+        for i, x in _py.enumerate(xs):
                 if not i%2 and x == key:
                         return xs[i + 1]
         else:
                 return _defaulted(default, nil)
 
 def setf_getf(value, xs, key):
-        for i, x in _enumerate(xs):
+        for i, x in _py.enumerate(xs):
                 if not i%2 and x == key:
                         xs[i + 1] = value
                         return xs
@@ -1299,13 +1275,13 @@ def make_list(size, initial_element = None):
 def append(*xs): return reduce(lambda x, y: x + y, xs) if (xs and xs[0]) else []
 
 def mapcar(f, *xs):
-        return [ f(*x) for x in _zip(*xs) ]
+        return [ f(*x) for x in _py.zip(*xs) ]
 
 def mapcan(f, *xs):
-        return reduce(append, [ f(*x) for x in _zip(*xs) ]) if (xs and xs[0]) else []
+        return reduce(append, [ f(*x) for x in _py.zip(*xs) ]) if (xs and xs[0]) else []
 
 def mapc(f, *xs):
-        for x in _zip(*xs):
+        for x in _py.zip(*xs):
                 f(*x)
         return xs[0]
 
@@ -1334,11 +1310,11 @@ def remove(elt, xs, test = eql, key = identity):
 
 def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
         # Unregistered Issue FIND-IF-NOT-ITERATOR-FRIENDLY
-        end = end or _len(xs)
+        end = end or _py.len(xs)
         if start or end:
-                seq = _zip(xs, _range(_len(xs)))
+                seq = _py.zip(xs, _py.range(_py.len(xs)))
                 if from_end:
-                        seq = _reversed(_py.list(seq))
+                        seq = _py.reversed(_py.list(seq))
                 for (x, i) in seq:
                         if (start <= i < end) and p(key(x)):
                                 return x
@@ -1358,14 +1334,14 @@ def find(elt, xs, **keys):
 def memq(item, list):
         "Return tail of LIST beginning with first element EQ to ITEM."
         # List views?
-        for i, x in _enumerate(xs):
+        for i, x in _py.enumerate(xs):
                 if x is elt:
                         return xs[i:]
         return []
 
 def member_if(test, xs):
         "XXX: not terribly compliant."
-        for i, x in _enumerate(xs):
+        for i, x in _py.enumerate(xs):
                 if test(x):
                         return xs[i:]
 
@@ -1374,11 +1350,11 @@ def member(x, xs):
         return member_if(lambda y: y == x, xs)
 
 def position_if(p, xs, key = identity, start = 0, end = None, from_end = None):
-        end = end or _len(xs)
+        end = end or _py.len(xs)
         if start or end:
-                seq = _zip(xs, _range(_len(xs)))
+                seq = _py.zip(xs, _py.range(_py.len(xs)))
                 if from_end:
-                        seq = _reversed(_py.list(seq))
+                        seq = _py.reversed(_py.list(seq))
                 for (x, i) in seq:
                         if (start <= i < end) and p(key(x)):
                                 return i
@@ -1399,14 +1375,14 @@ def position(elt, xs, **keys):
 
 def count(elt, xs, key = identity, start = 0):
         c = 0
-        for (x, i) in _zip(xs, _range(_len(xs))):
+        for (x, i) in _py.zip(xs, _py.range(_py.len(xs))):
                 if (i >= start) and key(x) == elt:
                         c += 1
         return c
 
 def count_if(p, xs, key = identity, start = 0):
         c = 0
-        for (x, i) in _zip(xs, _range(_len(xs))):
+        for (x, i) in _py.zip(xs, _py.range(_py.len(xs))):
                 if (i >= start) and p(key(x)):
                         c += 1
         return c
@@ -1430,10 +1406,10 @@ subsequence-2 bounded by start2 and end2. """
 def tailp(object, list):
         """If OBJECT is the same as some tail of LIST, TAILP returns
 true; otherwise, it returns false."""
-        if _len(object) > _len(list):
+        if _py.len(object) > _py.len(list):
                 return None
         else:
-                list_start = _len(list) - _len(object)
+                list_start = _py.len(list) - _py.len(object)
                 return list[list_start:] == object
 
 # XXX: This is geared at cons-style lists, and so is fucking costly
@@ -1443,10 +1419,10 @@ def ldiff(object, list_):
 fresh list of the elements of LIST that precede OBJECT in the
 list structure of LIST; otherwise, it returns a copy[2] of
 LIST."""
-        if _len(object) > _len(list_):
+        if _py.len(object) > _py.len(list_):
                 return _py.list(list_)
         else:
-                list_start = _len(list_) - _len(object)
+                list_start = _py.len(list_) - _py.len(object)
                 if list_[list_start:] == object:
                         return list_[:list_start]
                 else:
@@ -1578,7 +1554,7 @@ def __block__(fn):
         ret = (lambda *args, **keys:
                        catch(nonce,
                              lambda: fn(*args, **keys)))
-        _setattr(ret, "ball", nonce)
+        _py.setattr(ret, "ball", nonce)
         return ret
 
 def block(nonce_or_fn, body = None):
@@ -1592,7 +1568,7 @@ of nonce-ing is to be handled manually."""
 
 def return_from(nonce, value):
         nonce = (nonce if not _py.isinstance(nonce, _cold_function_type) else
-                 (_getattr(nonce, "ball", None) or
+                 (_py.getattr(nonce, "ball", None) or
                   error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
         throw(nonce, value)
 
@@ -1696,7 +1672,7 @@ with progv(foovar = 3.14,
 ..with the latter being lighter on the stack frame usage."""
         if body:
                 with _env_cluster(_map_into_hash(lambda vv: (_coerce_to_symbol_name(vv[0]), vv[1]),
-                                                 _zip(vars, vals))):
+                                                 _py.zip(vars, vals))):
                         return body()
         else:
                 return _env_cluster(vars if hash_table_p(vars) else
@@ -1757,45 +1733,17 @@ def package_used_by_list(package):
         package = _coerce_to_package(package)
         return package.packages_using
 
-def _lisp_symbol_name_python_name(x):
-        def _sub(cs):
-                acc = []
-                for c in cs:
-                        acc.append("_" if c in "-*&" else c)
-                return acc
-        ret = "".join(_sub(x)).lower()
-        # debug_printf("==> Python(Lisp %s) == %s", x, ret)
-        return ret
-
 def coerce(type, x):
         ## Unregistered Issue IMPLEMENTATION-COERCE
         return (x if typep(x, type) else
                 _not_implemented("actual coercion"))
 
-def _python_name_lisp_symbol_name(x):
-        "Heuristic to undo the effect of _lisp_symbol_name_python_name()."
-        def _sub(cs):
-                if _len(cs) > 1:
-                        starred = cs[0]  == cs[-1] == "_" # *very-nice*
-                        anded   = cs[0]  == "_" != cs[-1] # &something; This #\& heuristic might bite us quite sensibly..
-                        tailed  = cs[-1] == "_" != cs[0]  # something-in-conflict
-                pre, post, start, end = (("*", "*", 1, _len(cs) - 1) if starred else
-                                         ("&", "",  1, None)         if anded   else
-                                         ("",  "",  0, _len(cs) - 1) if tailed  else
-                                         ("",  "",  0, None))
-                return (pre +
-                        "".join("-" if c == "_" else c for c in cs[start:end]) +
-                        post)
-        ret = _sub(x).upper()
-        # debug_printf("==> (Lisp (Python %s)) == %s", x, ret)
-        return ret
-
 def _lisp_symbol_python_name(sym):
-        return _lisp_symbol_name_python_name(sym.name)
+        return _frost.lisp_symbol_name_python_name(sym.name)
 
 def _lisp_symbol_python_names(sym):
-        return (_lisp_symbol_name_python_name(sym.name),
-                _lisp_symbol_name_python_name(sym.package.name))
+        return (_frost.lisp_symbol_name_python_name(sym.name),
+                _frost.lisp_symbol_name_python_name(sym.package.name))
 
 def _find_module(name, if_does_not_exist = "error"):
         return (gethash(name, _sys.modules)[0] or
@@ -1830,7 +1778,7 @@ class package(_collections.UserDict):
         def __bool__(self):
                 return True
         def __hash__(self):
-                return hash(_id(self))
+                return hash(_py.id(self))
         def __init__(self, name, use = [], filename = "",
                      ignore_python = False, python_exports = True, boot = False):
                 assert _py.isinstance(name, _py.str)
@@ -1844,7 +1792,7 @@ class package(_collections.UserDict):
                 self.external    = _py.set()                         # sym                 ## subset of accessible
               # self.internal    = accessible - external
 
-                modname = _lisp_symbol_name_python_name(name)
+                modname = _frost.lisp_symbol_name_python_name(name)
                 self.module = (_find_module(modname, if_does_not_exist = "continue") or
                                _load_text_as_module(modname, "", filename = filename))
                 # Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
@@ -2133,12 +2081,7 @@ representing a special form or macro.  The value returned by
 FDEFINITION when FBOUNDP returns true but the FUNCTION-NAME denotes a
 macro or special form is not well-defined, but FDEFINITION does not
 signal an error."""
-        namestring = string(function_name)
-        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        symbol, therep = _global(namestring)
-        if not therep:
-                symbol = _intern0(namestring)
-                _setf_global(symbol, namestring)
+        namestring = string(the(symbol, function_name))
         symbol.function = new_definition
         return new_definition
 
@@ -2188,21 +2131,25 @@ def _do_install_macro_definition(x, function):
         return x
 
 def _read_python_def_toplevel(f):
-        symbol_name = _python_name_lisp_symbol_name(f.__name__)
+        symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
         symbol = _intern0(symbol_name)
         return symbol, symbol_name, f.__name__
+
+def _frost_defun(fn, symbol_name = None, globals = None):
+        symbol_name = _defaulted(symbol_name, _frost.python_name_lisp_symbol_name(fn.__name__))
+        symbol = _intern0(symbol_name)
+        symbol.function = __block__(fn)
+        _make_object_like_python_function(symbol, fn)
+        _frost.setf_global(symbol, symbol.name, globals = _defaulted(globals, _py.globals()))
+        return symbol
 
 def _cold_defun(symbol_name_or_fn):
         # The coldness is in:
         #  - namespace impedance mismatch
         #  - duplication of (SETF FDEFINITION) functionality
         def do_cold_defun(fn, symbol_name = symbol_name_or_fn):
-                symbol = _intern0(symbol_name)
-                symbol.function = fn
-                _make_object_like_python_function(symbol, fn)
-                _setf_global(fn, symbol.name) # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-                return symbol
-        return (do_cold_defun(symbol_name_or_fn, symbol_name = _python_name_lisp_symbol_name(symbol_name_or_fn.__name__)) if functionp(symbol_name_or_fn) else
+                return _frost_defun(fn, symbol_name)
+        return (_frost_defun(symbol_name_or_fn, symbol_name = _frost.python_name_lisp_symbol_name(symbol_name_or_fn.__name__)) if functionp(symbol_name_or_fn) else
                 do_cold_defun                                                       if stringp(symbol_name_or_fn)   else
                 error("In %%COLD-DEFUN: argument must be either a function or a string, was: %s.",
                       symbol_or_fn))
@@ -2311,7 +2258,7 @@ _k = _keyword
 def import_(symbols, package = None, populate_module = True):
         p = _coerce_to_package(package)
         symbols = _ensure_list(symbols)
-        module = _find_module(_lisp_symbol_name_python_name(package_name(p)),
+        module = _find_module(_frost.lisp_symbol_name_python_name(package_name(p)),
                               if_does_not_exist = "continue")
         for s in symbols:
                 ps, accessible = gethash(s.name, p.accessible)
@@ -2324,7 +2271,7 @@ def import_(symbols, package = None, populate_module = True):
                         p.accessible[s.name] = s
                         if module:
                                 # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
-                                python_name = _lisp_symbol_name_python_name(s.name)
+                                python_name = _frost.lisp_symbol_name_python_name(s.name)
                                 module.__dict__[python_name] = s.value
         return True
 
@@ -2437,34 +2384,35 @@ def string(x):
                 symbol_name(x) if symbolp(x) else
                 error(simple_type_error, "%s cannot be coerced to string.", x))
 
-def define_python_type_map(symbol_or_name, type):
+def _define_python_type_map(symbol_or_name, type):
         not (stringp(symbol_or_name) or symbolp(symbol_or_name)) and \
             error("In DEFINE-PYTHON-TYPE-MAP: first argument must be either a string or a symbol, was: %s.", symbol_or_name)
         not _py.isinstance(type, _py.type(_py.str)) and \
             error("In DEFINE-PYTHON-TYPE-MAP: second argument must be a Python type, was: %s.", type)
         symbol = (symbol_or_name if symbolp(symbol_or_name) else
                   _intern0(symbol_or_name))
-        _setf_global(symbol, _lisp_symbol_name_python_name(symbol.name))
+        _frost.setf_global(symbol, _frost.lisp_symbol_name_python_name(symbol.name),
+                           globals = _py.globals())
         symbol.python_type = type
         return symbol
 
-define_python_type_map("SYMBOL",      _symbol)
-define_python_type_map(string,        _py.str)
-define_python_type_map("INTEGER",     _py.int)
-define_python_type_map("FLOAT",       _py.float)
-define_python_type_map("COMPLEX",     _py.complex)
-define_python_type_map("HASH-TABLE",  _cold_hash_table_type)
-define_python_type_map("_STREAM",     _cold_stream_type) # Conflict with keyword argument name in READ-CHAR..
-define_python_type_map("FUNCTION",    _cold_function_type)
+_define_python_type_map("SYMBOL",      _symbol)
+_define_python_type_map(string,        _py.str)
+_define_python_type_map("INTEGER",     _py.int)
+_define_python_type_map("FLOAT",       _py.float)
+_define_python_type_map("COMPLEX",     _py.complex)
+_define_python_type_map("HASH-TABLE",  _cold_hash_table_type)
+_define_python_type_map("_STREAM",     _cold_stream_type) # Conflict with keyword argument name in READ-CHAR..
+_define_python_type_map("FUNCTION",    _cold_function_type)
 
-define_python_type_map("PYBOOL",      _py.bool)
-define_python_type_map("PYLIST",      _py.list)
-define_python_type_map("PYTUPLE",     _py.tuple)
+_define_python_type_map("PYBOOL",      _py.bool)
+_define_python_type_map("PYLIST",      _py.list)
+_define_python_type_map("PYTUPLE",     _py.tuple)
 # define_python_type_map("PYTYPE",      _py.type)
-define_python_type_map("PYBYTES",     _py.bytes)
-define_python_type_map("PYBYTEARRAY", _py.bytearray)
-define_python_type_map("PYSET",       _py.set)
-define_python_type_map("PYFROZENSET", _py.frozenset)
+_define_python_type_map("PYBYTES",     _py.bytes)
+_define_python_type_map("PYBYTEARRAY", _py.bytearray)
+_define_python_type_map("PYSET",       _py.set)
+_define_python_type_map("PYFROZENSET", _py.frozenset)
 
 @defun
 def eq(x, y):
@@ -2570,7 +2518,7 @@ The state of the global environment (e.g., which symbols have been
 declared to be the names of constant variables)."""
         return (typep(form, (or_, integer, float, complex, string)) or
                 keywordp(form) or form in [t, nil, pi]                 or
-                (_tuplep(form) and _len(form) == 2 and form[0] is quote_))
+                (_tuplep(form) and _py.len(form) == 2 and form[0] is quote_))
 
 def null(x):
         return x is nil
@@ -2629,32 +2577,32 @@ def deftype(type_name_or_fn):
                 symbol = _intern0(type_name)
                 symbol.type_predicate = fn
                 return symbol
-        return (do_deftype(type_name_or_fn, type_name = _python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
-                do_deftype                                                                                       if stringp(type_name_or_fn)   else
+        return (do_deftype(type_name_or_fn, type_name = _frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
+                do_deftype                                                                                             if stringp(type_name_or_fn)   else
                 error("In DEFTYPE: argument must be either a function or a string, was: %s.",
                       symbol_name_or_fn))
 
 @deftype
 def pytypename(x, type):
-        return ((x, type, True)  if _len(type) is not 1                         else
+        return ((x, type, True)  if _py.len(type) is not 1                         else
                 (x, type, False) if not (symbolp(x) and _symbol_python_type(x)) else
                 nil)
         
 @deftype
 def boolean(x, type):
-        return ((x, type, True)  if _len(type) is not 1 else
+        return ((x, type, True)  if _py.len(type) is not 1 else
                 (x, type, False) if x not in [t, nil] else
                 nil)
 
 @deftype
 def null(x, type):
-        return ((x, type, True)  if _len(type) is not 1 else
+        return ((x, type, True)  if _py.len(type) is not 1 else
                 (x, type, False) if x is not nil else
                 nil)
 
 @deftype("OR")
 def or_(x, type):
-        return ((x, type, False) if _len(type) is 1 else
+        return ((x, type, False) if _py.len(type) is 1 else
                 _poor_man_let(mapcar(_type_mismatch, _infinite(x), _from(1, type)),
                               lambda mismatches:
                                       (some(lambda m: m and m[2] and m, mismatches) or
@@ -2662,12 +2610,12 @@ def or_(x, type):
 
 @deftype("AND")
 def and_(x, type):
-        return (nil       if _len(type) is 1 else
+        return (nil       if _py.len(type) is 1 else
                 some(_type_mismatch, _infinite(x), _from(1, type)))
 
 @deftype("NOT")
 def not_(x, type):
-        return ((x, type, True) if _len(type) is not 2 else
+        return ((x, type, True) if _py.len(type) is not 2 else
                 _poor_man_let(_type_mismatch(x, type[1]),
                               lambda m: ((x, type, False) if not m      else
                                          m                if m and m[2] else
@@ -2680,7 +2628,7 @@ def member(x, type):
 
 @deftype
 def maybe(x, type):
-        return ((x, type, True)  if _len(type) is not 2 else
+        return ((x, type, True)  if _py.len(type) is not 2 else
                 _poor_man_let(_type_mismatch(x, type[1]),
                               lambda m: (nil if not m      else
                                          m   if ((m and m[2]) or
@@ -2689,32 +2637,32 @@ def maybe(x, type):
 
 @deftype
 def pylist(x, type):
-        return ((x, type, True)  if _len(type) is not 2       else
+        return ((x, type, True)  if _py.len(type) is not 2       else
                 (x, type, False) if not _py.isinstance(x, _py.list) else
                 some(_type_mismatch, x, _infinite(type[1])))
 
 @deftype
 def satisfies(x, type):
-        return ((x, type, True) if ((_len(type) is not 2) or
+        return ((x, type, True) if ((_py.len(type) is not 2) or
                                     not functionp(type[1])) else
                 ((not type[1](x)) and
                  (x, type, False)))
 
 @deftype
 def eql(x, type):
-        return ((x, type, True) if _len(type) is not 2 else
+        return ((x, type, True) if _py.len(type) is not 2 else
                 ((not eql(x, type[1])) and
                  (x, type, False)))
 
 @deftype
 def pytuple(x, type):
-        return ((x, type, False) if not (_tuplep(x) and _len(x) == _len(type) - 1) else
+        return ((x, type, False) if not (_tuplep(x) and _py.len(x) == _py.len(type) - 1) else
                 some(_type_mismatch, x, _from(1, type)))
 # Unregistered Issue TEACHABLE-TYPE-CHECKING-PRACTICE-AND-TOOL-CONSTRUCTION
 
 @deftype
 def partuple(x, type):
-        return ((x, type, False) if not (_tuplep(x) and _len(x) >= _len(type) - 1) else
+        return ((x, type, False) if not (_tuplep(x) and _py.len(x) >= _py.len(type) - 1) else
                 some(_type_mismatch, x, type[1:]))
 
 __variseq__ = (pytuple, (eql, maybe), t) # Meta-type, heh..
@@ -2724,8 +2672,8 @@ def varituple(x, type):
         fixed_t, maybes_t = _prefix_suffix_if_not(_of_type(__variseq__), type[1:])
         if not every(_of_type(__variseq__), maybes_t):
                 return (x, type, True)   # fail
-        fixlen = _len(fixed_t)
-        return ((x, type) if _len(x) < fixlen else
+        fixlen = _py.len(fixed_t)
+        return ((x, type) if _py.len(x) < fixlen else
                 some(_type_mismatch, x[:fixlen], fixed_t) or
                 some(_type_mismatch, x[fixlen:], _infinite((or_,) + _py.tuple(t[1] for t in maybes_t))))
 
@@ -2762,7 +2710,7 @@ def _function_ast(fn):
 
 def _function_body_pass_p(fn):
         fn_body_ast = _function_ast(fn)[1]
-        return _len(fn_body_ast) == 1 and typep(fn_body_ast[0], _ast.Pass)
+        return _py.len(fn_body_ast) == 1 and typep(fn_body_ast[0], _ast.Pass)
 
 ### literals
 def _ast_num(n):
@@ -2863,17 +2811,17 @@ def _function_lambda_list(fn, astify_defaults = True):
         return _argspec_lambda_spec(_inspect.getfullargspec(fn), astify_defaults = astify_defaults)
 
 def _argspec_nfixargs(paramspec):
-        return _len(paramspec.args) - _len(paramspec.defaults or []) # ILTW Python implementors think..
+        return _py.len(paramspec.args) - _py.len(paramspec.defaults or []) # ILTW Python implementors think..
 
 def _argspec_lambda_spec(spec, astify_defaults = True):
         # args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations
         nfixargs = _argspec_nfixargs(spec)
         default_xform = _astify_constant if astify_defaults else identity
         return (spec.args[:nfixargs],
-                _py.list(_zip(spec.args[nfixargs:],
+                _py.list(_py.zip(spec.args[nfixargs:],
                               mapcar(default_xform, spec.defaults or []))),
                 spec.varargs,
-                _py.list(_zip(spec.kwonlyargs,
+                _py.list(_py.zip(spec.kwonlyargs,
                          mapcar(default_xform, spec.kwonlydefaults or []))),
                 spec.varkw)
 def _lambda_spec_arguments(lambda_list_spec):
@@ -2947,7 +2895,7 @@ def _ast_functiondef(name, lambda_list_spec, body):
 ##                 - honest FunctionDef/Lambda/comprehension/With bindings vs. *Assign/For
 ##                   - the owner is calculated much the same way, modulo global/nonlocal
 ##                   - the relevance of the possibility of actual un"bound"ed-ness..
-##                     ..patchable by the means of _locals()? : -D
+##                     ..patchable by the means of _py.locals()? : -D
 ##                   - we're bound (ha) to be overly-optimistic about "bound"ed-ness, as,
 ##                     due to the lack of CFA, we must be.
 ##### The thought process stopped here:
@@ -3007,7 +2955,7 @@ def _ast_info_check_args_type(info, args, atreep = True):
                                 atree_simple_typep(arg, type))
                 else:
                         return typep(arg, type)
-        for i, (field, arg) in _enumerate(_zip(info.fields.values(), args)):
+        for i, (field, arg) in _py.enumerate(_py.zip(info.fields.values(), args)):
                 if not check_arg_type(arg, field["type"]):
                         error("Argument %d (field %s) of AST '%s' must correspond to type %s, but was an instance of %s, instead: %s.",
                               i, _py.repr(field["name"]), info.type.__name__, field["type"], type_of(arg), _py.repr(arg))
@@ -3075,7 +3023,7 @@ def defast(fn):
                                 if decl_name not in valid_declarations:
                                         err("unknown declaration: %s", decl_name.upper())
                                 n_decl_args = valid_declarations[decl_name]
-                                if _len(decl.elts) < 1 + n_decl_args + 1:
+                                if _py.len(decl.elts) < 1 + n_decl_args + 1:
                                         err("invalid declaration %s: no parameter names specified", decl_name.upper())
                                 every(_of_type(_ast.Name), decl.elts[1 + n_decl_args:]) or fail()
                                 decl_param_names = _py.tuple(x.id for x in decl.elts[1 + n_decl_args:])
@@ -3126,14 +3074,14 @@ def defast(fn):
                 ast_field_names = fixed + mapcar((lambda x: x[0]), optional)
                 ast_field_names_with_defaults = fixed + optional
                 ast_field_types = mapcar(lambda name: annotations[name], ast_field_names)
-                if _len(ast_field_types) != _len(ast_type._fields):
+                if _py.len(ast_field_types) != _py.len(ast_type._fields):
                         err("the amount of provided type specifiers (%d) does not match the AST _fields: %s",
-                            _len(ast_field_types), ast_type._fields)
+                            _py.len(ast_field_types), ast_type._fields)
                 type_specifier_type = (or_, pytuple, _py.type, pytypename)
                 if not every(_of_type(type_specifier_type), ast_field_types):
                         mismatched = find_if_not(_of_type(type_specifier_type), ast_field_types)
                         err("the AST field type specifiers must be of type %s, found: %s", type_specifier_type, mismatched)
-                for i, (fname, ast_fname) in _enumerate(_zip(ast_field_names, ast_type._fields)):
+                for i, (fname, ast_fname) in _py.enumerate(_py.zip(ast_field_names, ast_type._fields)):
                         if fname != ast_fname:
                                 err("the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s",
                                     i, fname, ast_fname, ast_type._fields)
@@ -3145,9 +3093,9 @@ def defast(fn):
                                  declaredp(grouped_decls, p, "walk"))
                         fields[p] = (_py.dict(name = name, type = type, walk = walkp) if fixed else
                                      _py.dict(name = name, type = type, walk = walkp, default = default))
-                for p, type, defaulted in _zip(parameters[:nfix], ast_field_types[:nfix], with_defaults[:nfix]):
+                for p, type, defaulted in _py.zip(parameters[:nfix], ast_field_types[:nfix], with_defaults[:nfix]):
                         process_ast_field_arglist_entry(p, type, None,         fixed = t)
-                for p, type, defaulted in _zip(parameters[nfix:], ast_field_types[nfix:], with_defaults[nfix:]):
+                for p, type, defaulted in _py.zip(parameters[nfix:], ast_field_types[nfix:], with_defaults[nfix:]):
                         process_ast_field_arglist_entry(p, type, defaulted[1], fixed = nil)
                 return fields
         def body_methods(arguments_ast, fields, body_ast):
@@ -3173,7 +3121,7 @@ def defast(fn):
                         err("definition body may only contain definitions of %s methods, encountered: %s",
                             (", ".join([x.upper() for x, _ in
                                         valid_methods[:-1]]) +
-                             (" and " if _len(valid_methods) > 1 else "") +
+                             (" and " if _py.len(valid_methods) > 1 else "") +
                              valid_methods[-1][0].upper()),
                              x if stringp(x) else more_ast.pp_ast_as_code(x))
                 not_fdefn = find_if_not(_of_type(_ast.FunctionDef), body_ast)
@@ -3189,13 +3137,13 @@ def defast(fn):
                         method_name = "_ast_%s_%s" % (name, method_name)
                         if x:
                                 x.name, x.args = method_name, arguments_ast # Splice in the common arglist.
-                                if _len(x.body) > 1:
+                                if _py.len(x.body) > 1:
                                         if not typep(x.body[-1], _ast.Return):
                                                 err("multi-line methods must use an explicit return statement")
                                 elif not(typep(x.body[0], _ast.Return)):
                                         x.body[0] = _ast.Return(x.body[0].value)
                         return _ast_compiled_name(method_name, x or default_maker(method_name),
-                                                  locals_ = _locals(), globals_ = _globals())
+                                                  locals = _py.locals(), globals = _py.globals())
                 return (process(*mspec) for mspec in valid_methods)
         lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
         ast_field_types = validate_defast_lambda_list(ast_type, lambda_list, fn.__annotations__)
@@ -3206,13 +3154,13 @@ def defast(fn):
         body, documentation, declarations = parse_defbody_ast(parameters, body_ast,
                                                               valid_declarations = valid_declspecs)
         grouped_decls = group_declarations(valid_declspecs, declarations)
-        fields = arglist_field_infos(parameters, _len(fixed), with_defaults, ast_field_types)
+        fields = arglist_field_infos(parameters, _py.len(fixed), with_defaults, ast_field_types)
         [bound_free] = body_methods(args_ast, fields, remove_if(_of_type(_ast.Pass), body))
         # _debug_printf("bound_free for %s is %s", name, bound_free)
         __ast_infos__[ast_type] = _ast_info(type       = ast_type,
                                             fields     = fields,
                                             bound_free = bound_free,
-                                            nfixed     = _len(fixed))
+                                            nfixed     = _py.len(fixed))
 ###
 ### AST + Symbols
 ###
@@ -3295,13 +3243,13 @@ all AST-trees .. except for the case of tuples."""
                 info = _find_ast_info(ast_type)
                 fields, finfos = _recombine((_py.list, _py.list), identity, _py.list(info.fields.items()))
                 positional, optional = _prefix_suffix_if(lambda x: "default" in x, finfos)
-                nfixed, defacto = _len(positional), _len(args)
-                max = nfixed + _len(optional)
+                nfixed, defacto = _py.len(positional), _py.len(args)
+                max = nfixed + _py.len(optional)
                 if not (nfixed <= defacto <= max):
                         argument_count_error(nfixed, max, defacto, "AST type %s", type)
                 effective_args = args + mapcar(_indexing("default"), optional[defacto - nfixed:])
-                assert(_len(effective_args) == max)
-                for val, name, finfo in _zip(effective_args, fields, finfos):
+                assert(_py.len(effective_args) == max)
+                for val, name, finfo in _py.zip(effective_args, fields, finfos):
                         subtype = finfo["type"]
                         if not typep(val, subtype):
                                 argument_type_error(name, subtype, val, "AST node %s", repr(type))
@@ -3862,10 +3810,10 @@ def defknown(pp_code_or_fn):
         def do_defknown(fn, pp_code = pp_code_or_fn):
                 name = fn.__name__
                 fn.__name__ = "_lower_" + fn.__name__
-                sym, presentp = _global(name)
+                sym, presentp = _frost.global_(name, globals = _py.globals())
                 if not presentp or not symbolp(sym):
                         sym = _intern0(name.upper())
-                        _setf_global(sym, name)
+                        _frost.setf_global(sym, name, globals = _py.globals())
                 compiler_params = _function_lambda_list(fn)[3]
                 sym.known = _known(name = sym,
                                    pp_code = pp_code,
@@ -3912,7 +3860,7 @@ def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, def
         if not _tuplep(lambda_list_):
                 error("In %s: lambda list must be a tuple.", lambda_list_)
         def valid_parameter_specifier_p(x): return stringp(x) or (symbolp(x) and not keywordp(x))
-        test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (_tuplep(x) and _len(x) == 2 and
+        test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (_tuplep(x) and _py.len(x) == 2 and
                                                               valid_parameter_specifier_p(x[0])),
                                  "In %s: lambda lists can only contain strings, non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
                                  if allow_defaults else
@@ -3931,14 +3879,14 @@ def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, def
                         error("In %s: %s, %s, %s and %s must appear in that order in the lambda list, when specified.",
                               context, *lambda_words)
         test_lambda_list_word_order()
-        # _locals_printf(_locals(),
+        # _locals_printf(_py.locals(),
         #                "optpos",  "restpos",  "keypos",  "restkeypos",
         #                "optposp", "restposp", "keyposp", "restkeyposp",
         #                "toptpos", "trestpos", "tkeypos", "trestkeypos")
         ### 2. ensure correct amount of names for provided lambda list keywords
         if (restposp and keyposp and (keypos - restpos != 1) or
             restposp and (not keyposp) and restkeyposp and (restkeypos - restpos != 1) or
-            restkeyposp and (_len(lambda_list_) - restkeypos != 2)):
+            restkeyposp and (_py.len(lambda_list_) - restkeypos != 2)):
                 error("In %s: found garbage instead of a lambda list: %s", context, lambda_list_)
         ### 3. compute argument specifier sets, as determined by provided lambda list keywords
         restkey = restkeyposp and lambda_list_[restkeypos + 1] or None
@@ -3952,7 +3900,7 @@ def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, def
                              _py.list((x[1] if _tuplep(x) else default_expr)
                                       for x in optional))
         fixed = _py.list(lambda_list_[0:_defaulted(optpos, restpos or keypos or restkeypos or None)])
-        _locals_printf(locals(), "lambda_list_", "optpos", "fixed", "optional", "optdefs")
+        _locals_printf(_py.locals(), "lambda_list_", "optpos", "fixed", "optional", "optdefs")
         if not every(symbolp, fixed):
                 error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, find_if_not(symbolp, fixed))
         total = fixed + optional + ([rest] if rest else []) + keys + ([restkey] if restkey else [])
@@ -3960,7 +3908,7 @@ def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, def
         if not every(valid_parameter_specifier_p, total):
                 error(failure_message, context, lambda_list_)
         ### 5. check for duplicate lambda list specifiers
-        if _len(total) != _len(_py.set(total)):
+        if _py.len(total) != _py.len(_py.set(total)):
                 error("In %s: duplicate parameter names in lambda list: %s.", context, lambda_list_)
         return (total,
                 (fixed, optional, rest, keys, restkey),
@@ -4016,12 +3964,12 @@ def _debugging_compiler_p():
 __compiler_form_record__ = _collections.defaultdict(lambda: 0)
 __compiler_form_record_threshold__ = 5
 def _compiler_track_compiled_form(form):
-        cur = __compiler_form_record__[_id(form)]
+        cur = __compiler_form_record__[_py.id(form)]
         ## Unregistered Issue NONTERMINATION-SAFETY-CHECK-BUGGY
         # if cur > __compiler_form_record_threshold__:
         #         error("Apparent non-termination while compiling %s (happened over %d times).",
         #               form, __compiler_form_record_threshold__)
-        __compiler_form_record__[_id(form)] += 1
+        __compiler_form_record__[_py.id(form)] += 1
 
 class _compiler_def(_servile):
         pass
@@ -4153,6 +4101,7 @@ def return_(x):
 
 @defknown
 def quote(x):
+        # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
         if symbolp(x):
                 return (symbol, x)
         else:
@@ -4209,7 +4158,7 @@ def progn(*body):
         if not body:
                 return ([],
                         _lower((symbol, "nil")))
-        pro, ntotal = [], _len(body)
+        pro, ntotal = [], _py.len(body)
         with _no_tail_position():
                 for spro, val in (_lower(x) for x in body[:-1]):
                         pro.extend(spro)
@@ -4221,7 +4170,7 @@ def progn(*body):
         # lowered_body = mapcan(_lower, body)
         # (( body_bound_vars,  body_free_vars,  body_xtnls),
         #  (thunk_bound_vars, thunk_free_vars, thunk_xtnls)) = mapcar(_ast_bound_free, [lowered_body, thunks])
-        # must_thunk = _len(lowered_body) > 1 or thunks
+        # must_thunk = _py.len(lowered_body) > 1 or thunks
         # scope_mutation = (body_bound_vars or thunk_bound_vars or body_xtnls or thunk_xtnls)
         # if not (must_thunk or scope_mutation):
         #         return lowered_body
@@ -4236,7 +4185,7 @@ def if_(test, consequent, antecedent = nil):
         ((pro_cons, val_cons),
          (pro_ante, val_ante)) = lo_cons, lo_ante
         cons_expr_p, ante_expr_p = mapcar(_tuple_expression_p, [lo_cons, lo_ante])
-        if _all([cons_expr_p, ante_expr_p]):
+        if _py.all([cons_expr_p, ante_expr_p]):
                 _compiler_debug_printf(" -- IF: simple all-expression case")
                 return (pro_test,
                         ("IfExp", val_test, val_cons, val_ante))
@@ -4365,11 +4314,11 @@ def let(bindings, *body):
                 _compiler_debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
                 last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
                 n_nonexprs = last_non_expr_posn + 1
-                temp_names = [ gensym("LET-NONEXPR-VAL") for i in _range(_len(bindings)) ]
+                temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
                 # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                 return ((progn,) +
-                        _py.tuple((setq, n, v) for n, v in _zip(temp_names, values[:n_nonexprs])) +
-                        (_ir(lambda_, (_optional,) + _py.tuple(_zip(names, temp_names + values[n_nonexprs:])), *body,
+                        _py.tuple((setq, n, v) for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
+                        (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
                              dont_delay_defaults = t),))
 
 @defknown(("atom", " ", "sex",
@@ -4405,7 +4354,7 @@ def funcall(func, *args):
                         ("Call", func_val, mapcar(second, arg_pves), []))
         else:
                 _compiler_debug_printf(" -- FUNCALL: complex LET + FUNCALL")
-                temp_names = _gensyms(n = _len(args), x = "FUNCALL-ARG")
+                temp_names = _gensyms(n = _py.len(args), x = "FUNCALL-ARG")
                 if _tuple_expression_p((func_pro, func_val)):
                         func_binding, func_exp = (_py.tuple(),
                                                   func)
@@ -4413,7 +4362,7 @@ def funcall(func, *args):
                         func_name = gensym("FUNCALL-FUNCNAME")
                         func_binding, func_exp = (((func_name, func),),
                                                   (symbol, func_name))
-                return (let, func_binding + _py.tuple(_zip(temp_names, args)),
+                return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
                          (funcall, func_exp) + _py.tuple())
 
 @defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
@@ -4774,7 +4723,7 @@ def lisp(body):
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
         symbol, symbol_name, python_name = _read_python_def_toplevel(body)
         args_ast, body_ast = _function_ast(body)
-        if _len(body_ast) > 1:
+        if _py.len(body_ast) > 1:
                 error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
                       "No more than one toplevel form is allowed per definition.", symbol)
         form = _intern_astsexp(body_ast[0])
@@ -4885,8 +4834,8 @@ def _compile_toplevel_def(name, form, globalp = nil, macrop = nil, lambda_expres
                 # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
                 func = the(function, _ast_compiled_name(string(name),
                                                         *pro_ast,
-                                                        globals_ = _globals(),
-                                                        locals_  = _locals()))
+                                                        globals = _py.globals(),
+                                                        locals  = _py.locals()))
                 # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
                 # Feed FUNCTION-LAMBDA-EXPRESSION:
                 if _specifiedp(lambda_expression):
@@ -4968,7 +4917,7 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, "%s ", type_of(object).__name__)
         body()
         if identity:
-                format(stream, " {%x}", _id(object))
+                format(stream, " {%x}", _py.id(object))
         write_string(">", stream)
 
 class readtable(_collections.UserDict):
@@ -5300,7 +5249,7 @@ def _print_unreadable_compound(x):
         return with_output_to_string(
                 lambda s: print_unreadable_object(
                         x, s,
-                        lambda: format(s, "%d elements", _len(x)),
+                        lambda: format(s, "%d elements", _py.len(x)),
                         identity = t, type = t))
 
 def _print_unreadable(x):
@@ -5370,9 +5319,9 @@ def write_to_string(object,
                         nonlocal string
                         if _listp(object) or _tuplep(object):
                                 string += "("
-                                max = _len(object)
+                                max = _py.len(object)
                                 if max:
-                                        for i in _range(0, max):
+                                        for i in _py.range(0, max):
                                                 string += do_write_to_string(object[i])
                                                 if i != (max - 1):
                                                         string += " "
@@ -5386,7 +5335,7 @@ def write_to_string(object,
                         elif object is False or object is None or object is True:
                                 string += obj2lisp_xform[object]
                         elif _py.type(object).__name__ == "builtin_function_or_method":
-                                string += "\"#<BUILTIN-FUNCTION-OR-METHOD %s 0x%x>\"" % (object.__name__, _id(object))
+                                string += "\"#<BUILTIN-FUNCTION-OR-METHOD %s 0x%x>\"" % (object.__name__, _py.id(object))
                         elif stringp(object):
                                 # Honors *PRINT-ESCAPE* and *PRINT-READABLY*.
                                 string += _print_string(object)
@@ -5453,12 +5402,12 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
 _string_set("*READ-CASE*", _keyword("upcase"))
 
 def parse_integer(xs, junk_allowed = nil, radix = 10):
-        l = _len(xs)
+        l = _py.len(xs)
         def hexcharp(x): return x.isdigit() or x in ["a", "b", "c", "d", "e", "f"]
         (test, xform) = ((_str.isdigit, identity)      if radix == 10 else
                          (hexcharp,    _py.float.fromhex) if radix == 16 else
                          _not_implemented("PARSE-INTEGER only implemented for radices 10 and 16."))
-        for end in _range(0, l):
+        for end in _py.range(0, l):
                 if not test(xs[end]):
                         if junk_allowed:
                                 end -= 1
@@ -5472,7 +5421,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                      start = 0, end = None, preserve_whitespace = None):
         "Does not conform."
         # _here("from \"%s\"" % string)
-        pos, end = start, (end or _len(string))
+        pos, end = start, (end or _py.len(string))
         def handle_short_read_if(test):
                 # _here("< %s" % (test,))
                 if test:
@@ -5611,7 +5560,7 @@ If RECURSIVE-P is true, this call is expected to be embedded in a higher-level c
 When INPUT-STREAM is an echo stream, characters that are only peeked at are not echoed. In the case that PEEK-TYPE is not NIL, the characters that are passed by PEEK-CHAR are treated as if by READ-CHAR, and so are echoed unless they have been marked otherwise by UNREAD-CHAR."""
         criterion = (lambda _: t                if peek_type is nil                                     else
                      lambda c: c not in " \t\n" if peek_type is t                                       else
-                     lambda c: c == peek_type   if stringp(peek_type) and _len(peek_type) == 1 else
+                     lambda c: c == peek_type   if stringp(peek_type) and _py.len(peek_type) == 1 else
                      error("Invalid peek-type: '%s'.", peek_type))
         stream = _defaulted(input_stream, symbol_value("*STANDARD-INPUT*"))
         while True:
@@ -5621,8 +5570,8 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
                         return char
 
 @block
-def read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whitespace = None, recursivep = nil):
-        "Does not conform."
+def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whitespace = None, recursivep = nil):
+        ## Has not even a remote chance of conforming.
         def read_inner():
                 skip_whitespace()
                 char = read_char(stream)
@@ -5708,6 +5657,20 @@ def read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whit
                                       return_from(read, eof_value)))
         # _here("lastly %s" % (ret,))
         return ret
+read = _cold_read
+
+###
+### Source file processing
+###
+def load(pathspec, verbose = None, print = None,
+         if_does_not_exist = t,
+         external_format = "default"):
+        "XXX: not in compliance"
+        verbose = _defaulted_to_var(verbose, "*LOAD-VERBOSE*")
+        print   = _defaulted_to_var(verbose, "*LOAD-PRINT*")
+        filename = pathspec
+        _py.exec(_py.compile(_file_as_string(filename), filename, "exec"))
+        return True
 
 ##
 ## Files
@@ -6007,7 +5970,7 @@ def _dump_thread_state():
                 from binascii import hexlify
                 from ctypes import c_uint, c_char, c_ulong, POINTER, cast, pythonapi
                 def dump(obj):
-                        for i, x in _enumerate(hexlify(_memoryview(obj)).decode()):
+                        for i, x in _py.enumerate(hexlify(_memoryview(obj)).decode()):
                                 _py.print(x, end='')
                                 if i and not (i + 1)%8:
                                         _py.print(" ", end='')
@@ -6053,10 +6016,10 @@ def _dump_thread_state():
                 pythonapi.PyThreadState_Get.restype = PyThreadState
                 o = pythonapi.PyThreadState_Get()
 
-                _py.print("o: %s, id: {%x}" % (o, _id(o)))
+                _py.print("o: %s, id: {%x}" % (o, _py.id(o)))
                 _py.print(dump(o))
                 for slot, _ in _py.type(o)._fields_:
-                        val = _getattr(o, slot)
+                        val = _py.getattr(o, slot)
                         _py.print(("%25s: " + ("%x" if integerp(val) else "%s")) % (slot, val))
         _without_condition_system(body,
                                   reason = "_dump_thread_state")
@@ -6138,9 +6101,9 @@ def handler_bind(fn, *handlers, no_error = identity):
                 # old world case..
                 # format(t, "crap FAIL: pep %s, exhook is cch: %s",
                 #        _pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
-                if _len(handlers) > 1:
+                if _py.len(handlers) > 1:
                         error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
-                              _len(handlers))
+                              _py.len(handlers))
                 condition_type_name, handler = handlers[-1]
                 try:
                         value = fn()
@@ -6360,7 +6323,7 @@ dynamic environment. The consequences are undefined if the list
 returned by COMPUTE-RESTARTS is every modified.
 """
         restarts = _py.list()
-        for cluster in _reversed(_symbol_value("*RESTART-CLUSTERS*")):
+        for cluster in _py.reversed(_symbol_value("*RESTART-CLUSTERS*")):
                 # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                 restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
                                 if condition else
@@ -6406,8 +6369,8 @@ executes the following:
 def describe(x, stream = t, show_hidden = nil):
         stream = _coerce_to_stream(stream)
         write_line("Object \"%s\" of type %s:" % (x, type_of(x)), stream)
-        for attr, val in (x.__dict__ if _hasattr(x, "__dict__") else
-                          { k: _getattr(x, k) for k in dir(x)}).items():
+        for attr, val in (x.__dict__ if _py.hasattr(x, "__dict__") else
+                          { k: _py.getattr(x, k) for k in dir(x)}).items():
                 if show_hidden or "__" not in attr:
                         write_line("%25s: %s" % (attr, ignore_errors(lambda: _py.str(val))), stream)
 
@@ -6418,16 +6381,6 @@ _string_set("*MODULE-PROVIDER-FUNCTIONS*", [])
 
 def _module_filename(module):
         return "%s/%s.py" % (env.partus_path, _coerce_to_symbol_name(module))
-
-def load(pathspec, verbose = None, print = None,
-         if_does_not_exist = t,
-         external_format = "default"):
-        "XXX: not in compliance"
-        verbose = _defaulted_to_var(verbose, "*LOAD-VERBOSE*")
-        print   = _defaulted_to_var(verbose, "*LOAD-PRINT*")
-        filename = pathspec
-        _py.exec(_py.compile(_file_as_string(filename), filename, "exec"))
-        return True
 
 def require(name, pathnames = None):
         "XXX: not terribly compliant either"
@@ -6499,7 +6452,7 @@ def _eval_python(expr_or_stmt):
         if boundp("*SOURCE-FOR-EVAL*"):
                 __eval_source_cache__[code] = symbol_value("*SOURCE-FOR-EVAL*")
         # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
-        _py.exec(code, _find_module(_lisp_symbol_name_python_name(package_name(package))).__dict__)
+        _py.exec(code, _find_module(_frost.lisp_symbol_name_python_name(package_name(package))).__dict__)
         values = (__evget__() if exprp else
                   _py.tuple())
         return values if _tuplep(values) else (values,)
@@ -6513,8 +6466,8 @@ def _callify(form, package = None, quoted = False):
                 _here("func: %s -> %s, paramspec: %s", sym, func, paramspec)
                 _here("nfix: %s", nfix)
                 _here("args: %s", args)
-                _here("nkeys: %s", _len(args) - nfix)
-                if oddp(_len(args) - nfix):
+                _here("nkeys: %s", _py.len(args) - nfix)
+                if oddp(_py.len(args) - nfix):
                         error("odd number of &KEY arguments")
                 allow_other_keys = paramspec.varkw is not None
                 fixnames, keynames = (paramspec.args[0:nfix],
@@ -6559,10 +6512,6 @@ def _callify(form, package = None, quoted = False):
         else:
                 error("Unable to convert form %s", form)
 
-def eval_(form):
-        package = symbol_value("*PACKAGE*")
-        return _eval_python(_callify(form, package))
-
 def _valid_declaration_p(x):
         return nil
 
@@ -6571,7 +6520,7 @@ def _valid_declaration_p(x):
 ## An attempt at CLOS imitation
 ##
 def class_of(x):
-        return _getattr(x, "__class__")
+        return _py.getattr(x, "__class__")
 
 class standard_object():
         def __init__(self, **initargs):
@@ -6582,10 +6531,10 @@ def make_instance(class_, **keys):
         "XXX: compliance?"
         return class_(**keys)
 
-def slot_boundp(object, slot):            return _hasattr(object, slot)
+def slot_boundp(object, slot):            return _py.hasattr(object, slot)
 def slot_makunbound(object, slot):        del object.__dir__[slot]
-def slot_value(object, slot):             return _getattr(object, slot)
-def setf_slot_value(value, object, slot): return _setattr(object, slot, value)
+def slot_value(object, slot):             return _py.getattr(object, slot)
+def setf_slot_value(value, object, slot): return _py.setattr(object, slot, value)
 
 def initialize_instance(instance, **initargs):
         """Called by MAKE-INSTANCE to initialize a newly created INSTANCE. The
@@ -7181,16 +7130,16 @@ def generic_function_method_combination(x):        return x.method_combination
 def generic_function_method_class(x):              return x.method_class
 def generic_function_name(x):                      return x.name
 
-def generic_function_p(x): return functionp(x) and _hasattr(x, "__methods__")  # XXX: CL+
-def method_p(x):           return functionp(x) and _hasattr(x, "specializers") # XXX: CL+
+def generic_function_p(x): return functionp(x) and _py.hasattr(x, "__methods__")  # XXX: CL+
+def method_p(x):           return functionp(x) and _py.hasattr(x, "specializers") # XXX: CL+
 def _specializerp(x):       return ((x is t)        or
                                     typep(x, (or_, _py.type, (pytuple, (eql, eql), t))))
 
 def _get_generic_fun_info(generic_function):
-        return values(_len(generic_function.lambda_list[0]), # nreq
+        return values(_py.len(generic_function.lambda_list[0]), # nreq
                       nil,
                       [],
-                      _len(generic_function.lambda_list[3]),
+                      _py.len(generic_function.lambda_list[3]),
                       generic_function.lambda_list)
 
 def generic_function_methods(x):                   return x.__methods__.values()
@@ -7894,7 +7843,7 @@ def _types_from_args(generic_function, arguments, type_modifier = None):
         nreq, applyp, metatypes, nkeys, arg_info = _get_generic_fun_info(generic_function)
         # (declare (ignore applyp metatypes nkeys))
         types_rev = []
-        for i in _range(nreq):
+        for i in _py.range(nreq):
                 if not arguments:
                         error_need_at_least_n_args(generic_function_name(generic_function),
                                                    nreq)
@@ -7904,7 +7853,7 @@ def _types_from_args(generic_function, arguments, type_modifier = None):
         return values(types_rev, arg_info)
 
 def _arg_info_precedence(arg_info: "lambda list, actually.."):
-        return _range(_len(arg_info[0]))
+        return _py.range(_py.len(arg_info[0]))
 
 def _compute_applicable_methods_using_types(generic_function, types_):
         definite_p, possibly_applicable_methods = t, []
@@ -7929,7 +7878,7 @@ def _compute_applicable_methods_using_types(generic_function, types_):
                 # (declare (ignore nreq applyp metatypes nkeys))
                 precedence = _arg_info_precedence(arg_info)
                 return values(_sort_applicable_methods(precedence,
-                                                       _reversed(possibly_applicable_methods),
+                                                       _py.reversed(possibly_applicable_methods),
                                                        types),
                               definite_p)
 
@@ -8152,9 +8101,9 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                     generic_function.__code__.co_filename,
                     generic_function.__code__.co_lineno)
         fixed, optional, args, keyword, keys = lambda_list
-        nfixed = _len(fixed)
+        nfixed = _py.len(fixed)
         def dfun_compute_applicable_methods(generic_function, args):
-                if _len(args) < nfixed:
+                if _py.len(args) < nfixed:
                         error_need_at_least_n_args(function_name, nfixed)
                 dispatch_args      = args[:nfixed]
                 dispatch_arg_types = _py.tuple(_py.type(x) for x in dispatch_args)
@@ -8222,8 +8171,8 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                     new_dfun_ast,
                     filename = _defaulted(filename, ""),
                     lineno   = lineno,
-                    globals_ = env,
-                    locals_  = env)
+                    globals  = env,
+                    locals   = env)
 
 def ensure_generic_function_using_class(generic_function, function_name,
                                         argument_precedence_order = None,
@@ -8235,6 +8184,7 @@ def ensure_generic_function_using_class(generic_function, function_name,
                                         method_combination = None,
                                         name = nil,
                                         # incompatible..
+                                        globals = None,
                                         filename = None,
                                         lineno = None,
                                         **keys):
@@ -8338,7 +8288,7 @@ GENERIC-FUNCTION argument is then returned."""
                 # The function name FUNCTION-NAME is set to name the generic function.
                 generic_function = make_instance(generic_function_class, **initargs)
                 # _standard_generic_function_shared_initialize is called by s-g-f.__init__
-                _setf_global(generic_function, function_name)
+                _frost.setf_global(generic_function, function_name, globals = _defaulted(globals, _py.globals()))
         else:
                 if class_of(generic_function) is not generic_function_class:
                         # If the class of the GENERIC-FUNCTION argument is not the same as the
@@ -8353,7 +8303,7 @@ GENERIC-FUNCTION argument is then returned."""
                 _standard_generic_function_shared_initialize(generic_function, **initargs)
         return generic_function
 
-def ensure_generic_function(function_name, **keys):
+def ensure_generic_function(function_name, globals, **keys):
         """Arguments:
 
 The FUNCTION-NAME argument is a symbol or a list of the form (SETF
@@ -8395,8 +8345,8 @@ as follows:
 The second argument is FUNCTION-NAME. The remaining arguments are the
 complete set of keyword arguments received by
 ENSURE-GENERIC-FUNCTION."""
-        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        maybe_gfun, therep = _defaulted(_global(the(string, function_name)), nil)
+        maybe_gfun, therep = _defaulted(_frost.global_(the(string, function_name),
+                                                       _defaulted(globals, _py.globals())), nil)
         if functionp(maybe_gfun) and not generic_function_p(maybe_gfun):
                 error("%s already names an ordinary function.", function_name)
         return ensure_generic_function_using_class(maybe_gfun, function_name, **keys)
@@ -8617,10 +8567,10 @@ object2). Otherwise P1,i and P2,i do not agree.
 
 3. The two lists of qualifiers are the same under equal."""
         lambda_list = method_lambda_list(method)
-        return (_len(lambda_list[0]) == _len(specializers)       and
+        return (_py.len(lambda_list[0]) == _py.len(specializers)       and
                 every(lambda ms, s: ((ms is s) or
                                      (_listp(ms) and _listp(s) and
-                                      _len(ms) == _len(s) == 2 and
+                                      _py.len(ms) == _py.len(s) == 2 and
                                       ms[0] == s[0] == eql     and
                                       eql(ms[1], s[1]))),
                       method_specializers(method), specializers) and
@@ -8667,12 +8617,12 @@ function will mention &key (but no keyword arguments)."""
 # Unregistered Issue COMPLIANCE-SPEC-UNCLEAR-LAST-PASSAGE-LAMBDA-LIST-CONGRUENCE
         gf_fixed, gf_optional, gf_args, gf_keyword, gf_keys = generic_function_lambda_list
         m_fixed,  m_optional,  m_args,  m_keyword,  m_keys  = method_lambda_list
-        return ((_len(gf_fixed)    != _len(m_fixed) and
+        return ((_py.len(gf_fixed)    != _py.len(m_fixed) and
                  "the method has %s required arguments than the generic function" %
-                 ("more" if _len(m_fixed) > _len(gf_fixed) else "less"))                                      or
-                (_len(gf_optional) != _len(m_optional) and
+                 ("more" if _py.len(m_fixed) > _py.len(gf_fixed) else "less"))                                or
+                (_py.len(gf_optional) != _py.len(m_optional) and
                  "the method has %s optional arguments than the generic function" %
-                 ("more" if _len(m_fixed) > _len(gf_fixed) else "less"))                                      or
+                 ("more" if _py.len(m_fixed) > _py.len(gf_fixed) else "less"))                                or
                 (_xorf(gf_args, m_args) and
                  "but the method and generic function differ in whether they accept &REST or &KEY arguments") or
                 # XXX: #3 compliance -- still looks fishy
@@ -9293,8 +9243,7 @@ object."""
 # options creates a generic function, and if the lambda list for the
 # method mentions keyword arguments, the lambda list of the generic
 # function will mention &key (but no keyword arguments).
-        # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
-        generic_function, definedp = gethash(fn.__name__, _py.globals())
+        generic_function, definedp = _frost.global_(fn.__name__, _py.globals())
         fixed, optional, args, keyword, keys = lambda_list = _function_lambda_list(fn)
         if not definedp:
                 generic_function = ensure_generic_function(fn.__name__,
