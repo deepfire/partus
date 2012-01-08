@@ -12,9 +12,9 @@ import sys
 
 import cl
 
-from cl         import typep, null, integerp, floatp, sequencep, stringp, mapcar, mapc,\
+from cl         import t, nil, typep, null, integerp, floatp, sequencep, stringp, mapcar, mapc,\
                        remove_if, sort, car, identity, every, find, with_output_to_string, error, reduce,\
-                       defvar, symbol_value, progv
+                       symbol_value, progv
 from cl         import _ast_rw as ast_rw, _ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
 from cl         import _ast_funcall as ast_funcall, _ast_maybe_normalise_string as ast_maybe_normalise_string
 from cl         import _ast_Expr as ast_Expr, _ast_list as ast_list, _ast_tuple as ast_tuple, _ast_set as ast_set
@@ -261,10 +261,10 @@ class NotImplemented(Exception):
         def __str__(self):
                 return "%s %s is not implemented." % (action.capitalize(), x)
 
-defvar("_ast_pp_depth_", 0)
+cl._string_set("*AST-PP-DEPTH*", 0, force_toplevel = t)
 def pp_ast_as_code(x, tab = " " * 8):
         def indent():
-                return tab * symbol_value("_ast_pp_depth_")
+                return tab * symbol_value("*AST-PP-DEPTH*")
         def iterate(xs):
                 return mapcar(rec, xs)
         def rec(x):
@@ -354,7 +354,7 @@ def pp_ast_as_code(x, tab = " " * 8):
                         args = rec(x.args)
                         return "lambda%s: %s" % (" " + args if args else "", rec(x.body))
                 def pp_subprogn(body):
-                        with progv(_ast_pp_depth_ = symbol_value("_ast_pp_depth_") + 1):
+                        with progv({"*AST-PP-DEPTH*": symbol_value("*AST-PP-DEPTH*") + 1}):
                                 return "\n".join(iterate(body)) + "\n"
                 def pp_functiondef(x):
                         "XXX: ignores __annotations__"
@@ -426,12 +426,11 @@ def pp_ast_as_code(x, tab = " " * 8):
                 def fail(x): not_implemented("pretty-printing AST node %s" % (type(x),))
                 try:
                         return map.get(type(x), fail)(x) if x else ""
-                except Exception as cond:
-                        if typep(cond, NotImplemented):
-                                raise
-                        else:
-                                error("ERROR: %s, while pretty-printing %s.  Slots: %s",
-                                      cond, x, dir(x))
+                except NotImplemented:
+                        raise
+                # except Exception as cond:
+                #         error("ERROR: %s, while pretty-printing %s.  Slots: %s",
+                #               cond, x, dir(x))
         return rec(x)
 
 ## symbols

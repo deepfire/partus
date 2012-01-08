@@ -1625,10 +1625,11 @@ def _find_dynamic_frame(name):
         if name in __global_scope__:
                 return __global_scope__
 
-def _find_dynamic_frame_for_set(name):
-        return (_find_dynamic_frame(name) or
+def _find_dynamic_frame_for_set(name, force_toplevel = None):
+        return (__global_scope__ if force_toplevel else
+                (_find_dynamic_frame(name) or
                  (__tls__.dynamic_scope[-1] if __tls__.dynamic_scope else
-                  __global_scope__))
+                  __global_scope__)))
 
 def _symbol_value(name):
         frame = _find_dynamic_frame(name)
@@ -1907,7 +1908,7 @@ def defpackage(name, use = [], export = []):
         return p
 
 def in_package(name):
-        _string_set("*PACKAGE*", _coerce_to_package(name))
+        _string_set("*PACKAGE*", _coerce_to_package(name), force_toplevel = t)
 
 ###
 ### CL namespaces
@@ -2406,8 +2407,8 @@ def _init_reader_0():
         __global_scope__["*READ-CASE*"] = _keyword("upcase", upcase = True)
 _init_reader_0()         ########### _coerce_to_symbol_name() is now available
 
-def _string_set(name, value):
-        _find_dynamic_frame_for_set(the(_py.str, name))[name] = value
+def _string_set(name, value, force_toplevel = nil):
+        _find_dynamic_frame_for_set(the(_py.str, name), force_toplevel = force_toplevel)[name] = value
         return value
 
 @defun
@@ -4006,7 +4007,7 @@ _string_set("*COMPILER-TAILP*",      nil)
 _string_set("*COMPILER-DEBUG-P*",    nil)
 
 def _debug_compiler(value = t):
-        _string_set("*COMPILER-DEBUG-P*", value)
+        _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
 def _debugging_compiler_p():
         return symbol_value("*COMPILER-DEBUG-P*")
 
