@@ -4580,6 +4580,8 @@ def _pp_sex(sex):
                                                 if _listp(spec[0]):
                                                         return acc + code_interp_rec(spec[0], sex), 0, nil, nil
                                                 sep, inc, reset = separatorp(spec[0])
+                                                if sep and _py.len(sex) == 0:
+                                                        return acc, 0, nil, nil
                                                 if reset:
                                                         return_from(horz_run, (acc, inc, spec[1:], sex))
                                                 elif sep:
