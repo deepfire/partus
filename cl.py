@@ -132,11 +132,6 @@ reduce            = _functools.reduce
 sort              = _py.sorted
 _curry            = _functools.partial
 
-condition         = _py.BaseException
-error_            = _py.Exception
-serious_condition = _py.Exception
-end_of_file       = _py.EOFError
-
 stringp           = _neutrality.stringp
 _write_string     = _neutrality._write_string
 
@@ -974,7 +969,7 @@ def _stream_as_string(stream):
         return stream.read()
 
 def _file_as_string(filename):
-        with open(filename, "r") as f:
+        with _py.open(filename, "r") as f:
                 return _stream_as_string(f)
 
 def _prefix_suffix_if(f, xs, key = identity):
@@ -2404,6 +2399,11 @@ _define_python_type_map("COMPLEX",     _py.complex)
 _define_python_type_map("HASH-TABLE",  _cold_hash_table_type)
 _define_python_type_map("_STREAM",     _cold_stream_type) # Conflict with keyword argument name in READ-CHAR..
 _define_python_type_map("FUNCTION",    _cold_function_type)
+
+_define_python_type_map("CONDITION",         _py.BaseException)
+_define_python_type_map("ERROR",             _py.Exception)
+_define_python_type_map("SERIOUS-CONDITION", _py.Exception)
+_define_python_type_map("END-OF-FILE",       _py.EOFError)
 
 _define_python_type_map("PYBOOL",      _py.bool)
 _define_python_type_map("PYLIST",      _py.list)
@@ -4899,7 +4899,7 @@ def compile_file(input_file, output_file = None,
                  # Extension:
                  trace_file = None):
         _not_implemented()
-        with open(input_file, "r") as input:
+        with _py.open(input_file, "r") as input:
                 form = read(input)
                 while form:
                         cfun, errp, warnp, stmts = _compile((lambda_, tuple(), form))
@@ -5416,8 +5416,8 @@ def parse_integer(xs, junk_allowed = nil, radix = 10):
                                 error("Junk in string \"%s\".", xs)
         return _int(xform(xs[:(end + 1)]))
 
-@block
-def read_from_string(string, eof_error_p = True, eof_value = nil,
+@defun
+def _cold_read_from_string(string, eof_error_p = True, eof_value = nil,
                      start = 0, end = None, preserve_whitespace = None):
         "Does not conform."
         # _here("from \"%s\"" % string)
@@ -5426,7 +5426,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 # _here("< %s" % (test,))
                 if test:
                         (error(end_of_file, "end of file on %s" % (make_string_input_stream(string),)) if eof_error_p else
-                         return_from(read_from_string, eof_value))
+                         return_from(_cold_read_from_string, eof_value))
         def read():
                 skip_whitespace()
                 char = string[pos]
@@ -5525,6 +5525,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                             lambda c: handle_short_read_if(True)))
         # _here("lastly %s" % (ret,))
         return ret
+read_from_string = _cold_read_from_string
 
 def read_line(stream = None, eof_error_p = True, eof_value = nil):
         stream = _defaulted_to_var(stream, "*STANDARD-INPUT*")
@@ -5569,7 +5570,7 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
                         unread_char(char, stream)
                         return char
 
-@block
+@defun
 def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         ## Has not even a remote chance of conforming.
         def read_inner():
@@ -5654,7 +5655,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserv
         ret = handler_case(read_inner,
                            (end_of_file,
                             lambda c: error(c) if eof_error_p else
-                                      return_from(read, eof_value)))
+                                      return_from(_cold_read, eof_value)))
         # _here("lastly %s" % (ret,))
         return ret
 read = _cold_read
