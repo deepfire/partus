@@ -4001,7 +4001,6 @@ def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((pyt
 ## Should, probably, be bound by the compiler itself.
 _string_set("*COMPILER-TOPLEVEL-P*", t)
 _string_set("*COMPILER-DEF*",        nil)
-_string_set("*COMPILER-QUOTE*",      nil)
 _string_set("*COMPILER-TAILP*",      nil)
 
 _string_set("*COMPILER-DEBUG-P*",    nil)
@@ -4026,12 +4025,11 @@ class _compiler_def(_servile):
 
 def _compiling_def():     return symbol_value("*COMPILER-DEF*")
 def _tail_position_p():   return symbol_value("*COMPILER-TAILP*")
-def _compiling_quote_p(): return symbol_value("*COMPILER-QUOTE*")
 
 def _compiler_report_context():
-        _here("def %s\n      tailp: %s\n      quote: %s", *mapcar(symbol_value, ["*COMPILER-DEF*",
-                                                                                 "*COMPILER-TAILP*",
-                                                                                 "*COMPILER-QUOTE*"]))
+        _here("def %s\n      tailp: %s",
+              *mapcar(symbol_value, ["*COMPILER-DEF*",
+                                     "*COMPILER-TAILP*"]))
 
 _tail_position       = _defwith("_tail_position",
                                    lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_TAILP_ = t)),
@@ -4152,8 +4150,15 @@ def return_(x):
 
 @defknown
 def quote(x):
-        with progv({"*COMPILER-QUOTE*": t}):
-                return x
+        if symbolp(x):
+                return (symbol, x)
+        else:
+                atree, successp = _try_atreeify_constant(x)
+                if successp:
+                        return ([],
+                                atree)
+                else:
+                        return (list,) + _py.tuple((quote, x) for x in x)
 
 @defknown
 def quaquote(x):
@@ -4308,7 +4313,7 @@ def defmacro(name, lambda_list, *body):
         setf_macro_function(t, name) # COMPILE should be able to use that
         fn, warnedp, failedp, [macfundef] = _compile(the(symbol, name),
                                                      (lambda_, lambda_list) + body)
-        return ([the((varituple, (eql, def_), pytuple), macfundef)],
+        return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this: the((varituple, (eql, def_), pytuple), macfundef)
                 _lower((quote, (symbol, string(name))))[1])
 
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
@@ -4351,7 +4356,8 @@ def let(bindings, *body):
         #                 body_val)
         if every(_tuple_expression_p, compiled_value_pves):
                 _compiler_debug_printf(" -- LET: simple all-expression LAMBDA case")
-                return (funcall, (lambda_, (_optional,) + bindings_thru_defaulting) + body)
+                return (funcall, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
+                                     dont_delay_defaults = t))
         else:
                 _compiler_debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
                 last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
@@ -4652,37 +4658,26 @@ def _lower(form):
                                         return ret, t
                         if not x:
                                 return _rec((symbol, "nil"))
-                        if _compiling_quote_p():
-                                # And so, let the rampant special-casing begin..
-                                if x[0] is symbol_:
-                                        _len(x) > 2 and error("Invalid SYMBOL pseudo-form: %s.", x)
-                                        return maybe_call_primitive_compiler(symbol, [x[1]])[0]
-                                else:
-                                        return maybe_call_primitive_compiler(funcall, [("tuple",) + x])[0]
+                        if symbolp(x[0]):
+                                argsp, form, args = _maybe_ir_args(x)
+                                # Urgent Issue COMPILER-MACRO-SYSTEM
+                                ret, primitivep = maybe_call_primitive_compiler(form[0], form[1:], args)
+                                if primitivep:
+                                        # Unregistered Issue COMPILE-CANNOT-EVEN-MENTION-KWARGS
+                                        return ret
+                                form, expanded = macroexpand(x)
+                                if expanded:
+                                        return _rec(form)
+                                # basic function call
+                                return _rec((funcall,) + form)
+                        elif (_tuplep(x[0]) and x[0] and x[0][0] is lambda_):
+                                return _rec((funcall,) + x)
+                        elif stringp(x[0]): # basic function call
+                                return _rec((funcall,) + x)
                         else:
-                                if symbolp(x[0]):
-                                        argsp, form, args = _maybe_ir_args(x)
-                                        # Urgent Issue COMPILER-MACRO-SYSTEM
-                                        ret, primitivep = maybe_call_primitive_compiler(form[0], form[1:], args)
-                                        if primitivep:
-                                                # Unregistered Issue COMPILE-CANNOT-EVEN-MENTION-KWARGS
-                                                return ret
-                                        form, expanded = macroexpand(x)
-                                        if expanded:
-                                                return _rec(form)
-                                        # basic function call
-                                        return _rec((funcall,) + form)
-                                elif (_tuplep(x[0]) and x[0] and x[0][0] is lambda_):
-                                        return _rec((funcall,) + x)
-                                elif stringp(x[0]): # basic function call
-                                        return _rec((funcall,) + x)
-                                else:
-                                        error("Invalid form: %s.", princ_to_string(x))
+                                error("Invalid form: %s.", princ_to_string(x))
                 elif symbolp(x):
-                        if _compiling_quote_p():
-                                return _rec(string(x)) # Bullshit sign.
-                        else:
-                                return _rec((symbol, string(x)))
+                        return _rec((symbol, string(x)))
                 else:
                         # NOTE: we don't care about quoting here, as constants are self-evaluating.
                         atree, successp = _try_atreeify_constant(x) # NOTE: this allows to directly pass through ASTs.
@@ -4697,7 +4692,10 @@ def _lower(form):
         if _debugging_compiler_p():
                 _debug_printf(";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
                               form, *pv)
-        return the(pytuple, pv)
+        expected_return_type = (pytuple, pylist, (maybe, (partuple, string)))
+        if not typep(pv, expected_return_type):
+                error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
+        return pv
 
 def function_lambda_expression(function_):
         """function-lambda-expression function
@@ -4866,8 +4864,8 @@ and true otherwise."""
                 # The load-time effect must establish an appropriate definition.
                 macrop = not not macro_function(name)
                 form = _ir(*form,
-                            decorators = (_install_macro_definition if macrop else
-                                          _install_function_definition))
+                            decorators = [(symbol, "_install_macro_definition") if macrop else
+                                          (symbol, "_install_function_definition")])
         return _compile_toplevel_def(final_name, form,
                                      globalp = name,
                                      macrop = name and macrop,
@@ -5753,7 +5751,7 @@ def input_stream_p(x):
 def output_stream_p(x):
         return open_stream_p(x) and x.writable()
 
-class two_way_stream(stream_):
+class two_way_stream(stream):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
         def read(self, amount):
@@ -5778,7 +5776,7 @@ _string_set("*ERROR-OUTPUT*",    _sys.stderr)
 _string_set("*DEBUG-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 _string_set("*QUERY-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 
-class broadcast_stream(stream_):
+class broadcast_stream(stream):
         def __init__(self, *streams):
                 self.streams  = streams
         def write(self, data):
@@ -5793,7 +5791,7 @@ class broadcast_stream(stream_):
 def make_broadcast_stream(*streams):  return broadcast_stream(*streams)
 def broadcast_stream_streams(stream): return stream.streams
 
-class synonym_stream(stream_):
+class synonym_stream(stream):
         def __init__(self, symbol):
                 self.symbol  = symbol
         def stream():
@@ -5811,7 +5809,7 @@ def make_synonym_stream(symbol):   return synonym_stream(symbol)
 def synonym_stream_symbol(stream): return stream.symbol
 
 def streamp(x):
-        return typep(x, stream_)
+        return typep(x, stream)
 
 def stream_external_format(stream):
         return _keyword(stream.encoding)
