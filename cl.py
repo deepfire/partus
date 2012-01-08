@@ -227,9 +227,19 @@ def _case_xform(type, s):
 ###
 ### Cold boot
 ###
+_cold_condition_type  = _py.BaseException
+_cold_error_type      = _py.Exception
 _cold_function_type   = _types.FunctionType.__mro__[0]
 _cold_hash_table_type = _py.dict
 _cold_stream_type     = __io._IOBase
+
+class _cold_simple_condition_type(_cold_condition_type):
+        def __init__(self, format_control, *format_arguments):
+                self.format_control, self.format_arguments = format_control, format_arguments
+        def __str__(self):
+                return self.format_control % _py.tuple(self.format_arguments)
+        def __repr__(self):
+                return self.__str__()
 
 def _cold_print_symbol(s, **keys):
         return (s.package.name if s.package else "#") + ":" + s.name
@@ -850,38 +860,6 @@ def _example_frame():
 # self.lastcmd = p.lastcmd
 
 ##
-## Condition: not_implemented
-##
-def _conditionp(x):
-        return typep(x, condition)
-
-class simple_condition(condition):
-        def __init__(self, format_control, *format_arguments):
-                self.format_control, self.format_arguments = format_control, format_arguments
-        def __str__(self):
-                return self.format_control % _py.tuple(self.format_arguments)
-        def __repr__(self):
-                return self.__str__()
-
-class warning(condition): pass
-
-class simple_warning(simple_condition, warning): pass
-
-class _not_implemented_error(error_):
-        def __init__(*args):
-                self, name = args[0], args[1]
-                self.name = name
-        def __str__(self):
-                return "Not implemented: " + self.name.upper()
-        def __repr__(self):
-                return self.__str__()
-
-def _not_implemented(x = None):
-        error(_not_implemented_error,
-              x if x is not None else
-              _caller_name())
-
-##
 ## Pergamum 0
 ##
 def _if_let(x, consequent, antecedent = lambda: None):
@@ -1073,12 +1051,6 @@ def _nxorf(x, y):
 ##
 ## Types
 ##
-class type_error(error_):
-        pass
-
-class simple_type_error(simple_condition, type_error):
-        pass
-
 def find_class(x, errorp = True):
         _not_implemented()
 
@@ -1520,7 +1492,7 @@ def unwind_protect(form, fn):
                 fn()
 
 # WARNING: non-specific try/except clauses and BaseException handlers break this!
-class __catcher_throw__(condition):
+class __catcher_throw__(_cold_condition_type):
         def __init__(self, ball, value, reenable_pytracer = False):
                 self.ball, self.value, self.reenable_pytracer = ball, value, reenable_pytracer
 
@@ -1681,10 +1653,10 @@ __builtins_package__ = None
 __keyword_package__  = None
 __modular_noise__    = None
 
-class package_error(error_):
+class _cold_package_error_type(_cold_error_type):
         pass
 
-class simple_package_error(simple_condition, package_error):
+class _cold_simple_package_error_type(_cold_simple_condition_type, _cold_package_error_type):
         pass
 
 def symbol_conflict_error(op, obj, pkg, x, y):
@@ -1947,7 +1919,7 @@ global environment."""
 
 ## @defun def function was moved lower, due to dependency on @defun and CL:T
 
-class _cold_undefined_function(error_):
+class _cold_undefined_function(_cold_error_type):
         def __init__(self, fname):
                 self.name = fname
         def __str__(self):
@@ -2413,6 +2385,35 @@ _define_python_type_map("PYBYTES",     _py.bytes)
 _define_python_type_map("PYBYTEARRAY", _py.bytearray)
 _define_python_type_map("PYSET",       _py.set)
 _define_python_type_map("PYFROZENSET", _py.frozenset)
+##
+## Condition: not_implemented
+##
+def _conditionp(x):
+        return typep(x, condition)
+
+class warning(condition.python_type): pass
+
+class simple_warning(_cold_simple_condition_type, warning.python_type): pass
+
+class _not_implemented_error(error.python_type):
+        def __init__(*args):
+                self, name = args[0], args[1]
+                self.name = name
+        def __str__(self):
+                return "Not implemented: " + self.name.upper()
+        def __repr__(self):
+                return self.__str__()
+
+class type_error(error.python_type):
+        pass
+
+class simple_type_error(_cold_simple_condition_type, type_error.python_type):
+        pass
+
+def _not_implemented(x = None):
+        error(_not_implemented_error,
+              x if x is not None else
+              _caller_name())
 
 @defun
 def eq(x, y):
@@ -3792,7 +3793,7 @@ def _anode_expression_p(x):
 ###
 ### A rudimentary Lisp -> Python compiler
 ###
-class _compiler_error_(error_):
+class _compiler_error_(error.python_type):
         pass
 
 class _simple_compiler_error(simple_condition, _compiler_error_):
@@ -4844,7 +4845,7 @@ def _compile_toplevel_def(name, form, globalp = nil, macrop = nil, lambda_expres
                 func.name              = name # Debug name, as per F-L-E spec.
                 warnings, style_warnings, errors = [], [], []
                 for cond in _compilation_unit_get("conditions"):
-                        if typep(cond, error_):
+                        if typep(cond, error):
                                 errors.append(cond)
                         elif typep(cond, style_warning):
                                 style_warnings.append(cond)
@@ -5665,12 +5666,22 @@ read = _cold_read
 ###
 def load(pathspec, verbose = None, print = None,
          if_does_not_exist = t,
-         external_format = "default"):
-        "XXX: not in compliance"
+         external_format = _keyword("default")):
         verbose = _defaulted_to_var(verbose, "*LOAD-VERBOSE*")
         print   = _defaulted_to_var(verbose, "*LOAD-PRINT*")
         filename = pathspec
-        _py.exec(_py.compile(_file_as_string(filename), filename, "exec"))
+        with _py.open(filename, "r") as f:
+                def next(): return read(f, eof_error_p = nil, eof_value = f)
+                form = next()
+                while next != f:
+                        if _debugging_compiler_p():
+                                _debug_printf("; LOAD: processing\n%s", _pp_sex(form))
+                        toplevel_lambda = compile(nil, form)
+                        try:
+                                toplevel_lambda()
+                        except error as cond:
+                                error("")
+                        form = next()
         return True
 
 ##
