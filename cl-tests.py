@@ -1,57 +1,59 @@
 import sys
 import cl
 from cl import *
-from cl import _intern0
+from cl import _intern0, _string_set
 
 defpackage("CL-TESTS", use = ["CL", "BUILTINS"])
 
 in_package("CL-TESTS")
 
 assert(typep(1, integer))
-assert(typep(1, (member_, 1)))
-assert(typep(0x10000000000000000000000000000000, (eql_, 0x10000000000000000000000000000000)))
-assert(typep(1, (and_, integer, (member_, 1))))
-assert(every(lambda x: typep(x, (or_, str, (member_, 1))),
+assert(typep(1, (member, 1)))
+assert(typep(0x10000000000000000000000000000000, (eql, 0x10000000000000000000000000000000)))
+assert(typep(1, (and_, integer, (member, 1))))
+assert(every(lambda x: typep(x, (or_, string, (member, 1))),
              [1, "a"]))
-assert(typep([1, 2, 3, "a"], (list_, (or_, int, str))))
+assert(typep([1, 2, 3, "a"], (pylist, (or_, integer, string))))
 assert(not typep("1", integer))
-assert(not typep(2, (member_, 1)))
-assert(not typep(0x10000000000000000000000000000000, (eql_, 0x10000000000000000000000000000001)))
-assert(not typep(2, (and_, integer, (member_, 1))))
-assert(not every(lambda x: typep(x, (or_, str, (member_, 1))),
+assert(not typep(2, (member, 1)))
+assert(not typep(0x10000000000000000000000000000000, (eql, 0x10000000000000000000000000000001)))
+assert(not typep(2, (and_, integer, (member, 1))))
+assert(not every(lambda x: typep(x, (or_, string, (member, 1))),
                  [1, "a", 2]))
-assert(not typep([1, 2, 3, "a", []], (list_, (or_, int, str))))
-assert(    typep((1, 2, 3, "a", []), (partuple_, int, int, int)))
-assert(not typep((1, 2, "a", []),    (partuple_, int, int, int)))
-assert(not typep((1, 2),             (partuple_, int, int, int)))
-assert(    typep((1, 2, 3, "a", []),      (varituple_, int, int, int, (maybe_, str), (maybe_, list))))
-assert(not typep((1, 2, 3, "a", [], {}),  (varituple_, int, int, int, (maybe_, str), (maybe_, list))))
-assert(not typep((1, 2, {}, "a", [], {}), (varituple_, int, int, int, (maybe_, str), (maybe_, list))))
+assert(not typep([1, 2, 3, "a", []], (pylist, (or_, integer, string))))
+assert(    typep((1, 2, 3, "a", []), (partuple, integer, integer, integer)))
+assert(not typep((1, 2, "a", []),    (partuple, integer, integer, integer)))
+assert(not typep((1, 2),             (partuple, integer, integer, integer)))
+assert(    typep((1, 2, 3, "a", []),      (varituple, integer, integer, integer, (maybe, string), (maybe, pylist))))
+assert(not typep((1, 2, 3, "a", [], {}),  (varituple, integer, integer, integer, (maybe, string), (maybe, pylist))))
+assert(not typep((1, 2, {}, "a", [], {}), (varituple, integer, integer, integer, (maybe, string), (maybe, pylist))))
 print("TYPEP: passed")
 
-setq("_scope_", 0)
+_string_set("*SCOPE*", 0)
 def outer():
         def inner():
-                setq("_scope_", 2)
-                return symbol_value("_scope_")
+                _string_set("*SCOPE*", 2)
+                return symbol_value("*SCOPE*")
         def midder():
-                with env.let(_scope_ = 1):
-                        return [ symbol_value("_scope_"), inner() ]
-        return [ symbol_value("_scope_") ] + midder() + [ symbol_value("_scope_") ]
+                with progv({"*SCOPE*": 1}):
+                        return [ symbol_value("*SCOPE*"), inner() ]
+        return [ symbol_value("*SCOPE*") ] + midder() + [ symbol_value("*SCOPE*") ]
 assert(outer() == [0, 1, 2, 0])
 print("DYNAMIC-SCOPE: passed")
 
 # with_standard_io_syntax(lambda: mapcar(lambda x: symbol_value(x), ["_print_escape_", "_print_pretty_", "_print_readably_"]))
 # [T, T, NIL]
 def with_alternate_io_syntax(thunk):
-    with progv(_print_escape_ = 1, _print_pretty_ = 2, _print_readably_ = 3):
+    with progv({"*PRINT-ESCAPE*": 1,
+                "*PRINT-PRETTY*": 2,
+                "*PRINT-READABLY*": 3}):
         return thunk()
 # with_alternate_io_syntax(lambda: mapcar(lambda x: symbol_value(x), ["_print_escape_", "_print_pretty_", "_print_readably_"]))
 # [1, 2, 3]
 
 assert(with_alternate_io_syntax(
          lambda: mapcar(lambda x: with_standard_io_syntax(lambda: symbol_value(x)),
-                        ["_print_escape_", "_print_pretty_", "_print_readably_"])) ==
+                        ["*PRINT-ESCAPE*", "*PRINT-PRETTY*", "*PRINT-READABLY*"])) ==
        [t, t, nil])
 print("WITH-STANDARD-IO-SYNTAX: passed")
 
@@ -90,8 +92,6 @@ class X(Exception): pass
 class X1(X):        pass
 class X2(X):        pass
 
-def e(mesg, expr): fprintf(sys.stderr, "-%s: %s\n" % (mesg, expr)); return expr
-
 cl._init_condition_system()
 
 @block
@@ -101,7 +101,7 @@ def f():
         return handler_bind(raiser,
                             (X1,
                              lambda cond:
-                                     return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_))))
+                                     return_from(f, "Woot: " + cl._pp_frame(symbol_value("*SIGNALLING-FRAME*")))))
 assert(f() == "Woot: cl-tests.py: raiser()")
 print("HANDLER-BIND: passed")
 
@@ -117,7 +117,7 @@ assert(f() == "X1!")
 print("HANDLER-CASE: passed")
 
 def report():
-        print(print_frames(frames_upward_from(env._signalling_frame_)))
+        print(print_frames(frames_upward_from(symbol_value("*SIGNALLING-FRAME*"))))
         return True
 
 @block
@@ -128,7 +128,7 @@ def f():
                 lambda: handler_bind(raiser,
                                      (X1,
                                       lambda cond:
-                                              return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_)))),
+                                              return_from(f, "Woot: " + cl._pp_frame(symbol_value("*SIGNALLING-FRAME*"))))),
                 (X1,
                  lambda cond: "Surrounding HANDLER-CASE won!"))
 assert(f() == "Woot: cl-tests.py: raiser()")
@@ -138,13 +138,13 @@ print("HANDLER-CASE-AROUND-HANDLER-BIND: passed")
 def f():
         def raiser():
                 raise X1("PREHANDLER-HOOK: Ugh.")
-        with progv(_prehandler_hook_ = lambda cond, frame, _:
-                           return_from(f, str([cond, frame]))):
+        with progv({"*PREHANDLER-HOOK*": lambda cond, frame, _:
+                                                return_from(f, str([cond, frame]))}):
                 return handler_case(
                         lambda: handler_bind(raiser,
                                              (X1,
                                               lambda cond:
-                                                      return_from(f, "Woot: " + cl._pp_frame(env._signalling_frame_)))),
+                                                      return_from(f, "Woot: " + cl._pp_frame(symbol_value("*SIGNALLING-FRAME*"))))),
                         (X1,
                          lambda cond: "HANDLER-CASE won!"))
 assert("[X1('PREHANDLER-HOOK: Ugh.',), <frame object at" in f())
@@ -225,13 +225,13 @@ def f():
         def second_handler(cond, _):
                 return_from(f, "All handled.")
         def first_handler(cond, _):
-                with progv(_debugger_hook_ = second_handler):
+                with progv({"*DEBUGGER-HOOK*": second_handler}):
                         # write_line(">>> condsys %s, de-ho %s" % 
                         #            (cl._condition_system_enabled_p(),
                         #             cl._print_function(symbol_value("_debugger_hook_"))))
                         # cl._dump_thread_state()
                         error("Nested condition!")
-        with progv(_debugger_hook_ = first_handler):
+        with progv({"*DEBUGGER-HOOK*": first_handler}):
                 # write_line(">>> condsys %s, de-ho %s" % 
                 #            (cl._condition_system_enabled_p(),
                 #             cl._print_function(symbol_value("_debugger_hook_"))))

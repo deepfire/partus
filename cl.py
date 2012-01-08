@@ -239,6 +239,8 @@ _case_attribute_map = _py.dict(UPCASE     = string_upcase,
                                CAPITALIZE = string_capitalize,
                                PRESERVE   = identity)
 def _case_xform(type, s):
+        if not (_py.isinstance(type, _symbol) and type.package.name == "KEYWORD"):
+                error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", _py.type(type), _cold_print_symbol(type))
         return _case_attribute_map[type.name](s)
 
 # Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
@@ -254,6 +256,7 @@ def _global(name):
 ###
 _cold_function_type   = _types.FunctionType.__mro__[0]
 _cold_hash_table_type = _py.dict
+_cold_stream_type     = __io._IOBase
 
 def _cold_print_symbol(s, **keys):
         return (s.package.name if s.package else "#") + ":" + s.name
@@ -2451,7 +2454,7 @@ define_python_type_map("INTEGER",     _py.int)
 define_python_type_map("FLOAT",       _py.float)
 define_python_type_map("COMPLEX",     _py.complex)
 define_python_type_map("HASH-TABLE",  _cold_hash_table_type)
-define_python_type_map("STREAM",      __io._IOBase)
+define_python_type_map("_STREAM",     _cold_stream_type) # Conflict with keyword argument name in READ-CHAR..
 define_python_type_map("FUNCTION",    _cold_function_type)
 
 define_python_type_map("PYBOOL",      _py.bool)
@@ -4757,7 +4760,7 @@ def _lisp_add_def(name, source):
                 del __def_sources__[name]
         __def_sources__[name] = source
         total = "\n".join(__def_sources__.values())
-        linecache.cache[__def_sources_filename__] = _len(total), _int(time.time()), total.split("\n"), __def_sources_filename__
+        linecache.cache[__def_sources_filename__] = _py.len(total), _py.int(time.time()), total.split("\n"), __def_sources_filename__
 
 def lisp(body):
         # Should probably be called COMPILE-TOPLEVEL
@@ -4972,7 +4975,7 @@ class readtable(_collections.UserDict):
         def __init__(self, case = _keyword("upcase")):
                 self.case = the((member, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")),
                                 case)
-                self.dict = make_hash_table()
+                self.data = make_hash_table()
 
 def readtablep(x):     return typep(x, readtable)
 def readtable_case(x): return the(readtable, x).case
@@ -5250,7 +5253,7 @@ def _print_symbol(s, escape = None, gensym = None, case = None, package = None, 
                 _here("------------------------------------------------------------\npackage is a %s: %s" % (type_of(package), package,))
         readably = _defaulted_to_var(readably, "*PRINT-READABLY*")
         escape   = _defaulted_to_var(escape,   "*PRINT-ESCAPE*") if not readably else t
-        case     = _defaulted_to_var(case,     "*PRINT-CASE*")   if not readably else t
+        case     = _defaulted_to_var(case,     "*PRINT-CASE*")   if not readably else _keyword("UPCASE")
         gensym   = _defaulted_to_var(gensym,   "*PRINT-GENSYM*") if not readably else t
         # Because the #: syntax does not intern the following symbol, it is
         # necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
@@ -5491,7 +5494,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 return obj
         def skip_whitespace():
                 nonlocal pos
-                while string[pos] in _frozenset([" ", "\t", "\n"]):
+                while string[pos] in _py.frozenset([" ", "\t", "\n"]):
                         pos += 1
         def read_list():
                 nonlocal pos
@@ -5538,7 +5541,7 @@ def read_from_string(string, eof_error_p = True, eof_value = nil,
                 handle_short_read_if(not token)
                 if _without_condition_system(lambda: _re.match("^[0-9]+$", token),
                                              reason = "re.match"):
-                        ret = _int(token)
+                        ret = _py.int(token)
                 elif _without_condition_system(lambda: _re.match("^[0-9]+\\.[0-9]+$", token),
                                                reason = "re.match"):
                         ret = _py.float(token)
@@ -5582,7 +5585,7 @@ def read_line(stream = None, eof_error_p = True, eof_value = nil):
 
 def read_char(stream = None, eof_error_p = True, eof_value = nil, recursivep = nil):
         stream = _defaulted_to_var(stream, "*STANDARD-INPUT*")
-        ret = the(stream, stream).read(1)
+        ret = the(_stream, stream).read(1)
         return (ret       if ret             else
                 eof_value if not eof_error_p else
                 error(end_of_file, "end of file on %s" % (stream,)))
@@ -5638,7 +5641,7 @@ def read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whit
         def skip_whitespace():
                 while True:
                         c = read_char(stream, nil, nil)
-                        if c not in _frozenset([" ", "\t", "\n"]):
+                        if c not in _py.frozenset([" ", "\t", "\n"]):
                                 if c is not nil:
                                         unread_char(c, stream)
                                 return
@@ -5677,7 +5680,7 @@ def read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whit
                 token = read_token()
                 if _without_condition_system(lambda: _re.match("^[0-9]+$", token),
                                              reason = "re.match"):
-                        ret = _int(token)
+                        ret = _py.int(token)
                 elif _without_condition_system(lambda: _re.match("^[0-9]+\\.[0-9]+$", token),
                                                reason = "re.match"):
                         ret = _py.float(token)
@@ -5737,13 +5740,13 @@ at which the file specified by PATHSPEC was last written
         #
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # os.path.getmtime() returns microseconds..
-        return _int(_os.path.getmtime(pathspec))
+        return _py.int(_os.path.getmtime(pathspec))
 
 ##
 ## Streams
 ##
 def open_stream_p(x):
-        return not the(stream, x).closed
+        return not the(_stream, x).closed
 
 def input_stream_p(x):
         return open_stream_p(x) and x.readable()
@@ -5751,7 +5754,7 @@ def input_stream_p(x):
 def output_stream_p(x):
         return open_stream_p(x) and x.writable()
 
-class two_way_stream(stream):
+class two_way_stream(_cold_stream_type):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
         def read(self, amount):
@@ -5776,7 +5779,7 @@ _string_set("*ERROR-OUTPUT*",    _sys.stderr)
 _string_set("*DEBUG-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 _string_set("*QUERY-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 
-class broadcast_stream(stream):
+class broadcast_stream(_cold_stream_type):
         def __init__(self, *streams):
                 self.streams  = streams
         def write(self, data):
@@ -5791,7 +5794,7 @@ class broadcast_stream(stream):
 def make_broadcast_stream(*streams):  return broadcast_stream(*streams)
 def broadcast_stream_streams(stream): return stream.streams
 
-class synonym_stream(stream):
+class synonym_stream(_cold_stream_type):
         def __init__(self, symbol):
                 self.symbol  = symbol
         def stream():
@@ -5809,7 +5812,7 @@ def make_synonym_stream(symbol):   return synonym_stream(symbol)
 def synonym_stream_symbol(stream): return stream.symbol
 
 def streamp(x):
-        return typep(x, stream)
+        return typep(x, _stream)
 
 def stream_external_format(stream):
         return _keyword(stream.encoding)
@@ -5905,7 +5908,7 @@ def _set_condition_handler(fn):
 ##
 ## Condition system
 ##
-_string_set("__handler_clusters__", [])
+_string_set("*HANDLER-CLUSTERS*", [])
 
 def make_condition(datum, *args, default_type = error, **keys):
         """
@@ -5945,7 +5948,7 @@ def _report_handling_handover(cond, frame, hook):
                prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
 
 def signal(cond):
-        for cluster in reversed(env.__handler_clusters__):
+        for cluster in reversed(_symbol_value("*HANDLER-CLUSTERS*")):
                 for type, handler in cluster:
                         if not stringp(type):
                                 if typep(cond, type):
@@ -6058,7 +6061,7 @@ def _dump_thread_state():
         _without_condition_system(body,
                                   reason = "_dump_thread_state")
 
-__not_even_conditions__ = _frozenset([SystemExit, __catcher_throw__])
+__not_even_conditions__ = _py.frozenset([SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
 def __cl_condition_handler__(condspec, frame):
@@ -6076,20 +6079,21 @@ def __cl_condition_handler__(condspec, frame):
                                        #                    (str,       lambda: error_(cond)))
                         cond, upgradedp = _maybe_upgrade_condition(raw_cond)
                         if upgradedp:
+                                _backtrace()
                                 _here("Condition Upgrader: %s(%s) -> %s(%s)",
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
                                       callers = 45, frame = symbol_value("*STACK-TOP-HINT*"))
-                        with env.let({"*TRACEBACK*": traceback,
-                                      "*SIGNALLING-FRAME*": frame}): # These bindings are the deviation from the CL standard.
+                        with progv({"*TRACEBACK*": traceback,
+                                    "*SIGNALLING-FRAME*": frame}): # These bindings are the deviation from the CL standard.
                                 presignal_hook = symbol_value("*PRESIGNAL-HOOK*")
                                 if presignal_hook:
-                                        with env.let({"*PRESIGNAL-HOOK*": nil}):
+                                        with progv({"*PRESIGNAL-HOOK*": nil}):
                                                 presignal_hook(cond, presignal_hook)
                                 signal(cond)
                                 debugger_hook = symbol_value("*DEBUGGER-HOOK*")
                                 if debugger_hook:
-                                        with env.let({"*DEBUGGER-HOOK*": nil}):
+                                        with progv({"*DEBUGGER-HOOK*": nil}):
                                                 debugger_hook(cond, debugger_hook)
                         return cond
                 else:
@@ -6123,11 +6127,12 @@ def handler_bind(fn, *handlers, no_error = identity):
         #     pytracer_enabled_p() and condition_handler_active_p()
         # ..inlined for speed.
         if _pytracer_enabled_p() and "exception" in __tracer_hooks__ and __tracer_hooks__["exception"] is __cl_condition_handler__:
+                # Unregistered Issue HANDLER-BIND-CHECK-TOO-RESTRICTIVE
                 for type, _ in handlers:
                         if not (typep(type, _py.type) and subtypep(type, condition)):
                                 error(simple_type_error, "While establishing handler: '%s' does not designate a known condition type.", type)
-                with env.let(__handler_clusters__ = env.__handler_clusters__ +
-                             [handlers + (("__frame__", _caller_frame()),)]):
+                with progv({"*HANDLER-CLUSTERS*": (_symbol_value("*HANDLER-CLUSTERS*") +
+                                                   [handlers + (("__frame__", _caller_frame()),)])}):
                         return no_error(fn())
         else:
                 # old world case..
@@ -6209,7 +6214,7 @@ class restart(_servile):
 #                      _py.dict(interactive_function = lambda: compute_invoke_restart_interactively_args(),
 #                               report_function      = lambda stream: print_restart_summary(stream),
 #                               test_function        = lambda cond: visible_p(cond))))
-_string_set("__restart_clusters__", [])
+_string_set("*RESTART-CLUSTERS*", [])
 
 def _restartp(x):
         return typep(x, restart)
@@ -6230,14 +6235,14 @@ def _specs_restarts_args(restart_specs):
 # XXX: :TEST-FUNCTION is currently IGNORED!
 ##
 def _restart_bind(body, restarts_args):
-        with env.let(__restart_clusters__ = (env.__restart_clusters__ +
-                                             [_remap_hash_table(lambda _, restart_args: restart(**restart_args), restarts_args)])):
+        with progv({"*RESTART-CLUSTERS*": (_symbol_value("*RESTART-CLUSTERS*") +
+                                           [_remap_hash_table(lambda _, restart_args: restart(**restart_args), restarts_args)])}):
                 return body()
 
 def restart_bind(body, **restart_specs):
         return _restart_bind(body, _specs_restarts_args(restart_specs))
 
-__valid_restart_options__ = _frozenset(["interactive", "report", "test", "function"])
+__valid_restart_options__ = _py.frozenset(["interactive", "report", "test", "function"])
 def _restart_case(body, **restarts_args):
         def validate_restart_options(options):
                 unknown = _py.set(options.keys()) - __valid_restart_options__
@@ -6324,7 +6329,7 @@ returned. Otherwise, NIL is returned.
         if _restartp(identifier):
                 return find_restart(restart_name(identifier)) is identifier
         else:
-                for cluster in reversed(env.__restart_clusters__):
+                for cluster in reversed(_symbol_value("*RESTART-CLUSTERS*")):
                         # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                         restart = cluster[identifier] if identifier in cluster else None
                         if restart and restart_condition_association_check(condition, restart):
@@ -6355,7 +6360,7 @@ dynamic environment. The consequences are undefined if the list
 returned by COMPUTE-RESTARTS is every modified.
 """
         restarts = _py.list()
-        for cluster in _reversed(env.__restart_clusters__):
+        for cluster in _reversed(_symbol_value("*RESTART-CLUSTERS*")):
                 # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                 restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
                                 if condition else
@@ -6439,7 +6444,7 @@ def require(name, pathnames = None):
 def get_universal_time():
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # time.time() returns microseconds..
-        return _int(_time.time())
+        return _py.int(_time.time())
 
 def sleep(x):
         return _time.sleep(x)
@@ -8064,7 +8069,7 @@ __sealed_classes__ = _py.set([object,
                               string,
                               hash_table,
                               function,
-                              stream,
+                              _stream,
                               pytuple, pybytes, pylist, pybytearray, pyset, pyfrozenset,
                               BaseException, Exception] +
                              mapcar(type_of,
