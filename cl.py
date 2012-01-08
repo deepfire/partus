@@ -4634,7 +4634,7 @@ def _lower(form):
                                 known = _find_known(name)
                                 if not known:
                                         return nil, nil
-                                not noisep(name) and _compiler_debug_printf(">>> %s\n%s", name, "\n".join(_pp_sex(f) for f in forms))
+                                not noisep(name) and _debug_printf("%s>>> %s\n%s%s", _sex_space(), name, _sex_space(), ("\n" + _sex_space()).join(_pp_sex(f) for f in forms))
                                 ret = known.compiler(*forms, **_alist_hash_table(_plist_alist(args)))
                                 if puntedp(ret):
                                         not noisep(name) and _debug_printf("%s===========================\n"
