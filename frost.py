@@ -34,3 +34,18 @@ def setf_global(value, name, globals):
 def global_(name, globals):
         return ((globals[name], True) if name in globals else
                 (None,          False))
+
+def make_object_like_python_function(x, function):
+        x.__doc__  = function.__doc__
+        x.__code__ = function.__code__
+        return x
+
+def make_object_like_python_class(x, cls):
+        x.__doc__          = cls.__doc__
+        x.__subclasshook__ = cls.__subclasshook__
+        return x
+
+def frost_def(o, symbol, slot, globals):
+        setattr(symbol, slot, o)
+        setf_global(symbol, lisp_symbol_name_python_name(symbol.name), globals)
+        return symbol

@@ -135,6 +135,12 @@ _curry            = _functools.partial
 stringp           = _neutrality.stringp
 _write_string     = _neutrality._write_string
 
+def _classp(x):     return _py.isinstance(x, _py.type)
+def _tuplep(x):     return _py.isinstance(x, _py.tuple)
+def _frozensetp(o): return _py.isinstance(o, _py.frozenset)
+def _setp(o):       return _py.isinstance(o, (_py.set, _py.frozenset))
+def _nonep(o):      return o is None
+
 ###
 ### Constants
 ###
@@ -189,12 +195,12 @@ def _cold_constantp(form):
         #  - no handling of DEFCONSTANT-introduced variables
         #  - additional constant forms
         return (_py.isinstance(form, (_py.int, _py.float, _py.complex, _py.str)) or
-                (type_of(form).__name__ == "_symbol" and
+                (type_of(form).__name__ == "symbol" and
                  ((form.package.name == "KEYWORD") or
                   (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
                 (_tuplep(form)                          and
                  _py.len(form) == 2                        and
-                 type_of(form[0]).__name__ == "_symbol" and
+                 type_of(form[0]).__name__ == "symbol" and
                  form.package.name == "COMMON-LISP"     and
                  form.name in ["QUOTE"]))
 constantp = _cold_constantp
@@ -220,7 +226,7 @@ _case_attribute_map = _py.dict(UPCASE     = string_upcase,
                                CAPITALIZE = string_capitalize,
                                PRESERVE   = identity)
 def _case_xform(type, s):
-        if not (_py.isinstance(type, _symbol) and type.package.name == "KEYWORD"):
+        if not (_py.isinstance(type, symbol) and type.package.name == "KEYWORD"):
                 error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", _py.type(type), _cold_print_symbol(type))
         return _case_attribute_map[type.name](s)
 
@@ -874,11 +880,6 @@ def _lret(value, body):
 
 def _compose(f, g):
         return lambda *args, **keys: f(g(*args, **keys))
-
-def _tuplep(x):     return _py.isinstance(x, _py.tuple)
-def _frozensetp(o): return _py.isinstance(o, _py.frozenset)
-def _setp(o):       return _py.isinstance(o, (_py.set, _py.frozenset))
-def _nonep(o):      return o is None
 
 def _ensure_list(x):
         return x if _listp(x) else [x]
@@ -1544,11 +1545,11 @@ def return_from(nonce, value):
 ##
 __global_scope__ = _py.dict()
 
-class thread_local_storage(_threading.local):
+class _thread_local_storage(_threading.local):
         def __init__(self):
                 self.dynamic_scope = []
 
-__tls__ = thread_local_storage()
+__tls__ = _thread_local_storage()
 
 # The symmetry invariance is _IMPORTANT_, as you probably can imagine!
 def _dynamic_scope_push(scope):
@@ -1597,12 +1598,12 @@ def symbol_value(symbol):
 def _symbol_known(symbol_):
         return symbol_.known
 def _symbol_python_type(symbol_, if_not_a_type = "error"):
-        return (symbol_.python_type                                  if _py.hasattr(the(_symbol, symbol_), "python_type") else
+        return (symbol_.python_type                                  if _py.hasattr(the(symbol, symbol_), "python_type") else
                 nil                                                                        if if_not_a_type == "continue" else
                 error("In %%SYMBOL-TYPE %s: symbol does not designate a known type.", symbol) if if_not_a_type == "error" else
                 error("In %%SYMBOL-TYPE: the :IF-NOT-A-TYPE keyword argument must be one of ('error, 'continue')."))
 def _symbol_type_predicate(symbol):
-        return symbol.type_predicate if _py.hasattr(the(_symbol, symbol_), "type_predicate") else nil
+        return symbol.type_predicate if _py.hasattr(the(symbol, symbol_), "type_predicate") else nil
 
 class _env_cluster(object):
         def __init__(self, cluster):
@@ -1779,7 +1780,7 @@ class package(_collections.UserDict):
                         for (key, value) in moddict.items():
                                 ## intern the python symbol, when it is known not to be inherited
                                 if key not in self.accessible:
-                                        s = _intern0(key, self)
+                                        s = _intern(key, self)[0]
                                         s.value = value
                                         if functionp(value):
                                                 s.function = value
@@ -1791,12 +1792,14 @@ class package(_collections.UserDict):
                 ## Hit the street.
                 self.data          = self.accessible
                 __packages__[name] = self
-def packagep(x):     return typep(x, package)
 def package_name(x): return x.name
 
-def make_package(name, nicknames = [], use = []):
-        "XXX: NICKNAMES are ignored."
+## Unregistered Issue COMPLIANCE-PACKAGE-NICKNAMES-NOT-IMPLEMENTED
+def _cold_make_package(name, nicknames = [], use = []):
+        if nicknames:
+                _not_implemented("In %COLD-MAKE-PACKAGE %s: package nicknames are ignored.", _py.repr(name))
         return package(string(name), ignore_python = True, use = [])
+make_package = _cold_make_package
 
 def _find_package(name, errorp = True):
         return (__packages__.get(name) if name in __packages__ else
@@ -1874,10 +1877,6 @@ def in_package(name):
 #
 # (A)
 # T
-def _make_object_like_python_function(x, function):
-        x.__doc__  = function.__doc__
-        x.__code__ = function.__code__
-        return x
 
 def fboundp(name):
         """fboundp name => generalized-boolean
@@ -1966,7 +1965,7 @@ Should signal an error of type TYPE-ERROR if SYMBOL is not a symbol.
 Should signal UNDEFINED-FUNCTION if SYMBOL is not fbound and an
 attempt is made to read its definition. (No such error is signaled on
 an attempt to write its definition.)"""
-        return _symbol_function(the(_symbol, symbol_))
+        return _symbol_function(the(symbol, symbol_))
 
 def macro_function(symbol_, environment = None):
         """macro-function symbol &optional environment => function
@@ -2009,7 +2008,7 @@ SETF of MACRO-FUNCTION."""
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-PROVIDED-ENVIRONMENT-IGNORED
         _nonep(environment) or _not_implemented("query of environments other than global")
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
-        return the((or_, _cold_function_type, null, (eql, t)), the(_symbol, symbol_).macro_function)
+        return the((or_, _cold_function_type, null, (eql, t)), the(symbol, symbol_).macro_function)
 
 def _warn_possible_redefinition(x, type):
         if x:
@@ -2077,52 +2076,57 @@ def _warn_incompatible_function_redefinition(symbol, tons, fromns):
         style_warn("%s is being redefined as a %s when it was previously defined to be a %s.",
                    symbol, tons, fromns)
 def _install_function_definition(function):
-        return _do_install_function_definition(_intern0(function.__name__), function)
+        return _do_install_function_definition(intern(function.__name__)[0], function)
 def _do_install_function_definition(x, function):
         if the(symbol, x).macro_function:
                 _warn_incompatible_function_redefinition(x, "function", "macro")
         else:
                 _warn_possible_redefinition(x.function, the(symbol, defun_))
         x.function, x.macro_function = function, nil
-        _make_object_like_python_function(x, function)
+        _frost.make_object_like_python_function(x, function)
         return x
 def _install_macro_definition(function):
-        return _do_install_macro_definition(_intern0(function.__name__), function)
+        return _do_install_macro_definition(intern(function.__name__)[0], function)
 def _do_install_macro_definition(x, function):
         if the(symbol, x).function:
                 _warn_incompatible_function_redefinition(x, "macro", "function")
         else:
                 _warn_possible_redefinition(x.macro_function, the(symbol, defmacro_))
         x.function, x.macro_function = nil, function
-        _make_object_like_python_function(x, function)
+        _frost.make_object_like_python_function(x, function)
         return x
 
 def _read_python_def_toplevel(f):
         symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
-        symbol = _intern0(symbol_name)
+        symbol = _intern(symbol_name)[0]
         return symbol, symbol_name, f.__name__
 
-def _frost_defun(fn, symbol_name = None, globals = None):
-        symbol_name = _defaulted(symbol_name, _frost.python_name_lisp_symbol_name(fn.__name__))
-        symbol = _intern0(symbol_name)
-        symbol.function = __block__(fn)
-        _make_object_like_python_function(symbol, fn)
-        _frost.setf_global(symbol, symbol.name, globals = _defaulted(globals, _py.globals()))
-        return symbol
+def _make_cold_definer(definer_name, predicate, slot, mimicry):
+        def cold_definer(name_or_obj):
+                name, obj = ((name_or_obj.__name__, name_or_obj) if predicate(name_or_obj) else
+                             (name_or_obj, None))
+                sym, name = ((name, _frost.lisp_symbol_name_python_name(name))             if symbolp(name) else
+                             (_intern(_frost.python_name_lisp_symbol_name(name))[0], name) if stringp(name) else
+                             error("In %s: bad name %s for a cold object.", definer_name, name))
+                def do_cold_def(o):
+                        # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
+                        #           if stringp(name) else
+                        #           name if symbolp(name) else
+                        #           error("In %s: bad name %s for a cold object.", definer_name))
+                        _frost.frost_def(o, sym, slot, _py.globals())
+                        mimicry(sym, o)
+                        return sym
+                return (do_cold_def(obj) if obj                  else
+                        do_cold_def      if stringp(name_or_obj) else
+                        error("In %s: argument must be either satisfy %s or be a string;  was: %s.",
+                              definer_name, predicate, name_or_obj))
+        return cold_definer
 
-def _cold_defun(symbol_name_or_fn):
-        # The coldness is in:
-        #  - namespace impedance mismatch
-        #  - duplication of (SETF FDEFINITION) functionality
-        def do_cold_defun(fn, symbol_name = symbol_name_or_fn):
-                return _frost_defun(fn, symbol_name)
-        return (_frost_defun(symbol_name_or_fn, symbol_name = _frost.python_name_lisp_symbol_name(symbol_name_or_fn.__name__)) if functionp(symbol_name_or_fn) else
-                do_cold_defun                                                       if stringp(symbol_name_or_fn)   else
-                error("In %%COLD-DEFUN: argument must be either a function or a string, was: %s.",
-                      symbol_or_fn))
-defun = _cold_defun
+defun    = _make_cold_definer("%COLD-DEFUN", functionp, "function", _frost.make_object_like_python_function)
+defclass = _make_cold_definer("%COLD-DEFCLASS", _classp, "python_type", _frost.make_object_like_python_class)
 
-class _symbol():
+## Unregistered Issue SYMBOL-BETTER-BE-ONE
+class symbol():
         def __str__(self):
                 return _print_symbol(self)
         def __repr__(self):
@@ -2144,8 +2148,11 @@ class _symbol():
         def __bool__(self):
                 return self is not nil
 
+###
+### Cold symbol area
+###
 def _cold_make_nil():
-        nil = _symbol.__new__(_symbol)
+        nil = symbol.__new__(symbol)
         nil.name = "NIL"
         nil.package = None
         (nil.value,
@@ -2155,15 +2162,32 @@ def _cold_make_nil():
         return nil
 nil = _cold_make_nil()
 
-def symbolp(x):                      return _py.isinstance(x, _symbol) # COLD-TYPEP
+def _cold_symbolp(x):                return _py.isinstance(x, symbol) # COLD-TYPEP
+symbolp = _cold_symbolp
+
+def _cold_packagep(x):               return _py.isinstance(x, package)
+packagep = _cold_packagep
+
+def _cold_make_symbol(name):
+        return symbol(name)
+make_symbol = _cold_make_symbol # To be replaced ASAP we have INTERN working.
+
+def _do_intern_symbol(s, p):
+        p.own.add(s)
+        p.accessible[s.name], s.package = s, p
+        if p is __keyword_package__: # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
+                p.external.add(s)
+                s.value = s
+        return s
+###
+##
+#
+
 def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
 def symbol_name(x):                  return x.name.lower()
 def symbol_package(x):               return x.package
 def coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, _coerce_to_package(package))
-
-def make_symbol(name):
-        return _symbol(name)
 
 def symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
@@ -2192,35 +2216,22 @@ def _find_symbol_or_fail(x, package = None):
                 symbols_not_accessible_error(p, [x]))
 
 def _intern(x, package = None):
+        "A version of INTERN, that does not compute the relationship between SYMBOL and designated PACKAGE."
         p = _coerce_to_package(package)
-        s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
-        if not (s is not None or stringp(x)):
-                error("Attempted to intern object >%s< of type %s into %s.", x, _py.type(x), p)
-        if s:
-                # debug_printf("Found >%s< in %s.", s, p)
-                return s, p
-        else:
-                s = make_symbol(x)
-                p.own.add(s)
-                p.accessible[x], s.package = s, p
-                # debug_printf("Interned >%s< into %s.", s, p)
-                if p is __keyword_package__:
-                        # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
-                        p.external.add(s)
-                        s.value = s
-                return s, None
+        s, presentp = ((p.accessible.get(x), True) if the(_py.str, x) in p.accessible else
+                       (None, False))
+        if not presentp:
+                s = _do_intern_symbol(make_symbol(x), p)
+        return s, presentp
+
 def intern(x, package = None):
         s, found_in_package = _intern(x, package)
         return s, (symbol_relation(s, found_in_package) if found_in_package else
                    None)
 
-### handi-tools
-def _intern0(x, package = None): return intern(the(_py.str, x),         package)[0]
 # requires that __keyword_package__ is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
-def _keyword(s, upcase = True):
-        return _intern((s.upper() if upcase else s), __keyword_package__)[0]
-def _i(x):                       return intern(the(string, x).upper(), None)[0]
-_k = _keyword
+def _keyword(s, upcase = True):  return _intern((s.upper() if upcase else s), __keyword_package__)[0]
+def _i(x):                       return _intern(the(string, x).upper(), None)[0]
 
 def import_(symbols, package = None, populate_module = True):
         p = _coerce_to_package(package)
@@ -2296,15 +2307,15 @@ def _init_package_system_0():
         __modular_noise__ = _py.frozenset(_load_text_as_module("", "").__dict__)
         cl = package("CL", use = ["BUILTINS"], boot = True)
         nil.package = cl                             # NIL is so important it had to be made earlier.
-        intern(".", cl)
-        t                  = _intern0("T", cl)       # Nothing much works without this.
+        _intern(".", cl)
+        t                  = _intern("T", cl)[0]       # Nothing much works without this.
         t.value, nil.value = t, nil     # Self-evaluation.
         nil.__contains__   = lambda _: False
         nil.__getitem__    = lambda _, __: nil
         nil.__length__     = lambda _: 0
         nil.__iter__       = lambda _: None
         nil.__reversed__   = lambda _: None
-        export([t, nil] + mapcar(lambda n: _intern0(_ensure_car(n), cl),
+        export([t, nil] + mapcar(lambda n: _intern(_ensure_car(n), cl)[0],
                                  __core_symbol_names__ +
                                  __more_symbol_names__),
                cl)
@@ -2314,10 +2325,23 @@ def _init_package_system_0():
                 _sys.modules['cl'].__dict__[python_name] = _find_symbol_or_fail(lisp_name, cl)
         # secondary
         global star
-        star = _intern0("*", cl)
+        star = _intern("*", cl)[0]
         package("COMMON-LISP-USER", use = ["CL", "BUILTINS"], boot = True)
         __global_scope__["*PACKAGE*"] = cl # COLD-SETQ
+        _frost.frost_def(symbol,  _intern("SYMBOL")[0],  "python_type", _py.globals())
+        @defun
+        def make_symbol(name):
+                return symbol.python_type(name)
+        _frost.frost_def(package, _intern("PACKAGE")[0], "python_type", _py.globals())
+        @defun
+        def make_package(name, nicknames = [], use = []):
+                if nicknames:
+                        _not_implemented("In MAKE-PACKAGE %s: package nicknames are ignored.", _py.repr(name))
+                return package.python_type(string(name), ignore_python = True, use = [])
 _init_package_system_0() ########### _keyword(), quote_, and_, or_, abort_, continue_, break_ are now available
+_debug_printf("%s: %s", "symbol", symbol)
+_debug_printf("%s: %s", "package", package)
+
 
 def _init_reader_0():
         "SETQ, SYMBOL_VALUE, LET and BOUNDP (anything calling _COERCE_TO_SYMBOL_NAME) need this to mangle names."
@@ -2357,7 +2381,7 @@ def _define_python_type_map(symbol_or_name, type):
         not _py.isinstance(type, _py.type(_py.str)) and \
             error("In DEFINE-PYTHON-TYPE-MAP: second argument must be a Python type, was: %s.", type)
         symbol = (symbol_or_name if symbolp(symbol_or_name) else
-                  _intern0(symbol_or_name))
+                  _intern(symbol_or_name)[0])
         _frost.setf_global(symbol, _frost.lisp_symbol_name_python_name(symbol.name),
                            globals = _py.globals())
         symbol.python_type = type
@@ -2538,7 +2562,7 @@ def _read_symbol(x, package = None, case = _keyword("upcase")):
                                                                 x[0:index].upper(), x))
                                           if index != -1 else
                                           (x, _coerce_to_package(package)))))
-        return _intern0(_case_xform(case, name), p)
+        return _intern(_case_xform(case, name), p)[0]
 ###
 ##
 #
@@ -2575,7 +2599,7 @@ def _some_type_mismatch(type, xs):
 
 def deftype(type_name_or_fn):
         def do_deftype(fn, type_name = type_name_or_fn):
-                symbol = _intern0(type_name)
+                symbol = _intern(type_name)[0]
                 symbol.type_predicate = fn
                 return symbol
         return (do_deftype(type_name_or_fn, type_name = _frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
@@ -3813,7 +3837,7 @@ def defknown(pp_code_or_fn):
                 fn.__name__ = "_lower_" + fn.__name__
                 sym, presentp = _frost.global_(name, globals = _py.globals())
                 if not presentp or not symbolp(sym):
-                        sym = _intern0(name.upper())
+                        sym = _intern(name.upper())[0]
                         _frost.setf_global(sym, name, globals = _py.globals())
                 compiler_params = _function_lambda_list(fn)[3]
                 sym.known = _known(name = sym,
@@ -9309,3 +9333,11 @@ def _init():
 #
 # class _deadline_timeout(condition)
 # def _with_deadline(timeout, body)
+
+###
+### ...
+###
+# Specification Issue INTERN-RELATIONSHIP-UNDERUSED
+## response: sufficiently smart compilers eliminate the efficiency concern,
+##           so what is left?
+def _intern0(x, package = None): return _intern(the(_py.str, x), package)[0]
