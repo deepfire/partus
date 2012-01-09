@@ -226,13 +226,42 @@ _case_attribute_map = _py.dict(UPCASE     = string_upcase,
                                CAPITALIZE = string_capitalize,
                                PRESERVE   = identity)
 def _case_xform(type, s):
-        if not (_py.isinstance(type, symbol) and type.package.name == "KEYWORD"):
+        if not (symbolp(type) and type.package.name == "KEYWORD"):
                 error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", _py.type(type), _cold_print_symbol(type))
         return _case_attribute_map[type.name](s)
 
 ###
 ### Cold boot
 ###
+# I wonder if this boot state infrastructure is a good idea:
+#  - it tangles the flow of things (?)
+__boot_state_names__ = _py.dict()
+def defbootstate(n, name):
+        _frost.setf_global(n, name, _py.globals())
+        __boot_state_names__[n] = name
+defbootstate(0, "_BOOT_NOTHING")
+defbootstate(1, "_BOOT_SYMBOL")
+
+__boot_state__ = _BOOT_NOTHING
+def _boot_state():      return __boot_state__
+def _boot_state_name(): return __boot_state_names__[__boot_state__]
+def _next_boot_state():
+        return __boot_state__ + 1
+def _boot_available_p(x):
+        return x <= __boot_state__
+def _boot_advance(new_name):
+        global __boot_state__
+        new_state = _next_boot_state()
+        __boot_state__ = new_state
+        return new_state
+def _boot_case(*clauses):
+        for (state, body) in clauses:
+                if _boot_available_p(state):
+                        return body()
+        else:
+                error("Could not choose a way of action at boot state %s", _boot_state_name())
+
+_cold_class_type      = _py.type
 _cold_condition_type  = _py.BaseException
 _cold_error_type      = _py.Exception
 _cold_function_type   = _types.FunctionType.__mro__[0]
@@ -246,6 +275,7 @@ class _cold_simple_condition_type(_cold_condition_type):
                 return self.format_control % _py.tuple(self.format_arguments)
         def __repr__(self):
                 return self.__str__()
+simple_condition = _cold_simple_condition_type
 
 def _cold_print_symbol(s, **keys):
         return (s.package.name if s.package else "#") + ":" + s.name
@@ -1099,7 +1129,14 @@ def typep(x, type):
         return not _type_mismatch(x, type)
 
 def subtypep(sub, super):
-        return (_py.issubclass(sub, super)                     if super is not t                            else
+        def coerce_to_python_type(x):
+                return (x             if _py.isinstance(x, _cold_class_type)   else
+                        x.python_type if _py.isinstance(x, symbol.python_type) else
+                        error("In SUBTYPEP: arguments must be valid type designators, but %s wasn't one.", _py.repr(x)))
+        def do_subclass_check(sub, super):
+                return _py.issubclass(coerce_to_python_type(sub),
+                                      coerce_to_python_type(super))
+        return (do_subclass_check(sub, super)                  if super is not t                            else
                 _not_implemented("complex type relatioships: %s vs. %s.",
                                  sub, super)                   if _tuplep(sub) or _tuplep(super)            else
                 error("%s is not a valid type specifier", sub) if not (typep(sub, (or_, _py.type, (eql, t))) and
@@ -1496,6 +1533,8 @@ def unwind_protect(form, fn):
 class __catcher_throw__(_cold_condition_type):
         def __init__(self, ball, value, reenable_pytracer = False):
                 self.ball, self.value, self.reenable_pytracer = ball, value, reenable_pytracer
+        def __str__(self):
+                return "@<ball %s>" % (self.ball,)
 
 def catch(ball, body):
         "This seeks the stack like mad, like the real one."
@@ -1535,9 +1574,12 @@ of nonce-ing is to be handled manually."""
                 return catch(nonce_or_fn, body)
 
 def return_from(nonce, value):
-        nonce = (nonce if not _py.isinstance(nonce, _cold_function_type) else
-                 (_py.getattr(nonce, "ball", None) or
-                  error("RETURN-FROM was handed a %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)))
+        nonce = ((_py.getattr(nonce, "ball", None) or
+                  error("RETURN-FROM was handed a function %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)) if _py.isinstance(nonce, _cold_function_type) else
+                 ## This can mean either the @defun-ned function, or absent a function definition, the symbol itself.
+                 (_py.getattr(nonce.function, "ball", nonce))                                                                             if symbolp(nonce)                             else
+                 nonce                                                                                                                    if stringp(nonce)                             else
+                 error("In RETURN-FROM: nonce must either be a string, or a function designator;  was: %s.", _py.repr(nonce)))
         throw(nonce, value)
 
 ##
@@ -1823,7 +1865,7 @@ def _coerce_to_package(x, if_null = "current"):
                       x, type_of(x)))
 
 def defpackage(name, use = [], export = []):
-        p = package(name, use = use)
+        p = make_package(name, use = use)
         for symname in export:
                 _not_implemented("DEFPACKAGE: :EXPORT keyword") # XXX: populate the for-INTERN-time-export set of names
         return p
@@ -1917,15 +1959,6 @@ global environment."""
         return name
 
 ## @defun def function was moved lower, due to dependency on @defun and CL:T
-
-class _cold_undefined_function(_cold_error_type):
-        def __init__(self, fname):
-                self.name = fname
-        def __str__(self):
-                return "The function %s is undefined." % (self.name,)
-        def __repr__(self):
-                return self.__str__()
-undefined_function = _cold_undefined_function
 
 def _symbol_function(symbol):
         return (symbol.known                                     or
@@ -2101,32 +2134,36 @@ def _read_python_def_toplevel(f):
         symbol = _intern(symbol_name)[0]
         return symbol, symbol_name, f.__name__
 
-def _make_cold_definer(definer_name, predicate, slot, mimicry):
+def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
         def cold_definer(name_or_obj):
                 name, obj = ((name_or_obj.__name__, name_or_obj) if predicate(name_or_obj) else
                              (name_or_obj, None))
-                sym, name = ((name, _frost.lisp_symbol_name_python_name(name))             if symbolp(name) else
-                             (_intern(_frost.python_name_lisp_symbol_name(name))[0], name) if stringp(name) else
+                sym, name = ((name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name) else
+                             (_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if stringp(name) else
                              error("In %s: bad name %s for a cold object.", definer_name, name))
                 def do_cold_def(o):
                         # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
                         #           if stringp(name) else
                         #           name if symbolp(name) else
                         #           error("In %s: bad name %s for a cold object.", definer_name))
+                        o = preprocess(o)
                         _frost.frost_def(o, sym, slot, _py.globals())
                         mimicry(sym, o)
                         return sym
-                return (do_cold_def(obj) if obj                  else
-                        do_cold_def      if stringp(name_or_obj) else
+                return (do_cold_def(obj) if obj                                          else
+                        do_cold_def      if stringp(name_or_obj) or symbolp(name_or_obj) else
                         error("In %s: argument must be either satisfy %s or be a string;  was: %s.",
-                              definer_name, predicate, name_or_obj))
+                              definer_name, predicate, _py.repr(name_or_obj)))
         return cold_definer
 
-defun    = _make_cold_definer("%COLD-DEFUN", functionp, "function", _frost.make_object_like_python_function)
-defclass = _make_cold_definer("%COLD-DEFCLASS", _classp, "python_type", _frost.make_object_like_python_class)
+def _defun_preprocessor(o):
+        return (__block__(o) if _boot_available_p(_BOOT_SYMBOL) else
+                o)
 
-## Unregistered Issue SYMBOL-BETTER-BE-ONE
-class symbol():
+defun    = _make_cold_definer("%COLD-DEFUN", functionp, "function", _defun_preprocessor, _frost.make_object_like_python_function)
+defclass = _make_cold_definer("%COLD-DEFCLASS", _classp, "python_type", identity, _frost.make_object_like_python_class)
+
+class symbol(): # Turned to a symbol, during the package system bootstrap.
         def __str__(self):
                 return _print_symbol(self)
         def __repr__(self):
@@ -2162,11 +2199,11 @@ def _cold_make_nil():
         return nil
 nil = _cold_make_nil()
 
-def _cold_symbolp(x):                return _py.isinstance(x, symbol) # COLD-TYPEP
-symbolp = _cold_symbolp
-
-def _cold_packagep(x):               return _py.isinstance(x, package)
-packagep = _cold_packagep
+_cold_symbol_type = symbol
+_cold_package_type = package
+# A couple of dishonest implementations, that are cold at heart.
+def symbolp(x):  return _py.isinstance(x, _cold_symbol_type) # COLD-TYPEP
+def packagep(x): return _py.isinstance(x, _cold_package_type)
 
 def _cold_make_symbol(name):
         return symbol(name)
@@ -2329,7 +2366,7 @@ def _init_package_system_0():
         package("COMMON-LISP-USER", use = ["CL", "BUILTINS"], boot = True)
         __global_scope__["*PACKAGE*"] = cl # COLD-SETQ
         _frost.frost_def(symbol,  _intern("SYMBOL")[0],  "python_type", _py.globals())
-        @defun
+        @defun(_do_intern_symbol(symbol.python_type("MAKE-SYMBOL"), cl))
         def make_symbol(name):
                 return symbol.python_type(name)
         _frost.frost_def(package, _intern("PACKAGE")[0], "python_type", _py.globals())
@@ -2339,9 +2376,6 @@ def _init_package_system_0():
                         _not_implemented("In MAKE-PACKAGE %s: package nicknames are ignored.", _py.repr(name))
                 return package.python_type(string(name), ignore_python = True, use = [])
 _init_package_system_0() ########### _keyword(), quote_, and_, or_, abort_, continue_, break_ are now available
-_debug_printf("%s: %s", "symbol", symbol)
-_debug_printf("%s: %s", "package", package)
-
 
 def _init_reader_0():
         "SETQ, SYMBOL_VALUE, LET and BOUNDP (anything calling _COERCE_TO_SYMBOL_NAME) need this to mangle names."
@@ -2369,6 +2403,14 @@ def _init_package_system_2():
 ###
 ### Symbol-related thaw
 ###
+_boot_advance("_BOOT_SYMBOL")
+
+def make_instance(class_or_name, **initargs):
+        class_ = _poor_man_etypecase(class_or_name,
+                                     (symbol, class_or_name.python_type),
+                                     (_cold_class_type, class_or_name))
+        return class_(**initargs)
+
 @defun
 def string(x):
         return (x              if stringp(x) else
@@ -2377,9 +2419,9 @@ def string(x):
 
 def _define_python_type_map(symbol_or_name, type):
         not (stringp(symbol_or_name) or symbolp(symbol_or_name)) and \
-            error("In DEFINE-PYTHON-TYPE-MAP: first argument must be either a string or a symbol, was: %s.", symbol_or_name)
+            error("In DEFINE-PYTHON-TYPE-MAP: first argument must be either a string or a symbol, was: %s.", _py.repr(symbol_or_name))
         not _py.isinstance(type, _py.type(_py.str)) and \
-            error("In DEFINE-PYTHON-TYPE-MAP: second argument must be a Python type, was: %s.", type)
+            error("In DEFINE-PYTHON-TYPE-MAP: second argument must be a Python type, was: %s.", _py.repr(type))
         symbol = (symbol_or_name if symbolp(symbol_or_name) else
                   _intern(symbol_or_name)[0])
         _frost.setf_global(symbol, _frost.lisp_symbol_name_python_name(symbol.name),
@@ -2387,7 +2429,6 @@ def _define_python_type_map(symbol_or_name, type):
         symbol.python_type = type
         return symbol
 
-_define_python_type_map("SYMBOL",      _symbol)
 _define_python_type_map(string,        _py.str)
 _define_python_type_map("INTEGER",     _py.int)
 _define_python_type_map("FLOAT",       _py.float)
@@ -2409,15 +2450,62 @@ _define_python_type_map("PYBYTES",     _py.bytes)
 _define_python_type_map("PYBYTEARRAY", _py.bytearray)
 _define_python_type_map("PYSET",       _py.set)
 _define_python_type_map("PYFROZENSET", _py.frozenset)
+
 ##
 ## Condition: not_implemented
 ##
 def _conditionp(x):
         return typep(x, condition)
 
+def make_condition(datum, *args, default_type = error, **keys):
+        """
+It's a slightly weird interpretation of MAKE-CONDITION, as the latter
+only accepts symbols as DATUM, while this one doesn't accept symbols
+at all.
+"""
+        # format(t, "stringp: %s\nclassp: %s\nBaseException-p: %s\n",
+        #        stringp(datum),
+        #        typep(datum, type_of(condition)),
+        #        typep(datum, condition))
+        type_specifier = default_type if stringp(datum) else datum
+        type = (type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
+                type_specifier             if typep(type_specifier, _cold_class_type)                                else
+                None                       if typep(type_specifier, _cold_condition_type)                            else
+                error(simple_type_error, "The first argument to MAKE-CONDITION must either a string, a condition type specifier or a condition, was: %s, of type %s.",
+                      _py.repr(datum), type_of(datum)))
+        cond = (datum              if type is None   else
+                type(datum % args) if stringp(datum) else
+                type(*args, **keys))
+        # format(t, "made %s %s %s\n", datum, args, keys)
+        # format(t, "    %s\n", cond)
+        return cond
+@defun
+def error(datum, *args, **keys):
+        "With all said and done, this ought to jump right into __CL_CONDITION_HANDLER__."
+        raise make_condition(datum, *args, **keys)
+
+@defclass
 class warning(condition.python_type): pass
 
+@defclass
 class simple_warning(_cold_simple_condition_type, warning.python_type): pass
+
+@defclass
+class type_error(error.python_type):
+        pass
+
+@defclass
+class simple_type_error(_cold_simple_condition_type, type_error.python_type):
+        pass
+
+@defclass
+class undefined_function(_cold_error_type):
+        def __init__(self, fname):
+                self.name = fname
+        def __str__(self):
+                return "The function %s is undefined." % (self.name,)
+        def __repr__(self):
+                return self.__str__()
 
 class _not_implemented_error(error.python_type):
         def __init__(*args):
@@ -2427,12 +2515,6 @@ class _not_implemented_error(error.python_type):
                 return "Not implemented: " + self.name.upper()
         def __repr__(self):
                 return self.__str__()
-
-class type_error(error.python_type):
-        pass
-
-class simple_type_error(_cold_simple_condition_type, type_error.python_type):
-        pass
 
 def _not_implemented(x = None):
         error(_not_implemented_error,
@@ -2605,7 +2687,7 @@ def deftype(type_name_or_fn):
         return (do_deftype(type_name_or_fn, type_name = _frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
                 do_deftype                                                                                             if stringp(type_name_or_fn)   else
                 error("In DEFTYPE: argument must be either a function or a string, was: %s.",
-                      symbol_name_or_fn))
+                      _py.repr(symbol_name_or_fn)))
 
 @deftype
 def pytypename(x, type):
@@ -3189,9 +3271,8 @@ def defast(fn):
 ###
 ### AST + Symbols
 ###
-_register_astifier_for_type(_symbol, False, (lambda sym:
-                                             _ast_funcall("_find_symbol_or_fail",
-                                                          [symbol_name(sym)])))
+_register_astifier_for_type(symbol.python_type, False, (lambda sym: _ast_funcall("_find_symbol_or_fail",
+                                                                                 [symbol_name(sym)])))
 
 ###
 ### ATrees (low-level IR)
@@ -3817,14 +3898,17 @@ def _anode_expression_p(x):
 ###
 ### A rudimentary Lisp -> Python compiler
 ###
-class _compiler_error_(error.python_type):
+@defclass
+class _compiler_error(error.python_type):
         pass
 
-class _simple_compiler_error(simple_condition, _compiler_error_):
+@defclass
+class _simple_compiler_error(simple_condition, _compiler_error.python_type):
         pass
 
+@defun
 def _compiler_error(control, *args):
-        return _simple_compiler_error(control, *args)
+        return _simple_compiler_error.python_type(control, *args)
 
 _known = _poor_man_defstruct("known",
                              "name",
@@ -3848,7 +3932,7 @@ def defknown(pp_code_or_fn):
         return (do_defknown(pp_code_or_fn, pp_code = ("atom", " ", ["sex", " "])) if functionp(pp_code_or_fn) else
                 do_defknown                                                       if _tuplep(pp_code_or_fn)   else
                 error("In DEFKNOWN: argument must be either a function or a pretty-printer code tuple, was: %s.",
-                      pp_code_or_fn))
+                      _py.repr(pp_code_or_fn)))
 def _find_known(x):
         return _symbol_known(the(symbol, x))
 
@@ -4945,6 +5029,7 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, " {%x}", _py.id(object))
         write_string(">", stream)
 
+@defclass
 class readtable(_collections.UserDict):
         def __init__(self, case = _keyword("upcase")):
                 self.case = the((member, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")),
@@ -4961,7 +5046,7 @@ def copy_readtable(x):
         return new
 
 __standard_pprint_dispatch__ = make_hash_table() # XXX: this is crap!
-__standard_readtable__       = readtable() # XXX: this is crap!
+__standard_readtable__       = make_instance(readtable) # XXX: this is crap!
 
 __standard_io_syntax__ = _py.dict({"*PACKAGE*"               : find_package("COMMON-LISP-USER"),
                                    "*PRINT-ARRAY*"           : t,
@@ -5753,6 +5838,7 @@ def input_stream_p(x):
 def output_stream_p(x):
         return open_stream_p(x) and x.writable()
 
+@defclass
 class two_way_stream(_cold_stream_type):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
@@ -5768,7 +5854,7 @@ class two_way_stream(_cold_stream_type):
         def readable(self): return True
         def writable(self): return True
 
-def make_two_way_stream(input, output):   return two_way_stream(input, output)
+def make_two_way_stream(input, output):   return two_way_stream.python_type(input, output)
 def two_way_stream_input_stream(stream):  return stream.input
 def two_way_stream_output_stream(stream): return stream.output
 
@@ -5778,6 +5864,7 @@ _string_set("*ERROR-OUTPUT*",    _sys.stderr)
 _string_set("*DEBUG-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 _string_set("*QUERY-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 
+@defclass
 class broadcast_stream(_cold_stream_type):
         def __init__(self, *streams):
                 self.streams  = streams
@@ -5790,9 +5877,10 @@ class broadcast_stream(_cold_stream_type):
         def readable(self): return False
         def writable(self): return True
 
-def make_broadcast_stream(*streams):  return broadcast_stream(*streams)
+def make_broadcast_stream(*streams):  return broadcast_stream.python_type(*streams)
 def broadcast_stream_streams(stream): return stream.streams
 
+@defclass
 class synonym_stream(_cold_stream_type):
         def __init__(self, symbol):
                 self.symbol  = symbol
@@ -5807,7 +5895,7 @@ class synonym_stream(_cold_stream_type):
         def readable(self): return self.stream.readable()
         def writable(self): return self.stream.writable()
 
-def make_synonym_stream(symbol):   return synonym_stream(symbol)
+def make_synonym_stream(symbol):   return synonym_stream.python_type(symbol)
 def synonym_stream_symbol(stream): return stream.symbol
 
 def streamp(x):
@@ -5821,6 +5909,7 @@ def _coerce_to_stream(x):
                 symbol_value("*STANDARD-OUTPUT*") if x is t else
                 error("%s cannot be coerced to a stream.", x))
 
+@defclass
 class stream_type_error(simple_condition, _io.UnsupportedOperation):
         pass
 
@@ -5908,35 +5997,6 @@ def _set_condition_handler(fn):
 ## Condition system
 ##
 _string_set("*HANDLER-CLUSTERS*", [])
-
-def make_condition(datum, *args, default_type = error, **keys):
-        """
-It's a slightly weird interpretation of MAKE-CONDITION, as the latter
-only accepts symbols as DATUM, while this one doesn't accept symbols
-at all.
-"""
-        # format(t, "stringp: %s\nclassp: %s\nBaseException-p: %s\n",
-        #        stringp(datum),
-        #        typep(datum, type_of(condition)),
-        #        typep(datum, condition))
-        cond = (default_type(datum % args) if stringp(datum) else
-                datum(*args, **keys)       if typep(datum, type_of(condition)) else
-                datum                      if typep(datum, condition) else
-                error(simple_type_error, "The first argument to MAKE-CONDITION must either a string, a condition type or a condition, was: %s, of type %s.",
-                      datum, type_of(datum)))
-        # format(t, "made %s %s %s\n", datum, args, keys)
-        # format(t, "    %s\n", cond)
-        return cond
-
-###
-### Condition system -related thaw
-###
-def error(datum, *args, **keys):
-        "With all said and done, this ought to jump right into __CL_CONDITION_HANDLER__."
-        raise make_condition(datum, *args, **keys)
-###
-##
-#
 
 _string_set("*PRESIGNAL-HOOK*", nil)
 _string_set("*PREHANDLER-HOOK*", nil)
@@ -6126,10 +6186,7 @@ def handler_bind(fn, *handlers, no_error = identity):
         #     pytracer_enabled_p() and condition_handler_active_p()
         # ..inlined for speed.
         if _pytracer_enabled_p() and "exception" in __tracer_hooks__ and __tracer_hooks__["exception"] is __cl_condition_handler__:
-                # Unregistered Issue HANDLER-BIND-CHECK-TOO-RESTRICTIVE
-                for type, _ in handlers:
-                        if not (typep(type, _py.type) and subtypep(type, condition)):
-                                error(simple_type_error, "While establishing handler: '%s' does not designate a known condition type.", type)
+                # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
                 with progv({"*HANDLER-CLUSTERS*": (_symbol_value("*HANDLER-CLUSTERS*") +
                                                    [handlers + (("__frame__", _caller_frame()),)])}):
                         return no_error(fn())
@@ -6165,6 +6222,7 @@ def ignore_errors(body):
 ##
 ## Restarts
 ##
+@defclass
 class restart(_servile):
         def __str__(self):
                 # XXX: must conform by honoring *PRINT-ESCAPE*:
@@ -6235,7 +6293,7 @@ def _specs_restarts_args(restart_specs):
 ##
 def _restart_bind(body, restarts_args):
         with progv({"*RESTART-CLUSTERS*": (_symbol_value("*RESTART-CLUSTERS*") +
-                                           [_remap_hash_table(lambda _, restart_args: restart(**restart_args), restarts_args)])}):
+                                           [_remap_hash_table(lambda _, restart_args: make_instance(restart, **restart_args), restarts_args)])}):
                 return body()
 
 def restart_bind(body, **restart_specs):
@@ -6558,14 +6616,11 @@ def _valid_declaration_p(x):
 def class_of(x):
         return _py.getattr(x, "__class__")
 
+@defclass
 class standard_object():
         def __init__(self, **initargs):
                 super().__init__() # Unregistered Issue PYTHON-OBJECT-DOES-NOT-ACCEPT-ARGUMENTS-BUT-SEE-SUPER-CONSIDERED-HARMFUL
                 initialize_instance(self, **initargs)
-
-def make_instance(class_, **keys):
-        "XXX: compliance?"
-        return class_(**keys)
 
 def slot_boundp(object, slot):            return _py.hasattr(object, slot)
 def slot_makunbound(object, slot):        del object.__dir__[slot]
@@ -6729,15 +6784,18 @@ nor evaluated."""
         instance.__dict__.update(initargs)
         return instance
 
-class method(standard_object):
+@defclass
+class method(standard_object.python_type):
         "All methods are of this type."
 
-class funcallable_standard_class(standard_object):
+@defclass
+class funcallable_standard_class(standard_object.python_type):
         "All funcallable instances are of this type."
         def __call__(self, *args, **keys):
                 return self.function(*args, **keys)
 
-class generic_function(funcallable_standard_class):
+@defclass
+class generic_function(funcallable_standard_class.python_type):
         "All generic functions are of this type."
         def __init__(self, **initargs): # Simulate a :BEFORE method.
                 self.__dependents__ = _py.set()
@@ -6937,17 +6995,20 @@ code:
         # Unregistered Issue COMPLIANCE-UPDATE-DEPENDENT-DOES-NOT-REALLY-DO-ANYTHING
         pass
 
-class method_combination_():
+@defclass
+class method_combination():
         "All method combinations are of this type."
 
-class standard_method(method):
+@defclass
+class standard_method(method.python_type):
         def __init__(self, **initargs):
                 super().__init__(**initargs)
                 _standard_method_shared_initialize(method, **initargs)
         def __call__(self, gfun_args, next_methods):
                 return self.function(gfun_args, next_methods)
 
-class standard_generic_function(generic_function):
+@defclass
+class standard_generic_function(generic_function.python_type):
         def __init__(self, **initargs):
                 super().__init__(**initargs)
                 _standard_generic_function_shared_initialize(self, **initargs)
@@ -7117,7 +7178,7 @@ the specified initialization has taken effect."""
                         error("MAKE-INSTANCE STANDARD-GENERIC-FUNCTION: :ARGUMENT-PRECEDENCE-ORDER, "
                               "when specified, must be a permutation of fixed arguments in :LAMBDA-LIST.  "
                               "Was: %s;  fixed LAMBDA-LIST args: %s.",
-                              argument_precedence_order, lambda_list[0])
+                              _py.repr(argument_precedence_order), lambda_list[0])
                 generic_function.argument_precedence_order = _py.tuple(argument_precedence_order)
         elif _specifiedp(lambda_list):
                 generic_function.argument_precedence_order = _py.tuple(lambda_list[0])
@@ -7130,7 +7191,7 @@ the specified initialization has taken effect."""
                 # XXX: _not_implemented("lambda-list validation")
                 generic_function.lambda_list = lambda_list
         generic_function.method_combination  = _defaulted(method_combination, standard_method_combination,
-                                                          type = method_combination_)
+                                                          type = _frost.global_("method_combination", _py.globals())[0])
         generic_function.method_class        = _defaulted(method_class, standard_method,
                                                           type = _py.type) # method metaclass
         generic_function.name                = _defaulted(name, nil)
@@ -8339,7 +8400,7 @@ GENERIC-FUNCTION argument is then returned."""
                 _standard_generic_function_shared_initialize(generic_function, **initargs)
         return generic_function
 
-def ensure_generic_function(function_name, globals, **keys):
+def ensure_generic_function(function_name, globals = None, **keys):
         """Arguments:
 
 The FUNCTION-NAME argument is a symbol or a list of the form (SETF
