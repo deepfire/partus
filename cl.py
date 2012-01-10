@@ -258,9 +258,12 @@ def _boot_advance(new_name):
         __boot_state__ = new_state
         return new_state
 def _boot_case(*clauses):
-        if _py.tuple(_py.reversed(_py.sorted(clauses))) != clauses:
+        if find_if(lambda x: (not integerp(x)) or minusp(x), clauses, key = car):
+                error("In BOOT-CASE: clauses must be keyed by non-negative integers.")
+        clauses = [ [-1, c[1]] if c[0] is True else _py.list(c) for c in clauses ]
+        if _py.list(_py.reversed(_py.sorted(clauses))) != clauses:
                 # Improvement Issue BOOT-CASE-MORE-EXPLICIT-ORDER-VIOLATION-MESSAGE
-                error("In BOOT-CASE: clauses must follow a strict order of decreasing dependency.")
+                error("In BOOT-CASE: clauses must follow a strict order of decreasing dependency;  was: %s.", )
         for (state, body) in clauses:
                 if _boot_available_p(state):
                         return body()
