@@ -235,6 +235,9 @@ def _case_xform(type, s):
 ###
 # I wonder if this boot state infrastructure is a good idea:
 #  - it tangles the flow of things (?)
+def _global(x):
+        return _frost.global_(x, _py.globals())
+
 __boot_state_names__ = _py.dict()
 def defbootstate(n, name):
         _frost.setf_global(n, name, _py.globals())
@@ -255,11 +258,14 @@ def _boot_advance(new_name):
         __boot_state__ = new_state
         return new_state
 def _boot_case(*clauses):
+        if _py.tuple(_py.reversed(_py.sorted(clauses))) != clauses:
+                # Improvement Issue BOOT-CASE-MORE-EXPLICIT-ORDER-VIOLATION-MESSAGE
+                error("In BOOT-CASE: clauses must follow a strict order of decreasing dependency.")
         for (state, body) in clauses:
                 if _boot_available_p(state):
                         return body()
         else:
-                error("Could not choose a way of action at boot state %s", _boot_state_name())
+                error("In BOOT-CASE: could not choose a way of action at boot state %s.", _boot_state_name())
 
 _cold_class_type      = _py.type
 _cold_condition_type  = _py.BaseException
@@ -267,6 +273,7 @@ _cold_error_type      = _py.Exception
 _cold_function_type   = _types.FunctionType.__mro__[0]
 _cold_hash_table_type = _py.dict
 _cold_stream_type     = __io._IOBase
+_cold_fd_stream_type  = __io.TextIOWrapper
 
 class _cold_simple_condition_type(_cold_condition_type):
         def __init__(self, format_control, *format_arguments):
@@ -974,13 +981,6 @@ def _updated_dict(to, from_):
         to.update(from_)
         return to
 
-def _stream_as_string(stream):
-        return stream.read()
-
-def _file_as_string(filename):
-        with _py.open(filename, "r") as f:
-                return _stream_as_string(f)
-
 def _prefix_suffix_if(f, xs, key = identity):
         for i, x in _py.enumerate(xs):
                 if not f(key(x)):
@@ -1461,21 +1461,6 @@ def string_left_trim(cs, s):
 
 def string_trim(cs, s):
         return s.strip("".join(cs))
-
-def with_output_to_string(f):
-        x = make_string_output_stream()
-        try:
-                f(x)
-                return get_output_stream_string(x)
-        finally:
-                close(x)
-
-def with_input_from_string(s, f):
-        x = make_string_input_stream(s)
-        try:
-                return f(x)
-        finally:
-                close(x)
 
 ##
 ## Sets
@@ -2043,15 +2028,21 @@ SETF of MACRO-FUNCTION."""
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
         return the((or_, _cold_function_type, null, (eql, t)), the(symbol, symbol_).macro_function)
 
+def _style_warn(control, *args):
+        # Ought to signal a condition, but..
+        format(t, "; STYLE-WARNING: " + control, *args)
+
+def _warn_incompatible_function_redefinition(symbol, tons, fromns):
+        _style_warn("%s is being redefined as a %s when it was previously defined to be a %s.", symbol, tons, fromns)
+
 def _warn_possible_redefinition(x, type):
         if x:
-                style_warn("In %s: %s is being redefined.", type, x.name)
+                _style_warn("In %s: %s is being redefined.\n", type, x.name)
 
 def setf_macro_function(new_function, symbol, environment = None):
         "<See documentation for MACRO-FUNCTION>"
         if symbol.function:
-                style_warn("%s is being redefined as a macro when it was previously defined to be a function.",
-                           symbol)
+                _warn_incompatible_function_redefinition(symbol, "macro", "function")
                 symbol.function = nil
         # T is used by DEFMACRO as a namespace toggle request token for COMPILE.
         if symbol.macro_function is not "bonghits":
@@ -2080,8 +2071,7 @@ representing a special form or macro.  The value returned by
 FDEFINITION when FBOUNDP returns true but the FUNCTION-NAME denotes a
 macro or special form is not well-defined, but FDEFINITION does not
 signal an error."""
-        namestring = string(the(symbol, function_name))
-        symbol.function = new_definition
+        the(symbol, function_name).function = new_definition
         return new_definition
 
 def special_operator_p(symbol_):
@@ -2105,31 +2095,31 @@ Exceptional Situations:
 Should signal TYPE-ERROR if its argument is not a symbol."""
         return t if _find_known(symbol_) else nil
 
-def _warn_incompatible_function_redefinition(symbol, tons, fromns):
-        style_warn("%s is being redefined as a %s when it was previously defined to be a %s.",
-                   symbol, tons, fromns)
-def _install_function_definition(function):
-        return _do_install_function_definition(intern(function.__name__)[0], function)
-def _do_install_function_definition(x, function):
+def _do_set_function_definition(function, x):
         if the(symbol, x).macro_function:
                 _warn_incompatible_function_redefinition(x, "function", "macro")
         else:
-                _warn_possible_redefinition(x.function, the(symbol, defun_))
+                _warn_possible_redefinition(x.function, the(symbol, defun))
         x.function, x.macro_function = function, nil
-        _frost.make_object_like_python_function(x, function)
+        function and _frost.make_object_like_python_function(x, function)
         return x
-def _install_macro_definition(function):
-        return _do_install_macro_definition(intern(function.__name__)[0], function)
-def _do_install_macro_definition(x, function):
+
+def _do_set_macro_definition(function, x):
         if the(symbol, x).function:
                 _warn_incompatible_function_redefinition(x, "macro", "function")
         else:
-                _warn_possible_redefinition(x.macro_function, the(symbol, defmacro_))
+                _warn_possible_redefinition(x.macro_function, the(symbol, defmacro))
         x.function, x.macro_function = nil, function
-        _frost.make_object_like_python_function(x, function)
+        function and _frost.make_object_like_python_function(x, function)
         return x
 
-def _read_python_def_toplevel(f):
+def _set_function_definition(function):
+        return _do_set_function_definition(function, intern(function.__name__)[0])
+
+def _set_macro_definition(function):
+        return _do_set_macro_definition(function, intern(function.__name__)[0])
+
+def _read_python_toplevel_name(f):
         symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
         symbol = _intern(symbol_name)[0]
         return symbol, symbol_name, f.__name__
@@ -2160,8 +2150,8 @@ def _defun_preprocessor(o):
         return (__block__(o) if _boot_available_p(_BOOT_SYMBOL) else
                 o)
 
-defun    = _make_cold_definer("%COLD-DEFUN", functionp, "function", _defun_preprocessor, _frost.make_object_like_python_function)
-defclass = _make_cold_definer("%COLD-DEFCLASS", _classp, "python_type", identity, _frost.make_object_like_python_class)
+defun    = _cold_defun    = _make_cold_definer("%COLD-DEFUN", functionp, "function", _defun_preprocessor, _frost.make_object_like_python_function)
+defclass = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", _classp, "python_type", identity, _frost.make_object_like_python_class)
 
 class symbol(): # Turned to a symbol, during the package system bootstrap.
         def __str__(self):
@@ -2226,7 +2216,7 @@ def symbol_package(x):               return x.package
 def coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, _coerce_to_package(package))
 
-def symbol_relation(x, p):
+def _symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
         s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
         if s is not None:
@@ -2238,8 +2228,8 @@ def _find_symbol(x, package):
         s = package.accessible.get(x) if x in package.accessible else None
         if s is not None:
                 # format(t, "FIND-SYMBOL:%s, %s -> %s, %s\n",
-                #        x, package, s, symbol_relation(s, p))
-                return s, symbol_relation(s, package)
+                #        x, package, s, _symbol_relation(s, p))
+                return s, _symbol_relation(s, package)
         else:
                 return None, None
 def find_symbol(x, package = None):
@@ -2262,8 +2252,9 @@ def _intern(x, package = None):
         return s, presentp
 
 def intern(x, package = None):
+        package = _coerce_to_package(package)
         s, found_in_package = _intern(x, package)
-        return s, (symbol_relation(s, found_in_package) if found_in_package else
+        return s, (_symbol_relation(s, package) if found_in_package else
                    None)
 
 # requires that __keyword_package__ is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
@@ -2429,23 +2420,29 @@ def _define_python_type_map(symbol_or_name, type):
         symbol.python_type = type
         return symbol
 
-_define_python_type_map(string,        _py.str)
 _define_python_type_map("INTEGER",     _py.int)
 _define_python_type_map("FLOAT",       _py.float)
 _define_python_type_map("COMPLEX",     _py.complex)
+
+_define_python_type_map(string,        _py.str)
 _define_python_type_map("HASH-TABLE",  _cold_hash_table_type)
-_define_python_type_map("_STREAM",     _cold_stream_type) # Conflict with keyword argument name in READ-CHAR..
+
 _define_python_type_map("FUNCTION",    _cold_function_type)
+
+_define_python_type_map("STREAM",      _cold_stream_type)
+
+_define_python_type_map("CLASS",       _py.type) # Ha.
 
 _define_python_type_map("CONDITION",         _py.BaseException)
 _define_python_type_map("ERROR",             _py.Exception)
 _define_python_type_map("SERIOUS-CONDITION", _py.Exception)
 _define_python_type_map("END-OF-FILE",       _py.EOFError)
 
+# Extensions
+_define_python_type_map("FD-STREAM",   _cold_fd_stream_type)
 _define_python_type_map("PYBOOL",      _py.bool)
 _define_python_type_map("PYLIST",      _py.list)
 _define_python_type_map("PYTUPLE",     _py.tuple)
-# define_python_type_map("PYTYPE",      _py.type)
 _define_python_type_map("PYBYTES",     _py.bytes)
 _define_python_type_map("PYBYTEARRAY", _py.bytearray)
 _define_python_type_map("PYSET",       _py.set)
@@ -2650,11 +2647,48 @@ def _read_symbol(x, package = None, case = _keyword("upcase")):
 #
 
 ###
+### Rudimentary pathnames
+###
+def _namestring_components(x):
+        dirname, basename = _os.path.split(x)
+        return _if_let(position(".", basename, from_end = t),
+                       lambda dotpos: (dirname, basename[:dotpos], basename[dotpos + 1:]),
+                       lambda:        (dirname, basename,          nil))
+
+def pathname_directory(x):
+        # Unregistered Issue PORTABILITY-PATHNAME
+        absp = the(string, x).startswith(_os.sep)
+        return ([_keyword("absolute" if absp else "relative")] +
+                # Reject the integer interpretation of booleans.
+                _namestring_components(x)[0].split(_os.sep)[1 if absp else 0])
+
+def pathname_name(x): return _namestring_components(x)[1]
+def pathname_type(x): return _namestring_components(x)[2]
+
+###
 ### Earlified streaming
 ###
+def streamp(x):                     return typep(x, _cold_stream_type)
+def _fd_stream_p(x):                return typep(x, _cold_fd_stream_type)
+def stream_external_format(stream): return _keyword(stream.encoding)
 
 def make_string_output_stream():
         return _io.StringIO()
+
+def with_output_to_string(f):
+        x = make_string_output_stream()
+        try:
+                f(x)
+                return get_output_stream_string(x)
+        finally:
+                close(x)
+
+def with_input_from_string(s, f):
+        x = make_string_input_stream(s)
+        try:
+                return f(x)
+        finally:
+                close(x)
 
 def get_output_stream_string(x):
         return x.getvalue()
@@ -2670,6 +2704,13 @@ def file_position(x):
 
 def setf_file_position(posn, x):
         return x.seek(posn)
+
+def _stream_as_string(stream):
+        return stream.read()
+
+def _file_as_string(filename):
+        with _py.open(filename, "r") as f:
+                return _stream_as_string(f)
 ###
 ##
 #
@@ -2961,6 +3002,18 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                                                            (_py.list(optional) + _py.list(keyword) +
                                                                             ([args] if args else []) +
                                                                             ([keys] if keys else [])))))))
+
+###
+### AST -> SEX
+###
+def _read_ast(x):
+        return (x.n                                     if _py.isinstance(x, _ast.Num)   else
+                x.s                                     if _py.isinstance(x, _ast.Str)   else
+                _read_symbol(x.id)                      if _py.isinstance(x, _ast.Name)  else
+                _py.tuple(_read_ast(e) for e in x)      if _py.isinstance(x, _py.list)   else
+                _py.tuple(_read_ast(e) for e in x.elts) if _py.isinstance(x, _ast.Tuple) else
+                _read_ast(x.value)                      if _py.isinstance(x, _ast.Expr)  else
+                error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
 
 ###
 ### Rich AST
@@ -4343,13 +4396,14 @@ def def_(name, lambda_list, *body, decorators = []):
                         for pro_deco, val_deco in (_lower(d) for d in decorators):
                                 if pro_deco:
                                         error("in DEF %s: decorators must lower to python expressions.", name)
+                                deco_vals.append(val_deco)
                         return ([("FunctionDef", string(name), compiled_lambda_list,
                                                  body_ret,
                                                  deco_vals)],
-                                _lower((quote, (symbol, string(name))))[1])
+                                _lower((symbol, name))[1])
                 ## Xtnls feedback loop stabilisation scheme.
                 ##
-                ## This looks fairly ridiculous, but that reality for you:
+                ## This looks fairly ridiculous, but this is reality for you:
                 ##  - it's impossible to know externals before compilation
                 ##    - determined by walking the resulting atree
                 ##  - you need to know externals before compilation
@@ -4366,6 +4420,16 @@ def def_(name, lambda_list, *body, decorators = []):
                         try_ += 1
                 return result
 
+@defknown(("atom", " ", "atom", " ", (["sex", " "],),
+           1, ["sex", "\n"]))
+def defun(name, lambda_list, *body):
+        ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
+        _do_set_function_definition(nil, name) # COMPILE should be able to use that
+        fn, warnedp, failedp, [fundef] = _compile(the(symbol, name),
+                                                  (lambda_, lambda_list) + body)
+        return ([fundef],
+                _lower((quote, (symbol, string(name))))[1])
+        
 @defknown(("atom", " ", "atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))
 def defmacro(name, lambda_list, *body):
@@ -4821,22 +4885,13 @@ def _lisp_add_def(name, source):
         linecache.cache[__def_sources_filename__] = _py.len(total), _py.int(time.time()), total.split("\n"), __def_sources_filename__
 
 def lisp(body):
-        # Should probably be called COMPILE-TOPLEVEL
-        def _intern_astsexp(x):
-                return (x.n                                        if _py.isinstance(x, _ast.Num)   else
-                        x.s                                        if _py.isinstance(x, _ast.Str)   else
-                        _read_symbol(x.id)                         if _py.isinstance(x, _ast.Name)  else
-                        _py.tuple(_intern_astsexp(e) for e in x)      if _py.isinstance(x, _py.list)   else
-                        _py.tuple(_intern_astsexp(e) for e in x.elts) if _py.isinstance(x, _ast.Tuple) else
-                        _intern_astsexp(x.value)                   if _py.isinstance(x, _ast.Expr)  else
-                        error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
-        symbol, symbol_name, python_name = _read_python_def_toplevel(body)
+        symbol, symbol_name, _ = _read_python_toplevel_name(body)
         args_ast, body_ast = _function_ast(body)
         if _py.len(body_ast) > 1:
                 error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
                       "No more than one toplevel form is allowed per definition.", symbol)
-        form = _intern_astsexp(body_ast[0])
-        __def_allowed_toplevels__ = _py.set([def_, defmacro])
+        form = _read_ast(body_ast[0])
+        __def_allowed_toplevels__ = _py.set([defun, defmacro])
         if form[0] not in __def_allowed_toplevels__:
                 error("In LISP %s: only toplevels in %s are allowed.",
                       form[0], __def_allowed_toplevels__)
@@ -4921,12 +4976,13 @@ and true otherwise."""
         #  - THERE-EXIST lambdas non-expressible in Python
         # Coerce the lambda to a named def, for _ast_compiled_name purposes:
         form = (def_, final_name) + lambda_expression[1:]
+        assert name
         if name:
                 # The load-time effect must establish an appropriate definition.
                 macrop = not not macro_function(name)
                 form = _ir(*form,
-                            decorators = [(symbol, "_install_macro_definition") if macrop else
-                                          (symbol, "_install_function_definition")])
+                            decorators = [(symbol, "_set_macro_definition") if macrop else
+                                          (symbol, "_set_function_definition")])
         return _compile_toplevel_def(final_name, form,
                                      globalp = name,
                                      macrop = name and macrop,
@@ -4940,11 +4996,14 @@ def _compile_toplevel_def(name, form, globalp = nil, macrop = nil, lambda_expres
                         import more_ast
                         _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
                                       _pp_sex(form), "".join(more_ast.pp_ast_as_code(x) for x in pro_ast))
+                        if typep(pro_ast[0], _ast.FunctionDef):
+                                _debug_printf("type of ast: %s\ndecorators: %s", type_of(pro_ast[0]), pro_ast[0].decorator_list)
                 # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
-                func = the(function, _ast_compiled_name(string(name),
-                                                        *pro_ast,
-                                                        globals = _py.globals(),
-                                                        locals  = _py.locals()))
+                sym = the(symbol, _ast_compiled_name(string(name),
+                                                     *pro_ast,
+                                                     globals = _py.globals(),
+                                                     locals  = _py.locals()))
+                func = the(function, symbol_function(sym))
                 # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
                 # Feed FUNCTION-LAMBDA-EXPRESSION:
                 if _specifiedp(lambda_expression):
@@ -4980,13 +5039,6 @@ def _compilation_unit_get(k):
         return symbol_value("*COMPILATION-UNIT*")[k]
 
 @lisp
-def fdefinition(name):
-        (def_, fdefinition, (name,),
-         (if_, (stringp, name),
-          (_global, name),
-          (symbol_function, (the, symbol, name))))
-
-@lisp
 def cond(*clauses):
         (defmacro, cond, (_rest, clauses),
          (if_, (not_, clauses),
@@ -4998,6 +5050,14 @@ def cond(*clauses):
             (quaquote, (if_, (unquote, test),
                         (progn, (splice, body)),
                         (cond, (splice, rest))))))))
+
+_debug_printf("cond: %s", cond)
+
+@lisp
+def fdefinition(name):
+        (defun, fdefinition, (name,),
+         (symbol_function, (the, symbol, name)))
+_debug_printf("fdefinition: %s", cond)
 
 def compile_file_pathname(input_file, output_file = None):
         _not_implemented()
@@ -5526,9 +5586,9 @@ def parse_integer(xs, junk_allowed = nil, radix = 10):
                                 error("Junk in string \"%s\".", xs)
         return _int(xform(xs[:(end + 1)]))
 
-@defun
+@_cold_defun
 def _cold_read_from_string(string, eof_error_p = True, eof_value = nil,
-                     start = 0, end = None, preserve_whitespace = None):
+                           start = 0, end = None, preserve_whitespace = None):
         "Does not conform."
         # _here("from \"%s\"" % string)
         pos, end = start, (end or _py.len(string))
@@ -5645,7 +5705,7 @@ def read_line(stream = None, eof_error_p = True, eof_value = nil):
 
 def read_char(stream = None, eof_error_p = True, eof_value = nil, recursivep = nil):
         stream = _defaulted_to_var(stream, "*STANDARD-INPUT*")
-        ret = the(_stream, stream).read(1)
+        ret = the(_global("stream"), stream).read(1)
         return (ret       if ret             else
                 eof_value if not eof_error_p else
                 error(end_of_file, "end of file on %s" % (stream,)))
@@ -5680,7 +5740,7 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
                         unread_char(char, stream)
                         return char
 
-@defun
+@_cold_defun
 def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         ## Has not even a remote chance of conforming.
         def read_inner():
@@ -5773,13 +5833,20 @@ read = _cold_read
 ###
 ### Source file processing
 ###
+_string_set("*LOAD-VERBOSE*", nil)
+_string_set("*LOAD-PRINT*", nil)
+
+@_cold_defun
 def load(pathspec, verbose = None, print = None,
          if_does_not_exist = t,
          external_format = _keyword("default")):
         verbose = _defaulted_to_var(verbose, "*LOAD-VERBOSE*")
         print   = _defaulted_to_var(verbose, "*LOAD-PRINT*")
-        filename = pathspec
-        with _py.open(filename, "r") as f:
+        def do_load(loader, filename, stream):
+                verbose and format(t, "; loading %s\n", _py.repr(filename))
+                loader(stream)
+        def load_as_source(f):
+                _debug_compiler()
                 def next(): return read(f, eof_error_p = nil, eof_value = f)
                 form = next()
                 while next != f:
@@ -5791,7 +5858,28 @@ def load(pathspec, verbose = None, print = None,
                         except error as cond:
                                 error("")
                         form = next()
-        return True
+        def load_fasl(f):
+                _not_implemented()
+        filename, stream = ((pathspec, nil)          if stringp(pathspec)      else
+                            (name, namestring(name)) if _fd_stream_p(pathspec) else
+                            _not_implemented("loading from generic streams") if streamp(pathspec) else
+                            error("In LOAD %s: the first argument must be either a pathname or a stream."))
+        type = pathname_type(pathspec)
+        loader = (load_fasl if type in ["py", "pyc"] else
+                  load_as_source)
+        if stream:
+                do_load(loader, filename, stream)
+        else:
+                existsp = probe_file(filename)
+                if existsp:
+                        with _py.open(filename, "r") as stream:
+                                do_load(loader, filename, stream)
+                elif if_does_not_exist:
+                        # Unregistered Issue COMPLIANCE-CONDITION-TYPE
+                        error("In LOAD %s: designated file does not exist.", _py.repr(filename))
+                else:
+                        return nil
+        return t
 
 ##
 ## Files
@@ -5804,11 +5892,15 @@ def probe_file(pathname):
                 reason = "os.path.exists")
 
 def namestring(pathname):
-        return pathname
+        return _poor_man_etypecase(pathname,
+                                   (_py.str,   pathname),
+                                   (fd_stream, pathname.name))
 
 def truename(pathname):
-        "XXX: does not conform."
-        return pathname
+        # Unregistered Issue COMPLIANCE-TRUENAME
+        return _poor_man_etypecase(pathname,
+                                   (_py.str,   pathname),
+                                   (fd_stream, pathname.name))
 
 def file_write_date(pathspec):
         """Returns a universal time representing the time
@@ -5830,7 +5922,7 @@ at which the file specified by PATHSPEC was last written
 ## Streams
 ##
 def open_stream_p(x):
-        return not the(_stream, x).closed
+        return not the(stream, x).closed
 
 def input_stream_p(x):
         return open_stream_p(x) and x.readable()
@@ -5838,7 +5930,7 @@ def input_stream_p(x):
 def output_stream_p(x):
         return open_stream_p(x) and x.writable()
 
-@defclass
+@_cold_defclass
 class two_way_stream(_cold_stream_type):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
@@ -5864,7 +5956,7 @@ _string_set("*ERROR-OUTPUT*",    _sys.stderr)
 _string_set("*DEBUG-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 _string_set("*QUERY-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 
-@defclass
+@_cold_defclass
 class broadcast_stream(_cold_stream_type):
         def __init__(self, *streams):
                 self.streams  = streams
@@ -5880,7 +5972,7 @@ class broadcast_stream(_cold_stream_type):
 def make_broadcast_stream(*streams):  return broadcast_stream.python_type(*streams)
 def broadcast_stream_streams(stream): return stream.streams
 
-@defclass
+@_cold_defclass
 class synonym_stream(_cold_stream_type):
         def __init__(self, symbol):
                 self.symbol  = symbol
@@ -5898,18 +5990,12 @@ class synonym_stream(_cold_stream_type):
 def make_synonym_stream(symbol):   return synonym_stream.python_type(symbol)
 def synonym_stream_symbol(stream): return stream.symbol
 
-def streamp(x):
-        return typep(x, _stream)
-
-def stream_external_format(stream):
-        return _keyword(stream.encoding)
-
 def _coerce_to_stream(x):
         return (x                                 if streamp(x) else
                 symbol_value("*STANDARD-OUTPUT*") if x is t else
                 error("%s cannot be coerced to a stream.", x))
 
-@defclass
+@_cold_defclass
 class stream_type_error(simple_condition, _io.UnsupportedOperation):
         pass
 
@@ -6222,7 +6308,7 @@ def ignore_errors(body):
 ##
 ## Restarts
 ##
-@defclass
+@_cold_defclass
 class restart(_servile):
         def __str__(self):
                 # XXX: must conform by honoring *PRINT-ESCAPE*:
@@ -6616,7 +6702,7 @@ def _valid_declaration_p(x):
 def class_of(x):
         return _py.getattr(x, "__class__")
 
-@defclass
+@_cold_defclass
 class standard_object():
         def __init__(self, **initargs):
                 super().__init__() # Unregistered Issue PYTHON-OBJECT-DOES-NOT-ACCEPT-ARGUMENTS-BUT-SEE-SUPER-CONSIDERED-HARMFUL
@@ -6784,17 +6870,17 @@ nor evaluated."""
         instance.__dict__.update(initargs)
         return instance
 
-@defclass
+@_cold_defclass
 class method(standard_object.python_type):
         "All methods are of this type."
 
-@defclass
+@_cold_defclass
 class funcallable_standard_class(standard_object.python_type):
         "All funcallable instances are of this type."
         def __call__(self, *args, **keys):
                 return self.function(*args, **keys)
 
-@defclass
+@_cold_defclass
 class generic_function(funcallable_standard_class.python_type):
         "All generic functions are of this type."
         def __init__(self, **initargs): # Simulate a :BEFORE method.
@@ -6995,11 +7081,11 @@ code:
         # Unregistered Issue COMPLIANCE-UPDATE-DEPENDENT-DOES-NOT-REALLY-DO-ANYTHING
         pass
 
-@defclass
+@_cold_defclass
 class method_combination():
         "All method combinations are of this type."
 
-@defclass
+@_cold_defclass
 class standard_method(method.python_type):
         def __init__(self, **initargs):
                 super().__init__(**initargs)
@@ -7007,7 +7093,7 @@ class standard_method(method.python_type):
         def __call__(self, gfun_args, next_methods):
                 return self.function(gfun_args, next_methods)
 
-@defclass
+@_cold_defclass
 class standard_generic_function(generic_function.python_type):
         def __init__(self, **initargs):
                 super().__init__(**initargs)
@@ -8115,7 +8201,7 @@ __sealed_classes__ = _py.set([object,
                               string,
                               hash_table,
                               function,
-                              _stream,
+                              stream,
                               pytuple, pybytes, pylist, pybytearray, pyset, pyfrozenset,
                               BaseException, Exception] +
                              mapcar(type_of,
@@ -9384,6 +9470,7 @@ _init_package_system_2()
 def _init():
         "Initialise the Common Lisp compatibility layer."
         _init_condition_system()
+        _string_set("*DEFAULT-PATHNAME-DEFAULTS*", _os.path.getcwd())
         return t
 
 ###

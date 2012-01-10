@@ -1,0 +1,7 @@
+#+STARTUP: hidestars #+STARTUP: odd
+
+* _compile_toplevel_def
+*** lisp ???
+*** defmacro ???
+*** _compile -> (name (decorated, def-wrapped definition))
+***** compile

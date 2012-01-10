@@ -359,6 +359,7 @@ def pp_ast_as_code(x, tab = " " * 8):
                 def pp_functiondef(x):
                         "XXX: ignores __annotations__"
                         return ("\n".join(indent() + "@" + rec(d) for d in x.decorator_list) +
+                                ("\n" if x.decorator_list else "") +
                                 indent() + "def " + x.name + "(" + rec(x.args) + "):\n" +
                                 pp_subprogn(x.body))
                 def pp_for(x):

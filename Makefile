@@ -14,4 +14,5 @@ clean:
 	rm -rf __pycache__
 
 test:
-	python3 cl-tests.py
+	python3 -c "from cl import *; in_package('CL'); load('../informatimago/common-lisp/lisp-reader/reader.lisp', verbose =t, print = t)"
+#	python3 cl-tests.py
