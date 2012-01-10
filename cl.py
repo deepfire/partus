@@ -1530,7 +1530,7 @@ def catch(ball, body):
                 # format(t, "catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
                 if ct.ball is ball:
                         if ct.reenable_pytracer:
-                                _enable_pytracer(reason = "ball caught")
+                                _frost.enable_pytracer(reason = "ball caught")
                         return ct.value
                 else:
                         raise
@@ -2300,18 +2300,18 @@ def _init_condition_system():
         _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
 
 def _without_condition_system(body, reason = ""):
-        if _pytracer_enabled_p():
+        if _frost.pytracer_enabled_p():
                 try:
-                        _disable_pytracer(reason = reason)
+                        _frost.disable_pytracer(reason = reason)
                         return body()
                 finally:
-                        _enable_pytracer(reason = "%s done" % reason)
+                        _frost.enable_pytracer(reason = "%s done" % reason)
         else:
                 return body()
 
 def _condition_system_enabled_p():
-        return (_pytracer_enabled_p() and
-                _tracer_hook("exception") is __cl_condition_handler__)
+        return (_frost.pytracer_enabled_p() and
+                _frost.tracer_hook("exception") is __cl_condition_handler__)
 
 
 __core_symbol_names__ = [
@@ -6076,7 +6076,7 @@ def _disable_pytracer(reason = "", report = None):
         _sys.settrace(None);      report and _debug_printf("_DISABLE (%s)", reason); return True
 
 def _set_condition_handler(fn):
-        _set_tracer_hook("exception", fn)
+        _frost.set_tracer_hook("exception", fn)
         return True
 
 ##
@@ -6253,7 +6253,7 @@ def __cl_condition_handler__(condspec, frame):
                        ""),
                       callers = 15)
                 if is_not_ball:
-                        _disable_pytracer(reason = "unhandled condition")
+                        _frost.disable_pytracer(reason = "unhandled condition")
         ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
@@ -6269,9 +6269,9 @@ def handler_bind(fn, *handlers, no_error = identity):
         value = None
 
         # this is:
-        #     pytracer_enabled_p() and condition_handler_active_p()
+        #     _frost.pytracer_enabled_p() and condition_handler_active_p()
         # ..inlined for speed.
-        if _pytracer_enabled_p() and "exception" in __tracer_hooks__ and __tracer_hooks__["exception"] is __cl_condition_handler__:
+        if _frost.pytracer_enabled_p() and _frost.tracer_hook("exception") is __cl_condition_handler__:
                 # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
                 with progv({"*HANDLER-CLUSTERS*": (_symbol_value("*HANDLER-CLUSTERS*") +
                                                    [handlers + (("__frame__", _caller_frame()),)])}):
@@ -6279,7 +6279,7 @@ def handler_bind(fn, *handlers, no_error = identity):
         else:
                 # old world case..
                 # format(t, "crap FAIL: pep %s, exhook is cch: %s",
-                #        _pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
+                #        _frost.pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
                 if _py.len(handlers) > 1:
                         error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
                               _py.len(handlers))

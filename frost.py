@@ -49,3 +49,22 @@ def frost_def(o, symbol, slot, globals):
         setattr(symbol, slot, o)
         setf_global(symbol, lisp_symbol_name_python_name(symbol.name), globals)
         return symbol
+
+##
+## Pythonese execution tracing: for HANDLER-BIND.
+##
+import sys
+
+__tracer_hooks__   = dict() # allowed keys: "call", "line", "return", "exception", "c_call", "c_return", "c_exception"
+def set_tracer_hook(type, fn):        __tracer_hooks__[type] = fn
+def     tracer_hook(type):     return __tracer_hooks__[type] if type in __tracer_hooks__ else None
+
+def pytracer(frame, event, arg):
+        method = tracer_hook(event)
+        if method:
+                method(arg, frame)
+        return pytracer
+
+def pytracer_enabled_p(): return sys.gettrace() is pytracer
+def enable_pytracer():    sys.settrace(_pytracer)
+def disable_pytracer():   sys.settrace(None)
