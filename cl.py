@@ -2189,6 +2189,50 @@ class symbol(): # Turned to a symbol, during the package system bootstrap.
         def __bool__(self):
                 return self is not nil
 
+def get(symbol, indicator, default = None):
+        """get symbol indicator &optional default => value
+
+(setf (get symbol indicator &optional default) new-value)
+
+Arguments and Values:
+
+SYMBOL---a symbol.
+
+INDICATOR---an object.
+
+DEFAULT---an object. The default is NIL.
+
+VALUE---if the indicated property exists, the object that is its
+        value; otherwise, the specified default.
+
+NEW-VALUE---an object.
+
+Description:
+
+GET finds a property on the property list[2] of SYMBOL whose property
+indicator is identical to INDICATOR, and returns its corresponding
+property value.  If there are multiple properties[1] with that
+property indicator, GET uses the first such property.  If there is no
+property with that property indicator, DEFAULT is returned.
+
+SETF of GET may be used to associate a new object with an existing
+indicator already on the SYMBOL's property list, or to create a new
+assocation if none exists.  If there are multiple properties[1] with
+that property indicator, SETF of GET associates the NEW-VALUE with the
+first such property.  When a GET form is used as a SETF place, any
+default which is supplied is evaluated according to normal
+left-to-right evaluation rules, but its value is ignored."""
+        _not_implemented()
+
+def setf_get(new_value, symbol, indicator, default = None):
+        _not_implemented()
+
+def symbol_plist(symbol):
+        _not_implemented()
+
+def setf_symbol_plist(new_value, symbol):
+        _not_implemented()
+
 ###
 ### Cold symbol area
 ###
