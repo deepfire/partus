@@ -244,6 +244,7 @@ def defbootstate(n, name):
         __boot_state_names__[n] = name
 defbootstate(0, "_BOOT_NOTHING")
 defbootstate(1, "_BOOT_SYMBOL")
+defbootstate(2, "_BOOT_PRINTER")
 
 __boot_state__ = _BOOT_NOTHING
 def _boot_state():      return __boot_state__
@@ -1907,6 +1908,16 @@ def in_package(name):
 #
 # (A)
 # T
+def _variable_kind(name):
+        check_type(name, symbol)
+        # (ecase kind
+        #   (:special "a special variable")
+        #   (:macro "a symbol macro")
+        #   (:constant "a constant variable")
+        #   (:global "a global variable")
+        #   (:unknown "an undefined variable")
+        #   (:alien "an alien variable"))
+        _not_implemented()
 
 def fboundp(name):
         """fboundp name => generalized-boolean
@@ -2450,6 +2461,238 @@ _define_python_type_map("PYBYTES",     _py.bytes)
 _define_python_type_map("PYBYTEARRAY", _py.bytearray)
 _define_python_type_map("PYSET",       _py.set)
 _define_python_type_map("PYFROZENSET", _py.frozenset)
+
+###
+### Describe
+###
+# def _get_info_value(name, type, env_list = None):
+#         def lookup(env_list):
+# def _info(class, type, name, env_list = None):
+#         info = _type_info_or_lose(class, type)
+#         return _get_info_value(name, _type_info_number(info), env_list)
+def describe_function(name, function, stream):
+        name = function.__name__ if function else name
+        if not (function or (name and fboundp(name))):
+                format(stream, "%s names an undefined function.\n", name)
+        else:
+                if not function and special_operator_p(name):
+                        fun, what, lambda_list = symbol_value(name), "a special operator"
+                elif not function and macro_function(name):
+                        fun, what, lambda_list = macro_function(name), "a macro"
+                else:
+                        fun = function or fdefinition(name)
+                        what = ("a generic function"      if typep(fun, generic_function) else
+                                "a compiled function"     if compiled_function_p(fun)     else
+                                "an interpreted function")
+                        lambda_list = (fun.lambda_list if _py.hasattr(fun, "lambda_list") else
+                                       None)
+                        methods = (generic_function_methods(fun) if typep(fun, generic_function) else
+                                   None)
+                        if not function:
+                                format(stream, "\n%s names %s:", name, what)
+                        if _specifiedp(lambda_list):
+                                describe_lambda_list(lambda_list)
+                        describe_documentation(name, intern("FUNCTION")[0], stream)
+                        if _specifiedp(methods):
+                                format(stream, "\nMethod combination: %s",
+                                       generic_function_method_combination(fun))
+                                if not methods:
+                                        format(stream, "\nNo methods.\n")
+                                else:
+                                        for m in methods:
+                                                format(stream, "\n  %s %s %s",
+                                                       name,
+                                                       method_qualifiers(m),
+                                                       method_specializers(m))
+                                                describe_documentation(m, t, stream, nil)
+                        describe_function_source(fun, stream)
+                        terpri(stream)
+        if not function:
+                # when (and (legal-fun-name-p name) (compiler-macro-function name))
+                ## ...
+                # when (and (consp name) (eq 'setf (car name)) (not (cddr name)))
+                ## ... setf expansions
+                pass
+        if symbolp(name):
+                ## (describe-function `(setf ,name) nil stream)
+                pass
+
+def describe_class(name, class_, stream):
+        pass
+
+def describe_object(o, stream):
+        def object_self_string(o):
+                printer = _boot_case((_BOOT_PRINTER, lambda: prin1_to_string),
+                                     (True,          lambda: _py.repr))
+                if symbolp(o):
+                        with progv({"*PACKAGE*": find_package("KEYWORD")}):
+                                return printer(o)
+                else:
+                        _not_implemented("OBJECT-SELF-STRING for non-symbols")
+                        return printer(o)
+        def object_type_string(o):
+                return _py.type(o).__name__
+        def print_standard_describe_header(o, stream):
+                format(stream, "%s\n  [%s]\n",
+                       object_self_string(o), object_type_string(o))
+        def describe_symbol(o, stream):
+                ### variable of some kind -- see the _variable_kind() stub
+                # var_kind = info(_keyword("variable"), _keyword("kind"), o)
+                # var_kind = _variable_kind(o)
+                describe_function(o, nil, stream)
+                describe_class(o, nil, stream)
+                ### type specifier
+                # type_kind = info(_keyword("type"), _keyword("kind"), o)
+                # type_kind = ???
+                ## defined   - expander
+                ## primitive - translator
+                ### optimisation policy
+                ### properties
+        print_standard_describe_header(o, stream)
+        if symbolp(o): describe_symbol(o, stream)
+        else:
+                _not_implemented()
+
+def describe(object, stream_designator = None):
+        "Print a description of OBJECT to STREAM-DESIGNATOR."
+        stream_designator = _defaulted(stream_designator, symbol_value("*STANDARD-OUTPUT*"))
+        with progv({"*PRINT-RIGHT-MARGIN*": 72}):
+                describe_object(object, stream_designator)
+        return values()
+
+##
+## Streams
+##
+def open_stream_p(x):
+        return not the(stream, x).closed
+
+def input_stream_p(x):
+        return open_stream_p(x) and x.readable()
+
+def output_stream_p(x):
+        return open_stream_p(x) and x.writable()
+
+@_cold_defclass
+class two_way_stream(_cold_stream_type):
+        def __init__(self, input, output):
+                self.input, self.output  = input, output
+        def read(self, amount):
+                return self.input.read(amount)
+        def write(self, data):
+                return self.output.write(data)
+        def flush(self):
+                return self.output.flush()
+        def close(self):
+                self.output.close()
+                self.input.close()
+        def readable(self): return True
+        def writable(self): return True
+
+def make_two_way_stream(input, output):   return two_way_stream.python_type(input, output)
+def two_way_stream_input_stream(stream):  return stream.input
+def two_way_stream_output_stream(stream): return stream.output
+
+_string_set("*STANDARD-INPUT*",  _sys.stdin)
+_string_set("*STANDARD-OUTPUT*", _sys.stdout)
+_string_set("*ERROR-OUTPUT*",    _sys.stderr)
+_string_set("*DEBUG-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
+_string_set("*QUERY-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
+
+@_cold_defclass
+class broadcast_stream(_cold_stream_type):
+        def __init__(self, *streams):
+                self.streams  = streams
+        def write(self, data):
+                for component in self.streams:
+                        component.write(data)
+        def flush(self):
+                for component in self.streams:
+                        component.flush()
+        def readable(self): return False
+        def writable(self): return True
+
+def make_broadcast_stream(*streams):  return broadcast_stream.python_type(*streams)
+def broadcast_stream_streams(stream): return stream.streams
+
+@_cold_defclass
+class synonym_stream(_cold_stream_type):
+        def __init__(self, symbol):
+                self.symbol  = symbol
+        def stream():
+                return symbol_value(self.symbol)
+        def read(self, amount):
+                return self.stream().read(amount)
+        def write(self, data):
+                return self.stream().write(data)
+        def flush(self):
+                return self.stream().flush()
+        def readable(self): return self.stream.readable()
+        def writable(self): return self.stream.writable()
+
+def make_synonym_stream(symbol):   return synonym_stream.python_type(symbol)
+def synonym_stream_symbol(stream): return stream.symbol
+
+def _coerce_to_stream(x):
+        return (x                                 if streamp(x) else
+                symbol_value("*STANDARD-OUTPUT*") if x is t else
+                error("%s cannot be coerced to a stream.", x))
+
+def write_char(c, stream = t):
+        write_string(c, stream)
+        return c
+
+def terpri(stream = t):
+        write_string("\n", stream)
+
+def write_string(string, stream = t):
+        if stream is not nil:
+                def handler():
+                        try:
+                                return _write_string(string, _coerce_to_stream(stream))
+                        except _io.UnsupportedOperation as cond:
+                                error(stream_type_error, "%s is not an %s stream: \"%s\".",
+                                      stream, ("output" if cond.args[0] == "not writable" else
+                                               "adequate"),
+                                      cond.args[0])
+                _without_condition_system(handler,
+                                          reason = "_write_string")
+        return string
+
+def format(destination, control_string, *args):
+        """FORMAT produces formatted output by outputting the characters
+of CONTROL-STRING and observing that a tilde introduces a
+directive. The character after the tilde, possibly preceded by prefix
+parameters and modifiers, specifies what kind of formatting is
+desired. Most directives use one or more elements of ARGS to create
+their output.
+
+If DESTINATION is a string, a stream, or T, then the result is
+nil. Otherwise, the result is a string containing the `output.'
+
+FORMAT is useful for producing nicely formatted text, producing
+good-looking messages, and so on. FORMAT can generate and return a
+string or output to destination.
+
+For details on how the CONTROL-STRING is interpreted, see Section 22.3
+(Formatted Output)."""
+        string = control_string % args
+        if  streamp(destination) or _listp(destination) or destination is t:
+                # XXX: python strings are immutable, so lists will serve as adjustable arrays..
+                # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
+                write_string(string, destination)
+                return nil
+        else:
+                return string
+
+def write_line(string, stream = t):
+        return write_string(string + "\n", stream)
+
+def finish_output(stream = t):
+        check_type(stream, (or_, stream, (member, t, nil)))
+        (stream is not nil) and _coerce_to_stream(stream).flush()
+
+def force_output(*args, **keys):
+        finish_output(*args, **keys)
 
 ##
 ## Condition: not_implemented
@@ -5060,7 +5303,7 @@ _debug_printf("cond: %s", cond)
 def fdefinition(name):
         (defun, fdefinition, (name,),
          (symbol_function, (the, symbol, name)))
-_debug_printf("fdefinition: %s", cond)
+describe(fdefinition)
 
 def compile_file_pathname(input_file, output_file = None):
         _not_implemented()
@@ -5569,6 +5812,8 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
         write(object, stream = stream, escape = t, pretty = t)
         return object
 
+_boot_advance("_BOOT_PRINTER")
+
 ##
 ## Reader
 ##
@@ -5921,170 +6166,17 @@ at which the file specified by PATHSPEC was last written
         # os.path.getmtime() returns microseconds..
         return _py.int(_os.path.getmtime(pathspec))
 
-##
-## Streams
-##
-def open_stream_p(x):
-        return not the(stream, x).closed
-
-def input_stream_p(x):
-        return open_stream_p(x) and x.readable()
-
-def output_stream_p(x):
-        return open_stream_p(x) and x.writable()
-
-@_cold_defclass
-class two_way_stream(_cold_stream_type):
-        def __init__(self, input, output):
-                self.input, self.output  = input, output
-        def read(self, amount):
-                return self.input.read(amount)
-        def write(self, data):
-                return self.output.write(data)
-        def flush(self):
-                return self.output.flush()
-        def close(self):
-                self.output.close()
-                self.input.close()
-        def readable(self): return True
-        def writable(self): return True
-
-def make_two_way_stream(input, output):   return two_way_stream.python_type(input, output)
-def two_way_stream_input_stream(stream):  return stream.input
-def two_way_stream_output_stream(stream): return stream.output
-
-_string_set("*STANDARD-INPUT*",  _sys.stdin)
-_string_set("*STANDARD-OUTPUT*", _sys.stdout)
-_string_set("*ERROR-OUTPUT*",    _sys.stderr)
-_string_set("*DEBUG-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
-_string_set("*QUERY-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
-
-@_cold_defclass
-class broadcast_stream(_cold_stream_type):
-        def __init__(self, *streams):
-                self.streams  = streams
-        def write(self, data):
-                for component in self.streams:
-                        component.write(data)
-        def flush(self):
-                for component in self.streams:
-                        component.flush()
-        def readable(self): return False
-        def writable(self): return True
-
-def make_broadcast_stream(*streams):  return broadcast_stream.python_type(*streams)
-def broadcast_stream_streams(stream): return stream.streams
-
-@_cold_defclass
-class synonym_stream(_cold_stream_type):
-        def __init__(self, symbol):
-                self.symbol  = symbol
-        def stream():
-                return symbol_value(self.symbol)
-        def read(self, amount):
-                return self.stream().read(amount)
-        def write(self, data):
-                return self.stream().write(data)
-        def flush(self):
-                return self.stream().flush()
-        def readable(self): return self.stream.readable()
-        def writable(self): return self.stream.writable()
-
-def make_synonym_stream(symbol):   return synonym_stream.python_type(symbol)
-def synonym_stream_symbol(stream): return stream.symbol
-
-def _coerce_to_stream(x):
-        return (x                                 if streamp(x) else
-                symbol_value("*STANDARD-OUTPUT*") if x is t else
-                error("%s cannot be coerced to a stream.", x))
-
 @_cold_defclass
 class stream_type_error(simple_condition, _io.UnsupportedOperation):
         pass
 
-def write_char(c, stream = t):
-        write_string(c, stream)
-        return c
-
-def terpri(stream = t):
-        write_string("\n", stream)
-
-def write_string(string, stream = t):
-        if stream is not nil:
-                def handler():
-                        try:
-                                return _write_string(string, _coerce_to_stream(stream))
-                        except _io.UnsupportedOperation as cond:
-                                error(stream_type_error, "%s is not an %s stream: \"%s\".",
-                                      stream, ("output" if cond.args[0] == "not writable" else
-                                               "adequate"),
-                                      cond.args[0])
-                _without_condition_system(handler,
-                                          reason = "_write_string")
-        return string
-
-def format(destination, control_string, *args):
-        """FORMAT produces formatted output by outputting the characters
-of CONTROL-STRING and observing that a tilde introduces a
-directive. The character after the tilde, possibly preceded by prefix
-parameters and modifiers, specifies what kind of formatting is
-desired. Most directives use one or more elements of ARGS to create
-their output.
-
-If DESTINATION is a string, a stream, or T, then the result is
-nil. Otherwise, the result is a string containing the `output.'
-
-FORMAT is useful for producing nicely formatted text, producing
-good-looking messages, and so on. FORMAT can generate and return a
-string or output to destination.
-
-For details on how the CONTROL-STRING is interpreted, see Section 22.3
-(Formatted Output)."""
-        string = control_string % args
-        if  streamp(destination) or _listp(destination) or destination is t:
-                # XXX: python strings are immutable, so lists will serve as adjustable arrays..
-                # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
-                write_string(string, destination)
-                return nil
-        else:
-                return string
-
-def write_line(string, stream = t):
-        return write_string(string + "\n", stream)
-
-def finish_output(stream = t):
-        check_type(stream, (or_, stream, (member, t, nil)))
-        (stream is not nil) and _coerce_to_stream(stream).flush()
-
-def force_output(*args, **keys):
-        finish_output(*args, **keys)
-
 ##
-## Pythonese execution tracing: for HANDLER-BIND.
+## Condition system
 ##
-__tracer_hooks__   = make_hash_table() # allowed keys: "call", "line", "return", "exception", "c_call", "c_return", "c_exception"
-def _set_tracer_hook(type, fn):        __tracer_hooks__[type] = fn
-def     _tracer_hook(type):     return __tracer_hooks__.get(type) if type in __tracer_hooks__ else None
-
-def _pytracer(frame, event, arg):
-        method = _tracer_hook(event)
-        if method:
-                method(arg, frame)
-        return _pytracer
-
-def _pytracer_enabled_p(): return _sys.gettrace() is _pytracer
-def _enable_pytracer(reason = "", report = None):
-        _sys.settrace(_pytracer); report and _debug_printf("_ENABLE (%s)", reason);  return True
-def _disable_pytracer(reason = "", report = None):
-        _sys.settrace(None);      report and _debug_printf("_DISABLE (%s)", reason); return True
-
 def _set_condition_handler(fn):
         _frost.set_tracer_hook("exception", fn)
         return True
 
-##
-## Condition system
-##
 _string_set("*HANDLER-CLUSTERS*", [])
 
 _string_set("*PRESIGNAL-HOOK*", nil)
@@ -6549,13 +6641,13 @@ executes the following:
 ##
 ## Interactivity
 ##
-def describe(x, stream = t, show_hidden = nil):
-        stream = _coerce_to_stream(stream)
-        write_line("Object \"%s\" of type %s:" % (x, type_of(x)), stream)
-        for attr, val in (x.__dict__ if _py.hasattr(x, "__dict__") else
-                          { k: _py.getattr(x, k) for k in dir(x)}).items():
-                if show_hidden or "__" not in attr:
-                        write_line("%25s: %s" % (attr, ignore_errors(lambda: _py.str(val))), stream)
+# def describe(x, stream = t, show_hidden = nil):
+#         stream = _coerce_to_stream(stream)
+#         write_line("Object \"%s\" of type %s:" % (x, type_of(x)), stream)
+#         for attr, val in (x.__dict__ if _py.hasattr(x, "__dict__") else
+#                           { k: _py.getattr(x, k) for k in dir(x)}).items():
+#                 if show_hidden or "__" not in attr:
+#                         write_line("%25s: %s" % (attr, ignore_errors(lambda: _py.str(val))), stream)
 
 ##
 ## Modules
