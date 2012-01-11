@@ -2449,6 +2449,10 @@ def _init_package_system_2():
         "Is called once CL is loaded completely."
         in_package("COMMON-LISP-USER")
 
+_load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
+                                                                "COMPILE-TOPLEVEL",
+                                                                "EXECUTE"])
+
 ###
 ### Symbol-related thaw
 ###
@@ -2786,7 +2790,7 @@ class simple_type_error(_cold_simple_condition_type, type_error.python_type):
         pass
 
 @defclass
-class undefined_function(_cold_error_type):
+class undefined_function(error.python_type):
         def __init__(self, fname):
                 self.name = fname
         def __str__(self):
@@ -2794,7 +2798,8 @@ class undefined_function(_cold_error_type):
         def __repr__(self):
                 return self.__str__()
 
-class _not_implemented_error(error.python_type):
+@defclass
+class _not_implemented_condition(condition.python_type):
         def __init__(*args):
                 self, name = args[0], args[1]
                 self.name = name
@@ -2802,9 +2807,18 @@ class _not_implemented_error(error.python_type):
                 return "Not implemented: " + self.name.upper()
         def __repr__(self):
                 return self.__str__()
+@defclass
+class _not_implemented_error(_not_implemented_condition.python_type, error.python_type): pass
+@defclass
+class _not_implemented_warning(_not_implemented_condition.python_type, warning.python_type): pass
 
 def _not_implemented(x = None):
         error(_not_implemented_error,
+              x if x is not None else
+              _caller_name())
+
+def _warn_not_implemented(x = None):
+        warn(_not_implemented_warning,
               x if x is not None else
               _caller_name())
 
@@ -4241,6 +4255,30 @@ def _anode_expression_p(x):
 ###
 ### A rudimentary Lisp -> Python compiler
 ###
+def _parse_body(body, doc_string_allowed = t, toplevel = nil):
+        doc = nil
+        def doc_string_p(x, remaining_forms):
+                return ((error("duplicate doc string %s", x) if doc else t)
+                        if stringp(x) and doc_string_allowed and remaining_forms else
+                        None)
+        def declaration_p(x):
+                return _tuplep(x) and x[0] is declare
+        decls, forms = [], []
+        for i, form in _py.enumerate(body):
+               if doc_string_p(form, body[i:]):
+                       doc = form
+               elif declaration_p(form):
+                       decls.append(form)
+               else:
+                       forms = body[i:]
+                       break
+        return (forms,
+                decls,
+                doc)
+
+def _process_decls(decls, vars, fvars):
+        _warn_not_implemented()
+
 @defclass
 class _compiler_error(error.python_type):
         pass
@@ -4710,16 +4748,52 @@ def def_(name, lambda_list, *body, decorators = []):
                         try_ += 1
                 return result
 
-@defknown(("atom", " ", "atom", " ", (["sex", " "],),
+@defknown(("atom", " ", (["atom", " "]),
            1, ["sex", "\n"]))
-def defun(name, lambda_list, *body):
-        ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
-        _do_set_function_definition(nil, name) # COMPILE should be able to use that
-        fn, warnedp, failedp, [fundef] = _compile(the(symbol, name),
-                                                  (lambda_, lambda_list) + body)
-        return ([fundef],
-                _lower((quote, (symbol, string(name))))[1])
-        
+def eval_when(when, *body):
+        """eval-when (situation*) form* => result*
+
+Arguments and Values:
+
+situation---One of the symbols :COMPILE-TOPLEVEL, :LOAD-TOPLEVEL,
+            :EXECUTE, COMPILE, LOAD, or EVAL.
+
+The use of EVAL, COMPILE, and LOAD is deprecated.
+
+forms---an implicit PROGN.
+
+results---the values of the forms if they are executed, or NIL if they
+          are not.
+
+Description:
+
+The body of an EVAL-WHEN form is processed as an implicit PROGN, but
+only in the situations listed.
+
+The use of the situations :COMPILE-TOPLEVEL (or COMPILE) and
+:LOAD-TOPLEVEL (or LOAD) controls whether and when evaluation occurs
+when EVAL-WHEN appears as a top level form in code processed by
+COMPILE-FILE. See Section 3.2.3 (File Compilation).
+
+The use of the situation :EXECUTE (or EVAL) controls whether
+evaluation occurs for other EVAL-WHEN forms; that is, those that are
+not top level forms, or those in code processed by EVAL or COMPILE.
+If the :EXECUTE situation is specified in such a form, then the body
+forms are processed as an implicit PROGN; otherwise, the EVAL-WHEN
+form returns NIL.
+
+EVAL-WHEN normally appears as a top level form, but it is meaningful
+for it to appear as a non-top-level form.  However, the compile-time
+side effects described in Section 3.2 (Compilation) only take place
+when EVAL-WHEN appears as a top level form."""
+        ### Unregistered Issue DEPRECATED-SYMBOLS-CONSIDERED-INVALID
+        ctop, ltop, exec = _parse_eval_when_situations(when)
+        ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
+        ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
+        ## so that they're never seen at this level.)
+        return (((progn,) + body) if exec else
+                _lower(nil))
+
 @defknown(("atom", " ", "atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))
 def defmacro(name, lambda_list, *body):
@@ -4729,6 +4803,16 @@ def defmacro(name, lambda_list, *body):
         fn, warnedp, failedp, [macfundef] = _compile(the(symbol, name),
                                                      (lambda_, lambda_list) + body)
         return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this: the((varituple, (eql, def_), pytuple), macfundef)
+                _lower((quote, (symbol, string(name))))[1])
+
+@defknown(("atom", " ", "atom", " ", (["sex", " "],),
+           1, ["sex", "\n"]))
+def defun(name, lambda_list, *body):
+        ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
+        _do_set_function_definition(nil, name) # We must not do this - this amounts to EVAL-WHEN :COMPILE-TOPLEVEL!
+        fn, warnedp, failedp, [fundef] = _compile(the(symbol, name),
+                                                  (lambda_, lambda_list) + body)
+        return ([fundef],
                 _lower((quote, (symbol, string(name))))[1])
 
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
@@ -6125,6 +6209,224 @@ read = _cold_read
 ###
 ### Source file processing
 ###
+def _compiler_mumble(control, *args):
+        _debug_printf(control, *args)
+
+_string_set("*TOP-LEVEL-FORM-NOTED*", nil)
+
+_string_set("*COMPILE-PRINT*", t)
+_string_set("*COMPILE-VERBOSE*", t)
+_string_set("*COMPILE-PROGRESS*", nil) # Not CL.
+
+_string_set("*COMPILE-FILE-PATHNAME*", nil)
+_string_set("*COMPILE-FILE-TRUENAME*", nil)
+
+_string_set("*COMPILE-OBJECT*", nil)
+_string_set("*COMPILE-TOPLEVEL-OBJECT*", nil)
+
+_string_set("*IN-COMPILATION-UNIT*", nil)
+
+def with_compilation_unit(fn, override = nil):
+        """Affects compilations that take place within its dynamic extent. It is
+intended to be eg. wrapped around the compilation of all files in the same system.
+
+Following options are defined:
+
+  :OVERRIDE Boolean-Form
+      One of the effects of this form is to delay undefined warnings until the
+      end of the form, instead of giving them at the end of each compilation.
+      If OVERRIDE is NIL (the default), then the outermost
+      WITH-COMPILATION-UNIT form grabs the undefined warnings. Specifying
+      OVERRIDE true causes that form to grab any enclosed warnings, even if it
+      is enclosed by another WITH-COMPILATION-UNIT.
+
+Examples:
+
+  ;; Prevent proclamations from the file leaking, and restrict
+  ;; SAFETY to 3 -- otherwise uses the current global policy.
+  (with-compilation-unit (:policy '(optimize))
+    (restrict-compiler-policy 'safety 3)
+    (load \"foo.lisp\"))
+
+  ;; Using default policy instead of the current global one,
+  ;; except for DEBUG 3.
+  (with-compilation-unit (:policy '(optimize debug)
+                          :override t)
+    (load \"foo.lisp\"))
+
+  ;; Same as if :POLICY had not been specified at all: SAFETY 3
+  ;; proclamation leaks out from WITH-COMPILATION-UNIT.
+  (with-compilation-unit (:policy nil)
+    (declaim (optimize safety))
+    (load \"foo.lisp\"))"""
+        succeeded_p = nil
+        if symbol_value("*IN-COMPILATION-UNIT*") and not override:
+                try:
+                        ret = funcall(fn)
+                        succeeded_p = t
+                        return ret
+                finally:
+                        if not succeeded_p:
+                                setq("*ABORTED-COMPILATION-UNIT-COUNT*",
+                                     symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+        else:
+                with progv({"*ABORTED-COMPILATION-UNIT-COUNT*":0,
+                            "*COMPILER-ERROR-COUNT*":0,
+                            "*COMPILER-WARNINGS-COUNT*":0,
+                            "*COMPILER-STYLE-WARNINGS-COUNT*":0,
+                            "*COMPILER-NOTE-COUNT*":0,
+                            "*UNDEFINED-WARNINGS*":nil,
+                            "*IN-COMPILATION-UNIT*":t,
+                            }):
+                        try:
+                               ret = funcall(fn)
+                               succeeded_p = t
+                               return ret
+                        finally:
+                                if not succeeded_p:
+                                        setq("*ABORTED-COMPILATION-UNIT-COUNT*",
+                                             symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+                                summarize_compilation_unit(not succeeded_p)
+
+# name-reserved-by-ansi-p name kind
+# summarize-compilation-unit abort-p
+# with-compilation-values body
+# ir1-optimize-until-done component
+# dfo-as-needed component
+# ir1-phases component
+# %compile-component component
+# delete-if-no-entries component
+# compile-component component
+# clear-constant-info
+# clear-ir1-info component
+# clear-stuff
+# describe-component component *standard-output*
+# describe-ir2-component component
+# def!struct file-info
+# def!struct source-info
+# make-file-source-info file external-format
+# make-lisp-source-info form parent
+# get-toplevelish-file-info source-info
+# read-for-compile-file stream position
+# get-source-stream info
+# close-source-info info
+# defmacro do-forms-from-info (forms keys) info
+# sub-sub-compile-file info
+# find-source-root index info
+# convert-and-maybe-compile form path
+
+def _preprocessor_macroexpand_1(form):
+        ## Macroexpand FORM in the current environment with an error handler.
+        ## We only expand one level, so that we retain all the intervening
+        ## forms in the source path.
+        try:
+                return _macroexpand_1(form, symbol_value("*LEXENV*")) # Was: %macroexpand_1
+        except error.python_type as condition:
+                _compiler_error("(during macroexpansion of %s)\n%s",
+                                format(nil, "%s", form), condition)
+
+def _process_toplevel_progn(forms, path, compile_time_too):
+        for form in forms:
+                _process_toplevel_form(form, path, compile_time_too)
+
+def _process_toplevel_locally(body, path, compile_time_too, vars = [], funs = []):
+        forms, decls = _parse_body(body, doc_string_allowed = nil, toplevel = t)[:2]
+        with progv({"*LEXENV*": _process_decls(decls, vars, funs)}):
+                _process_toplevel_progn(forms, path, compile_time_too)
+
+_eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
+_eval_when_keywords = _py.set(_eval_when_ordered_keywords)
+def _parse_eval_when_situations(situ_form):
+        if not (_tuplep(form) and _py.set(form) == _eval_when_keywords):
+                error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
+        return [x in _eval_when_keywords for x in _eval_when_ordered_keywords]
+
+# functional-components f
+# make-functional-from-toplevel-lambda lambda-expression name path
+# %compile lambda-expression *compile-object* name path
+# process-toplevel-cold-fset name lambda-expression path
+
+def _note_top_level_form(form, finalp = nil):
+        if symbol_value("*COMPILE-PRINT*"):
+                if not symbol_value("*TOP-LEVEL-FORM-NOTED*"):
+                        compiler_mumble("; compiling %s\n", _pp_sex(form[:min(2, _py.len(form))]))
+                        return form
+                else:
+                        return symbol_value("*TOP-LEVEL-FORM-NOTED*")
+
+def _eval_compile_toplevel(body, path):
+        ## Handle the evaluation the a :COMPILE-TOPLEVEL body during
+        ## compilation. Normally just evaluate in the appropriate
+        ## environment, but also compile if outputting a CFASL.
+        eval_tlf((progn,) + body, source_path_tlf_number(path), symbol_value("*LEXENV*"))
+        cto = symbol_value("*COMPILE-TOPLEVEL-OBJECT*")
+        if cto:
+                with progv({"*COMPILE-OBJECT*": cto}):
+                        convert_and_maybe_compile((progn,) + body, path)
+
+def _process_toplevel_form(form, path, compile_time_too):
+        def _macroexpand_1(form, env):
+                ## Like MACROEXPAND-1, but takes care not to expand special forms.
+                # (if (or (atom form)
+                #      (let ((op (car form)))
+                #       (not (and (symbolp op) (sb!xc:special-operator-p op)))))
+                #  (sb!xc:macroexpand-1 form env)
+                #  (values form nil))
+                return (macroexpand_1(form, env) if atom(form) or not (symbolp(car(form)) and special_operator_p(car(form)))
+                                                 else values(form, nil))
+        def funcall_in_macrolet_lexenv(bindings, fn):
+                with progv({"*LEXENV*": _not_implemented()}):
+                        fn()
+        def funcall_in_symbol_macrolet_lexenv(bindings, fn):
+                with progv({"*LEXENV*": _not_implemented()}):
+                        fn()
+        path = _get_source_path(form) or cons(form, path)
+        def default_processor(form):
+                with progv({"*TOPLEVEL-FORM-NOTED*": _note_top_level_form(form)}):
+                        expanded = _preprocessor_macroexpand_1(form)
+                        if expanded is form:
+                                if compile_time_too:
+                                        _eval_compile_toplevel((form,), path)
+                                convert_and_maybe_compile(form, path)
+                        else:
+                                _process_toplevel_form(expanded, path, compile_time_too)
+        if atom(form):
+                default_processor(form)
+        else:
+                def need_at_least_one_arg(form):
+                        if _py.len(form) < 2:
+                                _compiler_error("%s form is too short: %s", form[0], form)
+                if form[0] in [eval_when, macrolet, symbol_macrolet]:
+                        need_at_least_one_arg(form)
+                        special_operator, magic, *body = form
+                        if special_operator is eval_when:
+                                ## CT, LT, and E here are as in Figure 3-7 of ANSI
+                                ## "3.2.3.1 Processing of Top Level Forms".
+                                ct, lt, e = _parse_eval_when_situations(magic)
+                                new_compile_time_too = ct or (compile_time_too and e)
+                                if lt:
+                                        _process_toplevel_progn(body, path, new_compile_time_too)
+                                elif new_compile_time_too:
+                                        _eval_compile_toplevel(body, path)
+                        elif special_operator is macrolet:
+                                funcall_in_macrolet_lexenv(
+                                        magic,
+                                        lambda funs = [], prepend = []:
+                                                (the(null, prepend) or
+                                                 _process_toplevel_locally(body, path, compile_time_too)))
+                        elif special_operator is symbol_macrolet:
+                                funcall_in_symbol_macrolet_lexenv(
+                                        magic,
+                                        lambda vars = [], prepend = []:
+                                                (the(null, prepend) or
+                                                 _process_toplevel_locally(body, path, compile_time_too, vars = vars)))
+                elif form[0] is locally:
+                        _process_toplevel_locally(form[1:], path, compile_time_too)
+                elif form[0] is progn:
+                        _process_toplevel_locally(form[1:], path, compile_time_too)
+                else:
+                        default_processor(form)
+
 _string_set("*LOAD-VERBOSE*", nil)
 _string_set("*LOAD-PRINT*", nil)
 

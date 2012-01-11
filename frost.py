@@ -36,7 +36,6 @@ def global_(name, globals):
                 (None,          False))
 
 def make_object_like_python_function(x, function):
-        x.__doc__  = function.__doc__
         x.__code__ = function.__code__
         return x
 
