@@ -6207,6 +6207,68 @@ def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserv
 read = _cold_read
 
 ###
+### Lexical environment
+###
+@defclass
+class _lexenv(_collections.UserDict):
+        def __init__(self, **initial_content):
+                self.__dict__.update(data = _py.dict(initial_content))
+
+def _make_null_lexenv():
+        return make_instance(_lexenv)
+
+###
+### EVAL
+###
+_string_set("*EVAL-SOURCE-CONTEXT*", nil)
+_string_set("*EVAL-TLF-INDEX*", nil)
+_string_set("*EVAL-SOURCE-INFO*", nil)
+
+def _simple_eval(expr, lexenv):
+        lam = (lambda_, _py.tuple()) + expr
+        fun = _compile_in_lexenv(nil, lam, lexenv)
+        return fun()
+
+def _simple_eval_in_lexenv(original_exp, lexenv):
+        exp = macroexpand(original_exp, lexenv)
+        if symbolp(exp):
+                return symbol_value(exp)
+        elif _tuplep(exp):
+                name = car(exp)
+                n_args = _py.length(exp) - 1
+                if   name is function:        _not_implemented("%SIMPLE-EVAL-IN-LEXENV FUNCTION case")
+                elif name is quote:           return the((pytuple, symbol, t), exp)[1]
+                elif name is setq:            _not_implemented("%SIMPLE-EVAL-IN-LEXENV SETQ case")
+                elif name is progn:           _not_implemented("%SIMPLE-EVAL-IN-LEXENV PROGN case")
+                elif name is eval_when:       _not_implemented("%SIMPLE-EVAL-IN-LEXENV EVAL-WHEN case")
+                elif name is locally:         _not_implemented("%SIMPLE-EVAL-IN-LEXENV LOCALLY case")
+                elif name is macrolet:        _not_implemented("%SIMPLE-EVAL-IN-LEXENV MACROLET case")
+                elif name is symbol_macrolet: _not_implemented("%SIMPLE-EVAL-IN-LEXENV SYMBOL-MACROLET case")
+                elif name is if_:             return _eval_in_lexenv((exp[2] if _eval_in_lexenv(exp[1], lexenv) else
+                                                                      nil    if _py.len(exp) == 3               else
+                                                                      exp[3]), lexenv)
+                elif name in [let, let_]:     return _simple_eval(exp, lexenv)
+                else:                         return _simple_eval(exp, lexenv)
+        else:
+                return exp
+
+def _eval_in_lexenv(exp, lexenv):
+        return _simple_eval_in_lexenv(exp, lexenv)
+
+def _do_eval(exp, tlf_index, source_info, lexenv):
+        with progv({"*EVAL-SOURCE-CONTEXT*": original_exp,
+                    "*EVAL-TLF-INDEX*":      tlf_index,
+                    "*EVAL-SOURCE-INFO*":    source_info}):
+                return _eval_in_lexenv(original_exp, lexenv)
+
+def _eval_tlf(original_exp, tlf_index, lexenv = None):
+        _do_eval(original_exp, tlf_index, symbol_value("*SOURCE-INFO*"),
+                 _defaulted(lexenv, _make_null_lexenv()))
+
+def eval(original_exp):
+        return _do_eval(original_exp, nil, nil, _make_null_lexenv())
+
+###
 ### Source file processing
 ###
 def _compiler_mumble(control, *args):
@@ -6267,8 +6329,8 @@ Examples:
                         return ret
                 finally:
                         if not succeeded_p:
-                                setq("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                     symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+                                _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
+                                            symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
         else:
                 with progv({"*ABORTED-COMPILATION-UNIT-COUNT*":0,
                             "*COMPILER-ERROR-COUNT*":0,
@@ -6284,8 +6346,8 @@ Examples:
                                return ret
                         finally:
                                 if not succeeded_p:
-                                        setq("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                             symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+                                        _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
+                                                    symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
                                 summarize_compilation_unit(not succeeded_p)
 
 # name-reserved-by-ansi-p name kind
@@ -6316,30 +6378,37 @@ Examples:
 # convert-and-maybe-compile form path
 
 def _preprocessor_macroexpand_1(form):
+        def _macroexpand_1(form, env):
+                ## Like MACROEXPAND-1, but takes care not to expand special forms.
+                # (if (or (atom form)
+                #      (let ((op (car form)))
+                #       (not (and (symbolp op) (sb!xc:special-operator-p op)))))
+                #  (sb!xc:macroexpand-1 form env)
+                #  (values form nil))
+                return (macroexpand_1(form, env) if atom(form) or not (symbolp(car(form)) and special_operator_p(car(form)))
+                                                 else values(form, nil))
         ## Macroexpand FORM in the current environment with an error handler.
         ## We only expand one level, so that we retain all the intervening
         ## forms in the source path.
         try:
-                return _macroexpand_1(form, symbol_value("*LEXENV*")) # Was: %macroexpand_1
+                return _macroexpand_1(form, symbol_value("*LEXENV*"))
         except error.python_type as condition:
-                _compiler_error("(during macroexpansion of %s)\n%s",
-                                format(nil, "%s", form), condition)
+                _compiler_error("(during macroexpansion of %s)\n%s", format(nil, "%s", form), condition)
 
 def _process_toplevel_progn(forms, path, compile_time_too):
-        for form in forms:
-                _process_toplevel_form(form, path, compile_time_too)
+        return mapcan(lambda f: _process_toplevel_form(f, path, compile_time_too), forms)
 
 def _process_toplevel_locally(body, path, compile_time_too, vars = [], funs = []):
         forms, decls = _parse_body(body, doc_string_allowed = nil, toplevel = t)[:2]
         with progv({"*LEXENV*": _process_decls(decls, vars, funs)}):
-                _process_toplevel_progn(forms, path, compile_time_too)
+                return _process_toplevel_progn(forms, path, compile_time_too)
 
 _eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
 _eval_when_keywords = _py.set(_eval_when_ordered_keywords)
 def _parse_eval_when_situations(situ_form):
-        if not (_tuplep(form) and _py.set(form) == _eval_when_keywords):
+        if not (_tuplep(situ_form) and _py.set(situ_form) == _eval_when_keywords):
                 error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
-        return [x in _eval_when_keywords for x in _eval_when_ordered_keywords]
+        return [x in situ_form for x in _eval_when_ordered_keywords]
 
 # functional-components f
 # make-functional-from-toplevel-lambda lambda-expression name path
@@ -6349,7 +6418,7 @@ def _parse_eval_when_situations(situ_form):
 def _note_top_level_form(form, finalp = nil):
         if symbol_value("*COMPILE-PRINT*"):
                 if not symbol_value("*TOP-LEVEL-FORM-NOTED*"):
-                        compiler_mumble("; compiling %s\n", _pp_sex(form[:min(2, _py.len(form))]))
+                        _compiler_mumble("; compiling %s\n", _pp_sex(form[:min(2, _py.len(form))]))
                         return form
                 else:
                         return symbol_value("*TOP-LEVEL-FORM-NOTED*")
@@ -6362,18 +6431,9 @@ def _eval_compile_toplevel(body, path):
         cto = symbol_value("*COMPILE-TOPLEVEL-OBJECT*")
         if cto:
                 with progv({"*COMPILE-OBJECT*": cto}):
-                        convert_and_maybe_compile((progn,) + body, path)
+                        return convert_and_maybe_compile((progn,) + body, path)
 
 def _process_toplevel_form(form, path, compile_time_too):
-        def _macroexpand_1(form, env):
-                ## Like MACROEXPAND-1, but takes care not to expand special forms.
-                # (if (or (atom form)
-                #      (let ((op (car form)))
-                #       (not (and (symbolp op) (sb!xc:special-operator-p op)))))
-                #  (sb!xc:macroexpand-1 form env)
-                #  (values form nil))
-                return (macroexpand_1(form, env) if atom(form) or not (symbolp(car(form)) and special_operator_p(car(form)))
-                                                 else values(form, nil))
         def funcall_in_macrolet_lexenv(bindings, fn):
                 with progv({"*LEXENV*": _not_implemented()}):
                         fn()
