@@ -4421,6 +4421,17 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
                 kdef_vals)
 
 ###
+### Lexical environment
+###
+@defclass
+class _lexenv(_collections.UserDict):
+        def __init__(self, **initial_content):
+                self.__dict__.update(data = _py.dict(initial_content))
+
+def _make_null_lexenv():
+        return make_instance(_lexenv)
+
+###
 ### Tuple intermediate IR
 ###
 ## A pro/val tuple:
@@ -4550,7 +4561,7 @@ def _ir(*ir, **keys):
                 error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
                       known.name, known.compiler_params, invalid_params)
         return (_ir_args, ir, _alist_plist(_hash_table_alist(keys)))
-def _ir_parametrise(when, ir, **parameters):
+def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
 
 @defknown
@@ -5240,6 +5251,85 @@ FUNCTION."""
                                             ("closure_p",         t),
                                             ("name",              nil)])
 
+_string_set("*IN-COMPILATION-UNIT*", nil)
+
+def with_compilation_unit(fn, override = nil):
+        """Affects compilations that take place within its dynamic extent. It is
+intended to be eg. wrapped around the compilation of all files in the same system.
+
+Following options are defined:
+
+  :OVERRIDE Boolean-Form
+      One of the effects of this form is to delay undefined warnings until the
+      end of the form, instead of giving them at the end of each compilation.
+      If OVERRIDE is NIL (the default), then the outermost
+      WITH-COMPILATION-UNIT form grabs the undefined warnings. Specifying
+      OVERRIDE true causes that form to grab any enclosed warnings, even if it
+      is enclosed by another WITH-COMPILATION-UNIT.
+
+Examples:
+
+  ;; Prevent proclamations from the file leaking, and restrict
+  ;; SAFETY to 3 -- otherwise uses the current global policy.
+  (with-compilation-unit (:policy '(optimize))
+    (restrict-compiler-policy 'safety 3)
+    (load \"foo.lisp\"))
+
+  ;; Using default policy instead of the current global one,
+  ;; except for DEBUG 3.
+  (with-compilation-unit (:policy '(optimize debug)
+                          :override t)
+    (load \"foo.lisp\"))
+
+  ;; Same as if :POLICY had not been specified at all: SAFETY 3
+  ;; proclamation leaks out from WITH-COMPILATION-UNIT.
+  (with-compilation-unit (:policy nil)
+    (declaim (optimize safety))
+    (load \"foo.lisp\"))"""
+        succeeded_p = nil
+        if symbol_value("*IN-COMPILATION-UNIT*") and not override:
+                try:
+                        ret = funcall(fn)
+                        succeeded_p = t
+                        return ret
+                finally:
+                        if not succeeded_p:
+                                _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
+                                            symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+        else:
+                with progv({"*ABORTED-COMPILATION-UNIT-COUNT*":0,
+                            "*COMPILER-ERROR-COUNT*":0,
+                            "*COMPILER-WARNINGS-COUNT*":0,
+                            "*COMPILER-STYLE-WARNINGS-COUNT*":0,
+                            "*COMPILER-NOTE-COUNT*":0,
+                            "*UNDEFINED-WARNINGS*":nil,
+                            "*IN-COMPILATION-UNIT*":t,
+                            }):
+                        try:
+                               ret = funcall(fn)
+                               succeeded_p = t
+                               return ret
+                        finally:
+                                if not succeeded_p:
+                                        _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
+                                                    symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+                                summarize_compilation_unit(not succeeded_p)
+
+##
+### What is the status of this?
+def _make_compilation_unit():
+        unit = _py.dict(conditions = [])
+        return unit
+_compilation_unit = _defwith("_compilation_unit",
+                             lambda *_: _dynamic_scope_push({"*COMPILATION-UNIT*": _make_compilation_unit()}
+                                                            if not boundp("*COMPILATION-UNIT*") else
+                                                            make_hash_table()),
+                             lambda *_: _dynamic_scope_pop())
+def _compilation_unit_set(k, v):
+        symbol_value("*COMPILATION-UNIT*")[k] = v
+def _compilation_unit_get(k):
+        return symbol_value("*COMPILATION-UNIT*")[k]
+
 # getsource
 #   getsourcelines
 #     findsource
@@ -5367,9 +5457,9 @@ def _no_other_way_but_compile_lambda_as_named_toplevel(name, lambda_expression, 
         def _convert_lambda_to_def(name, lambda_expression):
                 return (def_, the(symbol, name)) + lambda_expression[1:]
         return _compile_toplevel_def_in_lexenv(
-                name, _ir_parametrise(globalp, _convert_lambda_to_def(name, lambda_expression),
-                                               decorators = [(symbol, "_set_macro_definition") if macrop else
-                                                             (symbol, "_set_function_definition")]),
+                name, _ir_args_when(globalp, _convert_lambda_to_def(name, lambda_expression),
+                                    decorators = [(symbol, "_set_macro_definition") if macrop else
+                                                  (symbol, "_set_function_definition")]),
                 _make_null_lexenv(),
                 globalp = globalp, macrop = globalp and macrop,
                 lambda_expression = lambda_expression)
@@ -5411,28 +5501,29 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                         warnedp,
                         failedp,
                         pro)
-        return _with_compilation_unit(_in_compilation_unit)
+        with progv({"*LEXENV*": lexenv}):
+                return with_compilation_unit(_in_compilation_unit)
 
-@lisp
-def cond(*clauses):
-        (defmacro, cond, (_rest, clauses),
-         (if_, (not_, clauses),
-          nil,
-          (let, ((clause, (first, clauses)),
-                 (rest, (rest, clauses))),
-           (let, ((test, (first, clause)),
-                  (body, (rest, clause))),
-            (quaquote, (if_, (unquote, test),
-                        (progn, (splice, body)),
-                        (cond, (splice, rest))))))))
+# @lisp
+# def cond(*clauses):
+#         (defmacro, cond, (_rest, clauses),
+#          (if_, (not_, clauses),
+#           nil,
+#           (let, ((clause, (first, clauses)),
+#                  (rest, (rest, clauses))),
+#            (let, ((test, (first, clause)),
+#                   (body, (rest, clause))),
+#             (quaquote, (if_, (unquote, test),
+#                         (progn, (splice, body)),
+#                         (cond, (splice, rest))))))))
+#
+# _debug_printf("cond: %s", cond)
 
-_debug_printf("cond: %s", cond)
-
-@lisp
-def fdefinition(name):
-        (defun, fdefinition, (name,),
-         (symbol_function, (the, symbol, name)))
-describe(fdefinition)
+# @lisp
+# def fdefinition(name):
+#         (defun, fdefinition, (name,),
+#          (symbol_function, (the, symbol, name)))
+# describe(fdefinition)
 
 def compile_file_pathname(input_file, output_file = None):
         _not_implemented()
@@ -5458,7 +5549,7 @@ def compile_file(input_file, output_file = None,
                         # However, we need a total module here, not just a single form.
                         # The actual compilation must come as a last pass.
                         ################ Thought process paused here...
-                        cfun, errp, warnp = ???
+                        cfun, errp, warnp = 1
                         failure_p  = failure_p or errp
                         warnings_p = warnings_p or warnp
                         form = read(input)
@@ -6225,17 +6316,6 @@ def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserv
 read = _cold_read
 
 ###
-### Lexical environment
-###
-@defclass
-class _lexenv(_collections.UserDict):
-        def __init__(self, **initial_content):
-                self.__dict__.update(data = _py.dict(initial_content))
-
-def _make_null_lexenv():
-        return make_instance(_lexenv)
-
-###
 ### EVAL
 ###
 _string_set("*EVAL-SOURCE-CONTEXT*", nil)
@@ -6305,84 +6385,7 @@ _string_set("*COMPILE-FILE-TRUENAME*", nil)
 _string_set("*COMPILE-OBJECT*", nil)
 _string_set("*COMPILE-TOPLEVEL-OBJECT*", nil)
 
-_string_set("*IN-COMPILATION-UNIT*", nil)
-
-def with_compilation_unit(fn, override = nil):
-        """Affects compilations that take place within its dynamic extent. It is
-intended to be eg. wrapped around the compilation of all files in the same system.
-
-Following options are defined:
-
-  :OVERRIDE Boolean-Form
-      One of the effects of this form is to delay undefined warnings until the
-      end of the form, instead of giving them at the end of each compilation.
-      If OVERRIDE is NIL (the default), then the outermost
-      WITH-COMPILATION-UNIT form grabs the undefined warnings. Specifying
-      OVERRIDE true causes that form to grab any enclosed warnings, even if it
-      is enclosed by another WITH-COMPILATION-UNIT.
-
-Examples:
-
-  ;; Prevent proclamations from the file leaking, and restrict
-  ;; SAFETY to 3 -- otherwise uses the current global policy.
-  (with-compilation-unit (:policy '(optimize))
-    (restrict-compiler-policy 'safety 3)
-    (load \"foo.lisp\"))
-
-  ;; Using default policy instead of the current global one,
-  ;; except for DEBUG 3.
-  (with-compilation-unit (:policy '(optimize debug)
-                          :override t)
-    (load \"foo.lisp\"))
-
-  ;; Same as if :POLICY had not been specified at all: SAFETY 3
-  ;; proclamation leaks out from WITH-COMPILATION-UNIT.
-  (with-compilation-unit (:policy nil)
-    (declaim (optimize safety))
-    (load \"foo.lisp\"))"""
-        succeeded_p = nil
-        if symbol_value("*IN-COMPILATION-UNIT*") and not override:
-                try:
-                        ret = funcall(fn)
-                        succeeded_p = t
-                        return ret
-                finally:
-                        if not succeeded_p:
-                                _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                            symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
-        else:
-                with progv({"*ABORTED-COMPILATION-UNIT-COUNT*":0,
-                            "*COMPILER-ERROR-COUNT*":0,
-                            "*COMPILER-WARNINGS-COUNT*":0,
-                            "*COMPILER-STYLE-WARNINGS-COUNT*":0,
-                            "*COMPILER-NOTE-COUNT*":0,
-                            "*UNDEFINED-WARNINGS*":nil,
-                            "*IN-COMPILATION-UNIT*":t,
-                            }):
-                        try:
-                               ret = funcall(fn)
-                               succeeded_p = t
-                               return ret
-                        finally:
-                                if not succeeded_p:
-                                        _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                                    symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
-                                summarize_compilation_unit(not succeeded_p)
-
-##
-### What is the status of this?
-def _make_compilation_unit():
-        unit = _py.dict(conditions = [])
-        return unit
-_compilation_unit = _defwith("_compilation_unit",
-                             lambda *_: _dynamic_scope_push({"*COMPILATION-UNIT*": _make_compilation_unit()}
-                                                            if not boundp("*COMPILATION-UNIT*") else
-                                                            make_hash_table()),
-                             lambda *_: _dynamic_scope_pop())
-def _compilation_unit_set(k, v):
-        symbol_value("*COMPILATION-UNIT*")[k] = v
-def _compilation_unit_get(k):
-        return symbol_value("*COMPILATION-UNIT*")[k]
+# with_compilation_unit() is above, due to dependency
 
 # name-reserved-by-ansi-p name kind
 # summarize-compilation-unit abort-p
@@ -6524,7 +6527,8 @@ def _process_toplevel_form(form, path, compile_time_too):
                 else:
                         return default_processor(form)
 
-def _sub_sub_compile_file()
+def _sub_sub_compile_file():
+        pass
 
 _string_set("*LOAD-VERBOSE*", nil)
 _string_set("*LOAD-PRINT*", nil)
