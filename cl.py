@@ -4550,6 +4550,8 @@ def _ir(*ir, **keys):
                 error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
                       known.name, known.compiler_params, invalid_params)
         return (_ir_args, ir, _alist_plist(_hash_table_alist(keys)))
+def _ir_parametrise(when, ir, **parameters):
+        return _ir(*ir, **parameters) if when else ir
 
 @defknown
 def symbol(name):
@@ -5259,6 +5261,9 @@ def _lisp_add_def(name, source):
         linecache.cache[__def_sources_filename__] = _py.len(total), _py.int(time.time()), total.split("\n"), __def_sources_filename__
 
 def lisp(body):
+        ## What should it be like?
+        ##  - COMPILE-FILE + LOAD
+        ##  - COMPILE-TOPLEVEL-FORM + ?
         symbol, symbol_name, _ = _read_python_toplevel_name(body)
         args_ast, body_ast = _function_ast(body)
         if _py.len(body_ast) > 1:
@@ -5269,10 +5274,10 @@ def lisp(body):
         if form[0] not in __def_allowed_toplevels__:
                 error("In LISP %s: only toplevels in %s are allowed.",
                       form[0], __def_allowed_toplevels__)
-        name, warnedp, failedp, _ = _compile_toplevel_def(symbol, form,
-                                                          globalp = t,
-                                                          macrop = form[0] is defmacro,
-                                                          lambda_expression = (lambda_,) + form[1:])
+        name, warnedp, failedp, _ = _compile_toplevel_def_in_lexenv(symbol, form, _make_null_lexenv(),
+                                                                    globalp = t,
+                                                                    macrop = form[0] is defmacro,
+                                                                    lambda_expression = (lambda_,) + form[2:])
         if failedp:
                 error("Compilation failed: errors while compiling %s.", name)
         elif warnedp:
@@ -5285,11 +5290,11 @@ def compile(name, definition = None):
         return _compile(name, definition)[:3]
 
 def _compile(name, definition = None):
-        """compile name &optional definition => function, warnings-p, failure-p
+        """compile name &optional definition => FUNCTION, WARNINGS-P, FAILURE-P
 
 Arguments and Values:
 
-NAME---a function name, or nil.
+NAME---a function name, or NIL.
 
 DEFINITION---a lambda expression or a function.  The default is the
 function definition of NAME if it names a function, or the macro
@@ -5336,6 +5341,10 @@ ERROR or WARNING were detected by the compiler, and true otherwise.
 The tertiary value, FAILURE-P, is false if no conditions of type ERROR
 or WARNING (other than STYLE-WARNING) were detected by the compiler,
 and true otherwise."""
+        ## 1. Elect a name, for future retrieval of the compiled
+        ##    function from the resulting module by N-O-W-B-C-L-A-N-T.
+        ## 2. Choose a lambda expression, and handle exceptions.
+        ## 3. Inevitably, punt to N-O-W-B-C-L-A-N-T.
         if _tuplep(definition):
                 lambda_expression = the((partuple, (eql, lambda_), pytuple), definition)
         else:
@@ -5349,22 +5358,26 @@ and true otherwise."""
         #  - _ast_compiled_name() requires one
         #  - THERE-EXIST lambdas non-expressible in Python
         # Coerce the lambda to a named def, for _ast_compiled_name purposes:
-        form = (def_, final_name) + lambda_expression[1:]
-        assert name
-        if name:
-                # The load-time effect must establish an appropriate definition.
-                macrop = not not macro_function(name)
-                form = _ir(*form,
-                            decorators = [(symbol, "_set_macro_definition") if macrop else
-                                          (symbol, "_set_function_definition")])
-        return _compile_toplevel_def(final_name, form,
-                                     globalp = name,
-                                     macrop = name and macrop,
-                                     lambda_expression = lambda_expression)
+        return _no_other_way_but_compile_lambda_as_named_toplevel(final_name, lambda_expression,
+                                                                  globalp = not not name,
+                                                                  macrop = name and not not macro_function(name))
 
-def _compile_toplevel_def(name, form, globalp = nil, macrop = nil, lambda_expression = None):
-        with _compilation_unit():
-                pv = pro, _ = _lower(form)
+def _no_other_way_but_compile_lambda_as_named_toplevel(name, lambda_expression, globalp = None, macrop = None):
+        "There really is no other way.  Trust me.  Please."
+        def _convert_lambda_to_def(name, lambda_expression):
+                return (def_, the(symbol, name)) + lambda_expression[1:]
+        return _compile_toplevel_def_in_lexenv(
+                name, _ir_parametrise(globalp, _convert_lambda_to_def(name, lambda_expression),
+                                               decorators = [(symbol, "_set_macro_definition") if macrop else
+                                                             (symbol, "_set_function_definition")]),
+                _make_null_lexenv(),
+                globalp = globalp, macrop = globalp and macrop,
+                lambda_expression = lambda_expression)
+
+def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = nil, lambda_expression = None):
+        def _in_compilation_unit():
+                pv = pro, _ = _lower(form) # We're only interested in the resulting DEF.
+                assert _py.len(pro) is 1
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(pv))
                 if _debugging_compiler_p():
                         import more_ast
@@ -5398,19 +5411,7 @@ def _compile_toplevel_def(name, form, globalp = nil, macrop = nil, lambda_expres
                         warnedp,
                         failedp,
                         pro)
-
-def _make_compilation_unit():
-        unit = _py.dict(conditions = [])
-        return unit
-_compilation_unit = _defwith("_compilation_unit",
-                             lambda *_: _dynamic_scope_push({"*COMPILATION-UNIT*": _make_compilation_unit()}
-                                                            if not boundp("*COMPILATION-UNIT*") else
-                                                            make_hash_table()),
-                             lambda *_: _dynamic_scope_pop())
-def _compilation_unit_set(k, v):
-        symbol_value("*COMPILATION-UNIT*")[k] = v
-def _compilation_unit_get(k):
-        return symbol_value("*COMPILATION-UNIT*")[k]
+        return _with_compilation_unit(_in_compilation_unit)
 
 @lisp
 def cond(*clauses):
@@ -5438,15 +5439,32 @@ def compile_file_pathname(input_file, output_file = None):
         return
 
 def compile_file(input_file, output_file = None,
-                 compile_verbose = None, compile_print = None, external_format = None,
+                 compile_verbose = None,
+                 compile_print = None,
+                 external_format = None,
                  # Extension:
                  trace_file = None):
-        _not_implemented()
-        with _py.open(input_file, "r") as input:
+        def _compile_file_default_pathname(input_file, output_file = None):
+                if not input_file.endswith(".lisp"):
+                        error("In COMPILE-FILE %s: must end with .lisp.", _py.repr(input_file))
+                return _defaulted(output_file, input_file[:-2] + "fas")
+        compile_verbose, compile_print = mapcar(lambda x: _defaulted_to_var(compile_verbose, x), ["*COMPILE-VERBOSE*",
+                                                                                                  "*COMPILE-PRINT*"])
+        output_file = _compile_file_default_pathname(input_file, output_file = output_file)
+        abort_p, warnings_p, failure_p = nil, nil, nil
+        with open(input_file, "r") as input:
                 form = read(input)
                 while form:
-                        cfun, errp, warnp, stmts = _compile((lambda_, tuple(), form))
+                        # However, we need a total module here, not just a single form.
+                        # The actual compilation must come as a last pass.
+                        ################ Thought process paused here...
+                        cfun, errp, warnp = ???
+                        failure_p  = failure_p or errp
+                        warnings_p = warnings_p or warnp
                         form = read(input)
+        with open(output_file, "w") as output:
+                _compiler_mumble("; writing %s..\n", output_file)
+                _not_implemented()
         return (abort_p,
                 warnings_p,
                 failure_p)
@@ -6248,7 +6266,8 @@ def _simple_eval_in_lexenv(original_exp, lexenv):
                                                                       nil    if _py.len(exp) == 3               else
                                                                       exp[3]), lexenv)
                 elif name in [let, let_]:     return _simple_eval(exp, lexenv)
-                else:                         return _simple_eval(exp, lexenv)
+                else:                         return _simple_eval(exp, lexenv) # This directly invoked a function, whenever
+                                                                               # it was already in the FNDB.  We just punt.
         else:
                 return exp
 
@@ -6262,8 +6281,8 @@ def _do_eval(exp, tlf_index, source_info, lexenv):
                 return _eval_in_lexenv(original_exp, lexenv)
 
 def _eval_tlf(original_exp, tlf_index, lexenv = None):
-        _do_eval(original_exp, tlf_index, symbol_value("*SOURCE-INFO*"),
-                 _defaulted(lexenv, _make_null_lexenv()))
+        return _do_eval(original_exp, tlf_index, symbol_value("*SOURCE-INFO*"),
+                        _defaulted(lexenv, _make_null_lexenv()))
 
 def eval(original_exp):
         return _do_eval(original_exp, nil, nil, _make_null_lexenv())
@@ -6350,6 +6369,21 @@ Examples:
                                                     symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
                                 summarize_compilation_unit(not succeeded_p)
 
+##
+### What is the status of this?
+def _make_compilation_unit():
+        unit = _py.dict(conditions = [])
+        return unit
+_compilation_unit = _defwith("_compilation_unit",
+                             lambda *_: _dynamic_scope_push({"*COMPILATION-UNIT*": _make_compilation_unit()}
+                                                            if not boundp("*COMPILATION-UNIT*") else
+                                                            make_hash_table()),
+                             lambda *_: _dynamic_scope_pop())
+def _compilation_unit_set(k, v):
+        symbol_value("*COMPILATION-UNIT*")[k] = v
+def _compilation_unit_get(k):
+        return symbol_value("*COMPILATION-UNIT*")[k]
+
 # name-reserved-by-ansi-p name kind
 # summarize-compilation-unit abort-p
 # with-compilation-values body
@@ -6395,6 +6429,8 @@ def _preprocessor_macroexpand_1(form):
         except error.python_type as condition:
                 _compiler_error("(during macroexpansion of %s)\n%s", format(nil, "%s", form), condition)
 
+## The %CONVERT-AND-MAYBE-CONMPILE function returns whatever LOWER returns.
+## The PROCESS-* functions return possibly empty lists of %C-A-M-C return values.
 def _process_toplevel_progn(forms, path, compile_time_too):
         return mapcan(lambda f: _process_toplevel_form(f, path, compile_time_too), forms)
 
@@ -6423,6 +6459,7 @@ def _note_top_level_form(form, finalp = nil):
                 else:
                         return symbol_value("*TOP-LEVEL-FORM-NOTED*")
 
+## This returns a list of %C-A-M-C retvals, just as PROCESS-* do.
 def _eval_compile_toplevel(body, path):
         ## Handle the evaluation the a :COMPILE-TOPLEVEL body during
         ## compilation. Normally just evaluate in the appropriate
@@ -6431,61 +6468,63 @@ def _eval_compile_toplevel(body, path):
         cto = symbol_value("*COMPILE-TOPLEVEL-OBJECT*")
         if cto:
                 with progv({"*COMPILE-OBJECT*": cto}):
-                        return convert_and_maybe_compile((progn,) + body, path)
+                        return [_convert_and_maybe_compile((progn,) + body, path)]
+        else:
+                return []
 
 def _process_toplevel_form(form, path, compile_time_too):
         def funcall_in_macrolet_lexenv(bindings, fn):
                 with progv({"*LEXENV*": _not_implemented()}):
-                        fn()
+                        return fn()
         def funcall_in_symbol_macrolet_lexenv(bindings, fn):
                 with progv({"*LEXENV*": _not_implemented()}):
-                        fn()
+                        return fn()
         path = _get_source_path(form) or cons(form, path)
         def default_processor(form):
                 with progv({"*TOPLEVEL-FORM-NOTED*": _note_top_level_form(form)}):
                         expanded = _preprocessor_macroexpand_1(form)
                         if expanded is form:
                                 if compile_time_too:
+                                        # Done purely for side-effect.
                                         _eval_compile_toplevel((form,), path)
-                                convert_and_maybe_compile(form, path)
+                                return [_convert_and_maybe_compile(form, path)]
                         else:
-                                _process_toplevel_form(expanded, path, compile_time_too)
+                                return _process_toplevel_form(expanded, path, compile_time_too)
         if atom(form):
-                default_processor(form)
+                return default_processor(form)
         else:
-                def need_at_least_one_arg(form):
+                if form[0] in [eval_when, macrolet, symbol_macrolet]:
                         if _py.len(form) < 2:
                                 _compiler_error("%s form is too short: %s", form[0], form)
-                if form[0] in [eval_when, macrolet, symbol_macrolet]:
-                        need_at_least_one_arg(form)
                         special_operator, magic, *body = form
                         if special_operator is eval_when:
                                 ## CT, LT, and E here are as in Figure 3-7 of ANSI
                                 ## "3.2.3.1 Processing of Top Level Forms".
                                 ct, lt, e = _parse_eval_when_situations(magic)
                                 new_compile_time_too = ct or (compile_time_too and e)
-                                if lt:
-                                        _process_toplevel_progn(body, path, new_compile_time_too)
-                                elif new_compile_time_too:
-                                        _eval_compile_toplevel(body, path)
+                                return (_process_toplevel_progn(body, path, new_compile_time_too) if lt                   else
+                                        _eval_compile_toplevel(body, path)                        if new_compile_time_too else
+                                        [])
                         elif special_operator is macrolet:
-                                funcall_in_macrolet_lexenv(
+                                return funcall_in_macrolet_lexenv(
                                         magic,
                                         lambda funs = [], prepend = []:
                                                 (the(null, prepend) or
                                                  _process_toplevel_locally(body, path, compile_time_too)))
                         elif special_operator is symbol_macrolet:
-                                funcall_in_symbol_macrolet_lexenv(
+                                return funcall_in_symbol_macrolet_lexenv(
                                         magic,
                                         lambda vars = [], prepend = []:
                                                 (the(null, prepend) or
                                                  _process_toplevel_locally(body, path, compile_time_too, vars = vars)))
                 elif form[0] is locally:
-                        _process_toplevel_locally(form[1:], path, compile_time_too)
+                        return _process_toplevel_locally(form[1:], path, compile_time_too)
                 elif form[0] is progn:
-                        _process_toplevel_locally(form[1:], path, compile_time_too)
+                        return _process_toplevel_progn(form[1:], path, compile_time_too)
                 else:
-                        default_processor(form)
+                        return default_processor(form)
+
+def _sub_sub_compile_file()
 
 _string_set("*LOAD-VERBOSE*", nil)
 _string_set("*LOAD-PRINT*", nil)
