@@ -292,10 +292,18 @@ def _cold_print_symbol(s, **keys):
         return (s.package.name if s.package else "#") + ":" + s.name
 _print_symbol = _cold_print_symbol
 
-def _cold_error(datum, *args):
-        raise (_py.Exception(datum % args) if stringp(datum) else
-               datum(*args))
+def _cold_error(datum, *args, **keys):
+        raise (_py.Exception(datum % args, **keys) if stringp(datum) else
+               datum(*args, **keys))
 error = _cold_error
+def _cold_warn(datum, *args, **keys):
+        _py.print(_py.Exception(datum % args, **keys) if stringp(datum) else
+                  datum(*args, **keys))
+warn = _cold_warn
+def _cold_signal(condition):
+        # _py.print("; %%COLD-SIGNAL: signalling %s\n" % (condition,))
+        pass
+signal = _cold_signal
 def _cold_null(x): return not x
 null = _cold_null
 def _cold_format(destination, control_string, *args):
@@ -2043,15 +2051,14 @@ SETF of MACRO-FUNCTION."""
         return the((or_, _cold_function_type, null, (eql, t)), the(symbol, symbol_).macro_function)
 
 def _style_warn(control, *args):
-        # Ought to signal a condition, but..
-        format(t, "; STYLE-WARNING: " + control, *args)
+        warn(simple_style_warning, control, *args)
 
 def _warn_incompatible_function_redefinition(symbol, tons, fromns):
         _style_warn("%s is being redefined as a %s when it was previously defined to be a %s.", symbol, tons, fromns)
 
 def _warn_possible_redefinition(x, type):
         if x:
-                _style_warn("In %s: %s is being redefined.\n", type, x.name)
+                _style_warn("In %s: %s is being redefined.", type, x.name)
 
 def setf_macro_function(new_function, symbol, environment = None):
         "<See documentation for MACRO-FUNCTION>"
@@ -2511,6 +2518,12 @@ _define_python_type_map("PYSET",       _py.set)
 _define_python_type_map("PYFROZENSET", _py.frozenset)
 
 ###
+### Early-earlified streaming
+###
+def streamp(x):                     return typep(x, _cold_stream_type)
+def _fd_stream_p(x):                return typep(x, _cold_fd_stream_type)
+
+###
 ### Describe
 ###
 # def _get_info_value(name, type, env_list = None):
@@ -2748,38 +2761,38 @@ def force_output(*args, **keys):
 def _conditionp(x):
         return typep(x, condition)
 
-def make_condition(datum, *args, default_type = error, **keys):
-        """
-It's a slightly weird interpretation of MAKE-CONDITION, as the latter
-only accepts symbols as DATUM, while this one doesn't accept symbols
-at all.
-"""
-        # format(t, "stringp: %s\nclassp: %s\nBaseException-p: %s\n",
-        #        stringp(datum),
-        #        typep(datum, type_of(condition)),
-        #        typep(datum, condition))
+def _coerce_to_condition(datum, *args, default_type = error, **keys):
         type_specifier = default_type if stringp(datum) else datum
         type = (type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
                 type_specifier             if typep(type_specifier, _cold_class_type)                                else
                 None                       if typep(type_specifier, _cold_condition_type)                            else
-                error(simple_type_error, "The first argument to MAKE-CONDITION must either a string, a condition type specifier or a condition, was: %s, of type %s.",
-                      _py.repr(datum), type_of(datum)))
-        cond = (datum              if type is None   else
+                error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
+        cond = (datum              if type is None   else # Already a condition.
                 type(datum % args) if stringp(datum) else
                 type(*args, **keys))
-        # format(t, "made %s %s %s\n", datum, args, keys)
-        # format(t, "    %s\n", cond)
         return cond
-@defun
-def error(datum, *args, **keys):
-        "With all said and done, this ought to jump right into __CL_CONDITION_HANDLER__."
-        raise make_condition(datum, *args, **keys)
+
+def make_condition(type, *args, **keys):
+        """It's a slightly weird interpretation of MAKE-CONDITION, as
+the latter only accepts symbols as DATUM, while this one doesn't
+accept symbols at all."""
+        check_type(type, symbol)
+        if not (_py.hasattr(type, "python_type") and
+                _conditionp(type.python_type)):
+                error("In MAKE-CONDITION: %s does not designate a condition type.", type)
+        return type.python_type(*args, **keys)
 
 @defclass
 class warning(condition.python_type): pass
 
 @defclass
 class simple_warning(_cold_simple_condition_type, warning.python_type): pass
+
+@defclass
+class style_warning(warning.python_type): pass
+
+@defclass
+class simple_style_warning(simple_warning.python_type, style_warning.python_type): pass
 
 @defclass
 class type_error(error.python_type):
@@ -2811,6 +2824,23 @@ class _not_implemented_condition(condition.python_type):
 class _not_implemented_error(_not_implemented_condition.python_type, error.python_type): pass
 @defclass
 class _not_implemented_warning(_not_implemented_condition.python_type, warning.python_type): pass
+
+@defun
+def error(datum, *args, **keys):
+        ## Shouldn't we ditch Python compat entirely, doing instead
+        ## the typical SIGNAL/INVOKE-DEBUGGER thing?
+        raise _coerce_to_condition(datum, *args, **keys)
+
+@defun
+def warn(datum, *args, **keys):
+        condition = _coerce_to_condition(datum, *args, **keys)
+        check_type(condition, warning)
+        signal(condition)
+        badness = _poor_man_etypecase(condition,
+                                      (style_warning, style_warning),
+                                      (warning,       warning))
+        format(symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
+        return nil
 
 def _not_implemented(x = None):
         error(_not_implemented_error,
@@ -2972,8 +3002,6 @@ def pathname_type(x): return _namestring_components(x)[2]
 ###
 ### Earlified streaming
 ###
-def streamp(x):                     return typep(x, _cold_stream_type)
-def _fd_stream_p(x):                return typep(x, _cold_fd_stream_type)
 def stream_external_format(stream): return _keyword(stream.encoding)
 
 def make_string_output_stream():
