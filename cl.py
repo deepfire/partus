@@ -2276,7 +2276,7 @@ def _do_intern_symbol(s, p):
 #
 
 def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
-def symbol_name(x):                  return x.name.lower()
+def symbol_name(x):                  return x.name
 def symbol_package(x):               return x.package
 def coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, _coerce_to_package(package))
@@ -2378,6 +2378,13 @@ def _condition_system_enabled_p():
         return (_frost.pytracer_enabled_p() and
                 _frost.tracer_hook("exception") is __cl_condition_handler__)
 
+def _uncold_definition(o):
+        symbol = _intern(_frost.python_name_lisp_symbol_name(o.__name__))[0]
+        _frost.frost_def(o,  symbol, ("python_type" if _py.isinstance(o, _py.type) else
+                                      "function"),
+                         _py.globals())
+        _frost.setf_global(symbol, o.__name__, _py.globals())
+        return symbol
 
 __core_symbol_names__ = [
         "QUOTE",
@@ -2393,7 +2400,7 @@ def _init_package_system_0():
         global __builtins_package__
         global __keyword_package__
         global __modular_noise__
-        global t
+        global t, symbol, make_symbol, make_package
         __packages__ = _py.dict()
         __builtins_package__ = package("BUILTINS", boot = True)
         __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
@@ -2421,22 +2428,27 @@ def _init_package_system_0():
         star = _intern("*", cl)[0]
         package("COMMON-LISP-USER", use = ["CL", "BUILTINS"], boot = True)
         __global_scope__["*PACKAGE*"] = cl # COLD-SETQ
-        _frost.frost_def(symbol,  _intern("SYMBOL")[0],  "python_type", _py.globals())
+        symbol = _frost.frost_def(symbol,  _intern("SYMBOL")[0],  "python_type", _py.globals())
         @defun(_do_intern_symbol(symbol.python_type("MAKE-SYMBOL"), cl))
         def make_symbol(name):
                 return symbol.python_type(name)
+        _boot_advance("_BOOT_SYMBOL")
         _frost.frost_def(package, _intern("PACKAGE")[0], "python_type", _py.globals())
         @defun
         def make_package(name, nicknames = [], use = []):
                 if nicknames:
                         _not_implemented("In MAKE-PACKAGE %s: package nicknames are ignored.", _py.repr(name))
                 return package.python_type(string(name), ignore_python = True, use = [])
+        # symbol = metasymbol
 _init_package_system_0() ########### _keyword(), quote_, and_, or_, abort_, continue_, break_ are now available
+
+mapc(_uncold_definition, [symbol_function])
 
 def _init_reader_0():
         "SETQ, SYMBOL_VALUE, LET and BOUNDP (anything calling _COERCE_TO_SYMBOL_NAME) need this to mangle names."
         __global_scope__["*READ-CASE*"] = _keyword("upcase", upcase = True)
 _init_reader_0()         ########### _coerce_to_symbol_name() is now available
+
 
 def _string_set(name, value, force_toplevel = nil):
         _find_dynamic_frame_for_set(the(_py.str, name), force_toplevel = force_toplevel)[name] = value
@@ -2463,8 +2475,6 @@ _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
 ###
 ### Symbol-related thaw
 ###
-_boot_advance("_BOOT_SYMBOL")
-
 def make_instance(class_or_name, **initargs):
         class_ = _poor_man_etypecase(class_or_name,
                                      (symbol, class_or_name.python_type),
@@ -2961,8 +2971,9 @@ declared to be the names of constant variables)."""
 def null(x):
         return x is nil
 
-def _read_symbol(x, package = None, case = _keyword("upcase")):
+def _read_symbol(x, package = None, case = None):
         # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
+        case = _defaulted_to_var(case, "*READ-CASE*")
         name, p = ((x[1:], __keyword_package__)
                    if x[0] == ":" else
                    _poor_man_let(x.find(":"),
@@ -3339,13 +3350,17 @@ def _ast_functiondef(name, lambda_list_spec, body):
 ### AST -> SEX
 ###
 def _read_ast(x):
-        return (x.n                                     if _py.isinstance(x, _ast.Num)   else
-                x.s                                     if _py.isinstance(x, _ast.Str)   else
-                _read_symbol(x.id)                      if _py.isinstance(x, _ast.Name)  else
-                _py.tuple(_read_ast(e) for e in x)      if _py.isinstance(x, _py.list)   else
-                _py.tuple(_read_ast(e) for e in x.elts) if _py.isinstance(x, _ast.Tuple) else
-                _read_ast(x.value)                      if _py.isinstance(x, _ast.Expr)  else
-                error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
+        def rec(x):
+                return (x.n                               if _py.isinstance(x, _ast.Num)   else
+                        x.s                               if _py.isinstance(x, _ast.Str)   else
+                        _read_symbol(x.id)                if _py.isinstance(x, _ast.Name)  else
+                        _py.tuple(rec(e) for e in x)      if _py.isinstance(x, _py.list)   else
+                        _py.tuple(rec(e) for e in x.elts) if _py.isinstance(x, _ast.Tuple) else
+                        _read_ast(x.value)                if _py.isinstance(x, _ast.Expr)  else
+                        error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
+        with progv(# {"*READ-CASE*": _keyword("preserve")}
+                   ):
+                return rec(x)
 
 ###
 ### Rich AST
@@ -5314,10 +5329,12 @@ Examples:
   (with-compilation-unit (:policy nil)
     (declaim (optimize safety))
     (load \"foo.lisp\"))"""
+        def summarize_compilation_unit(failurep):
+                _warn_not_implemented()
         succeeded_p = nil
         if symbol_value("*IN-COMPILATION-UNIT*") and not override:
                 try:
-                        ret = funcall(fn)
+                        ret = fn()
                         succeeded_p = t
                         return ret
                 finally:
@@ -5334,7 +5351,7 @@ Examples:
                             "*IN-COMPILATION-UNIT*":t,
                             }):
                         try:
-                               ret = funcall(fn)
+                               ret = fn()
                                succeeded_p = t
                                return ret
                         finally:
@@ -5516,13 +5533,14 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 func.closure_p         = nil
                 func.name              = name # Debug name, as per F-L-E spec.
                 warnings, style_warnings, errors = [], [], []
-                for cond in _compilation_unit_get("conditions"):
-                        if typep(cond, error):
-                                errors.append(cond)
-                        elif typep(cond, style_warning):
-                                style_warnings.append(cond)
-                        elif typep(cond, warning):
-                                warnings.append(cond)
+                ## XXX: was too lazy to fix compilation unit stuff, so commented out..
+                # for cond in _compilation_unit_get("conditions"):
+                #         if typep(cond, error):
+                #                 errors.append(cond)
+                #         elif typep(cond, style_warning):
+                #                 style_warnings.append(cond)
+                #         elif typep(cond, warning):
+                #                 warnings.append(cond)
                 warnedp, failedp = (not not (errors or warnings or style_warnings),
                                     not not (errors or warnings))
                 return ((name if globalp else func),
@@ -5532,26 +5550,26 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
         with progv({"*LEXENV*": lexenv}):
                 return with_compilation_unit(_in_compilation_unit)
 
-# @lisp
-# def cond(*clauses):
-#         (defmacro, cond, (_rest, clauses),
-#          (if_, (not_, clauses),
-#           nil,
-#           (let, ((clause, (first, clauses)),
-#                  (rest, (rest, clauses))),
-#            (let, ((test, (first, clause)),
-#                   (body, (rest, clause))),
-#             (quaquote, (if_, (unquote, test),
-#                         (progn, (splice, body)),
-#                         (cond, (splice, rest))))))))
-#
-# _debug_printf("cond: %s", cond)
+@lisp
+def cond(*clauses):
+        (defmacro, cond, (_rest, clauses),
+         (if_, (not_, clauses),
+          nil,
+          (let, ((clause, (first, clauses)),
+                 (rest, (rest, clauses))),
+           (let, ((test, (first, clause)),
+                  (body, (rest, clause))),
+            (quaquote, (if_, (unquote, test),
+                        (progn, (splice, body)),
+                        (cond, (splice, rest))))))))
 
-# @lisp
-# def fdefinition(name):
-#         (defun, fdefinition, (name,),
-#          (symbol_function, (the, symbol, name)))
-# describe(fdefinition)
+_debug_printf("cond: %s", cond)
+
+@lisp
+def fdefinition(name):
+        (defun, fdefinition, (name,),
+         (symbol_function, (the, symbol, name)))
+describe(fdefinition)
 
 def compile_file_pathname(input_file, output_file = None):
         _not_implemented()

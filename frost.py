@@ -46,7 +46,7 @@ def make_object_like_python_class(x, cls):
 
 def frost_def(o, symbol, slot, globals):
         setattr(symbol, slot, o)
-        setf_global(symbol, lisp_symbol_name_python_name(symbol.name), globals)
+        setf_global(symbol, symbol.name, globals)
         return symbol
 
 ##
