@@ -35,6 +35,9 @@ def global_(name, globals):
         return ((globals[name], True) if name in globals else
                 (None,          False))
 
+def has_global(name, globals):
+        return name in globals
+
 def make_object_like_python_function(x, function):
         x.__code__ = function.__code__
         return x
@@ -49,11 +52,14 @@ def frost_def(o, symbol, slot, globals):
         setf_global(symbol, symbol.name, globals)
         return symbol
 
+import sys
+
+def find_module(name):
+        return sys.modules[name] if name in sys.modules else None
+
 ##
 ## Pythonese execution tracing: for HANDLER-BIND.
 ##
-import sys
-
 __tracer_hooks__   = dict() # allowed keys: "call", "line", "return", "exception", "c_call", "c_return", "c_exception"
 def set_tracer_hook(type, fn):        __tracer_hooks__[type] = fn
 def     tracer_hook(type):     return __tracer_hooks__[type] if type in __tracer_hooks__ else None

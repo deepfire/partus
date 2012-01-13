@@ -101,6 +101,129 @@ import collections as _collections
 import neutrality  as _neutrality
 import frost       as _frost
 
+##
+## So cold it bites.
+##
+def _fprintf(stream, format_control, *format_args):
+        try:
+                return _neutrality._write_string(format_control % format_args, stream)
+        except _py.UnicodeEncodeError:
+                return _neutrality._write_string((format_control % format_args).encode("utf-8"), stream)
+
+def _debug_printf(format_control, *format_args):
+        _fprintf(_sys.stderr, format_control + "\n", *format_args)
+
+def _cold_warn(control, *args):
+        _debug_printf("COLD WARNING: " + control, *args)
+
+warn = _cold_warn
+
+##
+## Boot dependency self-awareness
+##
+class _storyteller(_collections.UserDict):
+        def __init__(self):           self.__dict__.update(_py.dict(__call__ = lambda *_, **__: True,
+                                                                    data     = _py.dict()))
+        def __setattr__(self, _, __): raise _py.Exception("\n; The Storyteller defies this intercession.")
+        def advance(self, x):         self.data[x if _py.isinstance(x, _py.str) else
+                                                x.__name__] = True
+        def call(self, x, control, *args, hard = False):
+                if x in self.data:
+                        return True
+                if hard:
+                        raise _py.Exception(("\n; The Storyteller quietly said: 'twas too early to mention \"%s\" " % x) + control % args)
+                else:
+                        warn(("too early to mention \"%s\" " % (x,)) + control, *args)
+        def conclude(self):
+                _debug_printf("; The Storyteller proclaimed a conclusion, which also was a new beginning.")
+                self.__dict__.update(_py.dict(__call__ = lambda *_, **__: True))
+_storyteller = _storyteller()
+story = _storyteller.advance
+
+##
+## First-class namespaces
+##
+class _namespace(_collections.UserDict):
+        def __init__(self, name):  self.name, self.data, self.properties = name, _py.dict(), _collections.defaultdict(_py.dict)
+        def names(self):                             return _py.set(self.data.keys())
+        def intersect(self, with_):                  return [x for x in with_ if x in self.data] if _py.len(self) > _py.len(with_) else [x for x in self.data if x in with_]
+        def has(self, name):                         return name in self.data
+        def get(self, name):                         return self.data[name]
+        def access(self, name, default = None):      return (default, None) if name not in self.data else (self.data[name], True)
+        def set(self, value, name):                  self.data[name] = value; return value
+        def grow(self, name):                        self.data[name] = _namespace_type_and_constructor(name); self.setf_property(True, name, "NAMESPACEP")
+        def properties(self, name):                  return self.properties[name]
+        def has_property(self, name, pname):         return pname in self.properties[name]
+        def property(self, name, pname, default = None):
+                cell = self.properties[name]
+                return cell[pname] if pname in cell else default
+        def setf_property(self, value, name, pname):
+                self.properties[name] = value
+                return value
+_namespace_type_and_constructor = _namespace
+_namespace = _namespace_type_and_constructor("")
+
+##
+## Package system: early core
+##
+_namespace.grow("PACKAGES")
+class package(_collections.UserDict):
+        def __repr__ (self): return "#<PACKAGE \"%s\">" % self.name # Cold PRINT-UNREADABLE-OBJECT
+        def __bool__(self):  return True                            # Non-false even if empty.
+        def __hash__(self):  return hash(_py.id(self))
+        def __init__(self, name, use = [], nicknames = [], internal_symbols = 10, external_symbols = 10,
+                     filename = "", ignore_python = False, python_exports = True, boot = False):
+                internal_symbols = external_symbols = "IGNORE"
+                ## DEPENDENCY: USE-PACKAGE
+                ## DEPENDENCY: INTERN
+                def validate_requested_package_names(name, nicknames):
+                        # Unregistered Issue COMPLIANCE-PACKAGE-REDEFINITION
+                        name = "IGNORE"
+                        nickname_conflicts = _namespace["PACKAGES"].intersect(nicknames)
+                        for n_c in nickname_conflicts:
+                                p = _namespace["PACKAGES"][n_c]
+                                if p.name == n_c: error("\"%s\" is a package name, so it cannot be a nickname for \"%s\".", n_c, name)
+                                else:             error("\"%s\" is already a nickname for \"%s\".", n_c, p.name)
+                def setup_package_usage(p, used):
+                        ## Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
+                        # coercer = (_ccoerce_to_package if boot else
+                        #            _coerce_to_package)
+                        if used and _storyteller.call("use_package", "using %s into %s", used, p):
+                                p.used_packages  = _py.set(_coerce_to_package(x, if_null = "error")
+                                                           for x in used)
+                                p.packages_using = _py.set()
+                                for u_p in p.used_packages:
+                                        assert _py.isinstance(u_p, p.__type__)
+                                        use_package(p, u_p)
+                ## __init__()
+                assert _py.isinstance(name, _py.str)
+                self.name = name
+                self.nicknames = nicknames
+
+                validate_requested_package_names(name, nicknames)
+
+                self.own         = _py.set()                         # sym
+                self.imported    = _py.set()                         # sym
+              # self.present     = own + imported
+                self.inherited   = _collections.defaultdict(_py.set) # sym -> _py.set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
+                self.accessible  = _py.dict()                        # str -> sym          ## accessible = present + inherited
+                self.external    = _py.set()                         # sym                 ## subset of accessible
+              # self.internal    = accessible - external
+
+                setup_package_usage(self, use)
+
+                ## Hit the street.
+                self.data          = self.accessible
+                _namespace["PACKAGES"].set(self, name)
+                for nick in nicknames:
+                        _namespace["PACKAGES"].set(self, nick)
+
+make_package = package
+
+def _core_package_init():
+        make_package("COMMON-LISP", nicknames = ["CL"])
+_core_package_init()
+
 ###
 ### Types
 ###
@@ -239,12 +362,12 @@ def _global(x):
         return _frost.global_(x, _py.globals())
 
 __boot_state_names__ = _py.dict()
-def defbootstate(n, name):
+def _defbootstate(n, name):
         _frost.setf_global(n, name, _py.globals())
         __boot_state_names__[n] = name
-defbootstate(0, "_BOOT_NOTHING")
-defbootstate(1, "_BOOT_SYMBOL")
-defbootstate(2, "_BOOT_PRINTER")
+_defbootstate(0, "_BOOT_NOTHING")
+_defbootstate(1, "_BOOT_SYMBOL")
+_defbootstate(2, "_BOOT_PRINTER")
 
 __boot_state__ = _BOOT_NOTHING
 def _boot_state():      return __boot_state__
@@ -714,15 +837,6 @@ def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.
                             # _defaulted(stream, default_stream)
                              )
 
-def _fprintf(stream, format_control, *format_args):
-        try:
-                return _write_string(format_control % format_args, stream)
-        except UnicodeEncodeError:
-                return _write_string((format_control % format_args).encode("utf-8"), stream)
-
-def _debug_printf(format_control, *format_args):
-        _fprintf(_sys.stderr, format_control + "\n", *format_args)
-
 def _locals_printf(locals, *local_names):
         # Unregistered Issue NEWLINE-COMMA-SEPARATION-NOT-PRETTY
         _fprintf(_sys.stderr, ", ".join((("%s: %%s" % x) if stringp(x) else "%s")
@@ -1041,9 +1155,8 @@ def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 ##
 ## Basic
 ##
-def _cold_eql(x, y):
+def eql(x, y):
         return (x is y) if not _py.isinstance(x, _py.int) else x == y
-eql = _cold_eql
 
 def equal(x, y):
         return x == y
@@ -1188,27 +1301,6 @@ def plusp(x):         return x > 0
 def minusp(x):        return x < 0
 
 ##
-## Multiple values
-##
-def values(*xs):
-        return xs
-
-def nth_value(n, xs):
-        return nth(n, xs)
-
-def multiple_value_bind(values_form, body):
-        return body(*values_form)
-
-def multiple_value_list(values_form):
-        return _py.list(values_form)
-
-def multiple_values_list(list):
-        return _py.tuple(list)
-
-def multiple_value_call(function, *values_forms):
-        return function(*(append(*values_forms)))
-
-##
 ## Conses
 ##
 def cdr(x):           return x[1:]  if x  else nil
@@ -1235,10 +1327,6 @@ def complement(f):
 
 def constantly (x):
         return lambda *args: x
-
-def prog1(val, body):
-        body()
-        return val
 
 ##
 ## Sequences
@@ -1688,7 +1776,6 @@ with progv(foovar = 3.14,
 ##
 ## Package system
 ##
-__packages__         = _py.dict()
 __builtins_package__ = None
 __keyword_package__  = None
 __modular_noise__    = None
@@ -1699,7 +1786,7 @@ class _cold_package_error_type(_cold_error_type):
 class _cold_simple_package_error_type(_cold_simple_condition_type, _cold_package_error_type):
         pass
 
-def symbol_conflict_error(op, obj, pkg, x, y):
+def _symbol_conflict_error(op, obj, pkg, x, y):
         error(simple_package_error, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
               (op, obj, pkg, x, y))
 
@@ -1718,7 +1805,7 @@ def _use_package_symbols(dest, src, syms):
         conflict_set = _mapset(_slotting("name"), syms.values()) & _py.set(dest.accessible.keys())
         for name in conflict_set:
                 if syms[name] is not dest.accessible[name]:
-                        symbol_conflict_error("USE-PACKAGE", src, dest, syms[name], dest.accessible[name])
+                        _symbol_conflict_error("USE-PACKAGE", src, dest, syms[name], dest.accessible[name])
         ## no conflicts anymore? go on..
         for name, sym in syms.items():
                 dest.inherited[sym].add(src)
@@ -1729,6 +1816,7 @@ def _use_package_symbols(dest, src, syms):
                 if dest.module and name not in dest.module.__dict__:
                         dest.module.__dict__[name] = sym.value
 
+@story
 def use_package(dest, src):
         dest, src = _coerce_to_package(dest), _coerce_to_package(src)
         symhash = _map_into_hash(lambda x: (x.name, x), src.external)
@@ -1753,7 +1841,7 @@ def _lisp_symbol_python_names(sym):
                 _frost.lisp_symbol_name_python_name(sym.package.name))
 
 def _find_module(name, if_does_not_exist = "error"):
-        return (gethash(name, _sys.modules)[0] or
+        return (_frost.find_module(name) or
                 _poor_man_ecase(if_does_not_exist,
                                 ("continue",
                                  None),
@@ -1779,58 +1867,6 @@ def _lisp_symbol_ast(sym, current_package):
                                           "__dict__"),
                            _ast_string(symname)))
 
-class package(_collections.UserDict):
-        def __repr__ (self):
-                return "#<PACKAGE \"%s\">" % self.name
-        def __bool__(self):
-                return True
-        def __hash__(self):
-                return hash(_py.id(self))
-        def __init__(self, name, use = [], filename = "",
-                     ignore_python = False, python_exports = True, boot = False):
-                assert _py.isinstance(name, _py.str)
-                self.name = name
-
-                self.own         = _py.set()                         # sym
-                self.imported    = _py.set()                         # sym
-              # self.present     = own + imported
-                self.inherited   = _collections.defaultdict(_py.set) # sym -> _py.set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
-                self.accessible  = _py.dict()                        # str -> sym          ## accessible = present + inherited
-                self.external    = _py.set()                         # sym                 ## subset of accessible
-              # self.internal    = accessible - external
-
-                modname = _frost.lisp_symbol_name_python_name(name)
-                self.module = (_find_module(modname, if_does_not_exist = "continue") or
-                               _load_text_as_module(modname, "", filename = filename))
-                # Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
-                coercer = (_ccoerce_to_package if boot else
-                           _coerce_to_package)
-                self.used_packages  = _py.set(mapcar(lambda x: coercer(x, if_null = "error"),
-                                                     use))
-                self.packages_using = _py.set()
-                assert(every(packagep, self.used_packages))
-                mapc(_curry(use_package, self), self.used_packages)
-
-                ## Import the corresponding python dictionary.  Intern depends on
-                if not ignore_python:
-                        moddict = _py.dict(self.module.__dict__)
-                        explicit_exports = _py.set(moddict["__all__"] if "__all__" in moddict else
-                                                   [])
-                        for (key, value) in moddict.items():
-                                ## intern the python symbol, when it is known not to be inherited
-                                if key not in self.accessible:
-                                        s = _intern(key, self)[0]
-                                        s.value = value
-                                        if functionp(value):
-                                                s.function = value
-                                ## export symbols, according to the python model
-                                if (python_exports and key[0] != "_" and
-                                    ((not explicit_exports) or
-                                     key in explicit_exports)):
-                                        self.external.add(self.accessible[key])
-                ## Hit the street.
-                self.data          = self.accessible
-                __packages__[name] = self
 def package_name(x): return x.name
 
 ## Unregistered Issue COMPLIANCE-PACKAGE-NICKNAMES-NOT-IMPLEMENTED
@@ -2336,7 +2372,7 @@ def import_(symbols, package = None, populate_module = True):
                 if ps is s:
                         continue
                 elif accessible: # conflict
-                        symbol_conflict_error("IMPORT", s, p, s, ps)
+                        _symbol_conflict_error("IMPORT", s, p, s, ps)
                 else:
                         p.imported.add(s)
                         p.accessible[s.name] = s
@@ -2377,14 +2413,6 @@ def _without_condition_system(body, reason = ""):
 def _condition_system_enabled_p():
         return (_frost.pytracer_enabled_p() and
                 _frost.tracer_hook("exception") is __cl_condition_handler__)
-
-def _uncold_definition(o):
-        symbol = _intern(_frost.python_name_lisp_symbol_name(o.__name__))[0]
-        _frost.frost_def(o,  symbol, ("python_type" if _py.isinstance(o, _py.type) else
-                                      "function"),
-                         _py.globals())
-        _frost.setf_global(symbol, o.__name__, _py.globals())
-        return symbol
 
 __core_symbol_names__ = [
         "QUOTE",
@@ -2441,8 +2469,6 @@ def _init_package_system_0():
                 return package.python_type(string(name), ignore_python = True, use = [])
         # symbol = metasymbol
 _init_package_system_0() ########### _keyword(), quote_, and_, or_, abort_, continue_, break_ are now available
-
-mapc(_uncold_definition, [symbol_function])
 
 def _init_reader_0():
         "SETQ, SYMBOL_VALUE, LET and BOUNDP (anything calling _COERCE_TO_SYMBOL_NAME) need this to mangle names."
