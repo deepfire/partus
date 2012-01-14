@@ -118,15 +118,18 @@ def _cold_warn(control, *args):
 
 warn = _cold_warn
 
+_cold_function_type = _types.FunctionType.__mro__[0]
+
 ##
 ## Boot dependency self-awareness
 ##
 class _storyteller(_collections.UserDict):
-        def __init__(self):           self.__dict__.update(_py.dict(__call__ = lambda *_, **__: True,
+        def __init__(self):           self.__dict__.update(_py.dict(__call__ = lambda self, x: self.advance(x),
                                                                     data     = _py.dict()))
         def __setattr__(self, _, __): raise _py.Exception("\n; The Storyteller defies this intercession.")
         def advance(self, x):         self.data[x if _py.isinstance(x, _py.str) else
                                                 x.__name__] = True
+        def narrated(self, x):        return x in self.data
         def call(self, x, control, *args, hard = False):
                 if x in self.data:
                         return True
@@ -218,11 +221,117 @@ class package(_collections.UserDict):
                 for nick in nicknames:
                         _namespace["PACKAGES"].set(self, nick)
 
+class symbol(): # Turned to a symbol, during the package system bootstrap.
+        def __str__(self):
+                return _print_symbol(self)
+        def __repr__(self):
+                return _py.str(self)
+        def __init__(self, name):
+                (self.name, self.package,
+                 (self.value,
+                  self.function,
+                  self.macro_function,
+                  self.known)) = name, None, (None, nil, nil, nil)
+        def __hash__(self):
+                return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
+        def __call__(self, *args, **keys):
+                function = _symbol_function(self)
+                if not _py.isinstance(function, _cold_function_type):
+                        error("While calling %s: SYMBOL-FUNCTION returned a non-callable object of type %s.",
+                              self, type_of(function))
+                return function(*args, **keys)
+        def __bool__(self):
+                return self is not nil
+
 make_package = package
 
+def _cold_string(x):
+        ## NOTE: These type check branches can be in bootstrap order or in usage frequency order!
+        return (x      if _py.isinstance(x, _py.str) else
+                x.name if _py.isinstance(x, symbol)  else
+                error("%s must have been either a string or a symbol.", x))
+string = _cold_string
+
+__cl = None
 def _core_package_init():
-        make_package("COMMON-LISP", nicknames = ["CL"])
+        global __cl
+        __cl = make_package("COMMON-LISP", nicknames = ["CL"])
 _core_package_init()
+
+def _do_intern_symbol(s, p):
+        p.own.add(s)
+        p.accessible[s.name], s.package = s, p
+        if p is __keyword_package__: # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
+                p.external.add(s)
+                s.value = s
+        return s
+
+def _intern_in_package(x, p):
+        s, presentp = ((p.accessible.get(x), True) if the(_py.str, x) in p.accessible else
+                       (None, False))
+        if not presentp:
+                s = _do_intern_symbol(make_symbol(x), p)
+        return s, presentp
+
+def find_package(name):
+        return _namespace("PACKAGES").access(string(name))[0] or nil
+
+def _intern(x, package = None):
+        "A version of INTERN, that does not compute the relationship between SYMBOL and designated PACKAGE."
+        p = _coerce_to_package(package) if package else _symbol_value("*PACKAGE*")
+        return _intern_in_package(x, package)
+
+def boot(boot):
+        name = fn.__name__
+        orig = _frost.global_(name, _py.globals())[0]
+        def unboot():
+               _frost.setf_global_(orig, name, _py.globals()) 
+        fn.unboot = unboot
+        def definer(boot):
+                
+        return definer
+_orig_intern = _intern
+def _boot_intern(x, package = None):
+        return _orig_intern(x, package or __cl)
+_intern = _boot_intern
+
+###
+### Toplevel names
+###
+def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
+        def stringp(x): return _py.isinstance(x, _py.str)
+        def symbolp(x): return _py.isinstance(x, symbol)
+        def cold_definer(name_or_obj):
+                # if not name_or_obj:
+                name, obj = ((name_or_obj.__name__, name_or_obj) if predicate(name_or_obj) else
+                             (name_or_obj, None)                 if stringp(name_or_obj)   else
+                             error("In %s: bad cold object definition: %s", definer_name, name_or_obj))
+                sym, name = ((name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name) else
+                             (_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if stringp(name) else
+                             error("In %s: bad name %s for a cold object.", definer_name, name))
+                def do_cold_def(o):
+                        # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
+                        #           if stringp(name) else
+                        #           name if symbolp(name) else
+                        #           error("In %s: bad name %s for a cold object.", definer_name))
+                        o = preprocess(o)
+                        _frost.frost_def(o, sym, slot, _py.globals())
+                        mimicry(sym, o)
+                        return sym
+                return (do_cold_def(obj) if obj                                          else
+                        do_cold_def      if stringp(name_or_obj) or symbolp(name_or_obj) else
+                        error("In %s: argument must be either satisfy %s or be a string;  was: %s.",
+                              definer_name, predicate, _py.repr(name_or_obj)))
+        return cold_definer
+
+def _defun_preprocessor(o):
+        return (__block__(o) if _storyteller.narrated("block") else
+                o)
+
+defun    = _cold_defun    = _make_cold_definer("%COLD-DEFUN",    lambda x: _py.isinstance(x, _cold_function_type),
+                                               "function",    _defun_preprocessor, _frost.make_object_like_python_function)
+defclass = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: _py.isinstance(x, _py.type),
+                                               "python_type", lambda x: x,         _frost.make_object_like_python_class)
 
 ###
 ### Types
@@ -269,9 +378,11 @@ def _nonep(o):      return o is None
 ###
 most_positive_fixnum = 67108864
 
+@defun
 def identity(x):
         return x
 
+@defun
 def type_of(x):
         return _py.type(x)
 
@@ -397,7 +508,6 @@ def _boot_case(*clauses):
 _cold_class_type      = _py.type
 _cold_condition_type  = _py.BaseException
 _cold_error_type      = _py.Exception
-_cold_function_type   = _types.FunctionType.__mro__[0]
 _cold_hash_table_type = _py.dict
 _cold_stream_type     = __io._IOBase
 _cold_fd_stream_type  = __io.TextIOWrapper
@@ -1890,12 +2000,19 @@ def _ccoerce_to_package(x, if_null = "current", **args):
                 _find_package(x)           if stringp(x) or symbolp(x)         else
                 error(simple_type_error, "CCOERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
                       x, type_of(x)))
+
 def _coerce_to_package(x, if_null = "current"):
         return (x                          if packagep(x)                      else
                 _symbol_value("*PACKAGE*") if (not x) and if_null == "current" else
                 find_package(x, True)      if stringp(x) or symbolp(x)         else
                 error(simple_type_error, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
                       x, type_of(x)))
+
+def intern(x, package = None):
+        package = _coerce_to_package(package)
+        s, found_in_package = _intern(x, package)
+        return s, (_symbol_relation(s, package) if found_in_package else
+                   None)
 
 def defpackage(name, use = [], export = []):
         p = make_package(name, use = use)
@@ -2181,57 +2298,6 @@ def _read_python_toplevel_name(f):
         symbol = _intern(symbol_name)[0]
         return symbol, symbol_name, f.__name__
 
-def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
-        def cold_definer(name_or_obj):
-                name, obj = ((name_or_obj.__name__, name_or_obj) if predicate(name_or_obj) else
-                             (name_or_obj, None))
-                sym, name = ((name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name) else
-                             (_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if stringp(name) else
-                             error("In %s: bad name %s for a cold object.", definer_name, name))
-                def do_cold_def(o):
-                        # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
-                        #           if stringp(name) else
-                        #           name if symbolp(name) else
-                        #           error("In %s: bad name %s for a cold object.", definer_name))
-                        o = preprocess(o)
-                        _frost.frost_def(o, sym, slot, _py.globals())
-                        mimicry(sym, o)
-                        return sym
-                return (do_cold_def(obj) if obj                                          else
-                        do_cold_def      if stringp(name_or_obj) or symbolp(name_or_obj) else
-                        error("In %s: argument must be either satisfy %s or be a string;  was: %s.",
-                              definer_name, predicate, _py.repr(name_or_obj)))
-        return cold_definer
-
-def _defun_preprocessor(o):
-        return (__block__(o) if _boot_available_p(_BOOT_SYMBOL) else
-                o)
-
-defun    = _cold_defun    = _make_cold_definer("%COLD-DEFUN", functionp, "function", _defun_preprocessor, _frost.make_object_like_python_function)
-defclass = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", _classp, "python_type", identity, _frost.make_object_like_python_class)
-
-class symbol(): # Turned to a symbol, during the package system bootstrap.
-        def __str__(self):
-                return _print_symbol(self)
-        def __repr__(self):
-                return _py.str(self)
-        def __init__(self, name):
-                (self.name, self.package,
-                 (self.value,
-                  self.function,
-                  self.macro_function,
-                  self.known)) = name, None, (None, nil, nil, nil)
-        def __hash__(self):
-                return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
-        def __call__(self, *args, **keys):
-                function = _symbol_function(self)
-                if not _py.isinstance(function, _cold_function_type):
-                        error("While calling %s: SYMBOL-FUNCTION returned a non-callable object of type %s.",
-                              self, type_of(function))
-                return function(*args, **keys)
-        def __bool__(self):
-                return self is not nil
-
 def get(symbol, indicator, default = None):
         """get symbol indicator &optional default => value
 
@@ -2299,14 +2365,6 @@ def packagep(x): return _py.isinstance(x, _cold_package_type)
 def _cold_make_symbol(name):
         return symbol(name)
 make_symbol = _cold_make_symbol # To be replaced ASAP we have INTERN working.
-
-def _do_intern_symbol(s, p):
-        p.own.add(s)
-        p.accessible[s.name], s.package = s, p
-        if p is __keyword_package__: # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
-                p.external.add(s)
-                s.value = s
-        return s
 ###
 ##
 #
@@ -2342,21 +2400,6 @@ def _find_symbol_or_fail(x, package = None):
         sym, foundp = find_symbol(x, p)
         return (sym if foundp else
                 symbols_not_accessible_error(p, [x]))
-
-def _intern(x, package = None):
-        "A version of INTERN, that does not compute the relationship between SYMBOL and designated PACKAGE."
-        p = _coerce_to_package(package)
-        s, presentp = ((p.accessible.get(x), True) if the(_py.str, x) in p.accessible else
-                       (None, False))
-        if not presentp:
-                s = _do_intern_symbol(make_symbol(x), p)
-        return s, presentp
-
-def intern(x, package = None):
-        package = _coerce_to_package(package)
-        s, found_in_package = _intern(x, package)
-        return s, (_symbol_relation(s, package) if found_in_package else
-                   None)
 
 # requires that __keyword_package__ is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
 def _keyword(s, upcase = True):  return _intern((s.upper() if upcase else s), __keyword_package__)[0]
