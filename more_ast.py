@@ -321,7 +321,14 @@ def pp_ast_as_code(x, tab = " " * 8):
                                     BitOr = "|", BitXor = "^", BitAnd = "&",
                                     FloorDiv = "//",
                                     # unary
-                                    Invert = "~", Not = "not", UAdd = "+", USub = "-")
+                                    Invert = "~", Not = "not", UAdd = "+", USub = "-",
+                                    # bool
+                                    And = "and", Or = "or",
+                                    # cmpop
+                                    Eq = "eq", NotEq = "not eq",
+                                    Lt = "<", LtE = "<=", Gt = ">", GtE = ">=",
+                                    Is = "is", IsNot = "is not",
+                                    In = "in", NotIn = "not in")
                 def pp_binop(x):
                         return (pp_ast_as_code(x.left) +
                                 (" %s " % (op_print_map[type(x.op).__name__])) +
@@ -329,6 +336,10 @@ def pp_ast_as_code(x, tab = " " * 8):
                 def pp_unop(x):
                         return (("%s " % (op_print_map[type(x.op).__name__])) +
                                 pp_ast_as_code(x.operand))
+                def pp_boolop(x):
+                        return ((" %s " % (op_print_map[type(x.op).__name__])).join(iterate(x.values)))
+                def pp_compare(x):
+                        return rec(x.left) + "".join(" %s %s" % (op_print_map[type(op).__name__], rec(comp)) for op, comp in zip(x.ops, x.comparators))
                 def pp_ifexp(x):
                         return (rec(x.body) + " if " +
                                 rec(x.test) + " else " +
@@ -401,6 +412,7 @@ def pp_ast_as_code(x, tab = " " * 8):
                         ast.Call:        pp_call,
                         ast.Attribute:   pp_attribute,
                         ast.Name:        pp_name,
+                        ast.Starred:     lambda x: "*" + rec(x.value),
                         ast.arg:         pp_arg,
                         ast.alias:       pp_alias,
                         ast.keyword:     pp_keyword,
@@ -417,6 +429,8 @@ def pp_ast_as_code(x, tab = " " * 8):
                         ast.Num:         pp_num,
                         ast.BinOp:       pp_binop,
                         ast.UnaryOp:     pp_unop,
+                        ast.BoolOp:      pp_boolop,
+                        ast.Compare:     pp_compare,
                         ast.Return:      make_trivial_pper("return"),
                         ast.Raise:       make_trivial_pper("raise"),
                         ast.Pass:        make_trivial_pper("pass"),
