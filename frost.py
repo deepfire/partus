@@ -52,6 +52,9 @@ def frost_def(o, symbol, slot, globals):
         setf_global(symbol, symbol.name, globals)
         return symbol
 
+def raise_exception(cond):
+        raise cond
+
 import sys
 
 def find_module(name):

@@ -113,12 +113,75 @@ def _fprintf(stream, format_control, *format_args):
 def _debug_printf(format_control, *format_args):
         _fprintf(_sys.stderr, format_control + "\n", *format_args)
 
-def _cold_warn(control, *args):
-        _debug_printf("COLD WARNING: " + control, *args)
+def boot(boot):
+        def definer(orig):
+                def unboot():
+                        _frost.setf_global_(orig, orig.__name__, _py.globals()) 
+                def linkage(*args, **keys):
+                        return boot(orig, *args, **keys)
+                linkage.unboot = unboot
+                return linkage
+        return definer
 
-warn = _cold_warn
+def _interpret_toplevel_value(name_or_obj, objness_predicate):
+        def stringp(x): return _py.isinstance(name_or_obj, _py.str)
+        name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj) else
+                     (name_or_obj, None)                 if stringp(name_or_obj)           else
+                     error("In %s: bad cold object definition: %s", definer_name, name_or_obj))
+        ####### Thought paused here:
+        # ..delay symbol computation!
+        sym, pyname = ((_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if stringp(name) else
+                       (name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name) else
+                       error("In %s: bad name %s for a cold object.", definer_name, name))
+        return obj, sym, pyname
 
+def boot_defun(fn):
+        def symbolicate():
+                orig, sym, pyname = _interpret_toplevel_value(fn)
+                _frost.setf_global_(orig, pyname, _py.globals())
+        fn.symbolicate = symbolicate
+        return fn
+
+@boot(lambda _, datum, *args, default_type = None, **keys:
+              _py.Exception(datum % args) if _py.isinstance(datum, _py.str) else
+              (datum if not (args or keys) else
+               error("Bad, bad evil is rising.  Now go and kill everybody.")) if _py.isinstance(datum, _py.BaseException) else
+              datum(*args, **keys))
+def _coerce_to_condition(datum, *args, default_type = None, **keys):
+        type_specifier = _defaulted(default_type, error) if stringp(datum) else datum
+        type = (type_specifier             if typep(type_specifier, _cold_class_type)                                else
+                None                       if typep(type_specifier, _cold_condition_type)                            else
+                type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
+                error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
+        cond = (datum              if type is None   else # Already a condition.
+                type(datum % args) if stringp(datum) else
+                type(*args, **keys))
+        return cond
+
+@boot(lambda _, datum, *args, **keys: _debug_printf("COLD WARNING: " + datum, *args, **keys))
+@boot_defun
+def warn(control, *args):
+        condition = _coerce_to_condition(datum, *args, **keys)
+        check_type(condition, warning)
+        signal(condition)
+        badness = _poor_man_etypecase(condition,
+                                      (style_warning, style_warning),
+                                      (warning,       warning))
+        format(symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
+        return nil
+
+@boot(lambda error, datum, *args, **keys: _frost.raise_exception(_coerce_to_condition(datum, *args, **keys)))
+@boot_defun
+def error(datum, *args, **keys):
+        ## Shouldn't we ditch Python compat entirely, doing instead
+        ## the typical SIGNAL/INVOKE-DEBUGGER thing?
+        raise _coerce_to_condition(datum, *args, **keys)
+        
 _cold_function_type = _types.FunctionType.__mro__[0]
+
+@boot_defun
+def stringp(x):
+        return _py.isinstance(x, _py.str)
 
 ##
 ## Boot dependency self-awareness
@@ -243,14 +306,22 @@ class symbol(): # Turned to a symbol, during the package system bootstrap.
         def __bool__(self):
                 return self is not nil
 
-make_package = package
+@boot(lambda _, name, **keys: symbol(name))
+@boot_defun
+def make_symbol(name, **keys):
+        return symbol.python_type(name, **keys)
 
-def _cold_string(x):
+@boot(lambda _, name, **keys: package(name, **keys))
+@boot_defun
+def make_package(name, **keys):
+        return package.python_type(name, **keys)
+
+@boot_defun
+def string(x):
         ## NOTE: These type check branches can be in bootstrap order or in usage frequency order!
         return (x      if _py.isinstance(x, _py.str) else
                 x.name if _py.isinstance(x, symbol)  else
                 error("%s must have been either a string or a symbol.", x))
-string = _cold_string
 
 __cl = None
 def _core_package_init():
@@ -267,33 +338,34 @@ def _do_intern_symbol(s, p):
         return s
 
 def _intern_in_package(x, p):
-        s, presentp = ((p.accessible.get(x), True) if the(_py.str, x) in p.accessible else
-                       (None, False))
+        s, presentp = (error("X must be a symbol: %s.", _py.repr(x)) if not stringp(x)    else
+                       (p.accessible.get(x), True)                   if x in p.accessible else
+                       (None,                False))
         if not presentp:
                 s = _do_intern_symbol(make_symbol(x), p)
         return s, presentp
 
-def find_package(name):
-        return _namespace("PACKAGES").access(string(name))[0] or nil
+@boot_defun
+def packagep(name):
+        return _py.isinstance(name, package)
 
+@boot_defun
+def find_package(name):
+        return (name if _py.isinstance(name, package) else
+                _namespace["PACKAGES"].access(string(name))[0] or nil)
+
+@boot(lambda _intern, x, package = None:
+              _intern(x, package or __cl))
 def _intern(x, package = None):
         "A version of INTERN, that does not compute the relationship between SYMBOL and designated PACKAGE."
-        p = _coerce_to_package(package) if package else _symbol_value("*PACKAGE*")
+        p = find_package(package) if package else _symbol_value("*PACKAGE*")
         return _intern_in_package(x, package)
 
-def boot(boot):
-        name = fn.__name__
-        orig = _frost.global_(name, _py.globals())[0]
-        def unboot():
-               _frost.setf_global_(orig, name, _py.globals()) 
-        fn.unboot = unboot
-        def definer(boot):
-                
-        return definer
-_orig_intern = _intern
-def _boot_intern(x, package = None):
-        return _orig_intern(x, package or __cl)
-_intern = _boot_intern
+x = _intern("YAY")
+_intern.unboot()
+_debug_printf("x: %s", x)
+y = _intern("NAY")
+_debug_printf("y: %s", y)
 
 ###
 ### Toplevel names
@@ -302,13 +374,7 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
         def stringp(x): return _py.isinstance(x, _py.str)
         def symbolp(x): return _py.isinstance(x, symbol)
         def cold_definer(name_or_obj):
-                # if not name_or_obj:
-                name, obj = ((name_or_obj.__name__, name_or_obj) if predicate(name_or_obj) else
-                             (name_or_obj, None)                 if stringp(name_or_obj)   else
-                             error("In %s: bad cold object definition: %s", definer_name, name_or_obj))
-                sym, name = ((name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name) else
-                             (_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if stringp(name) else
-                             error("In %s: bad name %s for a cold object.", definer_name, name))
+                obj, sym, name = _interpret_toplevel_value(name_or_obj, predicate)
                 def do_cold_def(o):
                         # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
                         #           if stringp(name) else
@@ -2835,21 +2901,10 @@ def force_output(*args, **keys):
         finish_output(*args, **keys)
 
 ##
-## Condition: not_implemented
+## Conditions
 ##
 def _conditionp(x):
         return typep(x, condition)
-
-def _coerce_to_condition(datum, *args, default_type = error, **keys):
-        type_specifier = default_type if stringp(datum) else datum
-        type = (type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
-                type_specifier             if typep(type_specifier, _cold_class_type)                                else
-                None                       if typep(type_specifier, _cold_condition_type)                            else
-                error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
-        cond = (datum              if type is None   else # Already a condition.
-                type(datum % args) if stringp(datum) else
-                type(*args, **keys))
-        return cond
 
 def make_condition(type, *args, **keys):
         """It's a slightly weird interpretation of MAKE-CONDITION, as
@@ -2903,23 +2958,6 @@ class _not_implemented_condition(condition.python_type):
 class _not_implemented_error(_not_implemented_condition.python_type, error.python_type): pass
 @defclass
 class _not_implemented_warning(_not_implemented_condition.python_type, warning.python_type): pass
-
-@defun
-def error(datum, *args, **keys):
-        ## Shouldn't we ditch Python compat entirely, doing instead
-        ## the typical SIGNAL/INVOKE-DEBUGGER thing?
-        raise _coerce_to_condition(datum, *args, **keys)
-
-@defun
-def warn(datum, *args, **keys):
-        condition = _coerce_to_condition(datum, *args, **keys)
-        check_type(condition, warning)
-        signal(condition)
-        badness = _poor_man_etypecase(condition,
-                                      (style_warning, style_warning),
-                                      (warning,       warning))
-        format(symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
-        return nil
 
 def _not_implemented(x = None):
         error(_not_implemented_error,
