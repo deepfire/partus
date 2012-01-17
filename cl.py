@@ -101,9 +101,17 @@ import collections as _collections
 import neutrality  as _neutrality
 import frost       as _frost
 
-##
-## So cold it bites.
-##
+###
+### Utilities too hard to live without, even at boot time..
+###
+def _defaulted(x, value, type = None):
+        if x is not None and type is not None:
+                check_type(x, type) # Not a macro, so cannot access the actual defaulted name..
+        return x if x is not None else value
+
+###
+### Boot messaging
+###
 def _fprintf(stream, format_control, *format_args):
         try:
                 return _neutrality._write_string(format_control % format_args, stream)
@@ -113,22 +121,83 @@ def _fprintf(stream, format_control, *format_args):
 def _debug_printf(format_control, *format_args):
         _fprintf(_sys.stderr, format_control + "\n", *format_args)
 
-def _cold_warn(control, *args):
-        _debug_printf("COLD WARNING: " + control, *args)
+###
+### First-class namespaces
+###
+class _namespace(_collections.UserDict):
+        def __init__(self, name, data_constructor = _py.dict):
+                self.name, self.data, self.properties = name, data_constructor(), _collections.defaultdict(_py.dict)
+        def names(self):                        return _py.set(self.data.keys())
+        def intersect(self, with_):             return [x for x in with_ if x in self.data] if _py.len(self) > _py.len(with_) else [x for x in self.data if x in with_]
+        def has(self, name):                    return name in self.data
+        def get(self, name):                    return self.data[name]
+        def access(self, name, default = None): return (default, None) if name not in self.data else (self.data[name], True)
+        def set(self, value, name):             self.data[name] = value; return value
+        def grow(self, name, **keys):           self.data[name] = _namespace_type_and_constructor(name, **keys); self.setf_property(True, name, "NAMESPACEP")
+        def properties(self, name):             return self.properties[name]
+        def has_property(self, name, pname):    return pname in self.properties[name]
+        def property(self, name, pname, default = None):
+                cell = self.properties[name]
+                return cell[pname] if pname in cell else default
+        def setf_property(self, value, name, pname):
+                self.properties[name] = value
+                return value
+_namespace_type_and_constructor = _namespace
+_namespace = _namespace_type_and_constructor("")
 
-warn = _cold_warn
+###
+### Meta-boot 
+###
+_namespace.grow("boot", data_constructor = lambda: _collections.defaultdict(_py.set))
 
-_cold_function_type = _types.FunctionType.__mro__[0]
+def boot(set, boot):
+        def definer(orig):
+                def unboot():
+                        _frost.setf_global(orig, orig.__name__, _py.globals()) 
+                def linkage(*args, **keys):
+                        return boot(orig, *args, **keys)
+                linkage.unboot = unboot
+                return linkage
+        _namespace["boot"][set].add(boot)
+        return definer
 
-##
-## Boot dependency self-awareness
-##
+def _unboot_set(set):
+        for x in _namespace["boot"][set]:
+                x.unboot()
+
+def _interpret_toplevel_value(name_or_obj, objness_predicate):
+        def stringp(x): return _py.isinstance(name_or_obj, _py.str)
+        name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj) else
+                     (name_or_obj, None)                 if stringp(name_or_obj)           else
+                     error("In %s: bad cold object definition: %s", definer_name, name_or_obj))
+        ####### Thought paused here:
+        # ..delay symbol computation!
+        sym, pyname = ((_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if stringp(name) else
+                       (name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name) else
+                       error("In %s: bad name %s for a cold object.", definer_name, name))
+        return obj, sym, pyname
+
+__boot_defunned__ = _py.set()
+def boot_defun(fn):
+        def symbolicate():
+                orig, sym, pyname = _interpret_toplevel_value(fn)
+                _frost.setf_global(orig, pyname, _py.globals())
+        fn.symbolicate = symbolicate
+        __boot_defunned__.add(fn)
+        return fn
+
+def _unboot_defuns():
+        for x in __boot_defunned__:
+                x.symbolicate()
+
 class _storyteller(_collections.UserDict):
         def __init__(self):           self.__dict__.update(_py.dict(__call__ = lambda self, x: self.advance(x),
                                                                     data     = _py.dict()))
         def __setattr__(self, _, __): raise _py.Exception("\n; The Storyteller defies this intercession.")
-        def advance(self, x):         self.data[x if _py.isinstance(x, _py.str) else
-                                                x.__name__] = True
+        def advance(self, x):
+                self.data[x if _py.isinstance(x, _py.str) else
+                          x.__name__] = True
+                return x
         def narrated(self, x):        return x in self.data
         def call(self, x, control, *args, hard = False):
                 if x in self.data:
@@ -143,33 +212,165 @@ class _storyteller(_collections.UserDict):
 _storyteller = _storyteller()
 story = _storyteller.advance
 
-##
-## First-class namespaces
-##
-class _namespace(_collections.UserDict):
-        def __init__(self, name):  self.name, self.data, self.properties = name, _py.dict(), _collections.defaultdict(_py.dict)
-        def names(self):                             return _py.set(self.data.keys())
-        def intersect(self, with_):                  return [x for x in with_ if x in self.data] if _py.len(self) > _py.len(with_) else [x for x in self.data if x in with_]
-        def has(self, name):                         return name in self.data
-        def get(self, name):                         return self.data[name]
-        def access(self, name, default = None):      return (default, None) if name not in self.data else (self.data[name], True)
-        def set(self, value, name):                  self.data[name] = value; return value
-        def grow(self, name):                        self.data[name] = _namespace_type_and_constructor(name); self.setf_property(True, name, "NAMESPACEP")
-        def properties(self, name):                  return self.properties[name]
-        def has_property(self, name, pname):         return pname in self.properties[name]
-        def property(self, name, pname, default = None):
-                cell = self.properties[name]
-                return cell[pname] if pname in cell else default
-        def setf_property(self, value, name, pname):
-                self.properties[name] = value
-                return value
-_namespace_type_and_constructor = _namespace
-_namespace = _namespace_type_and_constructor("")
+###
+### Boot listery and consery (beware model issues)
+###
+def _tuplep(x):
+        return _py.isinstance(x, _py.tuple)
 
-##
-## Package system: early core
-##
+@boot_defun
+def atom(x):        return not _tuplep(x)
+@boot_defun # Unregistered Issue LIST-CONSNESS
+def consp(x):       return _tuplep(x)
+@boot_defun # Unregistered Issue LIST-CONSNESS
+def listp(x):       return x is nil or _tuplep(x)
+@boot_defun # Unregistered Issue LIST-CONSNESS
+def list(*xs):      return xs
+@boot_defun # Unregistered Issue LIST-CONSNESS
+def append(*xs):    return _py.sum(xs, _py.tuple())
+@boot_defun
+def cons(car, cdr): return (x, y)
+@boot_defun
+def car(x):         return x[0] if x else nil
+@boot_defun
+def first(x):       return x[0] if x else nil
+
+###
+### Boot data type support
+###
+def _map_into_hash(f, xs,
+                   key_test = lambda k: k is not None,
+                   value_test = lambda _: True) -> _py.dict:
+        acc = _py.dict()
+        for x in xs:
+                k, v = f(x)
+                if key_test(k) and value_test(v):
+                        acc[k] = v
+        return acc
+
+_cold_function_type = _types.FunctionType.__mro__[0]
+
+@boot_defun
+def functionp(o):
+        return _py.isinstance(o, _cold_function_type)
+
+###
+### Boot conditions
+###
+@boot("typep", lambda _, datum, *args, default_type = None, **keys:
+              _py.Exception(datum % args) if _py.isinstance(datum, _py.str) else
+              (datum if not (args or keys) else
+               error("Bad, bad evil is rising.  Now go and kill everybody.")) if _py.isinstance(datum, _py.BaseException) else
+              datum(*args, **keys))
+def _coerce_to_condition(datum, *args, default_type = None, **keys):
+        type_specifier = _defaulted(default_type, error) if stringp(datum) else datum
+        type = (type_specifier             if typep(type_specifier, _cold_class_type)                                else
+                None                       if typep(type_specifier, _cold_condition_type)                            else
+                type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
+                error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
+        cond = (datum              if type is None   else # Already a condition.
+                type(datum % args) if stringp(datum) else
+                type(*args, **keys))
+        return cond
+
+@boot("typep", lambda _, datum, *args, **keys:
+              _debug_printf("COLD WARNING: " + datum, *args, **keys))
+@boot_defun
+def warn(control, *args):
+        condition = _coerce_to_condition(datum, *args, **keys)
+        check_type(condition, warning)
+        signal(condition)
+        badness = _poor_man_etypecase(condition,
+                                      (style_warning, style_warning),
+                                      (warning,       warning))
+        format(symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
+        return nil
+
+# @boot(lambda error, datum, *args, **keys: _frost.raise_exception(_coerce_to_condition(datum, *args, **keys)))
+@boot_defun
+def error(datum, *args, **keys):
+        ## Shouldn't we ditch Python compat entirely, doing instead
+        ## the typical SIGNAL/INVOKE-DEBUGGER thing?
+        raise _coerce_to_condition(datum, *args, **keys)
+        
+@boot_defun
+def stringp(x):
+        return _py.isinstance(x, _py.str)
+
+###
+### Dynamic scope: early core
+###
+__global_scope__ = _py.dict()
+
+class _thread_local_storage(_threading.local):
+        def __init__(self):
+                self.dynamic_scope = []
+
+__tls__ = _thread_local_storage()
+
+# The symmetry invariance is _IMPORTANT_, as you probably can imagine!
+def _dynamic_scope_push(scope):
+        __tls__.dynamic_scope.append(scope)
+def _dynamic_scope_pop():
+        __tls__.dynamic_scope.pop()
+
+def _boundp(name):
+        name = string(name)
+        for scope in reversed(__tls__.dynamic_scope):
+                if name in scope:
+                        return t
+        if name in __global_scope__:
+                return t
+
+def _find_dynamic_frame(name):
+        for scope in reversed(__tls__.dynamic_scope):
+                if name in scope:
+                        return scope
+        if name in __global_scope__:
+                return __global_scope__
+
+def _find_dynamic_frame_for_set(name, force_toplevel = None):
+        return (__global_scope__ if force_toplevel else
+                (_find_dynamic_frame(name) or
+                 (__tls__.dynamic_scope[-1] if __tls__.dynamic_scope else
+                  __global_scope__)))
+
+def _symbol_value(name):
+        frame = _find_dynamic_frame(name)
+        return (frame[name] if frame else
+                error(AttributeError, "Unbound variable: %s." % name))
+
+def _coerce_cluster_keys_to_symbol_names(dict):
+        return { string(var).upper():val for var, val in dict.items() }
+
+@boot_defun
+def boundp(symbol):
+        # Unregistered Issue COMPLIANCE-BOUNDP-ACCEPTS-STRINGS
+        return _boundp(string(symbol))
+
+@boot_defun
+def symbol_value(symbol):
+        # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
+        return (_symbol_value(symbol) if stringp(symbol) else
+                symbol.value          if symbolp(symbol) else
+                error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
+                      symbol))
+
+def _symbol_function(symbol):
+        return (symbol.known                                     or
+                symbol.macro_function                            or
+                (functionp(symbol.function) and symbol.function) or
+                _debug_printf("no fun : %s", symbol.name) or
+                error(undefined_function, symbol))
+
+###
+### Package system: early core
+###
 _namespace.grow("PACKAGES")
+
+def _package_not_found_error(x):
+        error("The name \"%s\" does not designate any package.", x)
+
 class package(_collections.UserDict):
         def __repr__ (self): return "#<PACKAGE \"%s\">" % self.name # Cold PRINT-UNREADABLE-OBJECT
         def __bool__(self):  return True                            # Non-false even if empty.
@@ -191,12 +392,12 @@ class package(_collections.UserDict):
                         ## Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
                         # coercer = (_ccoerce_to_package if boot else
                         #            _coerce_to_package)
-                        if used and _storyteller.call("use_package", "using %s into %s", used, p):
-                                p.used_packages  = _py.set(_coerce_to_package(x, if_null = "error")
-                                                           for x in used)
-                                p.packages_using = _py.set()
+                        p.used_packages  = _py.set(find_package(x) or _package_not_found_error(x)
+                                                   for x in used)
+                        p.packages_using = _py.set()
+                        if p.used_packages and _storyteller.call("use_package", "using %s into %s", used, p):
                                 for u_p in p.used_packages:
-                                        assert _py.isinstance(u_p, p.__type__)
+                                        assert _py.isinstance(u_p, _py.type(p))
                                         use_package(p, u_p)
                 ## __init__()
                 assert _py.isinstance(name, _py.str)
@@ -243,14 +444,70 @@ class symbol(): # Turned to a symbol, during the package system bootstrap.
         def __bool__(self):
                 return self is not nil
 
-make_package = package
+def _cold_make_nil():
+        nil = symbol.__new__(symbol)
+        nil.name = "NIL"
+        nil.package = None
+        (nil.value,
+         nil.function,
+         nil.macro_function,
+         nil.known) = nil, nil, nil, nil
+        return nil
 
-def _cold_string(x):
+nil = _cold_make_nil()
+
+def _print_symbol(s, escape = None, gensym = None, case = None, package = None, readably = None):
+        # Specifically, if *PRINT-READABLY* is true, printing proceeds as if
+        # *PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
+        # as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
+        #
+        # If *PRINT-READABLY* is false, the normal rules for printing and the
+        # normal interpretations of other printer control variables are in
+        # effect.
+        #
+        # Individual methods for PRINT-OBJECT, including user-defined methods,
+        # are responsible for implementing these requirements.
+        package  = _defaulted_to_var(package,  "*PACKAGE*")
+        if not packagep(package):
+                _here("------------------------------------------------------------\npackage is a %s: %s" % (type_of(package), package,))
+        readably = _defaulted_to_var(readably, "*PRINT-READABLY*")
+        escape   = _defaulted_to_var(escape,   "*PRINT-ESCAPE*") if not readably else t
+        case     = _defaulted_to_var(case,     "*PRINT-CASE*")   if not readably else _keyword("UPCASE")
+        gensym   = _defaulted_to_var(gensym,   "*PRINT-GENSYM*") if not readably else t
+        # Because the #: syntax does not intern the following symbol, it is
+        # necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
+        # the same uninterned symbol appears several times in an expression to
+        # be printed. For example, the result of
+        #
+        # (let ((x (make-symbol "FOO"))) (list x x))
+        #
+        # would be printed as (#:FOO #:FOO) if *PRINT-CIRCLE* were
+        # false, but as (#1=#:FOO #1#) if *PRINT-CIRCLE* were true.
+        return ((""                       if not escape                        else
+                 ":"                      if s.package is __keyword_package__  else
+                 ""                       if _symbol_accessible_in(s, package) else
+                 ("#:" if gensym else "") if not s.package                     else
+                 (s.package.name + (":"
+                                    if s in s.package.external else
+                                    "::"))) +
+                _case_xform(case, s.name))
+
+@boot(lambda _, name, **keys: symbol(name))
+@boot_defun
+def make_symbol(name, **keys):
+        return symbol.python_type(name, **keys)
+
+@boot(lambda _, name, **keys: package(name, **keys))
+@boot_defun
+def make_package(name, **keys):
+        return package.python_type(name, **keys)
+
+@boot_defun
+def string(x):
         ## NOTE: These type check branches can be in bootstrap order or in usage frequency order!
         return (x      if _py.isinstance(x, _py.str) else
                 x.name if _py.isinstance(x, symbol)  else
                 error("%s must have been either a string or a symbol.", x))
-string = _cold_string
 
 __cl = None
 def _core_package_init():
@@ -267,33 +524,151 @@ def _do_intern_symbol(s, p):
         return s
 
 def _intern_in_package(x, p):
-        s, presentp = ((p.accessible.get(x), True) if the(_py.str, x) in p.accessible else
-                       (None, False))
+        s, presentp = (error("X must be a symbol: %s.", _py.repr(x)) if not stringp(x)    else
+                       (p.accessible.get(x), True)                   if x in p.accessible else
+                       (None,                False))
         if not presentp:
                 s = _do_intern_symbol(make_symbol(x), p)
         return s, presentp
 
-def find_package(name):
-        return _namespace("PACKAGES").access(string(name))[0] or nil
+@boot(lambda _, x: _py.isinstance(x, package))
+@boot_defun
+def packagep(x): return _py.isinstance(x, package.python_type)
 
+@boot(lambda _, x: _py.isinstance(x, symbol))
+@boot_defun
+def symbolp(x):  return _py.isinstance(x, symbol.python_type)
+
+@boot_defun
+def find_package(name):
+        return (name if _py.isinstance(name, package) else
+                _namespace["PACKAGES"].access(string(name))[0] or nil)
+
+def _coerce_to_package(x, if_null = "current"):
+        return (find_package(x)                                          if stringp(x) or symbolp(x) or packagep(x) else
+                (_symbol_value("*PACKAGE*") if if_null == "current" else
+                 _package_not_found_error(x))                            if (not x)                                 else
+                error(simple_type_error, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
+                      x, type_of(x)))
+
+@boot(lambda _intern, x, package = None:
+              _intern(x, package or __cl))
 def _intern(x, package = None):
         "A version of INTERN, that does not compute the relationship between SYMBOL and designated PACKAGE."
-        p = _coerce_to_package(package) if package else _symbol_value("*PACKAGE*")
+        p = find_package(package) if package else _symbol_value("*PACKAGE*")
         return _intern_in_package(x, package)
 
-def boot(boot):
-        name = fn.__name__
-        orig = _frost.global_(name, _py.globals())[0]
-        def unboot():
-               _frost.setf_global_(orig, name, _py.globals()) 
-        fn.unboot = unboot
-        def definer(boot):
-                
-        return definer
-_orig_intern = _intern
-def _boot_intern(x, package = None):
-        return _orig_intern(x, package or __cl)
-_intern = _boot_intern
+def _use_package_symbols(dest, src, syms):
+        conflict_set = { x.name for x in syms.values() } & _py.set(dest.accessible.keys())
+        for name in conflict_set:
+                if syms[name] is not dest.accessible[name]:
+                        _symbol_conflict_error("USE-PACKAGE", src, dest, syms[name], dest.accessible[name])
+        ## no conflicts anymore? go on..
+        for name, sym in syms.items():
+                dest.inherited[sym].add(src)
+                if name not in dest.accessible: # Addition of this conditional is important for package use loops.
+                        dest.accessible[name] = sym
+                        # if dest.name == "SWANK" and src.name == "INSPECTOR":
+                        #         debug_printf("merging %s into %s: test: %s", s, dest, _read_symbol(_print_nonkeyword_symbol(s)))
+                # if dest.module and name not in dest.module.__dict__:
+                #         dest.module.__dict__[name] = sym.value
+
+@boot_defun
+@story
+def use_package(dest, src):
+        dest, src = _coerce_to_package(dest), _coerce_to_package(src)
+        symhash = _map_into_hash(lambda x: (x.name, x), src.external)
+        _use_package_symbols(dest, src, symhash)
+        src.packages_using.add(dest)
+        dest.used_packages.add(src)
+
+@boot_defun
+def export(symbols, package = None):
+        symbols, package = symbols if _py.isinstance(symbols, _py.list) else [symbols], _coerce_to_package(package)
+        assert(all(symbolp(x)
+                   for x in symbols))
+        symdict = _map_into_hash(lambda x: (x.name, x), symbols)
+        for user in package.packages_using:
+                _use_package_symbols(user, package, symdict)
+        # No conflicts?  Alright, we can proceed..
+        symset = _py.set(symdict.values())
+        for_interning = symset & _py.set(package.inherited)
+        for sym in for_interning:
+                del package.inherited[sym]
+                self.internal.add(sym)
+        package.external |= symset
+        return True
+
+def _do_find_symbol(x, package):
+        return package.accessible.get(x) if x in package.accessible else None
+
+def _find_symbol_or_fail(x, package = None):
+        sym = _do_find_symbol(x, _coerce_to_package(package))
+        return (sym if sym is not None else
+                symbols_not_accessible_error(p, [x]))
+
+def _find_symbol(x, package):
+        s = _do_find_symbol(x, package)
+        return ((s, _symbol_relation(s, package)) if s is not None else
+                (None, None))
+
+@boot_defun
+def find_symbol(x, package = None):
+        return _find_symbol(x, _coerce_to_package(package))
+
+def _init_package_system_0():
+        global __packages__
+        global __builtins_package__
+        global __keyword_package__
+        global t, symbol, make_symbol, make_package
+        __core_symbol_names__ = [
+                "QUOTE",
+                "ABORT", ("CONTINUE", "continue_"), ("BREAK", "break_"),
+                "&OPTIONAL", "&REST", "&KEY", "&BODY", "&ALLOW-OTHER-KEYS", "&WHOLE",
+                "&RESTKEY", # pythonism
+                ]
+        __more_symbol_names__ = [
+                "SOME", "EVERY",
+                ]
+        __packages__ = _py.dict()
+        __builtins_package__ = package("BUILTINS", boot = True)
+        __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
+        cl = package("CL", boot = True)
+        nil.package = cl                             # NIL is so important it had to be made earlier.
+        _intern(".", cl)
+        t                  = _intern("T", cl)[0]       # Nothing much works without this.
+        t.value, nil.value = t, nil     # Self-evaluation.
+        nil.__contains__   = lambda _: False
+        nil.__getitem__    = lambda _, __: nil
+        nil.__length__     = lambda _: 0
+        nil.__iter__       = lambda _: None
+        nil.__reversed__   = lambda _: None
+        export([t, nil] + [_intern(n[0] if _tuplep(n) else n, cl)[0]
+                           for n in __core_symbol_names__ + __more_symbol_names__],
+               cl)
+        for spec in __core_symbol_names__:
+                lisp_name, python_name = (spec, spec.lower().replace("&", "_").replace("-", "_")) if stringp(spec) else spec
+                # Unregistered Issue PACKAGE-SYSTEM-INIT-SHOULD-USE-GLOBAL-SETTER-INSTEAD-OF-CUSTOM-HACKERY
+                _sys.modules['cl'].__dict__[python_name] = _find_symbol_or_fail(lisp_name, cl)
+        # secondary
+        global star
+        star = _intern("*", cl)[0]
+        package("COMMON-LISP-USER", use = ["CL"], boot = True)
+        __global_scope__["*PACKAGE*"] = cl # COLD-SETQ
+        symbol = _frost.frost_def(symbol,  _intern("SYMBOL")[0],  "python_type", _py.globals())
+        @boot_defun# (_do_intern_symbol(symbol.python_type("MAKE-SYMBOL"), cl))
+        def make_symbol(name):
+                return symbol.python_type(name)
+        # _boot_advance("_BOOT_SYMBOL")
+        _frost.frost_def(package, _intern("PACKAGE")[0], "python_type", _py.globals())
+        @boot_defun
+        def make_package(name, nicknames = [], use = []):
+                if nicknames:
+                        _not_implemented("In MAKE-PACKAGE %s: package nicknames are ignored.", _py.repr(name))
+                return package.python_type(string(name), ignore_python = True, use = [])
+        # symbol = metasymbol
+
+_init_package_system_0()
 
 ###
 ### Toplevel names
@@ -302,13 +677,7 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
         def stringp(x): return _py.isinstance(x, _py.str)
         def symbolp(x): return _py.isinstance(x, symbol)
         def cold_definer(name_or_obj):
-                # if not name_or_obj:
-                name, obj = ((name_or_obj.__name__, name_or_obj) if predicate(name_or_obj) else
-                             (name_or_obj, None)                 if stringp(name_or_obj)   else
-                             error("In %s: bad cold object definition: %s", definer_name, name_or_obj))
-                sym, name = ((name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name) else
-                             (_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if stringp(name) else
-                             error("In %s: bad name %s for a cold object.", definer_name, name))
+                obj, sym, name = _interpret_toplevel_value(name_or_obj, predicate)
                 def do_cold_def(o):
                         # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
                         #           if stringp(name) else
@@ -330,8 +699,9 @@ def _defun_preprocessor(o):
 
 defun    = _cold_defun    = _make_cold_definer("%COLD-DEFUN",    lambda x: _py.isinstance(x, _cold_function_type),
                                                "function",    _defun_preprocessor, _frost.make_object_like_python_function)
+del boot_defun
 defclass = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: _py.isinstance(x, _py.type),
-                                               "python_type", lambda x: x,         _frost.make_object_like_python_class)
+                                               "python_type", identity,            _frost.make_object_like_python_class)
 
 ###
 ### Types
@@ -368,7 +738,6 @@ stringp           = _neutrality.stringp
 _write_string     = _neutrality._write_string
 
 def _classp(x):     return _py.isinstance(x, _py.type)
-def _tuplep(x):     return _py.isinstance(x, _py.tuple)
 def _frozensetp(o): return _py.isinstance(o, _py.frozenset)
 def _setp(o):       return _py.isinstance(o, (_py.set, _py.frozenset))
 def _nonep(o):      return o is None
@@ -520,10 +889,6 @@ class _cold_simple_condition_type(_cold_condition_type):
         def __repr__(self):
                 return self.__str__()
 simple_condition = _cold_simple_condition_type
-
-def _cold_print_symbol(s, **keys):
-        return (s.package.name if s.package else "#") + ":" + s.name
-_print_symbol = _cold_print_symbol
 
 def _cold_error(datum, *args, **keys):
         raise (_py.Exception(datum % args, **keys) if stringp(datum) else
@@ -743,11 +1108,6 @@ def _make_timestamping_cache(map_computer):
 def _specifiedp(x):
         return x is not None
 
-def _defaulted(x, value, type = None):
-        if x is not None and type is not None:
-                check_type(x, type) # Not a macro, so cannot access the actual defaulted name..
-        return x if x is not None else value
-
 def _defaulted_to_var(x, variable, type = None):
         return _defaulted(x, symbol_value(variable), type = type)
 
@@ -757,11 +1117,6 @@ def _only_specified_keys(**keys):
 
 def _read_case_xformed(x):
         return _case_xform(_symbol_value("*READ-CASE*"), x)
-
-def _coerce_to_symbol_name(x):
-        return (x.name                if symbolp(x) else
-                _read_case_xformed(x) if stringp(x) else
-                error(simple_type_error, "%s cannot be coerced to string.", x))
 
 ###
 ### Basis
@@ -1391,7 +1746,6 @@ def check_type(x, type):
 ##
 ## Type predicates
 ##
-def functionp(o):     return _py.isinstance(o, _cold_function_type)
 def integerp(o):      return _py.isinstance(o, _py.int)
 def floatp(o):        return _py.isinstance(o, _py.float)
 def complexp(o):      return _py.isinstance(o, _py.complex)
@@ -1691,16 +2045,6 @@ def _maphash(f, dict) -> _py.list:
 def _remap_hash_table(f, xs: _py.dict) -> _py.dict:
         return { k: f(k, v) for k, v in xs.items() }
 
-def _map_into_hash(f, xs,
-                   key_test = lambda k: k is not None,
-                   value_test = lambda _: True) -> _py.dict:
-        acc = _py.dict()
-        for x in xs:
-                k, v = f(x)
-                if key_test(k) and value_test(v):
-                        acc[k] = v
-        return acc
-
 def _map_into_hash_star(f, xs,
                         key_test = lambda k: k is not None,
                         value_test = lambda _: t) -> _py.dict:
@@ -1777,61 +2121,6 @@ def return_from(nonce, value):
                  error("In RETURN-FROM: nonce must either be a string, or a function designator;  was: %s.", _py.repr(nonce)))
         throw(nonce, value)
 
-##
-## Dynamic scope
-##
-__global_scope__ = _py.dict()
-
-class _thread_local_storage(_threading.local):
-        def __init__(self):
-                self.dynamic_scope = []
-
-__tls__ = _thread_local_storage()
-
-# The symmetry invariance is _IMPORTANT_, as you probably can imagine!
-def _dynamic_scope_push(scope):
-        __tls__.dynamic_scope.append(scope)
-def _dynamic_scope_pop():
-        __tls__.dynamic_scope.pop()
-
-def _boundp(name):
-        name = _coerce_to_symbol_name(name)
-        for scope in reversed(__tls__.dynamic_scope):
-                if name in scope:
-                        return t
-        if name in __global_scope__:
-                return t
-
-def _find_dynamic_frame(name):
-        for scope in reversed(__tls__.dynamic_scope):
-                if name in scope:
-                        return scope
-        if name in __global_scope__:
-                return __global_scope__
-
-def _find_dynamic_frame_for_set(name, force_toplevel = None):
-        return (__global_scope__ if force_toplevel else
-                (_find_dynamic_frame(name) or
-                 (__tls__.dynamic_scope[-1] if __tls__.dynamic_scope else
-                  __global_scope__)))
-
-def _symbol_value(name):
-        frame = _find_dynamic_frame(name)
-        return (frame[name] if frame else
-                error(AttributeError, "Unbound variable: %s." % name))
-
-def _coerce_cluster_keys_to_symbol_names(dict):
-        return { _coerce_to_symbol_name(var):val for var, val in dict.items() }
-
-def boundp(symbol):
-        return _boundp(_coerce_to_symbol_name(symbol))
-
-def symbol_value(symbol):
-        return (_symbol_value(_coerce_to_symbol_name(symbol)) if stringp(symbol) else
-                symbol.value                                  if symbolp(symbol) else
-                error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
-                      symbol))
-
 def _symbol_known(symbol_):
         return symbol_.known
 def _symbol_python_type(symbol_, if_not_a_type = "error"):
@@ -1876,7 +2165,7 @@ with progv(foovar = 3.14,
 
 ..with the latter being lighter on the stack frame usage."""
         if body:
-                with _env_cluster(_map_into_hash(lambda vv: (_coerce_to_symbol_name(vv[0]), vv[1]),
+                with _env_cluster(_map_into_hash(lambda vv: (string(vv[0]).upper(), vv[1]),
                                                  _py.zip(vars, vals))):
                         return body()
         else:
@@ -1888,7 +2177,7 @@ with progv(foovar = 3.14,
 ##
 __builtins_package__ = None
 __keyword_package__  = None
-__modular_noise__    = None
+__modular_noise__    = _py.frozenset(_load_text_as_module("", "").__dict__)
 
 class _cold_package_error_type(_cold_error_type):
         pass
@@ -1909,30 +2198,6 @@ def symbols_not_accessible_error(package, syms):
                 return "\"%s\"" % x if stringp(x) else _print_nonkeyword_symbol(x)
         error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
               package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
-
-def _use_package_symbols(dest, src, syms):
-        assert(packagep(dest) and packagep(src) and hash_table_p(syms))
-        conflict_set = _mapset(_slotting("name"), syms.values()) & _py.set(dest.accessible.keys())
-        for name in conflict_set:
-                if syms[name] is not dest.accessible[name]:
-                        _symbol_conflict_error("USE-PACKAGE", src, dest, syms[name], dest.accessible[name])
-        ## no conflicts anymore? go on..
-        for name, sym in syms.items():
-                dest.inherited[sym].add(src)
-                if name not in dest.accessible: # Addition of this conditional is important for package use loops.
-                        dest.accessible[name] = sym
-                        # if dest.name == "SWANK" and src.name == "INSPECTOR":
-                        #         debug_printf("merging %s into %s: test: %s", s, dest, _read_symbol(_print_nonkeyword_symbol(s)))
-                if dest.module and name not in dest.module.__dict__:
-                        dest.module.__dict__[name] = sym.value
-
-@story
-def use_package(dest, src):
-        dest, src = _coerce_to_package(dest), _coerce_to_package(src)
-        symhash = _map_into_hash(lambda x: (x.name, x), src.external)
-        _use_package_symbols(dest, src, symhash)
-        src.packages_using.add(dest)
-        dest.used_packages.add(src)
 
 def package_used_by_list(package):
         package = _coerce_to_package(package)
@@ -1991,22 +2256,7 @@ def _find_package(name, errorp = True):
                 nil                    if not errorp           else
                 error("Package with name '%s' does not exist.", name))
 def find_package(name, errorp = False):
-        return _find_package(_coerce_to_symbol_name(name), errorp)
-
-# Issue _CCOERCE_TO_PACKAGE-WEIRD-DOUBLE-UNDERSCORE-NAMING-BUG
-def _ccoerce_to_package(x, if_null = "current", **args):
-        return (x                          if packagep(x)                      else
-                _symbol_value("*PACKAGE*") if (not x) and if_null == "current" else
-                _find_package(x)           if stringp(x) or symbolp(x)         else
-                error(simple_type_error, "CCOERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
-                      x, type_of(x)))
-
-def _coerce_to_package(x, if_null = "current"):
-        return (x                          if packagep(x)                      else
-                _symbol_value("*PACKAGE*") if (not x) and if_null == "current" else
-                find_package(x, True)      if stringp(x) or symbolp(x)         else
-                error(simple_type_error, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
-                      x, type_of(x)))
+        return _find_package(string(name), errorp)
 
 def intern(x, package = None):
         package = _coerce_to_package(package)
@@ -2119,12 +2369,6 @@ global environment."""
         return name
 
 ## @defun def function was moved lower, due to dependency on @defun and CL:T
-
-def _symbol_function(symbol):
-        return (symbol.known                                     or
-                symbol.macro_function                            or
-                (functionp(symbol.function) and symbol.function) or
-                error(undefined_function, symbol))
 
 def symbol_function(symbol_):
         """symbol-function symbol => contents
@@ -2345,17 +2589,6 @@ def setf_symbol_plist(new_value, symbol):
 ###
 ### Cold symbol area
 ###
-def _cold_make_nil():
-        nil = symbol.__new__(symbol)
-        nil.name = "NIL"
-        nil.package = None
-        (nil.value,
-         nil.function,
-         nil.macro_function,
-         nil.known) = nil, nil, nil, nil
-        return nil
-nil = _cold_make_nil()
-
 _cold_symbol_type = symbol
 _cold_package_type = package
 # A couple of dishonest implementations, that are cold at heart.
@@ -2383,24 +2616,6 @@ def _symbol_relation(x, p):
                         _keyword("external")  if s in p.external else
                         _keyword("internal"))
 
-def _find_symbol(x, package):
-        s = package.accessible.get(x) if x in package.accessible else None
-        if s is not None:
-                # format(t, "FIND-SYMBOL:%s, %s -> %s, %s\n",
-                #        x, package, s, _symbol_relation(s, p))
-                return s, _symbol_relation(s, package)
-        else:
-                return None, None
-def find_symbol(x, package = None):
-        return _find_symbol(x, _coerce_to_package(package))
-def _find_symbol0(x, package = None): return find_symbol(x, package)[0]
-
-def _find_symbol_or_fail(x, package = None):
-        p = _coerce_to_package(package)
-        sym, foundp = find_symbol(x, p)
-        return (sym if foundp else
-                symbols_not_accessible_error(p, [x]))
-
 # requires that __keyword_package__ is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
 def _keyword(s, upcase = True):  return _intern((s.upper() if upcase else s), __keyword_package__)[0]
 def _i(x):                       return _intern(the(string, x).upper(), None)[0]
@@ -2425,21 +2640,6 @@ def import_(symbols, package = None, populate_module = True):
                                 module.__dict__[python_name] = s.value
         return True
 
-def export(symbols, package = None):
-        symbols, package = _ensure_list(symbols), _coerce_to_package(package)
-        assert(every(symbolp, symbols))
-        symdict = _map_into_hash(lambda x: (x.name, x), symbols)
-        for user in package.packages_using:
-                _use_package_symbols(user, package, symdict)
-        # No conflicts?  Alright, we can proceed..
-        symset = _py.set(symdict.values())
-        for_interning = symset & _py.set(package.inherited)
-        for sym in for_interning:
-                del package.inherited[sym]
-                self.internal.add(sym)
-        package.external |= symset
-        return True
-
 def _init_condition_system():
         _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
 
@@ -2457,66 +2657,10 @@ def _condition_system_enabled_p():
         return (_frost.pytracer_enabled_p() and
                 _frost.tracer_hook("exception") is __cl_condition_handler__)
 
-__core_symbol_names__ = [
-        "QUOTE",
-        "ABORT", ("CONTINUE", "continue_"), ("BREAK", "break_"),
-        "&OPTIONAL", "&REST", "&KEY", "&BODY", "&ALLOW-OTHER-KEYS", "&WHOLE",
-        "&RESTKEY", # pythonism
-        ]
-__more_symbol_names__ = [
-        "SOME", "EVERY",
-]
-def _init_package_system_0():
-        global __packages__
-        global __builtins_package__
-        global __keyword_package__
-        global __modular_noise__
-        global t, symbol, make_symbol, make_package
-        __packages__ = _py.dict()
-        __builtins_package__ = package("BUILTINS", boot = True)
-        __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
-        __modular_noise__ = _py.frozenset(_load_text_as_module("", "").__dict__)
-        cl = package("CL", use = ["BUILTINS"], boot = True)
-        nil.package = cl                             # NIL is so important it had to be made earlier.
-        _intern(".", cl)
-        t                  = _intern("T", cl)[0]       # Nothing much works without this.
-        t.value, nil.value = t, nil     # Self-evaluation.
-        nil.__contains__   = lambda _: False
-        nil.__getitem__    = lambda _, __: nil
-        nil.__length__     = lambda _: 0
-        nil.__iter__       = lambda _: None
-        nil.__reversed__   = lambda _: None
-        export([t, nil] + mapcar(lambda n: _intern(_ensure_car(n), cl)[0],
-                                 __core_symbol_names__ +
-                                 __more_symbol_names__),
-               cl)
-        for spec in __core_symbol_names__:
-                lisp_name, python_name = (spec, spec.lower().replace("&", "_").replace("-", "_")) if stringp(spec) else spec
-                # Unregistered Issue PACKAGE-SYSTEM-INIT-SHOULD-USE-GLOBAL-SETTER-INSTEAD-OF-CUSTOM-HACKERY
-                _sys.modules['cl'].__dict__[python_name] = _find_symbol_or_fail(lisp_name, cl)
-        # secondary
-        global star
-        star = _intern("*", cl)[0]
-        package("COMMON-LISP-USER", use = ["CL", "BUILTINS"], boot = True)
-        __global_scope__["*PACKAGE*"] = cl # COLD-SETQ
-        symbol = _frost.frost_def(symbol,  _intern("SYMBOL")[0],  "python_type", _py.globals())
-        @defun(_do_intern_symbol(symbol.python_type("MAKE-SYMBOL"), cl))
-        def make_symbol(name):
-                return symbol.python_type(name)
-        _boot_advance("_BOOT_SYMBOL")
-        _frost.frost_def(package, _intern("PACKAGE")[0], "python_type", _py.globals())
-        @defun
-        def make_package(name, nicknames = [], use = []):
-                if nicknames:
-                        _not_implemented("In MAKE-PACKAGE %s: package nicknames are ignored.", _py.repr(name))
-                return package.python_type(string(name), ignore_python = True, use = [])
-        # symbol = metasymbol
-_init_package_system_0() ########### _keyword(), quote_, and_, or_, abort_, continue_, break_ are now available
-
 def _init_reader_0():
         "SETQ, SYMBOL_VALUE, LET and BOUNDP (anything calling _COERCE_TO_SYMBOL_NAME) need this to mangle names."
         __global_scope__["*READ-CASE*"] = _keyword("upcase", upcase = True)
-_init_reader_0()         ########### _coerce_to_symbol_name() is now available
+_init_reader_0()
 
 
 def _string_set(name, value, force_toplevel = nil):
@@ -2835,21 +2979,10 @@ def force_output(*args, **keys):
         finish_output(*args, **keys)
 
 ##
-## Condition: not_implemented
+## Conditions
 ##
 def _conditionp(x):
         return typep(x, condition)
-
-def _coerce_to_condition(datum, *args, default_type = error, **keys):
-        type_specifier = default_type if stringp(datum) else datum
-        type = (type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
-                type_specifier             if typep(type_specifier, _cold_class_type)                                else
-                None                       if typep(type_specifier, _cold_condition_type)                            else
-                error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
-        cond = (datum              if type is None   else # Already a condition.
-                type(datum % args) if stringp(datum) else
-                type(*args, **keys))
-        return cond
 
 def make_condition(type, *args, **keys):
         """It's a slightly weird interpretation of MAKE-CONDITION, as
@@ -2903,23 +3036,6 @@ class _not_implemented_condition(condition.python_type):
 class _not_implemented_error(_not_implemented_condition.python_type, error.python_type): pass
 @defclass
 class _not_implemented_warning(_not_implemented_condition.python_type, warning.python_type): pass
-
-@defun
-def error(datum, *args, **keys):
-        ## Shouldn't we ditch Python compat entirely, doing instead
-        ## the typical SIGNAL/INVOKE-DEBUGGER thing?
-        raise _coerce_to_condition(datum, *args, **keys)
-
-@defun
-def warn(datum, *args, **keys):
-        condition = _coerce_to_condition(datum, *args, **keys)
-        check_type(condition, warning)
-        signal(condition)
-        badness = _poor_man_etypecase(condition,
-                                      (style_warning, style_warning),
-                                      (warning,       warning))
-        format(symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
-        return nil
 
 def _not_implemented(x = None):
         error(_not_implemented_error,
@@ -4635,22 +4751,6 @@ _compiler_debug         = _defwith("_compiler_debug",
 ###              PROGN | FLET, SYMBOL <- (LAMBDA)      <-
 ###                FLET, DEF, FUNCALL <- (LABELS)      <-
 ###                 PROGN | LET, LET* <- (LET*)        <-
-@defun
-def atom(x):        return not _tuplep(x)
-@defun # Unregistered Issue LIST-CONSNESS
-def consp(x):       return _tuplep(x)
-@defun # Unregistered Issue LIST-CONSNESS
-def listp(x):       return x is nil or _tuplep(x)
-@defun # Unregistered Issue LIST-CONSNESS
-def list(*xs):      return xs
-@defun # Unregistered Issue LIST-CONSNESS
-def append(*xs):    return _py.sum(xs, _py.tuple())
-@defun
-def cons(car, cdr): return (x, y)
-@defun
-def car(x):         return x[0] if x else nil
-@defun
-def first(x):       return x[0] if x else nil
 @defun("NOT")
 def not_(x):        return t if x is nil else nil
 
@@ -5954,41 +6054,6 @@ _string_set("*READ-SUPPRESS*",             __standard_io_syntax__["*READ-SUPPRES
 _string_set("*READTABLE*",                 __standard_io_syntax__["*READTABLE*"])
 """."""
 
-def _print_symbol(s, escape = None, gensym = None, case = None, package = None, readably = None):
-        # Specifically, if *PRINT-READABLY* is true, printing proceeds as if
-        # *PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
-        # as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
-        #
-        # If *PRINT-READABLY* is false, the normal rules for printing and the
-        # normal interpretations of other printer control variables are in
-        # effect.
-        #
-        # Individual methods for PRINT-OBJECT, including user-defined methods,
-        # are responsible for implementing these requirements.
-        package  = _defaulted_to_var(package,  "*PACKAGE*")
-        if not packagep(package):
-                _here("------------------------------------------------------------\npackage is a %s: %s" % (type_of(package), package,))
-        readably = _defaulted_to_var(readably, "*PRINT-READABLY*")
-        escape   = _defaulted_to_var(escape,   "*PRINT-ESCAPE*") if not readably else t
-        case     = _defaulted_to_var(case,     "*PRINT-CASE*")   if not readably else _keyword("UPCASE")
-        gensym   = _defaulted_to_var(gensym,   "*PRINT-GENSYM*") if not readably else t
-        # Because the #: syntax does not intern the following symbol, it is
-        # necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
-        # the same uninterned symbol appears several times in an expression to
-        # be printed. For example, the result of
-        #
-        # (let ((x (make-symbol "FOO"))) (list x x))
-        #
-        # would be printed as (#:FOO #:FOO) if *PRINT-CIRCLE* were
-        # false, but as (#1=#:FOO #1#) if *PRINT-CIRCLE* were true.
-        return ((""                       if not escape                        else
-                 ":"                      if s.package is __keyword_package__  else
-                 ""                       if _symbol_accessible_in(s, package) else
-                 ("#:" if gensym else "") if not s.package                     else
-                 (s.package.name + (":"
-                                    if s in s.package.external else
-                                    "::"))) +
-                _case_xform(case, s.name))
 
 def _print_string(x, escape = None, readably = None):
         """The characters of the string are output in order. If printer escaping
@@ -6207,7 +6272,7 @@ def _cold_read_from_string(string, eof_error_p = True, eof_value = nil,
                 else:
                         handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
-                        if obj == _find_symbol0("."):
+                        if obj == _find_symbol(".")[0]:
                                 error("Consing dot not implemented")
                 # _here("< %s" % (obj,))
                 return obj
@@ -6227,7 +6292,7 @@ def _cold_read_from_string(string, eof_error_p = True, eof_value = nil,
                                 break
                         else:
                                 obj = read()
-                                if not _listp(obj) and obj is _find_symbol0("."):
+                                if not _listp(obj) and obj is _find_symbol(".")[0]:
                                         error("Consing dot not implemented")
                                 ret += [obj]
                 # _here("< %s" % (ret,))
@@ -6354,7 +6419,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserv
                 else:
                         # handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
-                        if obj == _find_symbol0("."):
+                        if obj == _find_symbol(".")[0]:
                                 error("Consing dot not implemented")
                 # _here("< %s" % (obj,))
                 return obj
@@ -6376,7 +6441,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserv
                         else:
                                 unread_char(char, stream)
                                 obj = read_inner()
-                                if not _listp(obj) and obj is _find_symbol0("."):
+                                if not _listp(obj) and obj is _find_symbol(".")[0]:
                                         error("Consing dot not implemented")
                                 ret += [obj]
                 # _here("< %s" % (ret,))
@@ -6800,7 +6865,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
                                           backtrace = backtrace)
                         if old_hook_value:
                                 old_hook_value(cond, old_hook_value)
-                with env.maybe_let(p, **{_coerce_to_symbol_name(hook): wrapped_hook}):
+                with env.maybe_let(p, **{string(hook): wrapped_hook}):
                         return body()
         else:
                 return body()
@@ -7219,16 +7284,16 @@ executes the following:
 _string_set("*MODULE-PROVIDER-FUNCTIONS*", [])
 
 def _module_filename(module):
-        return "%s/%s.py" % (env.partus_path, _coerce_to_symbol_name(module))
+        return "%s/%s.py" % (env.partus_path, string(module))
 
 def require(name, pathnames = None):
         "XXX: not terribly compliant either"
-        name = _coerce_to_symbol_name(name)
-        filename = pathnames[0] if pathnames else _module_filename(name)
+        namestring = string(name)
+        filename = pathnames[0] if pathnames else _module_filename(namestring)
         if probe_file(filename):
                 _not_implemented()
         else:
-                error("Don't know how to REQUIRE %s.", name.upper())
+                error("Don't know how to REQUIRE %s.", namestring.upper())
 
 ##
 ## Environment
@@ -7333,7 +7398,7 @@ def _callify(form, package = None, quoted = False):
                 integer : _ast_num,
                 }
         if _listp(form):
-                if quoted or (form[0] is _find_symbol0("QUOTE")):
+                if quoted or (form[0] is _find_symbol("QUOTE")[0]):
                         return (_ast_list(mapcar(lambda x: _callify(x, package, True), form[1]))
                                 if _listp(form[1]) else
                                 _callify(form[1], package, True))
