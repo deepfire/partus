@@ -102,7 +102,7 @@ import neutrality  as _neutrality
 import frost       as _frost
 
 ###
-### Utilities too hard to live without, even at boot time..
+### Wave 0: unspecifically important..
 ###
 def _defaulted(x, value, type = None):
         if x is not None and type is not None:
@@ -125,8 +125,12 @@ def _debug_printf(format_control, *format_args):
 ### First-class namespaces
 ###
 class _namespace(_collections.UserDict):
+        def __str__(self):
+                return "#<NAMESPACE %s>" % (_py.repr(self.name),)
         def __init__(self, name, data_constructor = _py.dict):
                 self.name, self.data, self.properties = name, data_constructor(), _collections.defaultdict(_py.dict)
+        def __getitem__(self, x):               return self.data.__getitem__(x)
+        def __hasitem__(self, x):               return self.data.__hasitem__(x)
         def names(self):                        return _py.set(self.data.keys())
         def intersect(self, with_):             return [x for x in with_ if x in self.data] if _py.len(self) > _py.len(with_) else [x for x in self.data if x in with_]
         def has(self, name):                    return name in self.data
@@ -148,6 +152,12 @@ _namespace = _namespace_type_and_constructor("")
 ###
 ### Meta-boot 
 ###
+## 1. trivial enumeration for later DEFUN/DEFCLASS
+__boot_defunned__, __boot_defclassed__ = _py.set(),  _py.set()
+def boot_defun(fn):     __boot_defunned__.add(fn);    return fn
+def boot_defclass(cls): __boot_defclassed__.add(cls); return cls
+
+## 2. tagged switchables
 _namespace.grow("boot", data_constructor = lambda: _collections.defaultdict(_py.set))
 
 def boot(set, boot):
@@ -156,39 +166,30 @@ def boot(set, boot):
                         _frost.setf_global(orig, orig.__name__, _py.globals()) 
                 def linkage(*args, **keys):
                         return boot(orig, *args, **keys)
-                linkage.unboot = unboot
+                boot.unboot = unboot
+                _namespace["boot"][set].add(boot)
                 return linkage
-        _namespace["boot"][set].add(boot)
         return definer
 
 def _unboot_set(set):
         for x in _namespace["boot"][set]:
+                if not _py.hasattr(x, "unboot"):
+                        error("In UNBOOT-SET \"%s\": %s has no 'unboot' attribute.", set, x)
                 x.unboot()
+        del _namespace["boot"][set]
+        _debug_printf("; unbooted function set %s, remaining boot sets: %s", _py.repr(set), ", ".join(_namespace["boot"].keys()))
 
 def _interpret_toplevel_value(name_or_obj, objness_predicate):
-        def stringp(x): return _py.isinstance(name_or_obj, _py.str)
+        def stringp(x): return _py.isinstance(x, _py.str)
         name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj) else
                      (name_or_obj, None)                 if stringp(name_or_obj)           else
                      error("In %s: bad cold object definition: %s", definer_name, name_or_obj))
         ####### Thought paused here:
         # ..delay symbol computation!
-        sym, pyname = ((_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if stringp(name) else
-                       (name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name) else
-                       error("In %s: bad name %s for a cold object.", definer_name, name))
+        sym, pyname = ((_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if _py.isinstance(name, _py.str) else
+                       (name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name)                 else
+                       error("In cold definition of %s: bad name %s for a cold object.", name, _py.repr(name)))
         return obj, sym, pyname
-
-__boot_defunned__ = _py.set()
-def boot_defun(fn):
-        def symbolicate():
-                orig, sym, pyname = _interpret_toplevel_value(fn)
-                _frost.setf_global(orig, pyname, _py.globals())
-        fn.symbolicate = symbolicate
-        __boot_defunned__.add(fn)
-        return fn
-
-def _unboot_defuns():
-        for x in __boot_defunned__:
-                x.symbolicate()
 
 class _storyteller(_collections.UserDict):
         def __init__(self):           self.__dict__.update(_py.dict(__call__ = lambda self, x: self.advance(x),
@@ -236,8 +237,19 @@ def car(x):         return x[0] if x else nil
 def first(x):       return x[0] if x else nil
 
 ###
-### Boot data type support
+### Wave 1: unspecifically important..
 ###
+_cold_function_type = _types.FunctionType.__mro__[0]
+
+@boot_defun
+def stringp(x):   return _py.isinstance(x, _py.str)
+
+@boot_defun
+def functionp(o): return _py.isinstance(o, _cold_function_type)
+
+@boot_defun
+def identity(x):  return x
+
 def _map_into_hash(f, xs,
                    key_test = lambda k: k is not None,
                    value_test = lambda _: True) -> _py.dict:
@@ -248,17 +260,11 @@ def _map_into_hash(f, xs,
                         acc[k] = v
         return acc
 
-_cold_function_type = _types.FunctionType.__mro__[0]
-
-@boot_defun
-def functionp(o):
-        return _py.isinstance(o, _cold_function_type)
-
 ###
 ### Boot conditions
 ###
 @boot("typep", lambda _, datum, *args, default_type = None, **keys:
-              _py.Exception(datum % args) if _py.isinstance(datum, _py.str) else
+              _py.Exception(datum % args) if stringp(datum) else
               (datum if not (args or keys) else
                error("Bad, bad evil is rising.  Now go and kill everybody.")) if _py.isinstance(datum, _py.BaseException) else
               datum(*args, **keys))
@@ -292,10 +298,6 @@ def error(datum, *args, **keys):
         ## Shouldn't we ditch Python compat entirely, doing instead
         ## the typical SIGNAL/INVOKE-DEBUGGER thing?
         raise _coerce_to_condition(datum, *args, **keys)
-        
-@boot_defun
-def stringp(x):
-        return _py.isinstance(x, _py.str)
 
 ###
 ### Dynamic scope: early core
@@ -349,19 +351,18 @@ def boundp(symbol):
         return _boundp(string(symbol))
 
 @boot_defun
-def symbol_value(symbol):
-        # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
-        return (_symbol_value(symbol) if stringp(symbol) else
-                symbol.value          if symbolp(symbol) else
-                error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
-                      symbol))
-
-def _symbol_function(symbol):
-        return (symbol.known                                     or
-                symbol.macro_function                            or
-                (functionp(symbol.function) and symbol.function) or
-                _debug_printf("no fun : %s", symbol.name) or
-                error(undefined_function, symbol))
+def symbol_name(x):            return x.name
+@boot_defun
+def symbol_package(x):         return x.package
+@boot_defun # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
+def symbol_value(symbol):      return (_symbol_value(symbol) if stringp(symbol) else
+                                       symbol.value          if symbolp(symbol) else
+                                       error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
+                                             symbol))
+def _symbol_function(symbol):  return (symbol.known          or
+                                       symbol.macro_function or
+                                       symbol.function       or
+                                       error(undefined_function, symbol))
 
 ###
 ### Package system: early core
@@ -400,7 +401,7 @@ class package(_collections.UserDict):
                                         assert _py.isinstance(u_p, _py.type(p))
                                         use_package(p, u_p)
                 ## __init__()
-                assert _py.isinstance(name, _py.str)
+                assert stringp(name)
                 self.name = name
                 self.nicknames = nicknames
 
@@ -492,12 +493,12 @@ def _print_symbol(s, escape = None, gensym = None, case = None, package = None, 
                                     "::"))) +
                 _case_xform(case, s.name))
 
-@boot(lambda _, name, **keys: symbol(name))
+@boot("symbol", lambda _, name, **keys: symbol(name))
 @boot_defun
 def make_symbol(name, **keys):
         return symbol.python_type(name, **keys)
 
-@boot(lambda _, name, **keys: package(name, **keys))
+@boot("symbol", lambda _, name, **keys: package(name, **keys))
 @boot_defun
 def make_package(name, **keys):
         return package.python_type(name, **keys)
@@ -505,8 +506,8 @@ def make_package(name, **keys):
 @boot_defun
 def string(x):
         ## NOTE: These type check branches can be in bootstrap order or in usage frequency order!
-        return (x      if _py.isinstance(x, _py.str) else
-                x.name if _py.isinstance(x, symbol)  else
+        return (x      if stringp(x) else
+                x.name if symbolp(x)  else
                 error("%s must have been either a string or a symbol.", x))
 
 __cl = None
@@ -524,24 +525,24 @@ def _do_intern_symbol(s, p):
         return s
 
 def _intern_in_package(x, p):
-        s, presentp = (error("X must be a symbol: %s.", _py.repr(x)) if not stringp(x)    else
-                       (p.accessible.get(x), True)                   if x in p.accessible else
+        s, presentp = (error("X must be a symbol: %s.", _py.repr(x)) if not _py.isinstance(x, _py.str) else
+                       (p.accessible.get(x), True)                   if x in p.accessible              else
                        (None,                False))
         if not presentp:
                 s = _do_intern_symbol(make_symbol(x), p)
         return s, presentp
 
-@boot(lambda _, x: _py.isinstance(x, package))
+@boot("symbol", lambda _, x: _py.isinstance(x, package))
 @boot_defun
 def packagep(x): return _py.isinstance(x, package.python_type)
 
-@boot(lambda _, x: _py.isinstance(x, symbol))
+@boot("symbol", lambda _, x: _py.isinstance(x, symbol))
 @boot_defun
 def symbolp(x):  return _py.isinstance(x, symbol.python_type)
 
 @boot_defun
 def find_package(name):
-        return (name if _py.isinstance(name, package) else
+        return (name if packagep(name) else
                 _namespace["PACKAGES"].access(string(name))[0] or nil)
 
 def _coerce_to_package(x, if_null = "current"):
@@ -551,12 +552,12 @@ def _coerce_to_package(x, if_null = "current"):
                 error(simple_type_error, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
                       x, type_of(x)))
 
-@boot(lambda _intern, x, package = None:
+@boot("symbol", lambda _intern, x, package = None:
               _intern(x, package or __cl))
 def _intern(x, package = None):
         "A version of INTERN, that does not compute the relationship between SYMBOL and designated PACKAGE."
-        p = find_package(package) if package else _symbol_value("*PACKAGE*")
-        return _intern_in_package(x, package)
+        return _intern_in_package(x, find_package(package) if package else
+                                     _symbol_value("*PACKAGE*"))
 
 def _use_package_symbols(dest, src, syms):
         conflict_set = { x.name for x in syms.values() } & _py.set(dest.accessible.keys())
@@ -573,8 +574,8 @@ def _use_package_symbols(dest, src, syms):
                 # if dest.module and name not in dest.module.__dict__:
                 #         dest.module.__dict__[name] = sym.value
 
-@boot_defun
 @story
+@boot_defun
 def use_package(dest, src):
         dest, src = _coerce_to_package(dest), _coerce_to_package(src)
         symhash = _map_into_hash(lambda x: (x.name, x), src.external)
@@ -633,49 +634,45 @@ def _init_package_system_0():
         __packages__ = _py.dict()
         __builtins_package__ = package("BUILTINS", boot = True)
         __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
-        cl = package("CL", boot = True)
-        nil.package = cl                             # NIL is so important it had to be made earlier.
-        _intern(".", cl)
-        t                  = _intern("T", cl)[0]       # Nothing much works without this.
+        nil.package = __cl                             # NIL is so important it had to be made earlier.
+        t                  = _intern("T", __cl)[0]     # Nothing much works without this.
         t.value, nil.value = t, nil     # Self-evaluation.
         nil.__contains__   = lambda _: False
         nil.__getitem__    = lambda _, __: nil
         nil.__length__     = lambda _: 0
         nil.__iter__       = lambda _: None
         nil.__reversed__   = lambda _: None
-        export([t, nil] + [_intern(n[0] if _tuplep(n) else n, cl)[0]
+        export([t, nil] + [_intern(n[0] if _tuplep(n) else n, __cl)[0]
                            for n in __core_symbol_names__ + __more_symbol_names__],
-               cl)
+               __cl)
         for spec in __core_symbol_names__:
                 lisp_name, python_name = (spec, spec.lower().replace("&", "_").replace("-", "_")) if stringp(spec) else spec
                 # Unregistered Issue PACKAGE-SYSTEM-INIT-SHOULD-USE-GLOBAL-SETTER-INSTEAD-OF-CUSTOM-HACKERY
-                _sys.modules['cl'].__dict__[python_name] = _find_symbol_or_fail(lisp_name, cl)
+                # _sys.modules['cl'].__dict__[python_name] = _find_symbol_or_fail(lisp_name, __cl)
         # secondary
         global star
-        star = _intern("*", cl)[0]
-        package("COMMON-LISP-USER", use = ["CL"], boot = True)
-        __global_scope__["*PACKAGE*"] = cl # COLD-SETQ
+        star = _intern("*", __cl)[0]
+        package("COMMON-LISP-USER", use = [__cl], boot = True)
+        __global_scope__["*PACKAGE*"] = __cl # COLD-SETQ
         symbol = _frost.frost_def(symbol,  _intern("SYMBOL")[0],  "python_type", _py.globals())
-        @boot_defun# (_do_intern_symbol(symbol.python_type("MAKE-SYMBOL"), cl))
+        @boot_defun# (_do_intern_symbol(symbol.python_type("MAKE-SYMBOL"), __cl))
         def make_symbol(name):
                 return symbol.python_type(name)
-        # _boot_advance("_BOOT_SYMBOL")
         _frost.frost_def(package, _intern("PACKAGE")[0], "python_type", _py.globals())
         @boot_defun
         def make_package(name, nicknames = [], use = []):
                 if nicknames:
                         _not_implemented("In MAKE-PACKAGE %s: package nicknames are ignored.", _py.repr(name))
                 return package.python_type(string(name), ignore_python = True, use = [])
-        # symbol = metasymbol
 
 _init_package_system_0()
+
+_unboot_set("symbol")
 
 ###
 ### Toplevel names
 ###
 def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
-        def stringp(x): return _py.isinstance(x, _py.str)
-        def symbolp(x): return _py.isinstance(x, symbol)
         def cold_definer(name_or_obj):
                 obj, sym, name = _interpret_toplevel_value(name_or_obj, predicate)
                 def do_cold_def(o):
@@ -697,11 +694,33 @@ def _defun_preprocessor(o):
         return (__block__(o) if _storyteller.narrated("block") else
                 o)
 
-defun    = _cold_defun    = _make_cold_definer("%COLD-DEFUN",    lambda x: _py.isinstance(x, _cold_function_type),
-                                               "function",    _defun_preprocessor, _frost.make_object_like_python_function)
 del boot_defun
+del boot_defclass
+
+defun    = _cold_defun    = _make_cold_definer("%COLD-DEFUN",    functionp,
+                                               "function",    _defun_preprocessor, _frost.make_object_like_python_function)
 defclass = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: _py.isinstance(x, _py.type),
                                                "python_type", identity,            _frost.make_object_like_python_class)
+
+for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  _py.globals())
+for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
+
+################################################################################
+###
+### Chapter 1: We now have symbols, packages, semi-proper DEFUN/DEFCLASS and
+###            the top-level part of dynamic scope.
+###
+__gensym_counter__ = 0
+
+def _gensymname(x = "N"):
+        # Unregistered Issue GENSYM-NOT-THREAD-SAFE
+        global __gensym_counter__
+        __gensym_counter__ += 1
+        return x + _py.str(__gensym_counter__)
+
+@defun
+def gensym(x = "G"):
+        return make_symbol(_gensymname(x))
 
 ###
 ### Types
@@ -748,10 +767,6 @@ def _nonep(o):      return o is None
 most_positive_fixnum = 67108864
 
 @defun
-def identity(x):
-        return x
-
-@defun
 def type_of(x):
         return _py.type(x)
 
@@ -764,30 +779,30 @@ def _poor_man_defstruct(name, *slots):
 
 def _poor_man_when(test, body):
         if test:
-                return body() if _py.isinstance(body, _cold_function_type) else body
+                return body() if functionp(body) else body
 
 def _poor_man_case(val, *clauses):
         for (cval, body) in clauses:
                 if ((val == cval or (cval is True) or (cval is t)) if not _py.isinstance(cval, _py.list) else
                     val in cval):
-                        return body() if _py.isinstance(body, _cold_function_type) else body
+                        return body() if functionp(body) else body
 
 def _poor_man_ecase(val, *clauses):
         for (cval, body) in clauses:
                 if ((val == cval) if not _py.isinstance(cval, _py.list) else
                     val in cval):
-                        return body() if _py.isinstance(body, _cold_function_type) else body
+                        return body() if functionp(body) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
 def _poor_man_typecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if _py.isinstance(body, _cold_function_type) else body
+                        return body() if functionp(body) else body
 
 def _poor_man_etypecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if _py.isinstance(body, _cold_function_type) else body
+                        return body() if functionp(body) else body
         else:
                 error(simple_type_error, "%s fell through ETYPECASE expression. Wanted one of (%s).",
                       val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
@@ -808,18 +823,27 @@ def _cold_constantp(form):
                  form.name in ["QUOTE"]))
 constantp = _cold_constantp
 
+@defun
 def string_upcase(x):     return x.upper()
+@defun
 def string_downcase(x):   return x.lower()
+@defun
 def string_capitalize(x): return x.capitalize()
 
+@defun
 def char_upcase(x):       return x.upper()
+@defun
 def char_downcase(x):     return x.lower()
+@defun
 def upper_case_p(x):      return x.isupper()
+@defun
 def lower_case_p(x):      return x.islower()
 
+@defun
 def make_hash_table():
         return _cold_hash_table_type()
 
+@defun
 def gethash(key, dict, default = None):
         therep = key in dict
         return (dict.get(key) if therep else default), therep
@@ -841,39 +865,6 @@ def _case_xform(type, s):
 def _global(x):
         return _frost.global_(x, _py.globals())
 
-__boot_state_names__ = _py.dict()
-def _defbootstate(n, name):
-        _frost.setf_global(n, name, _py.globals())
-        __boot_state_names__[n] = name
-_defbootstate(0, "_BOOT_NOTHING")
-_defbootstate(1, "_BOOT_SYMBOL")
-_defbootstate(2, "_BOOT_PRINTER")
-
-__boot_state__ = _BOOT_NOTHING
-def _boot_state():      return __boot_state__
-def _boot_state_name(): return __boot_state_names__[__boot_state__]
-def _next_boot_state():
-        return __boot_state__ + 1
-def _boot_available_p(x):
-        return x <= __boot_state__
-def _boot_advance(new_name):
-        global __boot_state__
-        new_state = _next_boot_state()
-        __boot_state__ = new_state
-        return new_state
-def _boot_case(*clauses):
-        if find_if(lambda x: (not integerp(x)) or minusp(x), clauses, key = car):
-                error("In BOOT-CASE: clauses must be keyed by non-negative integers.")
-        clauses = [ [-1, c[1]] if c[0] is True else _py.list(c) for c in clauses ]
-        if _py.list(_py.reversed(_py.sorted(clauses))) != clauses:
-                # Improvement Issue BOOT-CASE-MORE-EXPLICIT-ORDER-VIOLATION-MESSAGE
-                error("In BOOT-CASE: clauses must follow a strict order of decreasing dependency;  was: %s.", )
-        for (state, body) in clauses:
-                if _boot_available_p(state):
-                        return body()
-        else:
-                error("In BOOT-CASE: could not choose a way of action at boot state %s.", _boot_state_name())
-
 _cold_class_type      = _py.type
 _cold_condition_type  = _py.BaseException
 _cold_error_type      = _py.Exception
@@ -890,14 +881,6 @@ class _cold_simple_condition_type(_cold_condition_type):
                 return self.__str__()
 simple_condition = _cold_simple_condition_type
 
-def _cold_error(datum, *args, **keys):
-        raise (_py.Exception(datum % args, **keys) if stringp(datum) else
-               datum(*args, **keys))
-error = _cold_error
-def _cold_warn(datum, *args, **keys):
-        _py.print(_py.Exception(datum % args, **keys) if stringp(datum) else
-                  datum(*args, **keys))
-warn = _cold_warn
 def _cold_signal(condition):
         # _py.print("; %%COLD-SIGNAL: signalling %s\n" % (condition,))
         pass
@@ -1541,7 +1524,7 @@ def _separate(n, f, xs):
                         s |= rs
         return ss
 
-__combiners__ = { set: set.add, list: list.append }
+__combiners__ = { set: _py.set.add, list: _py.list.append }
 def _recombine(spec, f, xss):
         accs  = _py.tuple(f() for f in spec)
         combs = _py.tuple(__combiners__[_py.type(a)] for a in accs)
@@ -1596,18 +1579,6 @@ class _servile():
                                                        self.__dict__)))
         def __init__(self, **keys):
                 self.__dict__.update(keys)
-
-##
-## Symbols
-##
-__gensym_counter__ = 0
-def _gensymname(x = "N"):
-        # Unregistered Issue GENSYM-NOT-THREAD-SAFE
-        global __gensym_counter__
-        __gensym_counter__ += 1
-        return x + _py.str(__gensym_counter__)
-def gensym(x = "G"):
-        return make_symbol(_gensymname(x))
 
 def _gen(n = 1, x = "G", gen = gensym):
         if zerop(n):
@@ -1721,7 +1692,7 @@ def typep(x, type):
 def subtypep(sub, super):
         def coerce_to_python_type(x):
                 return (x             if _py.isinstance(x, _cold_class_type)   else
-                        x.python_type if _py.isinstance(x, symbol.python_type) else
+                        x.python_type if symbolp(x) else
                         error("In SUBTYPEP: arguments must be valid type designators, but %s wasn't one.", _py.repr(x)))
         def do_subclass_check(sub, super):
                 return _py.issubclass(coerce_to_python_type(sub),
@@ -2114,10 +2085,10 @@ of nonce-ing is to be handled manually."""
 
 def return_from(nonce, value):
         nonce = ((_py.getattr(nonce, "ball", None) or
-                  error("RETURN-FROM was handed a function %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)) if _py.isinstance(nonce, _cold_function_type) else
+                  error("RETURN-FROM was handed a function %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)) if functionp(nonce) else
                  ## This can mean either the @defun-ned function, or absent a function definition, the symbol itself.
-                 (_py.getattr(nonce.function, "ball", nonce))                                                                             if symbolp(nonce)                             else
-                 nonce                                                                                                                    if stringp(nonce)                             else
+                 (_py.getattr(nonce.function, "ball", nonce))                                                                             if symbolp(nonce)   else
+                 nonce                                                                                                                    if stringp(nonce)   else
                  error("In RETURN-FROM: nonce must either be a string, or a function designator;  was: %s.", _py.repr(nonce)))
         throw(nonce, value)
 
@@ -2586,25 +2557,7 @@ def symbol_plist(symbol):
 def setf_symbol_plist(new_value, symbol):
         _not_implemented()
 
-###
-### Cold symbol area
-###
-_cold_symbol_type = symbol
-_cold_package_type = package
-# A couple of dishonest implementations, that are cold at heart.
-def symbolp(x):  return _py.isinstance(x, _cold_symbol_type) # COLD-TYPEP
-def packagep(x): return _py.isinstance(x, _cold_package_type)
-
-def _cold_make_symbol(name):
-        return symbol(name)
-make_symbol = _cold_make_symbol # To be replaced ASAP we have INTERN working.
-###
-##
-#
-
 def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
-def symbol_name(x):                  return x.name
-def symbol_package(x):               return x.package
 def coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, _coerce_to_package(package))
 
