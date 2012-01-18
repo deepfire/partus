@@ -214,10 +214,32 @@ _storyteller = _storyteller()
 story = _storyteller.advance
 
 ###
+### Cold type names
+###
+_cold_class_type      = _py.type
+_cold_condition_type  = _py.BaseException
+_cold_error_type      = _py.Exception
+_cold_hash_table_type = _py.dict
+_cold_stream_type     = __io._IOBase
+_cold_fd_stream_type  = __io.TextIOWrapper
+_cold_function_type   = _types.FunctionType.__mro__[0]
+_cold_tuple_type      = _py.tuple
+_cold_string_type     = _py.str
+_cold_list_type       = _py.list
+
+## As-of-yet -homeless type predicates..
+@boot_defun
+def stringp(x):        return _py.isinstance(x, _cold_string_type)
+@boot_defun
+def functionp(o):      return _py.isinstance(o, _cold_function_type)
+@boot_defun
+def _python_type_p(x): return _py.isinstance(o, _cold_class_type)
+
+###
 ### Boot listery and consery (beware model issues)
 ###
 def _tuplep(x):
-        return _py.isinstance(x, _py.tuple)
+        return _py.isinstance(x, _cold_tuple_type)
 
 @boot_defun
 def atom(x):        return not _tuplep(x)
@@ -239,16 +261,12 @@ def first(x):       return x[0] if x else nil
 ###
 ### Wave 1: unspecifically important..
 ###
-_cold_function_type = _types.FunctionType.__mro__[0]
-
-@boot_defun
-def stringp(x):   return _py.isinstance(x, _py.str)
-
-@boot_defun
-def functionp(o): return _py.isinstance(o, _cold_function_type)
-
 @boot_defun
 def identity(x):  return x
+
+@boot_defun
+def make_hash_table():
+        return _py.dict()
 
 def _map_into_hash(f, xs,
                    key_test = lambda k: k is not None,
@@ -263,15 +281,20 @@ def _map_into_hash(f, xs,
 ###
 ### Boot conditions
 ###
+@boot_defun
+def _conditionp(x):
+        return _py.isinstance(x, _cold_condition_type)
+
 @boot("typep", lambda _, datum, *args, default_type = None, **keys:
               _py.Exception(datum % args) if stringp(datum) else
               (datum if not (args or keys) else
-               error("Bad, bad evil is rising.  Now go and kill everybody.")) if _py.isinstance(datum, _py.BaseException) else
+               error("Bad, bad evil is rising.  Now go and kill everybody.")) if _conditionp(datum) else
               datum(*args, **keys))
 def _coerce_to_condition(datum, *args, default_type = None, **keys):
         type_specifier = _defaulted(default_type, error) if stringp(datum) else datum
+
         type = (type_specifier             if typep(type_specifier, _cold_class_type)                                else
-                None                       if typep(type_specifier, _cold_condition_type)                            else
+                None                       if _conditionp(type_specifier)                                            else
                 type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
                 error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
         cond = (datum              if type is None   else # Already a condition.
@@ -282,8 +305,8 @@ def _coerce_to_condition(datum, *args, default_type = None, **keys):
 @boot("typep", lambda _, datum, *args, **keys:
               _debug_printf("COLD WARNING: " + datum, *args, **keys))
 @boot_defun
-def warn(control, *args):
-        condition = _coerce_to_condition(datum, *args, **keys)
+def warn(control, *args, **keys):
+        condition = _coerce_to_condition(control, *args, **keys)
         check_type(condition, warning)
         signal(condition)
         badness = _poor_man_etypecase(condition,
@@ -302,7 +325,7 @@ def error(datum, *args, **keys):
 ###
 ### Dynamic scope: early core
 ###
-__global_scope__ = _py.dict()
+__global_scope__ = make_hash_table()
 
 class _thread_local_storage(_threading.local):
         def __init__(self):
@@ -345,24 +368,19 @@ def _symbol_value(name):
 def _coerce_cluster_keys_to_symbol_names(dict):
         return { string(var).upper():val for var, val in dict.items() }
 
+def _string_set(name, value, force_toplevel = None):
+        _find_dynamic_frame_for_set(the(_py.str, name), force_toplevel = force_toplevel)[name] = value
+        return value
+
 @boot_defun
 def boundp(symbol):
         # Unregistered Issue COMPLIANCE-BOUNDP-ACCEPTS-STRINGS
         return _boundp(string(symbol))
 
+@boot("typep", lambda _, symbol, value: error("A strong odor of faeces hung in the air.."))
 @boot_defun
-def symbol_name(x):            return x.name
-@boot_defun
-def symbol_package(x):         return x.package
-@boot_defun # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
-def symbol_value(symbol):      return (_symbol_value(symbol) if stringp(symbol) else
-                                       symbol.value          if symbolp(symbol) else
-                                       error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
-                                             symbol))
-def _symbol_function(symbol):  return (symbol.known          or
-                                       symbol.macro_function or
-                                       symbol.function       or
-                                       error(undefined_function, symbol))
+def set(symbol_, value):
+        return _string_set(the(symbol, symbol_).name, value)
 
 ###
 ### Package system: early core
@@ -372,6 +390,17 @@ _namespace.grow("PACKAGES")
 def _package_not_found_error(x):
         error("The name \"%s\" does not designate any package.", x)
 
+def _symbol_conflict_error(op, obj, pkg, x, y):
+        error(simple_package_error, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
+              (op, obj, pkg, x, y))
+
+def _symbols_not_accessible_error(package, syms):
+        def pp_sym_or_string(x):
+                return "\"%s\"" % x if stringp(x) else _print_nonkeyword_symbol(x)
+        error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
+              package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
+
+@boot_defclass
 class package(_collections.UserDict):
         def __repr__ (self): return "#<PACKAGE \"%s\">" % self.name # Cold PRINT-UNREADABLE-OBJECT
         def __bool__(self):  return True                            # Non-false even if empty.
@@ -411,7 +440,7 @@ class package(_collections.UserDict):
                 self.imported    = _py.set()                         # sym
               # self.present     = own + imported
                 self.inherited   = _collections.defaultdict(_py.set) # sym -> _py.set(pkg) ## _mapsetn(_slotting("external"), used_packages) -> source_package
-                self.accessible  = _py.dict()                        # str -> sym          ## accessible = present + inherited
+                self.accessible  = make_hash_table()                 # str -> sym          ## accessible = present + inherited
                 self.external    = _py.set()                         # sym                 ## subset of accessible
               # self.internal    = accessible - external
 
@@ -423,6 +452,29 @@ class package(_collections.UserDict):
                 for nick in nicknames:
                         _namespace["PACKAGES"].set(self, nick)
 
+@boot("symbol", lambda _, name, **keys: package(name, **keys))
+@boot_defun
+def make_package(name, **keys):
+        return package.python_type(name, **keys)
+
+@boot("symbol", lambda _, x: _py.isinstance(x, package))
+@boot_defun
+def packagep(x): return _py.isinstance(x, package.python_type)
+
+@boot_defun
+def package_name(x): return x.name
+
+@boot_defun
+def find_package(name):
+        return (name if packagep(name) else
+                _namespace["PACKAGES"].access(string(name))[0] or nil)
+
+@boot_defun
+def package_used_by_list(package):
+        p = _coerce_to_package(package)
+        return p.packages_using if p else _package_not_found_error(package)
+
+@boot_defclass
 class symbol(): # Turned to a symbol, during the package system bootstrap.
         def __str__(self):
                 return _print_symbol(self)
@@ -445,17 +497,56 @@ class symbol(): # Turned to a symbol, during the package system bootstrap.
         def __bool__(self):
                 return self is not nil
 
-def _cold_make_nil():
-        nil = symbol.__new__(symbol)
-        nil.name = "NIL"
-        nil.package = None
-        (nil.value,
-         nil.function,
-         nil.macro_function,
-         nil.known) = nil, nil, nil, nil
-        return nil
+@boot("symbol", lambda _, name, **keys: symbol(name))
+@boot_defun
+def make_symbol(name, **keys):
+        return symbol.python_type(name, **keys)
 
-nil = _cold_make_nil()
+@boot("symbol", lambda _, x: _py.isinstance(x, symbol))
+@boot_defun
+def symbolp(x):  return _py.isinstance(x, symbol.python_type)
+
+@boot_defun
+def keywordp(x): return symbolp(x) and symbol_package(x) is __keyword
+
+@boot_defun
+def symbol_name(x):            return x.name
+@boot_defun
+def symbol_package(x):         return x.package
+@boot_defun # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
+def symbol_value(symbol):      return (_symbol_value(symbol) if stringp(symbol) else
+                                       symbol.value          if symbolp(symbol) else
+                                       error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
+                                             symbol))
+def _symbol_function(symbol):  return (symbol.known          or
+                                       symbol.macro_function or
+                                       symbol.function       or
+                                       _debug_printf("no fun: %s", symbol) or
+                                       error(undefined_function, symbol))
+
+@boot_defun
+def string(x):
+        ## NOTE: These type check branches can be in bootstrap order or in usage frequency order!
+        return (x      if stringp(x) else
+                x.name if symbolp(x)  else
+                error("%s must have been either a string or a symbol.", x))
+
+def _do_find_symbol(x, package):
+        return package.accessible.get(x) if x in package.accessible else None
+
+def _find_symbol_or_fail(x, package = None):
+        sym = _do_find_symbol(x, _coerce_to_package(package))
+        return (sym if sym is not None else
+                _symbols_not_accessible_error(p, [x]))
+
+def _find_symbol(x, package):
+        s = _do_find_symbol(x, package)
+        return ((s, _symbol_relation(s, package)) if s is not None else
+                (None, None))
+
+@boot_defun
+def find_symbol(x, package = None):
+        return _find_symbol(x, _coerce_to_package(package))
 
 def _print_symbol(s, escape = None, gensym = None, case = None, package = None, readably = None):
         # Specifically, if *PRINT-READABLY* is true, printing proceeds as if
@@ -485,7 +576,7 @@ def _print_symbol(s, escape = None, gensym = None, case = None, package = None, 
         # would be printed as (#:FOO #:FOO) if *PRINT-CIRCLE* were
         # false, but as (#1=#:FOO #1#) if *PRINT-CIRCLE* were true.
         return ((""                       if not escape                        else
-                 ":"                      if s.package is __keyword_package__  else
+                 ":"                      if s.package is __keyword            else
                  ""                       if _symbol_accessible_in(s, package) else
                  ("#:" if gensym else "") if not s.package                     else
                  (s.package.name + (":"
@@ -493,33 +584,29 @@ def _print_symbol(s, escape = None, gensym = None, case = None, package = None, 
                                     "::"))) +
                 _case_xform(case, s.name))
 
-@boot("symbol", lambda _, name, **keys: symbol(name))
-@boot_defun
-def make_symbol(name, **keys):
-        return symbol.python_type(name, **keys)
-
-@boot("symbol", lambda _, name, **keys: package(name, **keys))
-@boot_defun
-def make_package(name, **keys):
-        return package.python_type(name, **keys)
-
-@boot_defun
-def string(x):
-        ## NOTE: These type check branches can be in bootstrap order or in usage frequency order!
-        return (x      if stringp(x) else
-                x.name if symbolp(x)  else
-                error("%s must have been either a string or a symbol.", x))
-
-__cl = None
 def _core_package_init():
-        global __cl
-        __cl = make_package("COMMON-LISP", nicknames = ["CL"])
+        global __cl, __keyword
+        __cl      = make_package("COMMON-LISP", nicknames = ["CL"])
+        __keyword = make_package("KEYWORD")
+
 _core_package_init()
+
+def _cold_make_nil():
+        nil = symbol.__new__(symbol)
+        nil.name = "NIL"
+        nil.package = __cl
+        (nil.value,
+         nil.function,
+         nil.macro_function,
+         nil.known) = nil, nil, nil, nil
+        return nil
+
+nil = _cold_make_nil()
 
 def _do_intern_symbol(s, p):
         p.own.add(s)
         p.accessible[s.name], s.package = s, p
-        if p is __keyword_package__: # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
+        if p is __keyword: # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
                 p.external.add(s)
                 s.value = s
         return s
@@ -531,19 +618,6 @@ def _intern_in_package(x, p):
         if not presentp:
                 s = _do_intern_symbol(make_symbol(x), p)
         return s, presentp
-
-@boot("symbol", lambda _, x: _py.isinstance(x, package))
-@boot_defun
-def packagep(x): return _py.isinstance(x, package.python_type)
-
-@boot("symbol", lambda _, x: _py.isinstance(x, symbol))
-@boot_defun
-def symbolp(x):  return _py.isinstance(x, symbol.python_type)
-
-@boot_defun
-def find_package(name):
-        return (name if packagep(name) else
-                _namespace["PACKAGES"].access(string(name))[0] or nil)
 
 def _coerce_to_package(x, if_null = "current"):
         return (find_package(x)                                          if stringp(x) or symbolp(x) or packagep(x) else
@@ -584,6 +658,24 @@ def use_package(dest, src):
         dest.used_packages.add(src)
 
 @boot_defun
+def intern(x, package = None):
+        package = _coerce_to_package(package)
+        s, found_in_package = _intern(x, package)
+        return s, (_symbol_relation(s, package) if found_in_package else
+                   None)
+
+@boot_defun
+def defpackage(name, use = [], export = []):
+        p = make_package(name, use = use)
+        for symname in export:
+                _not_implemented("DEFPACKAGE: :EXPORT keyword") # XXX: populate the for-INTERN-time-export set of names
+        return p
+
+@boot_defun
+def in_package(name):
+        _string_set("*PACKAGE*", _coerce_to_package(name), force_toplevel = t)
+
+@boot_defun
 def export(symbols, package = None):
         symbols, package = symbols if _py.isinstance(symbols, _py.list) else [symbols], _coerce_to_package(package)
         assert(all(symbolp(x)
@@ -600,27 +692,9 @@ def export(symbols, package = None):
         package.external |= symset
         return True
 
-def _do_find_symbol(x, package):
-        return package.accessible.get(x) if x in package.accessible else None
-
-def _find_symbol_or_fail(x, package = None):
-        sym = _do_find_symbol(x, _coerce_to_package(package))
-        return (sym if sym is not None else
-                symbols_not_accessible_error(p, [x]))
-
-def _find_symbol(x, package):
-        s = _do_find_symbol(x, package)
-        return ((s, _symbol_relation(s, package)) if s is not None else
-                (None, None))
-
-@boot_defun
-def find_symbol(x, package = None):
-        return _find_symbol(x, _coerce_to_package(package))
-
 def _init_package_system_0():
         global __packages__
-        global __builtins_package__
-        global __keyword_package__
+        global __keyword
         global t, symbol, make_symbol, make_package
         __core_symbol_names__ = [
                 "QUOTE",
@@ -631,10 +705,7 @@ def _init_package_system_0():
         __more_symbol_names__ = [
                 "SOME", "EVERY",
                 ]
-        __packages__ = _py.dict()
-        __builtins_package__ = package("BUILTINS", boot = True)
-        __keyword_package__ = package("KEYWORD", ignore_python = True, boot = True)
-        nil.package = __cl                             # NIL is so important it had to be made earlier.
+        __packages__ = make_hash_table()
         t                  = _intern("T", __cl)[0]     # Nothing much works without this.
         t.value, nil.value = t, nil     # Self-evaluation.
         nil.__contains__   = lambda _: False
@@ -668,6 +739,254 @@ def _init_package_system_0():
 _init_package_system_0()
 
 _unboot_set("symbol")
+
+###
+### Types: early core
+###
+## basic stuff
+def integerp(o):      return _py.isinstance(o, _py.int)
+def floatp(o):        return _py.isinstance(o, _py.float)
+def complexp(o):      return _py.isinstance(o, _py.complex)
+def numberp(o):       return _py.isinstance(o, (_py.int, _py.float, _py.complex))
+def hash_table_p(o):  return _py.isinstance(o, _cold_hash_table_type)
+def _listp(o):        return _py.isinstance(o, _cold_list_type)
+def _boolp(o):        return _py.isinstance(o, _py.bool)
+def sequencep(x):     return _py.getattr(_py.type(x), "__len__", None) is not None
+
+## type names
+def _define_python_type_map(symbol_or_name, type):
+        not (stringp(symbol_or_name) or symbolp(symbol_or_name)) and \
+            error("In DEFINE-PYTHON-TYPE-MAP: first argument must be either a string or a symbol, was: %s.", _py.repr(symbol_or_name))
+        not _py.isinstance(type, _py.type(_py.str)) and \
+            error("In DEFINE-PYTHON-TYPE-MAP: second argument must be a Python type, was: %s.", _py.repr(type))
+        symbol = (symbol_or_name if symbolp(symbol_or_name) else
+                  _intern(symbol_or_name)[0])
+        _frost.setf_global(symbol, _frost.lisp_symbol_name_python_name(symbol.name),
+                           globals = _py.globals())
+        symbol.python_type = type
+        return symbol
+
+_define_python_type_map("INTEGER",           _py.int)
+_define_python_type_map("FLOAT",             _py.float)
+_define_python_type_map("COMPLEX",           _py.complex)
+
+_define_python_type_map("STRING",            _py.str)
+_define_python_type_map("HASH-TABLE",        _cold_hash_table_type)
+
+_define_python_type_map("FUNCTION",          _cold_function_type)
+
+_define_python_type_map("STREAM",            _cold_stream_type)
+
+_define_python_type_map("CLASS",             _py.type) # Ha.
+
+_define_python_type_map("CONDITION",         _py.BaseException)
+_define_python_type_map("ERROR",             _py.Exception)
+_define_python_type_map("SERIOUS-CONDITION", _py.Exception)
+_define_python_type_map("END-OF-FILE",       _py.EOFError)
+
+## non-standard type names
+_define_python_type_map("FD-STREAM",   _cold_fd_stream_type)
+_define_python_type_map("PYBOOL",      _py.bool)
+_define_python_type_map("PYLIST",      _py.list)
+_define_python_type_map("PYTUPLE",     _py.tuple)
+_define_python_type_map("PYBYTES",     _py.bytes)
+_define_python_type_map("PYBYTEARRAY", _py.bytearray)
+_define_python_type_map("PYSET",       _py.set)
+_define_python_type_map("PYFROZENSET", _py.frozenset)
+
+## complex type specifier machinery
+def _type_specifier_complex_p(x):
+        """Determines, whether a type specifier X constitutes a
+complex type specifier."""
+        return _tuplep(x)
+
+def _invalid_type_specifier_error(x, complete_type = None):
+        error(simple_type_error, "%s is not a valid type specifier%s.",
+              x, ("" if not complete_type else
+                  (" (within type specifier %s)" % (complete_type,))))
+
+def _complex_type_mismatch(x, type):
+        ret = type[0].type_predicate(x, type)
+        if _tuplep(ret) and _py.len(ret) != 3:
+                error("Type matcher for %s returned an invalid value: %s.", type[0], _py.repr(ret))
+        return (ret if not (_tuplep(ret) and ret[2]) else
+                _invalid_type_specifier_error(ret[1], complete_type = type))
+
+def _type_mismatch(x, type):
+        """Determine, whether X does not belong to TYPE, and if so,
+return a triple, specifying the specific parts of X and TYPE being in
+disagreement and, as a third element, a boolean, denoting whether the
+type specifier was malformed.  Otherwise, when X is of TYPE, a
+negative boolean value is returned."""
+        return (((not _py.isinstance(x, type)) and
+                 (x, type, False))                    if _py.isinstance(type, _py.type)     else
+                nil                                   if type is t                                else
+                (((not _py.isinstance(x, type.python_type)) and
+                  (x, type, False))                           if _py.hasattr(type, "python_type")    else
+                 _complex_type_mismatch(x, _py.tuple([type])) if _py.hasattr(type, "type_predicate") else
+                 _invalid_type_specifier_error(type)) if symbolp(type)                            else
+                _complex_type_mismatch(x, type)       if (_tuplep(type) and type and
+                                                          _py.hasattr(type[0], "type_predicate")) else
+                _invalid_type_specifier_error(type))
+
+def typep(x, type):
+        return not _type_mismatch(x, type)
+
+def subtypep(sub, super):
+        def coerce_to_python_type(x):
+                return (x             if _py.isinstance(x, _cold_class_type)   else
+                        x.python_type if symbolp(x) else
+                        error("In SUBTYPEP: arguments must be valid type designators, but %s wasn't one.", _py.repr(x)))
+        def do_subclass_check(sub, super):
+                return _py.issubclass(coerce_to_python_type(sub),
+                                      coerce_to_python_type(super))
+        return (do_subclass_check(sub, super)                  if super is not t                            else
+                _not_implemented("complex type relatioships: %s vs. %s.",
+                                 sub, super)                   if _tuplep(sub) or _tuplep(super)            else
+                error("%s is not a valid type specifier", sub) if not (typep(sub, (or_, _py.type, (eql, t))) and
+                                                                       typep(sub, (or_, _py.type, (eql, t)))) else
+                sub is super or super is t)
+
+## complex type specifier definitions
+def _some_type_mismatch(type, xs): # Unregistered Issue NONE-VALUE-SAFETY
+        "Determines, whether some member of XS mismatches TYPE."
+        return some(_type_mismatch, xs, _infinite(type))
+
+@boot_defun
+def deftype(type_name_or_fn):
+        def do_deftype(fn, type_name = type_name_or_fn):
+                symbol = _intern(type_name)[0]
+                symbol.type_predicate = fn
+                return symbol
+        return (do_deftype(type_name_or_fn, type_name = _frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
+                do_deftype                                                                                             if stringp(type_name_or_fn)   else
+                error("In DEFTYPE: argument must be either a function or a string, was: %s.",
+                      _py.repr(symbol_name_or_fn)))
+
+@deftype
+def pytypename(x, type):
+        return ((x, type, True)  if _py.len(type) is not 1                         else
+                (x, type, False) if not (symbolp(x) and _symbol_python_type(x)) else
+                nil)
+
+@deftype
+def boolean(x, type):
+        return ((x, type, True)  if _py.len(type) is not 1 else
+                (x, type, False) if x not in [t, nil] else
+                nil)
+
+@deftype
+def null(x, type):
+        return ((x, type, True)  if _py.len(type) is not 1 else
+                (x, type, False) if x is not nil else
+                nil)
+
+@deftype("OR")
+def or_(x, type):
+        return ((x, type, False) if _py.len(type) is 1 else
+                _poor_man_let(mapcar(_type_mismatch, _infinite(x), type[1:]),
+                              lambda mismatches:
+                                      (some(lambda m: m and m[2] and m, mismatches) or
+                                       (every(identity, mismatches) and (x, type, False)))))
+
+@deftype("AND")
+def and_(x, type):
+        return (nil       if _py.len(type) is 1 else
+                some(_type_mismatch, _infinite(x), type[1:]))
+
+@deftype("NOT")
+def not_(x, type):
+        return ((x, type, True) if _py.len(type) is not 2 else
+                _poor_man_let(_type_mismatch(x, type[1]),
+                              lambda m: ((x, type, False) if not m      else
+                                         m                if m and m[2] else
+                                         nil)))
+
+@deftype
+def member(x, type):
+        return ((x not in type[1:]) and
+                (x, type, False))
+
+@deftype
+def maybe(x, type):
+        return ((x, type, True)  if _py.len(type) is not 2 else
+                _poor_man_let(_type_mismatch(x, type[1]),
+                              lambda m: (nil if not m      else
+                                         m   if ((m and m[2]) or
+                                                 not (x is nil or x is None)) else
+                                         nil)))
+
+@deftype
+def pylist(x, type):
+        return ((x, type, True)  if _py.len(type) is not 2       else
+                (x, type, False) if not _py.isinstance(x, _py.list) else
+                some(_type_mismatch, x, _infinite(type[1])))
+
+@deftype
+def satisfies(x, type):
+        return ((x, type, True) if ((_py.len(type) is not 2) or
+                                    not functionp(type[1])) else
+                ((not type[1](x)) and
+                 (x, type, False)))
+
+@deftype
+def eql(x, type):
+        return ((x, type, True) if _py.len(type) is not 2 else
+                ((not eql(x, type[1])) and
+                 (x, type, False)))
+
+@deftype
+def pytuple(x, type):
+        return ((x, type, False) if not (_tuplep(x) and _py.len(x) == _py.len(type) - 1) else
+                some(_type_mismatch, x, type[1:]))
+# Unregistered Issue TEACHABLE-TYPE-CHECKING-PRACTICE-AND-TOOL-CONSTRUCTION
+
+@deftype
+def partuple(x, type):
+        return ((x, type, False) if not (_tuplep(x) and _py.len(x) >= _py.len(type) - 1) else
+                some(_type_mismatch, x, type[1:]))
+
+__variseq__ = (pytuple, (eql, maybe), t) # Meta-type, heh..
+@deftype
+def varituple(x, type):
+        # correctness enforcement over speed?
+        fixed_t, maybes_t = _prefix_suffix_if_not(_of_type(__variseq__), type[1:])
+        if not every(_of_type(__variseq__), maybes_t):
+                return (x, type, True)   # fail
+        fixlen = _py.len(fixed_t)
+        return ((x, type) if _py.len(x) < fixlen else
+                some(_type_mismatch, x[:fixlen], fixed_t) or
+                some(_type_mismatch, x[fixlen:], _infinite((or_,) + _py.tuple(t[1] for t in maybes_t))))
+
+@deftype
+def lambda_list(x, type):
+        if type:
+                return (x, type, True) # fail
+        return typep(x, (pytuple,
+                         (pylist, string),
+                         (pylist, string),
+                         (maybe,  string),
+                         (pylist, string),
+                         (maybe,  string)))
+
+## protocol front-end
+def the(type, x):
+        mismatch = _type_mismatch(x, type)
+        return (x if not mismatch else
+                error(simple_type_error, "The value %s is not of type %s%s.",
+                      x, type, ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
+                                (", specifically, the value %s is not of type %s" % (princ_to_string(mismatch[0]), mismatch[1])))))
+
+def check_type(x, type):
+        the(type, x)
+
+def _of_type(x):
+        return lambda y: typep(y, x)
+
+def _not_of_type(x):
+        return lambda y: not typep(y, x)
+
+_unboot_set("typep")
 
 ###
 ### Toplevel names
@@ -707,8 +1026,31 @@ for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, 
 
 ################################################################################
 ###
-### Chapter 1: We now have symbols, packages, semi-proper DEFUN/DEFCLASS and
+### Chapter 1: We now have symbols, packages, types, semi-proper DEFUN/DEFCLASS and
 ###            the top-level part of dynamic scope.
+###
+### Delayed class definitions
+###
+@defclass
+class simple_condition(_cold_condition_type):
+        def __init__(self, format_control, *format_arguments):
+                self.format_control, self.format_arguments = format_control, format_arguments
+        def __str__(self):
+                return self.format_control % _py.tuple(self.format_arguments)
+        def __repr__(self):
+                return self.__str__()
+@defclass
+class simple_error(_cold_error_type, simple_condition.python_type):
+        pass
+@defclass
+class package_error(_cold_error_type):
+        pass
+@defclass
+class simple_package_error(simple_error.python_type, package_error.python_type):
+        pass
+
+###
+### ???
 ###
 __gensym_counter__ = 0
 
@@ -721,6 +1063,139 @@ def _gensymname(x = "N"):
 @defun
 def gensym(x = "G"):
         return make_symbol(_gensymname(x))
+
+def _keyword(s, upcase = t):
+        return _intern((s.upper() if upcase else s),
+                       __keyword)[0]
+
+###
+### Early object system
+###
+@defun
+def find_class(x, errorp = t):
+        _not_implemented()
+
+@defun
+def make_instance(class_or_name, **initargs):
+        return (class_or_name             if _py.isinstance(class_or_name, _cold_class_type) else
+                class_or_name.python_type if symbolp(class_or_name)                          else
+                error("In MAKE-INSTANCE %s: first argument must be a class specifier.", class_or_name))(**initargs)
+
+###
+### Pretty-printing
+###
+def print_unreadable_object(object, stream, body, identity = None, type = None):
+        write_string("#<", stream)
+        if type:
+                format(stream, "%s ", type_of(object).__name__)
+        body()
+        if identity:
+                format(stream, " {%x}", _py.id(object))
+        write_string(">", stream)
+
+@defclass
+class readtable(_collections.UserDict):
+        def __init__(self, case = _keyword("upcase")):
+                self.case = the((member, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")),
+                                case)
+                self.data = make_hash_table()
+
+def readtablep(x):     return typep(x, readtable)
+def readtable_case(x): return the(readtable, x).case
+
+def copy_readtable(x):
+        check_type(x, readtable)
+        new = readtable(case = readtable_case(x))
+        new.dict = make_hash_table()
+        return new
+
+__standard_pprint_dispatch__ = make_hash_table() # XXX: this is crap!
+__standard_readtable__       = make_instance(readtable) # XXX: this is crap!
+
+__standard_io_syntax__ = _py.dict({"*PACKAGE*"               : find_package("COMMON-LISP-USER"),
+                                   "*PRINT-ARRAY*"           : t,
+                                   "*PRINT-BASE*"            : 10,
+                                   "*PRINT-CASE*"            : _keyword("upcase"),
+                                   "*PRINT-CIRCLE*"          : nil,
+                                   "*PRINT-ESCAPE*"          : t,
+                                   "*PRINT-GENSYM*"          : t,
+                                   "*PRINT-LENGTH*"          : nil,
+                                   "*PRINT-LEVEL*"           : nil,
+                                   "*PRINT-LINES*"           : nil,
+                                   "*PRINT-MISER-WIDTH*"     : nil,
+                                   "*PRINT-PPRINT-DISPATCH*" : __standard_pprint_dispatch__,
+                                   "*PRINT-PRETTY*"          : t,
+                                   "*PRINT-RADIX*"           : nil,
+                                   "*PRINT-READABLY*"        : nil,
+                                   "*PRINT-RIGHT-MARGIN*"    : nil,
+                                   "*READ-BASE*"                 : 10,
+                                   "*READ-DEFAULT-FLOAT-FORMAT*" : "single-float",
+                                   "*READ-EVAL*"                 : t,
+                                   "*READ-SUPPRESS*"             : nil,
+                                   "*READTABLE*"                 : __standard_readtable__})
+
+def with_standard_io_syntax(body):
+        """Within the dynamic extent of the BODY of forms, all reader/printer
+control variables, including any implementation-defined ones not
+specified by this standard, are bound to values that produce standard
+READ/PRINT behavior. The values for the variables specified by this
+standard are listed in the next figure.
+
+Variable                     Value                               
+*package*                    The CL-USER package                 
+*print-array*                t                                   
+*print-base*                 10                                  
+*print-case*                 :upcase                             
+*print-circle*               nil                                 
+*print-escape*               t                                   
+*print-gensym*               t                                   
+*print-length*               nil                                 
+*print-level*                nil                                 
+*print-lines*                nil                                 
+*print-miser-width*          nil                                 
+*print-pprint-dispatch*      The standard pprint dispatch table  
+*print-pretty*               nil                                 
+*print-radix*                nil                                 
+*print-readably*             t                                   
+*print-right-margin*         nil                                 
+*read-base*                  10                                  
+*read-default-float-format*  single-float                        
+*read-eval*                  t                                   
+*read-suppress*              nil                                 
+*readtable*                  The standard readtable
+"""
+        with progv(**__standard_io_syntax__):
+                return body()
+
+def _set_settable_standard_globals():
+        _string_set("*READ-CASE*", _keyword("UPCASE"))
+        _string_set("*FEATURES*",  [])
+        _string_set("*MODULES*",   [])
+        _string_set("*STANDARD-INPUT*",  _sys.stdin)
+        _string_set("*STANDARD-OUTPUT*", _sys.stdout)
+        _string_set("*ERROR-OUTPUT*",    _sys.stderr)
+        _string_set("*PRINT-ARRAY*",           __standard_io_syntax__["*PRINT-ARRAY*"])
+        _string_set("*PRINT-BASE*",            __standard_io_syntax__["*PRINT-BASE*"])
+        _string_set("*PRINT-CASE*",            __standard_io_syntax__["*PRINT-CASE*"])
+        _string_set("*PRINT-CIRCLE*",          __standard_io_syntax__["*PRINT-CIRCLE*"])
+        _string_set("*PRINT-GENSYM*",          __standard_io_syntax__["*PRINT-GENSYM*"])
+        _string_set("*PRINT-ESCAPE*",          __standard_io_syntax__["*PRINT-ESCAPE*"])
+        _string_set("*PRINT-LENGTH*",          __standard_io_syntax__["*PRINT-LENGTH*"])
+        _string_set("*PRINT-LEVEL*",           __standard_io_syntax__["*PRINT-LEVEL*"])
+        _string_set("*PRINT-LINES*",           __standard_io_syntax__["*PRINT-LINES*"])
+        _string_set("*PRINT-MISER-WIDTH*",     __standard_io_syntax__["*PRINT-MISER-WIDTH*"])
+        _string_set("*PRINT-PPRINT-DISPATCH*", __standard_io_syntax__["*PRINT-PPRINT-DISPATCH*"])
+        _string_set("*PRINT-PRETTY*",          __standard_io_syntax__["*PRINT-PRETTY*"])
+        _string_set("*PRINT-RADIX*",           __standard_io_syntax__["*PRINT-RADIX*"])
+        _string_set("*PRINT-READABLY*",        __standard_io_syntax__["*PRINT-READABLY*"])
+        _string_set("*PRINT-RIGHT-MARGIN*",    __standard_io_syntax__["*PRINT-RIGHT-MARGIN*"])
+        _string_set("*READ-BASE*",                 __standard_io_syntax__["*READ-BASE*"])
+        _string_set("*READ-DEFAULT-FLOAT-FORMAT*", __standard_io_syntax__["*READ-DEFAULT-FLOAT-FORMAT*"])
+        _string_set("*READ-EVAL*",                 __standard_io_syntax__["*READ-EVAL*"])
+        _string_set("*READ-SUPPRESS*",             __standard_io_syntax__["*READ-SUPPRESS*"])
+        _string_set("*READTABLE*",                 __standard_io_syntax__["*READTABLE*"])
+
+_set_settable_standard_globals()
 
 ###
 ### Types
@@ -840,10 +1315,6 @@ def upper_case_p(x):      return x.isupper()
 def lower_case_p(x):      return x.islower()
 
 @defun
-def make_hash_table():
-        return _cold_hash_table_type()
-
-@defun
 def gethash(key, dict, default = None):
         therep = key in dict
         return (dict.get(key) if therep else default), therep
@@ -854,7 +1325,7 @@ _case_attribute_map = _py.dict(UPCASE     = string_upcase,
                                PRESERVE   = identity)
 def _case_xform(type, s):
         if not (symbolp(type) and type.package.name == "KEYWORD"):
-                error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", _py.type(type), _cold_print_symbol(type))
+                error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", _py.type(type), _print_symbol(type))
         return _case_attribute_map[type.name](s)
 
 ###
@@ -865,26 +1336,6 @@ def _case_xform(type, s):
 def _global(x):
         return _frost.global_(x, _py.globals())
 
-_cold_class_type      = _py.type
-_cold_condition_type  = _py.BaseException
-_cold_error_type      = _py.Exception
-_cold_hash_table_type = _py.dict
-_cold_stream_type     = __io._IOBase
-_cold_fd_stream_type  = __io.TextIOWrapper
-
-class _cold_simple_condition_type(_cold_condition_type):
-        def __init__(self, format_control, *format_arguments):
-                self.format_control, self.format_arguments = format_control, format_arguments
-        def __str__(self):
-                return self.format_control % _py.tuple(self.format_arguments)
-        def __repr__(self):
-                return self.__str__()
-simple_condition = _cold_simple_condition_type
-
-def _cold_signal(condition):
-        # _py.print("; %%COLD-SIGNAL: signalling %s\n" % (condition,))
-        pass
-signal = _cold_signal
 def _cold_null(x): return not x
 null = _cold_null
 def _cold_format(destination, control_string, *args):
@@ -1025,7 +1476,7 @@ together."""
         dir_defaulted_p = _os.sep in default_pathname
         net_effect_if = name_supplied_p and not dir_supplied_p # Unregistered Issue COMPLIANCE-MERGE-PATHNAMES-SIMPLIFICATION
         if net_effect_if:
-                return _os.path.join((default_pathname[:position(_os.sep, default_pathname, from_end = True) + 1] if dir_defaulted_p else ""),
+                return _os.path.join((default_pathname[:position(_os.sep, default_pathname, from_end = t) + 1] if dir_defaulted_p else ""),
                                     pathname)
         elif not name_supplied_p:
                 pass
@@ -1641,92 +2092,6 @@ def _nxorf(x, y):
         return (x and y) or not (x or y)
 
 ##
-## Types
-##
-def find_class(x, errorp = True):
-        _not_implemented()
-
-def _of_type(x):
-        return lambda y: typep(y, x)
-
-def _not_of_type(x):
-        return lambda y: not typep(y, x)
-
-def _type_specifier_complex_p(x):
-        """Determines, whether a type specifier X constitutes a
-complex type specifier."""
-        return _tuplep(x)
-
-def _invalid_type_specifier_error(x, complete_type = None):
-        error(simple_type_error, "%s is not a valid type specifier%s.",
-              x, ("" if not complete_type else
-                  (" (within type specifier %s)" % (complete_type,))))
-
-def _complex_type_mismatch(x, type):
-        ret = type[0].type_predicate(x, type)
-        if _tuplep(ret) and _py.len(ret) != 3:
-                error("Type matcher for %s returned an invalid value: %s.", type[0], _py.repr(ret))
-        return (ret if not (_tuplep(ret) and ret[2]) else
-                _invalid_type_specifier_error(ret[1], complete_type = type))
-
-def _type_mismatch(x, type):
-        """Determine, whether X does not belong to TYPE, and if so,
-return a triple, specifying the specific parts of X and TYPE being in
-disagreement and, as a third element, a boolean, denoting whether the
-type specifier was malformed.  Otherwise, when X is of TYPE, a
-negative boolean value is returned."""
-        return (((not _py.isinstance(x, type)) and
-                 (x, type, False))                    if _py.isinstance(type, _py.type)     else
-                nil                                   if type is t                                else
-                (((not _py.isinstance(x, type.python_type)) and
-                  (x, type, False))                           if _py.hasattr(type, "python_type")    else
-                 _complex_type_mismatch(x, _py.tuple([type])) if _py.hasattr(type, "type_predicate") else
-                 _invalid_type_specifier_error(type)) if symbolp(type)                            else
-                _complex_type_mismatch(x, type)       if (_tuplep(type) and type and
-                                                          _py.hasattr(type[0], "type_predicate")) else
-                _invalid_type_specifier_error(type))
-
-def typep(x, type):
-        return not _type_mismatch(x, type)
-
-def subtypep(sub, super):
-        def coerce_to_python_type(x):
-                return (x             if _py.isinstance(x, _cold_class_type)   else
-                        x.python_type if symbolp(x) else
-                        error("In SUBTYPEP: arguments must be valid type designators, but %s wasn't one.", _py.repr(x)))
-        def do_subclass_check(sub, super):
-                return _py.issubclass(coerce_to_python_type(sub),
-                                      coerce_to_python_type(super))
-        return (do_subclass_check(sub, super)                  if super is not t                            else
-                _not_implemented("complex type relatioships: %s vs. %s.",
-                                 sub, super)                   if _tuplep(sub) or _tuplep(super)            else
-                error("%s is not a valid type specifier", sub) if not (typep(sub, (or_, _py.type, (eql, t))) and
-                                                                       typep(sub, (or_, _py.type, (eql, t)))) else
-                sub is super or super is t)
-
-def the(type, x):
-        mismatch = _type_mismatch(x, type)
-        return (x if not mismatch else
-                error(simple_type_error, "The value %s is not of type %s%s.",
-                      x, type, ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
-                                (", specifically, the value %s is not of type %s" % (princ_to_string(mismatch[0]), mismatch[1])))))
-
-def check_type(x, type):
-        the(type, x)
-
-##
-## Type predicates
-##
-def integerp(o):      return _py.isinstance(o, _py.int)
-def floatp(o):        return _py.isinstance(o, _py.float)
-def complexp(o):      return _py.isinstance(o, _py.complex)
-def numberp(o):       return _py.isinstance(o, (_py.int, _py.float, _py.complex))
-def _listp(o):        return _py.isinstance(o, _py.list)
-def _boolp(o):        return _py.isinstance(o, _py.bool)
-def sequencep(x):     return _py.getattr(_py.type(x), "__len__", None) is not None
-def hash_table_p(o):  return _py.isinstance(o, _cold_hash_table_type)
-
-##
 ## Predicates
 ##
 def evenp(x):         return not (x % 2)
@@ -2144,41 +2509,22 @@ with progv(foovar = 3.14,
                                     _coerce_cluster_keys_to_symbol_names(cluster))
 
 ##
-## Package system
+### DANGLING-CODE
 ##
-__builtins_package__ = None
-__keyword_package__  = None
 __modular_noise__    = _py.frozenset(_load_text_as_module("", "").__dict__)
-
-class _cold_package_error_type(_cold_error_type):
-        pass
-
-class _cold_simple_package_error_type(_cold_simple_condition_type, _cold_package_error_type):
-        pass
-
-def _symbol_conflict_error(op, obj, pkg, x, y):
-        error(simple_package_error, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
-              (op, obj, pkg, x, y))
 
 def _symbol_accessible_in(x, package):
         return (x.name in package.accessible and
                 package.accessible[x.name] is x)
-
-def symbols_not_accessible_error(package, syms):
-        def pp_sym_or_string(x):
-                return "\"%s\"" % x if stringp(x) else _print_nonkeyword_symbol(x)
-        error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
-              package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
-
-def package_used_by_list(package):
-        package = _coerce_to_package(package)
-        return package.packages_using
 
 def coerce(type, x):
         ## Unregistered Issue IMPLEMENTATION-COERCE
         return (x if typep(x, type) else
                 _not_implemented("actual coercion"))
 
+##
+### lisp packages/symbols vs. python modules/names
+##
 def _lisp_symbol_python_name(sym):
         return _frost.lisp_symbol_name_python_name(sym.name)
 
@@ -2212,37 +2558,6 @@ def _lisp_symbol_ast(sym, current_package):
                 _ast_index(_ast_attribute(_ast_index(_ast_attribute(_ast_name("sys"), "modules"), _ast_string(packname)),
                                           "__dict__"),
                            _ast_string(symname)))
-
-def package_name(x): return x.name
-
-## Unregistered Issue COMPLIANCE-PACKAGE-NICKNAMES-NOT-IMPLEMENTED
-def _cold_make_package(name, nicknames = [], use = []):
-        if nicknames:
-                _not_implemented("In %COLD-MAKE-PACKAGE %s: package nicknames are ignored.", _py.repr(name))
-        return package(string(name), ignore_python = True, use = [])
-make_package = _cold_make_package
-
-def _find_package(name, errorp = True):
-        return (__packages__.get(name) if name in __packages__ else
-                nil                    if not errorp           else
-                error("Package with name '%s' does not exist.", name))
-def find_package(name, errorp = False):
-        return _find_package(string(name), errorp)
-
-def intern(x, package = None):
-        package = _coerce_to_package(package)
-        s, found_in_package = _intern(x, package)
-        return s, (_symbol_relation(s, package) if found_in_package else
-                   None)
-
-def defpackage(name, use = [], export = []):
-        p = make_package(name, use = use)
-        for symname in export:
-                _not_implemented("DEFPACKAGE: :EXPORT keyword") # XXX: populate the for-INTERN-time-export set of names
-        return p
-
-def in_package(name):
-        _string_set("*PACKAGE*", _coerce_to_package(name), force_toplevel = t)
 
 ###
 ### CL namespaces
@@ -2513,51 +2828,6 @@ def _read_python_toplevel_name(f):
         symbol = _intern(symbol_name)[0]
         return symbol, symbol_name, f.__name__
 
-def get(symbol, indicator, default = None):
-        """get symbol indicator &optional default => value
-
-(setf (get symbol indicator &optional default) new-value)
-
-Arguments and Values:
-
-SYMBOL---a symbol.
-
-INDICATOR---an object.
-
-DEFAULT---an object. The default is NIL.
-
-VALUE---if the indicated property exists, the object that is its
-        value; otherwise, the specified default.
-
-NEW-VALUE---an object.
-
-Description:
-
-GET finds a property on the property list[2] of SYMBOL whose property
-indicator is identical to INDICATOR, and returns its corresponding
-property value.  If there are multiple properties[1] with that
-property indicator, GET uses the first such property.  If there is no
-property with that property indicator, DEFAULT is returned.
-
-SETF of GET may be used to associate a new object with an existing
-indicator already on the SYMBOL's property list, or to create a new
-assocation if none exists.  If there are multiple properties[1] with
-that property indicator, SETF of GET associates the NEW-VALUE with the
-first such property.  When a GET form is used as a SETF place, any
-default which is supplied is evaluated according to normal
-left-to-right evaluation rules, but its value is ignored."""
-        _not_implemented()
-
-def setf_get(new_value, symbol, indicator, default = None):
-        _not_implemented()
-
-def symbol_plist(symbol):
-        _not_implemented()
-
-def setf_symbol_plist(new_value, symbol):
-        _not_implemented()
-
-def keywordp(x):                     return symbolp(x) and symbol_package(x) is __keyword_package__
 def coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, _coerce_to_package(package))
 
@@ -2569,8 +2839,7 @@ def _symbol_relation(x, p):
                         _keyword("external")  if s in p.external else
                         _keyword("internal"))
 
-# requires that __keyword_package__ is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
-def _keyword(s, upcase = True):  return _intern((s.upper() if upcase else s), __keyword_package__)[0]
+# requires that __keyword is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
 def _i(x):                       return _intern(the(string, x).upper(), None)[0]
 
 def import_(symbols, package = None, populate_module = True):
@@ -2610,26 +2879,6 @@ def _condition_system_enabled_p():
         return (_frost.pytracer_enabled_p() and
                 _frost.tracer_hook("exception") is __cl_condition_handler__)
 
-def _init_reader_0():
-        "SETQ, SYMBOL_VALUE, LET and BOUNDP (anything calling _COERCE_TO_SYMBOL_NAME) need this to mangle names."
-        __global_scope__["*READ-CASE*"] = _keyword("upcase", upcase = True)
-_init_reader_0()
-
-
-def _string_set(name, value, force_toplevel = nil):
-        _find_dynamic_frame_for_set(the(_py.str, name), force_toplevel = force_toplevel)[name] = value
-        return value
-
-@defun
-def set(symbol, value):
-        return _string_set(the(_symbol, symbol).name, value)
-
-def _init_package_system_1():
-        # Ought to declare it all on the top level.
-        _string_set("*FEATURES*", [])
-        _string_set("*MODULES*",  [])
-_init_package_system_1()
-
 def _init_package_system_2():
         "Is called once CL is loaded completely."
         in_package("COMMON-LISP-USER")
@@ -2637,61 +2886,6 @@ def _init_package_system_2():
 _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
                                                                 "COMPILE-TOPLEVEL",
                                                                 "EXECUTE"])
-
-###
-### Symbol-related thaw
-###
-def make_instance(class_or_name, **initargs):
-        class_ = _poor_man_etypecase(class_or_name,
-                                     (symbol, class_or_name.python_type),
-                                     (_cold_class_type, class_or_name))
-        return class_(**initargs)
-
-@defun
-def string(x):
-        return (x              if stringp(x) else
-                symbol_name(x) if symbolp(x) else
-                error(simple_type_error, "%s cannot be coerced to string.", x))
-
-def _define_python_type_map(symbol_or_name, type):
-        not (stringp(symbol_or_name) or symbolp(symbol_or_name)) and \
-            error("In DEFINE-PYTHON-TYPE-MAP: first argument must be either a string or a symbol, was: %s.", _py.repr(symbol_or_name))
-        not _py.isinstance(type, _py.type(_py.str)) and \
-            error("In DEFINE-PYTHON-TYPE-MAP: second argument must be a Python type, was: %s.", _py.repr(type))
-        symbol = (symbol_or_name if symbolp(symbol_or_name) else
-                  _intern(symbol_or_name)[0])
-        _frost.setf_global(symbol, _frost.lisp_symbol_name_python_name(symbol.name),
-                           globals = _py.globals())
-        symbol.python_type = type
-        return symbol
-
-_define_python_type_map("INTEGER",     _py.int)
-_define_python_type_map("FLOAT",       _py.float)
-_define_python_type_map("COMPLEX",     _py.complex)
-
-_define_python_type_map(string,        _py.str)
-_define_python_type_map("HASH-TABLE",  _cold_hash_table_type)
-
-_define_python_type_map("FUNCTION",    _cold_function_type)
-
-_define_python_type_map("STREAM",      _cold_stream_type)
-
-_define_python_type_map("CLASS",       _py.type) # Ha.
-
-_define_python_type_map("CONDITION",         _py.BaseException)
-_define_python_type_map("ERROR",             _py.Exception)
-_define_python_type_map("SERIOUS-CONDITION", _py.Exception)
-_define_python_type_map("END-OF-FILE",       _py.EOFError)
-
-# Extensions
-_define_python_type_map("FD-STREAM",   _cold_fd_stream_type)
-_define_python_type_map("PYBOOL",      _py.bool)
-_define_python_type_map("PYLIST",      _py.list)
-_define_python_type_map("PYTUPLE",     _py.tuple)
-_define_python_type_map("PYBYTES",     _py.bytes)
-_define_python_type_map("PYBYTEARRAY", _py.bytearray)
-_define_python_type_map("PYSET",       _py.set)
-_define_python_type_map("PYFROZENSET", _py.frozenset)
 
 ###
 ### Early-earlified streaming
@@ -2829,11 +3023,8 @@ def make_two_way_stream(input, output):   return two_way_stream.python_type(inpu
 def two_way_stream_input_stream(stream):  return stream.input
 def two_way_stream_output_stream(stream): return stream.output
 
-_string_set("*STANDARD-INPUT*",  _sys.stdin)
-_string_set("*STANDARD-OUTPUT*", _sys.stdout)
-_string_set("*ERROR-OUTPUT*",    _sys.stderr)
-_string_set("*DEBUG-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
-_string_set("*QUERY-IO*",        make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
+_string_set("*DEBUG-IO*", make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
+_string_set("*QUERY-IO*", make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 
 @_cold_defclass
 class broadcast_stream(_cold_stream_type):
@@ -2951,7 +3142,7 @@ accept symbols at all."""
 class warning(condition.python_type): pass
 
 @defclass
-class simple_warning(_cold_simple_condition_type, warning.python_type): pass
+class simple_warning(simple_condition.python_type, warning.python_type): pass
 
 @defclass
 class style_warning(warning.python_type): pass
@@ -2964,7 +3155,7 @@ class type_error(error.python_type):
         pass
 
 @defclass
-class simple_type_error(_cold_simple_condition_type, type_error.python_type):
+class simple_type_error(simple_condition.python_type, type_error.python_type):
         pass
 
 @defclass
@@ -3112,7 +3303,7 @@ def null(x):
 def _read_symbol(x, package = None, case = None):
         # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
         case = _defaulted_to_var(case, "*READ-CASE*")
-        name, p = ((x[1:], __keyword_package__)
+        name, p = ((x[1:], __keyword)
                    if x[0] == ":" else
                    _poor_man_let(x.find(":"),
                                  lambda index:
@@ -3192,130 +3383,6 @@ def _stream_as_string(stream):
 def _file_as_string(filename):
         with _py.open(filename, "r") as f:
                 return _stream_as_string(f)
-###
-##
-#
-## Remember, we return type mismatches in these predicates!
-# Unregistered Issue NONE-VALUE-SAFETY
-def _some_type_mismatch(type, xs):
-        "Determines, whether some member of XS mismatches TYPE."
-        return some(_type_mismatch, xs, _infinite(type))
-
-def deftype(type_name_or_fn):
-        def do_deftype(fn, type_name = type_name_or_fn):
-                symbol = _intern(type_name)[0]
-                symbol.type_predicate = fn
-                return symbol
-        return (do_deftype(type_name_or_fn, type_name = _frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
-                do_deftype                                                                                             if stringp(type_name_or_fn)   else
-                error("In DEFTYPE: argument must be either a function or a string, was: %s.",
-                      _py.repr(symbol_name_or_fn)))
-
-@deftype
-def pytypename(x, type):
-        return ((x, type, True)  if _py.len(type) is not 1                         else
-                (x, type, False) if not (symbolp(x) and _symbol_python_type(x)) else
-                nil)
-        
-@deftype
-def boolean(x, type):
-        return ((x, type, True)  if _py.len(type) is not 1 else
-                (x, type, False) if x not in [t, nil] else
-                nil)
-
-@deftype
-def null(x, type):
-        return ((x, type, True)  if _py.len(type) is not 1 else
-                (x, type, False) if x is not nil else
-                nil)
-
-@deftype("OR")
-def or_(x, type):
-        return ((x, type, False) if _py.len(type) is 1 else
-                _poor_man_let(mapcar(_type_mismatch, _infinite(x), _from(1, type)),
-                              lambda mismatches:
-                                      (some(lambda m: m and m[2] and m, mismatches) or
-                                       (every(identity, mismatches) and (x, type, False)))))
-
-@deftype("AND")
-def and_(x, type):
-        return (nil       if _py.len(type) is 1 else
-                some(_type_mismatch, _infinite(x), _from(1, type)))
-
-@deftype("NOT")
-def not_(x, type):
-        return ((x, type, True) if _py.len(type) is not 2 else
-                _poor_man_let(_type_mismatch(x, type[1]),
-                              lambda m: ((x, type, False) if not m      else
-                                         m                if m and m[2] else
-                                         nil)))
-
-@deftype
-def member(x, type):
-        return ((x not in _from(1, type)) and
-                (x, type, False))
-
-@deftype
-def maybe(x, type):
-        return ((x, type, True)  if _py.len(type) is not 2 else
-                _poor_man_let(_type_mismatch(x, type[1]),
-                              lambda m: (nil if not m      else
-                                         m   if ((m and m[2]) or
-                                                 not (x is nil or x is None)) else
-                                         nil)))
-
-@deftype
-def pylist(x, type):
-        return ((x, type, True)  if _py.len(type) is not 2       else
-                (x, type, False) if not _py.isinstance(x, _py.list) else
-                some(_type_mismatch, x, _infinite(type[1])))
-
-@deftype
-def satisfies(x, type):
-        return ((x, type, True) if ((_py.len(type) is not 2) or
-                                    not functionp(type[1])) else
-                ((not type[1](x)) and
-                 (x, type, False)))
-
-@deftype
-def eql(x, type):
-        return ((x, type, True) if _py.len(type) is not 2 else
-                ((not eql(x, type[1])) and
-                 (x, type, False)))
-
-@deftype
-def pytuple(x, type):
-        return ((x, type, False) if not (_tuplep(x) and _py.len(x) == _py.len(type) - 1) else
-                some(_type_mismatch, x, _from(1, type)))
-# Unregistered Issue TEACHABLE-TYPE-CHECKING-PRACTICE-AND-TOOL-CONSTRUCTION
-
-@deftype
-def partuple(x, type):
-        return ((x, type, False) if not (_tuplep(x) and _py.len(x) >= _py.len(type) - 1) else
-                some(_type_mismatch, x, type[1:]))
-
-__variseq__ = (pytuple, (eql, maybe), t) # Meta-type, heh..
-@deftype
-def varituple(x, type):
-        # correctness enforcement over speed?
-        fixed_t, maybes_t = _prefix_suffix_if_not(_of_type(__variseq__), type[1:])
-        if not every(_of_type(__variseq__), maybes_t):
-                return (x, type, True)   # fail
-        fixlen = _py.len(fixed_t)
-        return ((x, type) if _py.len(x) < fixlen else
-                some(_type_mismatch, x[:fixlen], fixed_t) or
-                some(_type_mismatch, x[fixlen:], _infinite((or_,) + _py.tuple(t[1] for t in maybes_t))))
-
-@deftype
-def lambda_list(x, type):
-        if type:
-                return (x, type, True) # fail
-        return typep(x, (pytuple,
-                         (pylist, string),
-                         (pylist, string),
-                         (maybe,  string),
-                         (pylist, string),
-                         (maybe,  string)))
 
 ###
 ### AST basis.
@@ -4465,7 +4532,7 @@ class _compiler_error(error.python_type):
         pass
 
 @defclass
-class _simple_compiler_error(simple_condition, _compiler_error.python_type):
+class _simple_compiler_error(simple_condition.python_type, _compiler_error.python_type):
         pass
 
 @defun
@@ -5727,286 +5794,6 @@ def compile_file(input_file, output_file = None,
         return (abort_p,
                 warnings_p,
                 failure_p)
-
-##
-## Pretty-printing
-##
-def print_unreadable_object(object, stream, body, identity = None, type = None):
-        write_string("#<", stream)
-        if type:
-                format(stream, "%s ", type_of(object).__name__)
-        body()
-        if identity:
-                format(stream, " {%x}", _py.id(object))
-        write_string(">", stream)
-
-@defclass
-class readtable(_collections.UserDict):
-        def __init__(self, case = _keyword("upcase")):
-                self.case = the((member, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")),
-                                case)
-                self.data = make_hash_table()
-
-def readtablep(x):     return typep(x, readtable)
-def readtable_case(x): return the(readtable, x).case
-
-def copy_readtable(x):
-        check_type(x, readtable)
-        new = readtable(case = readtable_case(x))
-        new.dict = _py.dict(x.dict)
-        return new
-
-__standard_pprint_dispatch__ = make_hash_table() # XXX: this is crap!
-__standard_readtable__       = make_instance(readtable) # XXX: this is crap!
-
-__standard_io_syntax__ = _py.dict({"*PACKAGE*"               : find_package("COMMON-LISP-USER"),
-                                   "*PRINT-ARRAY*"           : t,
-                                   "*PRINT-BASE*"            : 10,
-                                   "*PRINT-CASE*"            : _keyword("upcase"),
-                                   "*PRINT-CIRCLE*"          : nil,
-                                   "*PRINT-ESCAPE*"          : t,
-                                   "*PRINT-GENSYM*"          : t,
-                                   "*PRINT-LENGTH*"          : nil,
-                                   "*PRINT-LEVEL*"           : nil,
-                                   "*PRINT-LINES*"           : nil,
-                                   "*PRINT-MISER-WIDTH*"     : nil,
-                                   "*PRINT-PPRINT-DISPATCH*" : __standard_pprint_dispatch__,
-                                   "*PRINT-PRETTY*"          : t,
-                                   "*PRINT-RADIX*"           : nil,
-                                   "*PRINT-READABLY*"        : nil,
-                                   "*PRINT-RIGHT-MARGIN*"    : nil,
-                                   "*READ-BASE*"                 : 10,
-                                   "*READ-DEFAULT-FLOAT-FORMAT*" : "single-float",
-                                   "*READ-EVAL*"                 : t,
-                                   "*READ-SUPPRESS*"             : nil,
-                                   "*READTABLE*"                 : __standard_readtable__})
-
-def with_standard_io_syntax(body):
-        """Within the dynamic extent of the BODY of forms, all reader/printer
-control variables, including any implementation-defined ones not
-specified by this standard, are bound to values that produce standard
-READ/PRINT behavior. The values for the variables specified by this
-standard are listed in the next figure.
-
-Variable                     Value                               
-*package*                    The CL-USER package                 
-*print-array*                t                                   
-*print-base*                 10                                  
-*print-case*                 :upcase                             
-*print-circle*               nil                                 
-*print-escape*               t                                   
-*print-gensym*               t                                   
-*print-length*               nil                                 
-*print-level*                nil                                 
-*print-lines*                nil                                 
-*print-miser-width*          nil                                 
-*print-pprint-dispatch*      The standard pprint dispatch table  
-*print-pretty*               nil                                 
-*print-radix*                nil                                 
-*print-readably*             t                                   
-*print-right-margin*         nil                                 
-*read-base*                  10                                  
-*read-default-float-format*  single-float                        
-*read-eval*                  t                                   
-*read-suppress*              nil                                 
-*readtable*                  The standard readtable
-"""
-        with progv(**__standard_io_syntax__):
-                return body()
-
-_string_set("*PRINT-ARRAY*",           __standard_io_syntax__["*PRINT-ARRAY*"])
-"""Controls the format in which arrays are printed. If it is false,
-the contents of arrays other than strings are never printed. Instead,
-arrays are printed in a concise form using #< that gives enough
-information for the user to be able to identify the array, but does
-not include the entire array contents. If it is true, non-string
-arrays are printed using #(...), #*, or #nA syntax."""
-
-_string_set("*PRINT-BASE*",            __standard_io_syntax__["*PRINT-BASE*"])
-"""*PRINT-BASE* and *PRINT-RADIX* control the printing of
-rationals. The value of *PRINT-BASE* is called the current output
-base.
-
-The value of *PRINT-BASE* is the radix in which the printer will print
-rationals. For radices above 10, letters of the alphabet are used to
-represent digits above 9."""
-
-_string_set("*PRINT-CASE*",            __standard_io_syntax__["*PRINT-CASE*"])
-"""The value of *PRINT-CASE* controls the case (upper, lower, or
-mixed) in which to print any uppercase characters in the names of
-symbols when vertical-bar syntax is not used.
-
-*PRINT-CASE* has an effect at all times when the value of
-*PRINT-ESCAPE* is false. *PRINT-CASE* also has an effect when the
-value of *PRINT-ESCAPE* is true unless inside an escape context
-(i.e., unless between vertical-bars or after a slash)."""
-
-_string_set("*PRINT-CIRCLE*",          __standard_io_syntax__["*PRINT-CIRCLE*"])
-"""Controls the attempt to detect circularity and sharing in an object
-being printed.
-
-If false, the printing process merely proceeds by recursive descent
-without attempting to detect circularity and sharing.
-
-If true, the printer will endeavor to detect cycles and sharing in the
-structure to be printed, and to use #n= and #n# syntax to indicate the
-circularities or shared components.
-
-If true, a user-defined PRINT-OBJECT method can print objects to the
-supplied stream using WRITE, PRIN1, PRINC, or FORMAT and expect
-circularities and sharing to be detected and printed using the #n#
-syntax. If a user-defined PRINT-OBJECT method prints to a stream other
-than the one that was supplied, then circularity detection starts over
-for that stream.
-
-Note that implementations should not use #n# notation when the Lisp
-reader would automatically assure sharing without it (e.g., as happens
-with interned symbols)."""
-
-_string_set("*PRINT-ESCAPE*",          __standard_io_syntax__["*PRINT-ESCAPE*"])
-"""If false, escape characters and package prefixes are not output
-when an expression is printed.
-
-If true, an attempt is made to print an expression in such a way that
-it can be READ again to produce an equal expression. (This is only a
-guideline; not a requirement. See *PRINT-READABLY*.)
-
-For more specific details of how the value of *PRINT-ESCAPE* affects
-the printing of certain types, see Section 22.1.3 (Default
-Print-Object Methods)."""
-
-_string_set("*PRINT-GENSYM*",          __standard_io_syntax__["*PRINT-GENSYM*"])
-"""Controls whether the prefix ``#:'' is printed before apparently
-uninterned symbols. The prefix is printed before such symbols if and
-only if the value of *PRINT-GENSYM* is true."""
-
-_string_set("*PRINT-LENGTH*",          __standard_io_syntax__["*PRINT-LENGTH*"])
-"""*PRINT-LENGTH* controls how many elements at a given level are
-printed. If it is false, there is no limit to the number of components
-printed. Otherwise, it is an integer indicating the maximum number of
-elements of an object to be printed. If exceeded, the printer will
-print ``...'' in place of the other elements. In the case of a dotted
-list, if the list contains exactly as many elements as the value of
-*PRINT-LENGTH*, the terminating atom is printed rather than printing
-``...''.
-
-*PRINT-LEVEL* and *PRINT-LENGTH* affect the printing of an any object
-printed with a list-like syntax. They do not affect the printing of
-symbols, strings, and bit vectors."""
-
-_string_set("*PRINT-LEVEL*",           __standard_io_syntax__["*PRINT-LEVEL*"])
-"""*PRINT-LEVEL* controls how many levels deep a nested object will
-print. If it is false, then no control is exercised. Otherwise, it is
-an integer indicating the maximum level to be printed. An object to be
-printed is at level 0; its components (as of a list or vector) are at
-level 1; and so on. If an object to be recursively printed has
-components and is at a level equal to or greater than the value of
-*PRINT-LEVEL*, then the object is printed as ``#''.
-
-*PRINT-LEVEL* and *PRINT-LENGTH* affect the printing of an any object
-printed with a list-like syntax. They do not affect the printing of
-symbols, strings, and bit vectors."""
-
-_string_set("*PRINT-LINES*",           __standard_io_syntax__["*PRINT-LINES*"])
-"""When the value of *PRINT-LINES* is other than NIL, it is a limit on
-the number of output lines produced when something is pretty
-printed. If an attempt is made to go beyond that many lines, ``..'' is
-printed at the end of the last line followed by all of the suffixes
-(closing delimiters) that are pending to be printed."""
-
-_string_set("*PRINT-MISER-WIDTH*",     __standard_io_syntax__["*PRINT-MISER-WIDTH*"])
-"""If it is not NIL, the pretty printer switches to a compact style of
-output (called miser style) whenever the width available for printing
-a substructure is less than or equal to this many ems."""
-
-_string_set("*PRINT-PPRINT-DISPATCH*", __standard_io_syntax__["*PRINT-PPRINT-DISPATCH*"])
-"""The PPRINT dispatch table which currently controls the pretty printer.
-
-Initial value is implementation-dependent, but the initial entries all
-use a special class of priorities that have the property that they are
-less than every priority that can be specified using
-SET-PPRINT-DISPATCH, so that the initial contents of any entry can be
-overridden."""
-
-_string_set("*PRINT-PRETTY*",          __standard_io_syntax__["*PRINT-PRETTY*"])
-"""Controls whether the Lisp printer calls the pretty printer.
-
-If it is false, the pretty printer is not used and a minimum of
-whitespace[1] is output when printing an expression.
-
-If it is true, the pretty printer is used, and the Lisp printer will
-endeavor to insert extra whitespace[1] where appropriate to make
-expressions more readable.
-
-*PRINT-PRETTY* has an effect even when the value of *PRINT-ESCAPE* is
-false."""
-
-_string_set("*PRINT-RADIX*",           __standard_io_syntax__["*PRINT-RADIX*"])
-"""*PRINT-BASE* and *PRINT-RADIX* control the printing of
-rationals. The value of *PRINT-BASE* is called the current output
-base.
-
-If the value of *PRINT-RADIX* is true, the printer will print a radix
-specifier to indicate the radix in which it is printing a rational
-number. The radix specifier is always printed using lowercase
-letters. If *PRINT-BASE* is 2, 8, or 16, then the radix specifier used
-is #b, #o, or #x, respectively. For integers, base ten is indicated by
-a trailing decimal point instead of a leading radix specifier; for
-ratios, #10r is used."""
-
-_string_set("*PRINT-READABLY*",        __standard_io_syntax__["*PRINT-READABLY*"])
-"""If *PRINT-READABLY* is true, some special rules for printing
-objects go into effect. Specifically, printing any object O1 produces
-a printed representation that, when seen by the Lisp reader while the
-standard readtable is in effect, will produce an object O2 that is
-similar to O1. The printed representation produced might or might not
-be the same as the printed representation produced when
-*PRINT-READABLY* is false. If printing an object readably is not
-possible, an error of type print-not-readable is signaled rather than
-using a syntax (e.g., the ``#<'' syntax) that would not be readable by
-the same implementation. If the value of some other printer control
-variable is such that these requirements would be violated, the value
-of that other variable is ignored.
-
-Specifically, if *PRINT-READABLY* is true, printing proceeds as if
-*PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
-as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
-
-If *PRINT-READABLY* is false, the normal rules for printing and the
-normal interpretations of other printer control variables are in
-effect.
-
-Individual methods for PRINT-OBJECT, including user-defined methods,
-are responsible for implementing these requirements.
-
-If *READ-EVAL* is false and *PRINT-READABLY* is true, any such method
-that would output a reference to the ``#.'' reader macro will either
-output something else or will signal an error (as described above)."""
-
-_string_set("*PRINT-RIGHT-MARGIN*",    __standard_io_syntax__["*PRINT-RIGHT-MARGIN*"])
-"""If it is non-NIL, it specifies the right margin (as integer number
-of ems) to use when the pretty printer is making layout decisions.
-
-If it is NIL, the right margin is taken to be the maximum line length
-such that output can be displayed without wraparound or truncation. If
-this cannot be determined, an implementation-dependent value is
-used."""
-
-_string_set("*READ-BASE*",                 __standard_io_syntax__["*READ-BASE*"])
-"""."""
-
-_string_set("*READ-DEFAULT-FLOAT-FORMAT*", __standard_io_syntax__["*READ-DEFAULT-FLOAT-FORMAT*"])
-"""."""
-
-_string_set("*READ-EVAL*",                 __standard_io_syntax__["*READ-EVAL*"])
-"""."""
-
-_string_set("*READ-SUPPRESS*",             __standard_io_syntax__["*READ-SUPPRESS*"])
-"""."""
-
-_string_set("*READTABLE*",                 __standard_io_syntax__["*READTABLE*"])
-"""."""
-
 
 def _print_string(x, escape = None, readably = None):
         """The characters of the string are output in order. If printer escaping
@@ -10153,11 +9940,56 @@ def _init():
 ###
 ### Missing stuff
 ###
-# def read_sequence(sequence, stream, start = 0, end = None):
-#         return 0
 #
 # class _deadline_timeout(condition)
 # def _with_deadline(timeout, body)
+
+def read_sequence(sequence, stream, start = 0, end = None):
+        _not_implemented()
+
+def get(symbol, indicator, default = None):
+        """get symbol indicator &optional default => value
+
+(setf (get symbol indicator &optional default) new-value)
+
+Arguments and Values:
+
+SYMBOL---a symbol.
+
+INDICATOR---an object.
+
+DEFAULT---an object. The default is NIL.
+
+VALUE---if the indicated property exists, the object that is its
+        value; otherwise, the specified default.
+
+NEW-VALUE---an object.
+
+Description:
+
+GET finds a property on the property list[2] of SYMBOL whose property
+indicator is identical to INDICATOR, and returns its corresponding
+property value.  If there are multiple properties[1] with that
+property indicator, GET uses the first such property.  If there is no
+property with that property indicator, DEFAULT is returned.
+
+SETF of GET may be used to associate a new object with an existing
+indicator already on the SYMBOL's property list, or to create a new
+assocation if none exists.  If there are multiple properties[1] with
+that property indicator, SETF of GET associates the NEW-VALUE with the
+first such property.  When a GET form is used as a SETF place, any
+default which is supplied is evaluated according to normal
+left-to-right evaluation rules, but its value is ignored."""
+        _not_implemented()
+
+def setf_get(new_value, symbol, indicator, default = None):
+        _not_implemented()
+
+def symbol_plist(symbol):
+        _not_implemented()
+
+def setf_symbol_plist(new_value, symbol):
+        _not_implemented()
 
 ###
 ### ...
@@ -10166,3 +9998,169 @@ def _init():
 ## response: sufficiently smart compilers eliminate the efficiency concern,
 ##           so what is left?
 def _intern0(x, package = None): return _intern(the(_py.str, x), package)[0]
+
+###
+### *PRINT/READ-<foo>* docstrings
+###
+"""Controls the format in which arrays are printed. If it is false,
+the contents of arrays other than strings are never printed. Instead,
+arrays are printed in a concise form using #< that gives enough
+information for the user to be able to identify the array, but does
+not include the entire array contents. If it is true, non-string
+arrays are printed using #(...), #*, or #nA syntax."""
+
+"""*PRINT-BASE* and *PRINT-RADIX* control the printing of
+rationals. The value of *PRINT-BASE* is called the current output
+base.
+
+The value of *PRINT-BASE* is the radix in which the printer will print
+rationals. For radices above 10, letters of the alphabet are used to
+represent digits above 9."""
+
+"""The value of *PRINT-CASE* controls the case (upper, lower, or
+mixed) in which to print any uppercase characters in the names of
+symbols when vertical-bar syntax is not used.
+
+*PRINT-CASE* has an effect at all times when the value of
+*PRINT-ESCAPE* is false. *PRINT-CASE* also has an effect when the
+value of *PRINT-ESCAPE* is true unless inside an escape context
+(i.e., unless between vertical-bars or after a slash)."""
+
+"""Controls the attempt to detect circularity and sharing in an object
+being printed.
+
+If false, the printing process merely proceeds by recursive descent
+without attempting to detect circularity and sharing.
+
+If true, the printer will endeavor to detect cycles and sharing in the
+structure to be printed, and to use #n= and #n# syntax to indicate the
+circularities or shared components.
+
+If true, a user-defined PRINT-OBJECT method can print objects to the
+supplied stream using WRITE, PRIN1, PRINC, or FORMAT and expect
+circularities and sharing to be detected and printed using the #n#
+syntax. If a user-defined PRINT-OBJECT method prints to a stream other
+than the one that was supplied, then circularity detection starts over
+for that stream.
+
+Note that implementations should not use #n# notation when the Lisp
+reader would automatically assure sharing without it (e.g., as happens
+with interned symbols)."""
+
+"""If false, escape characters and package prefixes are not output
+when an expression is printed.
+
+If true, an attempt is made to print an expression in such a way that
+it can be READ again to produce an equal expression. (This is only a
+guideline; not a requirement. See *PRINT-READABLY*.)
+
+For more specific details of how the value of *PRINT-ESCAPE* affects
+the printing of certain types, see Section 22.1.3 (Default
+Print-Object Methods)."""
+
+"""Controls whether the prefix ``#:'' is printed before apparently
+uninterned symbols. The prefix is printed before such symbols if and
+only if the value of *PRINT-GENSYM* is true."""
+
+"""*PRINT-LENGTH* controls how many elements at a given level are
+printed. If it is false, there is no limit to the number of components
+printed. Otherwise, it is an integer indicating the maximum number of
+elements of an object to be printed. If exceeded, the printer will
+print ``...'' in place of the other elements. In the case of a dotted
+list, if the list contains exactly as many elements as the value of
+*PRINT-LENGTH*, the terminating atom is printed rather than printing
+``...''.
+
+*PRINT-LEVEL* and *PRINT-LENGTH* affect the printing of an any object
+printed with a list-like syntax. They do not affect the printing of
+symbols, strings, and bit vectors."""
+
+"""*PRINT-LEVEL* controls how many levels deep a nested object will
+print. If it is false, then no control is exercised. Otherwise, it is
+an integer indicating the maximum level to be printed. An object to be
+printed is at level 0; its components (as of a list or vector) are at
+level 1; and so on. If an object to be recursively printed has
+components and is at a level equal to or greater than the value of
+*PRINT-LEVEL*, then the object is printed as ``#''.
+
+*PRINT-LEVEL* and *PRINT-LENGTH* affect the printing of an any object
+printed with a list-like syntax. They do not affect the printing of
+symbols, strings, and bit vectors."""
+
+"""When the value of *PRINT-LINES* is other than NIL, it is a limit on
+the number of output lines produced when something is pretty
+printed. If an attempt is made to go beyond that many lines, ``..'' is
+printed at the end of the last line followed by all of the suffixes
+(closing delimiters) that are pending to be printed."""
+
+"""If it is not NIL, the pretty printer switches to a compact style of
+output (called miser style) whenever the width available for printing
+a substructure is less than or equal to this many ems."""
+
+"""The PPRINT dispatch table which currently controls the pretty printer.
+
+Initial value is implementation-dependent, but the initial entries all
+use a special class of priorities that have the property that they are
+less than every priority that can be specified using
+SET-PPRINT-DISPATCH, so that the initial contents of any entry can be
+overridden."""
+
+"""Controls whether the Lisp printer calls the pretty printer.
+
+If it is false, the pretty printer is not used and a minimum of
+whitespace[1] is output when printing an expression.
+
+If it is true, the pretty printer is used, and the Lisp printer will
+endeavor to insert extra whitespace[1] where appropriate to make
+expressions more readable.
+
+*PRINT-PRETTY* has an effect even when the value of *PRINT-ESCAPE* is
+false."""
+
+"""*PRINT-BASE* and *PRINT-RADIX* control the printing of
+rationals. The value of *PRINT-BASE* is called the current output
+base.
+
+If the value of *PRINT-RADIX* is true, the printer will print a radix
+specifier to indicate the radix in which it is printing a rational
+number. The radix specifier is always printed using lowercase
+letters. If *PRINT-BASE* is 2, 8, or 16, then the radix specifier used
+is #b, #o, or #x, respectively. For integers, base ten is indicated by
+a trailing decimal point instead of a leading radix specifier; for
+ratios, #10r is used."""
+
+"""If *PRINT-READABLY* is true, some special rules for printing
+objects go into effect. Specifically, printing any object O1 produces
+a printed representation that, when seen by the Lisp reader while the
+standard readtable is in effect, will produce an object O2 that is
+similar to O1. The printed representation produced might or might not
+be the same as the printed representation produced when
+*PRINT-READABLY* is false. If printing an object readably is not
+possible, an error of type print-not-readable is signaled rather than
+using a syntax (e.g., the ``#<'' syntax) that would not be readable by
+the same implementation. If the value of some other printer control
+variable is such that these requirements would be violated, the value
+of that other variable is ignored.
+
+Specifically, if *PRINT-READABLY* is true, printing proceeds as if
+*PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
+as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
+
+If *PRINT-READABLY* is false, the normal rules for printing and the
+normal interpretations of other printer control variables are in
+effect.
+
+Individual methods for PRINT-OBJECT, including user-defined methods,
+are responsible for implementing these requirements.
+
+If *READ-EVAL* is false and *PRINT-READABLY* is true, any such method
+that would output a reference to the ``#.'' reader macro will either
+output something else or will signal an error (as described above)."""
+
+"""If it is non-NIL, it specifies the right margin (as integer number
+of ems) to use when the pretty printer is making layout decisions.
+
+If it is NIL, the right margin is taken to be the maximum line length
+such that output can be displayed without wraparound or truncation. If
+this cannot be determined, an implementation-dependent value is
+used."""
