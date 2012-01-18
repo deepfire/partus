@@ -109,6 +109,9 @@ def _defaulted(x, value, type = None):
                 check_type(x, type) # Not a macro, so cannot access the actual defaulted name..
         return x if x is not None else value
 
+def _defaulted_to_var(x, variable, type = None):
+        return _defaulted(x, symbol_value(variable), type = type)
+
 ###
 ### Boot messaging
 ###
@@ -183,7 +186,7 @@ def _interpret_toplevel_value(name_or_obj, objness_predicate):
         def stringp(x): return _py.isinstance(x, _py.str)
         name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj) else
                      (name_or_obj, None)                 if stringp(name_or_obj)           else
-                     error("In %s: bad cold object definition: %s", definer_name, name_or_obj))
+                     error("Bad cold object definition: %s", name_or_obj))
         ####### Thought paused here:
         # ..delay symbol computation!
         sym, pyname = ((_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if _py.isinstance(name, _py.str) else
@@ -279,50 +282,6 @@ def _map_into_hash(f, xs,
         return acc
 
 ###
-### Boot conditions
-###
-@boot_defun
-def _conditionp(x):
-        return _py.isinstance(x, _cold_condition_type)
-
-@boot("typep", lambda _, datum, *args, default_type = None, **keys:
-              _py.Exception(datum % args) if stringp(datum) else
-              (datum if not (args or keys) else
-               error("Bad, bad evil is rising.  Now go and kill everybody.")) if _conditionp(datum) else
-              datum(*args, **keys))
-def _coerce_to_condition(datum, *args, default_type = None, **keys):
-        type_specifier = _defaulted(default_type, error) if stringp(datum) else datum
-
-        type = (type_specifier             if typep(type_specifier, _cold_class_type)                                else
-                None                       if _conditionp(type_specifier)                                            else
-                type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
-                error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
-        cond = (datum              if type is None   else # Already a condition.
-                type(datum % args) if stringp(datum) else
-                type(*args, **keys))
-        return cond
-
-@boot("typep", lambda _, datum, *args, **keys:
-              _debug_printf("COLD WARNING: " + datum, *args, **keys))
-@boot_defun
-def warn(control, *args, **keys):
-        condition = _coerce_to_condition(control, *args, **keys)
-        check_type(condition, warning)
-        signal(condition)
-        badness = _poor_man_etypecase(condition,
-                                      (style_warning, style_warning),
-                                      (warning,       warning))
-        format(symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
-        return nil
-
-# @boot(lambda error, datum, *args, **keys: _frost.raise_exception(_coerce_to_condition(datum, *args, **keys)))
-@boot_defun
-def error(datum, *args, **keys):
-        ## Shouldn't we ditch Python compat entirely, doing instead
-        ## the typical SIGNAL/INVOKE-DEBUGGER thing?
-        raise _coerce_to_condition(datum, *args, **keys)
-
-###
 ### Dynamic scope: early core
 ###
 __global_scope__ = make_hash_table()
@@ -369,7 +328,8 @@ def _coerce_cluster_keys_to_symbol_names(dict):
         return { string(var).upper():val for var, val in dict.items() }
 
 def _string_set(name, value, force_toplevel = None):
-        _find_dynamic_frame_for_set(the(_py.str, name), force_toplevel = force_toplevel)[name] = value
+        stringp(name) or error("In %STRING-SET: first argument must be a string, was: %s.", _py.repr(name))
+        _find_dynamic_frame_for_set(name, force_toplevel = force_toplevel)[name] = value
         return value
 
 @boot_defun
@@ -381,6 +341,50 @@ def boundp(symbol):
 @boot_defun
 def set(symbol_, value):
         return _string_set(the(symbol, symbol_).name, value)
+
+###
+### Boot conditions
+###
+@boot_defun
+def _conditionp(x):
+        return _py.isinstance(x, _cold_condition_type)
+
+@boot("typep", lambda _, datum, *args, default_type = None, **keys:
+              _py.Exception(datum % args) if stringp(datum) else
+              (datum if not (args or keys) else
+               error("Bad, bad evil is rising.  Now go and kill everybody.")) if _conditionp(datum) else
+              datum(*args, **keys))
+def _coerce_to_condition(datum, *args, default_type = None, **keys):
+        type_specifier = _defaulted(default_type, error) if stringp(datum) else datum
+
+        type = (type_specifier             if typep(type_specifier, _cold_class_type)                                else
+                None                       if _conditionp(type_specifier)                                            else
+                type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
+                error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
+        cond = (datum              if type is None   else # Already a condition.
+                type(datum % args) if stringp(datum) else
+                type(*args, **keys))
+        return cond
+
+@boot("typep", lambda _, datum, *args, **keys:
+              _debug_printf("COLD WARNING: " + datum, *args, **keys))
+@boot_defun
+def warn(control, *args, **keys):
+        condition = _coerce_to_condition(control, *args, **keys)
+        check_type(condition, warning)
+        signal(condition)
+        badness = _poor_man_etypecase(condition,
+                                      (style_warning, style_warning),
+                                      (warning,       warning))
+        format(symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
+        return nil
+
+# @boot(lambda error, datum, *args, **keys: _frost.raise_exception(_coerce_to_condition(datum, *args, **keys)))
+@boot_defun
+def error(datum, *args, **keys):
+        ## Shouldn't we ditch Python compat entirely, doing instead
+        ## the typical SIGNAL/INVOKE-DEBUGGER thing?
+        raise _coerce_to_condition(datum, *args, **keys)
 
 ###
 ### Package system: early core
@@ -548,6 +552,11 @@ def _find_symbol(x, package):
 def find_symbol(x, package = None):
         return _find_symbol(x, _coerce_to_package(package))
 
+@boot("print", lambda _, s, **__:
+              (("#"            if not s.package          else
+                ""             if s.package is __keyword else
+                s.package.name) + (":" if (not s.package or s.name in s.package.external or s.package is __keyword) else
+                                   "::") + s.name))
 def _print_symbol(s, escape = None, gensym = None, case = None, package = None, readably = None):
         # Specifically, if *PRINT-READABLY* is true, printing proceeds as if
         # *PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
@@ -739,6 +748,44 @@ def _init_package_system_0():
 _init_package_system_0()
 
 _unboot_set("symbol")
+
+###
+### Condition system: early core
+###
+## standard globals:
+_string_set("*DEBUGGER-HOOK*",  nil)
+
+## non-standard:
+_string_set("*HANDLER-CLUSTERS*", [])
+_string_set("*PRESIGNAL-HOOK*", nil)
+_string_set("*PREHANDLER-HOOK*", nil)
+
+def _set_condition_handler(fn):
+        _frost.set_tracer_hook("exception", fn)
+        return True
+
+@boot_defun
+def signal(cond):
+        for cluster in reversed(_symbol_value("*HANDLER-CLUSTERS*")):
+                for type, handler in cluster:
+                        if not stringp(type):
+                                if typep(cond, type):
+                                        hook = symbol_value("*PREHANDLER-HOOK*")
+                                        if hook:
+                                                frame = assoc("__frame__", cluster)
+                                                assert(frame)
+                                                hook(cond, frame, hook)
+                                        handler(cond)
+        return nil
+
+@boot_defun
+def invoke_debugger(cond):
+        "XXX: non-compliant: doesn't actually invoke the debugger."
+        debugger_hook = symbol_value("*DEBUGGER-HOOK*")
+        if debugger_hook:
+                with progv({"*DEBUGGER-HOOK*": nil}):
+                        debugger_hook(cond, debugger_hook)
+        error(BaseError, "INVOKE-DEBUGGER fell through.")
 
 ###
 ### Types: early core
@@ -1007,6 +1054,7 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
                         do_cold_def      if stringp(name_or_obj) or symbolp(name_or_obj) else
                         error("In %s: argument must be either satisfy %s or be a string;  was: %s.",
                               definer_name, predicate, _py.repr(name_or_obj)))
+        cold_definer.__name__ = definer_name
         return cold_definer
 
 def _defun_preprocessor(o):
@@ -1024,6 +1072,8 @@ defclass = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: _py.i
 for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  _py.globals())
 for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
 
+defun, defclass = defun(defun), defun(defclass)
+
 ################################################################################
 ###
 ### Chapter 1: We now have symbols, packages, types, semi-proper DEFUN/DEFCLASS and
@@ -1035,12 +1085,13 @@ for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, 
 class simple_condition(_cold_condition_type):
         def __init__(self, format_control, *format_arguments):
                 self.format_control, self.format_arguments = format_control, format_arguments
+                _debug_printf("made a simco of type %s <%s>", _py.type(self), self)
         def __str__(self):
                 return self.format_control % _py.tuple(self.format_arguments)
         def __repr__(self):
                 return self.__str__()
 @defclass
-class simple_error(_cold_error_type, simple_condition.python_type):
+class simple_error(simple_condition.python_type, _cold_error_type):
         pass
 @defclass
 class package_error(_cold_error_type):
@@ -1541,9 +1592,6 @@ def _make_timestamping_cache(map_computer):
 
 def _specifiedp(x):
         return x is not None
-
-def _defaulted_to_var(x, variable, type = None):
-        return _defaulted(x, symbol_value(variable), type = type)
 
 def _only_specified_keys(**keys):
         return _py.dict(((k, v) for k, v in keys.items()
@@ -3003,7 +3051,7 @@ def input_stream_p(x):
 def output_stream_p(x):
         return open_stream_p(x) and x.writable()
 
-@_cold_defclass
+@defclass
 class two_way_stream(_cold_stream_type):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
@@ -3026,7 +3074,7 @@ def two_way_stream_output_stream(stream): return stream.output
 _string_set("*DEBUG-IO*", make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 _string_set("*QUERY-IO*", make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
 
-@_cold_defclass
+@defclass
 class broadcast_stream(_cold_stream_type):
         def __init__(self, *streams):
                 self.streams  = streams
@@ -3042,7 +3090,7 @@ class broadcast_stream(_cold_stream_type):
 def make_broadcast_stream(*streams):  return broadcast_stream.python_type(*streams)
 def broadcast_stream_streams(stream): return stream.streams
 
-@_cold_defclass
+@defclass
 class synonym_stream(_cold_stream_type):
         def __init__(self, symbol):
                 self.symbol  = symbol
@@ -6535,53 +6583,16 @@ at which the file specified by PATHSPEC was last written
         # os.path.getmtime() returns microseconds..
         return _py.int(_os.path.getmtime(pathspec))
 
-@_cold_defclass
+@defclass
 class stream_type_error(simple_condition, _io.UnsupportedOperation):
         pass
 
-##
-## Condition system
-##
-def _set_condition_handler(fn):
-        _frost.set_tracer_hook("exception", fn)
-        return True
-
-_string_set("*HANDLER-CLUSTERS*", [])
-
-_string_set("*PRESIGNAL-HOOK*", nil)
-_string_set("*PREHANDLER-HOOK*", nil)
-_string_set("*DEBUGGER-HOOK*",  nil)
-
+###
+### Condition system
+###
 def _report_handling_handover(cond, frame, hook):
         format(_sys.stderr, "Handing over handling of %s to frame %s\n",
                prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
-
-def signal(cond):
-        for cluster in reversed(_symbol_value("*HANDLER-CLUSTERS*")):
-                for type, handler in cluster:
-                        if not stringp(type):
-                                if typep(cond, type):
-                                        hook = symbol_value("*PREHANDLER-HOOK*")
-                                        if hook:
-                                                frame = assoc("__frame__", cluster)
-                                                assert(frame)
-                                                hook(cond, frame, hook)
-                                        handler(cond)
-        return nil
-
-def warn(datum, *args, **keys):
-        cond = make_condition(datum, *args, default_type = simple_warning, **keys)
-        signal(cond)
-        format(symbol_value("*ERROR-OUTPUT*"), "%s", cond)
-        return nil
-
-def invoke_debugger(cond):
-        "XXX: non-compliant: doesn't actually invoke the debugger."
-        debugger_hook = symbol_value("*DEBUGGER-HOOK*")
-        if debugger_hook:
-                with progv({"*DEBUGGER-HOOK*": nil}):
-                        debugger_hook(cond, debugger_hook)
-        error(BaseError, "INVOKE-DEBUGGER fell through.")
 
 __main_thread__ = _threading.current_thread()
 def _report_condition(cond, stream = None, backtrace = None):
@@ -6609,66 +6620,6 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
                         return body()
         else:
                 return body()
-
-def _dump_thread_state():
-        def body():
-                import ctypes
-                from binascii import hexlify
-                from ctypes import c_uint, c_char, c_ulong, POINTER, cast, pythonapi
-                def dump(obj):
-                        for i, x in _py.enumerate(hexlify(_memoryview(obj)).decode()):
-                                _py.print(x, end='')
-                                if i and not (i + 1)%8:
-                                        _py.print(" ", end='')
-                                if i and not (i + 1)%32:
-                                        _py.print("")
-                class PyThreadState(ctypes.Structure):
-                        _fields_ = [("next",               c_ulong),
-                                    ("interp",             c_ulong),
-
-                                    ("frame",              c_ulong),
-                                    ("recursion_depth",    c_uint),
-                                    ("overflowed",         c_char),
-
-                                    ("recursion_critical", c_char),
-
-                                    ("pad0_", c_char),
-                                    ("pad1_", c_char),
-
-                                    ("tracing",            c_uint),
-                                    ("use_tracing",        c_uint),
-
-                                    ("c_profilefunc",      c_ulong),
-                                    ("c_tracefunc",        c_ulong),
-                                    ("c_profileobj",       c_ulong),
-                                    ("c_traceobj",         c_ulong),
-
-                                    ("curexc_type",        c_ulong),
-                                    ("curexc_value",       c_ulong),
-                                    ("curexc_traceback",   c_ulong),
-
-                                    ("exc_type",           c_ulong),
-                                    ("exc_value",          c_ulong),
-                                    ("exc_traceback",      c_ulong),
-
-                                    ("dict",               c_ulong),
-
-                                    ("tick_counter",       c_uint),
-
-                                    ("gilstate_counter",   c_uint),
-
-                                    ("async_exc",          c_ulong),
-                                    ("thread_id",          c_ulong)]
-                pythonapi.PyThreadState_Get.restype = PyThreadState
-                o = pythonapi.PyThreadState_Get()
-
-                _py.print("o: %s, id: {%x}" % (o, _py.id(o)))
-                _py.print(dump(o))
-                for slot, _ in _py.type(o)._fields_:
-                        val = _py.getattr(o, slot)
-                        _py.print(("%25s: " + ("%x" if integerp(val) else "%s")) % (slot, val))
-        _without_condition_system(body,
-                                  reason = "_dump_thread_state")
 
 __not_even_conditions__ = _py.frozenset([SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
@@ -6772,7 +6723,7 @@ def ignore_errors(body):
 ##
 ## Restarts
 ##
-@_cold_defclass
+@defclass
 class restart(_servile):
         def __str__(self):
                 # XXX: must conform by honoring *PRINT-ESCAPE*:
@@ -7166,7 +7117,7 @@ def _valid_declaration_p(x):
 def class_of(x):
         return _py.getattr(x, "__class__")
 
-@_cold_defclass
+@defclass
 class standard_object():
         def __init__(self, **initargs):
                 super().__init__() # Unregistered Issue PYTHON-OBJECT-DOES-NOT-ACCEPT-ARGUMENTS-BUT-SEE-SUPER-CONSIDERED-HARMFUL
@@ -7334,17 +7285,17 @@ nor evaluated."""
         instance.__dict__.update(initargs)
         return instance
 
-@_cold_defclass
+@defclass
 class method(standard_object.python_type):
         "All methods are of this type."
 
-@_cold_defclass
+@defclass
 class funcallable_standard_class(standard_object.python_type):
         "All funcallable instances are of this type."
         def __call__(self, *args, **keys):
                 return self.function(*args, **keys)
 
-@_cold_defclass
+@defclass
 class generic_function(funcallable_standard_class.python_type):
         "All generic functions are of this type."
         def __init__(self, **initargs): # Simulate a :BEFORE method.
@@ -7545,11 +7496,11 @@ code:
         # Unregistered Issue COMPLIANCE-UPDATE-DEPENDENT-DOES-NOT-REALLY-DO-ANYTHING
         pass
 
-@_cold_defclass
+@defclass
 class method_combination():
         "All method combinations are of this type."
 
-@_cold_defclass
+@defclass
 class standard_method(method.python_type):
         def __init__(self, **initargs):
                 super().__init__(**initargs)
@@ -7557,7 +7508,7 @@ class standard_method(method.python_type):
         def __call__(self, gfun_args, next_methods):
                 return self.function(gfun_args, next_methods)
 
-@_cold_defclass
+@defclass
 class standard_generic_function(generic_function.python_type):
         def __init__(self, **initargs):
                 super().__init__(**initargs)
