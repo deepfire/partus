@@ -1,3 +1,17 @@
+Issue BLOCK-STACK-OVERHEAD
+
+     the(type, x)
+^  File "/little/home/deepfire/src/partus/cl.py", line 507, in __call__
+|    return function(*args, **keys)
+|  File "/little/home/deepfire/src/partus/cl.py", line 821, in <lambda>
+|    lambda: fn(*args, **keys)))
+|  File "/little/home/deepfire/src/partus/cl.py", line 797, in _do_catch
+|    return body()
+|  File "/little/home/deepfire/src/partus/cl.py", line 821, in <lambda>
+v    lambda: fn(*args, **keys)))
+   File "/little/home/deepfire/src/partus/cl.py", line 1118, in the
+
+
 Issue PYTHON-AUTO-STRING-COALESCENCE
 
 This:
