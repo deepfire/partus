@@ -3,7 +3,7 @@ import cl
 from cl import *
 from cl import _intern0, _string_set
 
-defpackage("CL-TESTS", use = ["CL", "BUILTINS"])
+defpackage("CL-TESTS", use = ["CL"])
 
 in_package("CL-TESTS")
 

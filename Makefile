@@ -15,4 +15,5 @@ clean:
 
 test:
 	python3 -c "from cl import *; in_package('CL'); load('../informatimago/common-lisp/lisp-reader/reader.lisp', verbose =t, print = t)"
-#	python3 cl-tests.py
+smalltest:
+	python3 cl-tests.py

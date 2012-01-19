@@ -74,7 +74,7 @@ def pytracer(frame, event, arg):
         return pytracer
 
 def pytracer_enabled_p(): return sys.gettrace() is pytracer
-def enable_pytracer():    sys.settrace(_pytracer)
+def enable_pytracer():    sys.settrace(pytracer)
 def disable_pytracer():   sys.settrace(None)
 
 ##

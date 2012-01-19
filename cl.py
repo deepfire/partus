@@ -754,6 +754,90 @@ _init_package_system_0()
 _unboot_set("symbol")
 
 ###
+### Unique name generation
+###
+__gensym_counter__ = 0
+
+def _gensymname(x = "N"):
+        # Unregistered Issue GENSYM-NOT-THREAD-SAFE
+        global __gensym_counter__
+        __gensym_counter__ += 1
+        return x + _py.str(__gensym_counter__)
+
+@boot_defun
+def gensym(x = "G"):
+        return make_symbol(_gensymname(x))
+
+###
+### Non-local transfer of control
+###
+@boot_defun
+def unwind_protect(form, fn):
+        "For the times, when statements won't do."
+        try:
+                return form()
+        finally:
+                fn()
+
+# WARNING: non-specific try/except clauses and BaseException handlers break this!
+class __catcher_throw__(_cold_condition_type):
+        def __init__(self, ball, value, reenable_pytracer = nil):
+                self.ball, self.value, self.reenable_pytracer = ball, value, reenable_pytracer
+        def __str__(self):
+                return "@<ball %s>" % (self.ball,)
+
+@boot_defun
+def catch(ball, body):
+        "This seeks the stack like mad, like the real one."
+        check_type(ball, symbol)
+        try:
+                return body()
+        except __catcher_throw__ as ct:
+                # format(t, "catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
+                if ct.ball is ball:
+                        if ct.reenable_pytracer:
+                                _frost.enable_pytracer()
+                        return ct.value
+                else:
+                        raise
+
+@boot_defun
+def throw(ball, value):
+        "Stack this seeks, like mad, like the real one."
+        check_type(ball, symbol)
+        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp("*SIGNALLING-FRAME*"))
+
+def __block__(fn):
+        "An easy decorator-styled interface for block establishment."
+        nonce = gensym("BLOCK")
+        ret = (lambda *args, **keys:
+                       catch(nonce,
+                             lambda: fn(*args, **keys)))
+        _py.setattr(ret, "ball", nonce)
+        return ret
+
+@boot_defun
+def block(nonce_or_fn, body = None):
+        """A lexically-bound counterpart to CATCH/THROW.
+Note, how, in this form, it is almost a synonym to CATCH/THROW -- the lexical aspect
+of nonce-ing is to be handled manually."""
+        if not body: # Assuming we were called as a decorator..
+                return __block__(nonce_or_fn)
+        else:
+                return catch(nonce_or_fn, body)
+
+@boot_defun
+def return_from(nonce, value):
+        nonce = ((_py.getattr(nonce, "ball", None) or
+                  error("RETURN-FROM was handed a function %s, but it is not cooperating in the "
+                        "__BLOCK__ nonce passing syntax.", nonce)) if functionp(nonce) else
+                 ## This can mean either the @defun-ned function, or absent a function definition, the symbol itself.
+                 (_py.getattr(nonce.function, "ball", nonce))      if symbolp(nonce)   else
+                 nonce                                             if stringp(nonce)   else
+                 error("In RETURN-FROM: nonce must either be a string, or a function designator;  was: %s.", _py.repr(nonce)))
+        throw(nonce, value)
+
+###
 ### Condition system: early core
 ###
 ## standard globals:
@@ -1062,17 +1146,13 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
         cold_definer.__name__ = definer_name
         return cold_definer
 
-def _defun_preprocessor(o):
-        return (__block__(o) if _storyteller.narrated("block") else
-                o)
-
 del boot_defun
 del boot_defclass
 
 defun    = _cold_defun    = _make_cold_definer("%COLD-DEFUN",    functionp,
-                                               "function",    _defun_preprocessor, _frost.make_object_like_python_function)
+                                               "function",    __block__, _frost.make_object_like_python_function)
 defclass = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: _py.isinstance(x, _py.type),
-                                               "python_type", identity,            _frost.make_object_like_python_class)
+                                               "python_type", identity,  _frost.make_object_like_python_class)
 
 for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  _py.globals())
 for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
@@ -1110,18 +1190,6 @@ class simple_package_error(simple_error.python_type, package_error.python_type):
 ###
 ### ???
 ###
-__gensym_counter__ = 0
-
-def _gensymname(x = "N"):
-        # Unregistered Issue GENSYM-NOT-THREAD-SAFE
-        global __gensym_counter__
-        __gensym_counter__ += 1
-        return x + _py.str(__gensym_counter__)
-
-@defun
-def gensym(x = "G"):
-        return make_symbol(_gensymname(x))
-
 def _keyword(s, upcase = t):
         return _intern((s.upper() if upcase else s),
                        __keyword)[0]
@@ -1392,7 +1460,9 @@ def _case_xform(type, s):
 # I wonder if this boot state infrastructure is a good idea:
 #  - it tangles the flow of things (?)
 def _global(x):
-        return _frost.global_(x, _py.globals())
+        """This is important due to the single namespace, and the
+consequent shadowing of various specifiers."""
+        return _frost.global_(x, _py.globals())[0]
 
 def _cold_format(destination, control_string, *args):
         string = control_string % args
@@ -2504,74 +2574,6 @@ def _map_into_hash_star(f, xs,
 def _map_hash_table(f, hash_table, **keys) -> _py.dict:
         return _map_into_hash_star(f, hash_table.items(), **keys)
 
-##
-## Non-local control transfers
-##
-@defun
-def unwind_protect(form, fn):
-        "For the times, when statements won't do."
-        try:
-                return form()
-        finally:
-                fn()
-
-# WARNING: non-specific try/except clauses and BaseException handlers break this!
-class __catcher_throw__(_cold_condition_type):
-        def __init__(self, ball, value, reenable_pytracer = nil):
-                self.ball, self.value, self.reenable_pytracer = ball, value, reenable_pytracer
-        def __str__(self):
-                return "@<ball %s>" % (self.ball,)
-
-@defun
-def catch(ball, body):
-        "This seeks the stack like mad, like the real one."
-        check_type(ball, symbol)
-        try:
-                return body()
-        except __catcher_throw__ as ct:
-                # format(t, "catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
-                if ct.ball is ball:
-                        if ct.reenable_pytracer:
-                                _frost.enable_pytracer(reason = "ball caught")
-                        return ct.value
-                else:
-                        raise
-
-@defun
-def throw(ball, value):
-        "Stack this seeks, like mad, like the real one."
-        check_type(ball, symbol)
-        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp("*SIGNALLING-FRAME*"))
-
-def __block__(fn):
-        "An easy decorator-styled interface for block establishment."
-        nonce = gensym("BLOCK")
-        ret = (lambda *args, **keys:
-                       catch(nonce,
-                             lambda: fn(*args, **keys)))
-        _py.setattr(ret, "ball", nonce)
-        return ret
-
-@defun
-def block(nonce_or_fn, body = None):
-        """A lexically-bound counterpart to CATCH/THROW.
-Note, how, in this form, it is almost a synonym to CATCH/THROW -- the lexical aspect
-of nonce-ing is to be handled manually."""
-        if not body: # Assuming we were called as a decorator..
-                return __block__(nonce_or_fn)
-        else:
-                return catch(nonce_or_fn, body)
-
-@defun
-def return_from(nonce, value):
-        nonce = ((_py.getattr(nonce, "ball", None) or
-                  error("RETURN-FROM was handed a function %s, but it is not cooperating in the __BLOCK__ nonce passing syntax.", nonce)) if functionp(nonce) else
-                 ## This can mean either the @defun-ned function, or absent a function definition, the symbol itself.
-                 (_py.getattr(nonce.function, "ball", nonce))                                                                             if symbolp(nonce)   else
-                 nonce                                                                                                                    if stringp(nonce)   else
-                 error("In RETURN-FROM: nonce must either be a string, or a function designator;  was: %s.", _py.repr(nonce)))
-        throw(nonce, value)
-
 def _symbol_known(symbol_):
         return symbol_.known
 def _symbol_python_type(symbol_, if_not_a_type = "error"):
@@ -2988,15 +2990,15 @@ def import_(symbols, package = None, populate_module = t):
         return t
 
 def _init_condition_system():
-        _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
+        _frost.enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
 
 def _without_condition_system(body, reason = ""):
         if _frost.pytracer_enabled_p():
                 try:
-                        _frost.disable_pytracer(reason = reason)
+                        _frost.disable_pytracer()
                         return body()
                 finally:
-                        _frost.enable_pytracer(reason = "%s done" % reason)
+                        _frost.enable_pytracer()
         else:
                 return body()
 
@@ -3368,6 +3370,7 @@ behavior."""
                 error("Runtime Issue SYMBOL-%s-DOES-NOT-DENOTE-A-FUNCTION-IN-LEXICAL-ENVIRONMENT", name)
         return maybe_fn
 
+@defun
 def constantp(form, environment = None):
         """constantp form &optional environment => generalized-boolean
 
@@ -3450,6 +3453,7 @@ def _namestring_components(x):
                        lambda dotpos: (dirname, basename[:dotpos], basename[dotpos + 1:]),
                        lambda:        (dirname, basename,          nil))
 
+@defun
 def pathname_directory(x):
         # Unregistered Issue PORTABILITY-PATHNAME
         absp = the(string, x).startswith(_os.sep)
@@ -3457,17 +3461,22 @@ def pathname_directory(x):
                 # Reject the integer interpretation of booleans.
                 _namestring_components(x)[0].split(_os.sep)[1 if absp else 0])
 
+@defun
 def pathname_name(x): return _namestring_components(x)[1]
+@defun
 def pathname_type(x): return _namestring_components(x)[2]
 
 ###
 ### Earlified streaming
 ###
+@defun
 def stream_external_format(stream): return _keyword(stream.encoding)
 
+@defun
 def make_string_output_stream():
         return _io.StringIO()
 
+@defun
 def with_output_to_string(f):
         x = make_string_output_stream()
         try:
@@ -3476,6 +3485,7 @@ def with_output_to_string(f):
         finally:
                 close(x)
 
+@defun
 def with_input_from_string(s, f):
         x = make_string_input_stream(s)
         try:
@@ -3483,18 +3493,23 @@ def with_input_from_string(s, f):
         finally:
                 close(x)
 
+@defun
 def get_output_stream_string(x):
         return x.getvalue()
 
+@defun
 def make_string_input_stream(x):
         return _io.StringIO(x)
 
+@defun
 def close(x):
         x.close()
 
+@defun
 def file_position(x):
         return x.seek(0, 1)
 
+@defun
 def setf_file_position(posn, x):
         return x.seek(posn)
 
@@ -6134,7 +6149,7 @@ def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
                 else:
                         handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
-                        if obj == _find_symbol(".")[0]:
+                        if obj == _find_symbol(".", __cl)[0]:
                                 error("Consing dot not implemented")
                 # _here("< %s" % (obj,))
                 return obj
@@ -6154,7 +6169,7 @@ def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
                                 break
                         else:
                                 obj = read()
-                                if not _listp(obj) and obj is _find_symbol(".")[0]:
+                                if not _listp(obj) and obj is _find_symbol(".", __cl)[0]:
                                         error("Consing dot not implemented")
                                 ret += [obj]
                 # _here("< %s" % (ret,))
@@ -6281,9 +6296,9 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                 else:
                         # handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
-                        if obj == _find_symbol(".")[0]:
+                        if obj == _find_symbol(".", __cl)[0]:
                                 error("Consing dot not implemented")
-                # _here("< %s" % (obj,))
+                        # _here("< %s" % (obj,))
                 return obj
         def skip_whitespace():
                 while t:
@@ -6303,7 +6318,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                         else:
                                 unread_char(char, stream)
                                 obj = read_inner()
-                                if not _listp(obj) and obj is _find_symbol(".")[0]:
+                                if not _listp(obj) and obj is _find_symbol(".", __cl)[0]:
                                         error("Consing dot not implemented")
                                 ret += [obj]
                 # _here("< %s" % (ret,))
@@ -6742,7 +6757,7 @@ def __cl_condition_handler__(condspec, frame):
                        ""),
                       callers = 15)
                 if is_not_ball:
-                        _frost.disable_pytracer(reason = "unhandled condition")
+                        _frost.disable_pytracer()
         ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
@@ -7163,7 +7178,7 @@ def _callify(form, package = None, quoted = nil):
                 integer : _ast_num,
                 }
         if _listp(form):
-                if quoted or (form[0] is _find_symbol("QUOTE")[0]):
+                if quoted or (form[0] is _find_symbol("QUOTE", __cl)[0]):
                         return (_ast_list(mapcar(lambda x: _callify(x, package, t), form[1]))
                                 if _listp(form[1]) else
                                 _callify(form[1], package, t))
