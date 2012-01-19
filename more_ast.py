@@ -357,7 +357,7 @@ def pp_ast_as_code(x, tab = " " * 8):
                         return ", ".join(mapcar(rec, args[:fixs]) +
                                          mapcar(lambda var, val: rec(var) + " = " + val,
                                                 args[fixs:], iterate(defaults)) +
-                                         ([("*" + rec(vararg))] if vararg else []) +
+                                         ([("*" + vararg)] if vararg else []) +
                                          mapcar(lambda var, val: rec(var) + " = " + val,
                                                 kwonlyargs, iterate(kw_defaults)) +
                                          ([("**" + rec(kwarg))] if kwarg else []))
