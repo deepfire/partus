@@ -766,7 +766,6 @@ _string_set("*PREHANDLER-HOOK*", nil)
 
 def _set_condition_handler(fn):
         _frost.set_tracer_hook("exception", fn)
-        return True
 
 @boot_defun
 def signal(cond):
@@ -2122,28 +2121,28 @@ def _from(n, xs):
 @defun
 def every(fn, *xss, start = 0):
         for xs in _from(start, _py.zip(*xss)):
-                if not fn(*xs): return False
-        return (xs or True) if "xs" in _py.locals() else True
+                if not fn(*xs): return nil
+        return (xs or t) if "xs" in _py.locals() else t
 
 @defun
 def notevery(fn, *xss, start = 0):
         for xs in _from(start, _py.zip(*xss)):
                 ret = fn(*xs)
-                if not ret: return ret or True
-        return False
+                if not ret: return ret or t
+        return nil
 
 @defun
 def some(fn, *xss, start = 0):
         for xs in _from(start, _py.zip(*xss)):
                 ret = fn(*xs)
-                if ret: return ret or True
-        return False
+                if ret: return ret or t
+        return nil
 
 @defun
 def notany(fn, *xss, start = 0):
         for xs in _from(start, _py.zip(*xss)):
-                if fn(*xs): return False
-        return (xs or True) if "xs" in _py.locals() else True
+                if fn(*xs): return nil
+        return (xs or t) if "xs" in _py.locals() else t
 
 def _xorf(x, y):
         return (x or y) and not (x and y)
@@ -2518,7 +2517,7 @@ def unwind_protect(form, fn):
 
 # WARNING: non-specific try/except clauses and BaseException handlers break this!
 class __catcher_throw__(_cold_condition_type):
-        def __init__(self, ball, value, reenable_pytracer = False):
+        def __init__(self, ball, value, reenable_pytracer = nil):
                 self.ball, self.value, self.reenable_pytracer = ball, value, reenable_pytracer
         def __str__(self):
                 return "@<ball %s>" % (self.ball,)
@@ -2968,7 +2967,7 @@ def _symbol_relation(x, p):
 def _i(x):                       return _intern(the(string, x).upper(), None)[0]
 
 @defun
-def import_(symbols, package = None, populate_module = True):
+def import_(symbols, package = None, populate_module = t):
         p = _coerce_to_package(package)
         symbols = _ensure_list(symbols)
         module = _find_module(_frost.lisp_symbol_name_python_name(package_name(p)),
@@ -2986,7 +2985,7 @@ def import_(symbols, package = None, populate_module = True):
                                 # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
                                 python_name = _frost.lisp_symbol_name_python_name(s.name)
                                 module.__dict__[python_name] = s.value
-        return True
+        return t
 
 def _init_condition_system():
         _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
@@ -3141,8 +3140,8 @@ class two_way_stream(_cold_stream_type):
         def close(self):
                 self.output.close()
                 self.input.close()
-        def readable(self): return True
-        def writable(self): return True
+        def readable(self): return t
+        def writable(self): return t
 
 def make_two_way_stream(input, output):   return two_way_stream.python_type(input, output)
 def two_way_stream_input_stream(stream):  return stream.input
@@ -3161,8 +3160,8 @@ class broadcast_stream(_cold_stream_type):
         def flush(self):
                 for component in self.streams:
                         component.flush()
-        def readable(self): return False
-        def writable(self): return True
+        def readable(self): return nil
+        def writable(self): return t
 
 def make_broadcast_stream(*streams):  return broadcast_stream.python_type(*streams)
 def broadcast_stream_streams(stream): return stream.streams
@@ -3537,21 +3536,21 @@ def _ast_bool(n):
         return _ast.Bool(n = the(integer, n))
 def _ast_string(s):
         return _ast.Str(s = the(string, s))
-def _ast_set(xs,   writep = False):
+def _ast_set(xs,   writep = nil):
         return _ast.Set(elts   = the((pylist, _ast.AST), xs), ctx = _ast_rw(writep))
-def _ast_list(xs,  writep = False):
+def _ast_list(xs,  writep = nil):
         return _ast.List(elts  = the((pylist, _ast.AST), xs), ctx = _ast_rw(writep))
-def _ast_tuple(xs, writep = False):
+def _ast_tuple(xs, writep = nil):
         return _ast.Tuple(elts = the((pylist, _ast.AST), xs), ctx = _ast_rw(writep))
 
-############################### recurse? AST-ifier
-__astifier_map__ = { _py.str:     (False, _ast_string),
-                     _py.int:     (False, _ast_num),
-                     _py.bool:    (False, _ast_num),
-                     _NoneType:   (False, lambda x: _ast_name("None")),
-                     _py.list:    (True,  _ast_list),
-                     _py.tuple:   (True,  _ast_tuple),
-                     _py.set:     (True,  _ast_set),
+################################# recurse? AST-ifier
+__astifier_map__ = { _py.str:     (nil, _ast_string),
+                     _py.int:     (nil, _ast_num),
+                     _py.bool:    (nil, _ast_num),
+                     _NoneType:   (nil, lambda x: _ast_name("None")),
+                     _py.list:    (t,   _ast_list),
+                     _py.tuple:   (t,   _ast_tuple),
+                     _py.set:     (t,   _ast_set),
                      ## symbol: see below
                      }
 def _register_astifier_for_type(type, recurse, astifier):
@@ -3563,11 +3562,11 @@ def _astifiable_p(x):
 
 def _try_astify_constant(x):
         if _astp(x):
-                return x, True
+                return x, t
         (rec, astifier), astifiable = gethash(type_of(x), __astifier_map__,
                                               ((nil, nil), nil))
         return (astifier(mapcar(lambda x: _astify_constant(x), x) if rec else
-                         x), True) if astifiable else (None, None)
+                         x), t) if astifiable else (None, None)
 
 def _astify_constant(x):
         ast, successp = _try_astify_constant(x)
@@ -3583,9 +3582,9 @@ def _ast_alias(name):                        return _ast.alias(name = the(string
 def _ast_keyword(name, value):               return _ast.keyword(arg = the(string, name), value = the(_ast.expr, value))
 
 def _ast_rw(writep):                         return (_ast.Store() if writep else _ast.Load())
-def _ast_name(name, writep = False):         return _ast.Name(id = the(string, name), ctx = _ast_rw(writep))
-def _ast_attribute(x, name, writep = False): return _ast.Attribute(attr = name, value = x, ctx = _ast_rw(writep))
-def _ast_index(of, index, writep = False):   return _ast.Subscript(value = of, slice = _ast.Index(value = index), ctx = _ast_rw(writep))
+def _ast_name(name, writep = nil):           return _ast.Name(id = the(string, name), ctx = _ast_rw(writep))
+def _ast_attribute(x, name, writep = nil):   return _ast.Attribute(attr = name, value = x, ctx = _ast_rw(writep))
+def _ast_index(of, index, writep = nil):     return _ast.Subscript(value = of, slice = _ast.Index(value = index), ctx = _ast_rw(writep))
 def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x) else x)
 
 def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
@@ -3625,13 +3624,13 @@ def _ast_return(node):
 #              expr* kw_defaults)
 # arg = (identifier arg, expr? annotation)
 # keyword = (identifier arg, expr value)
-def _function_lambda_list(fn, astify_defaults = True):
+def _function_lambda_list(fn, astify_defaults = t):
         return _argspec_lambda_spec(_inspect.getfullargspec(fn), astify_defaults = astify_defaults)
 
 def _argspec_nfixargs(paramspec):
         return _py.len(paramspec.args) - _py.len(paramspec.defaults or []) # ILTW Python implementors think..
 
-def _argspec_lambda_spec(spec, astify_defaults = True):
+def _argspec_lambda_spec(spec, astify_defaults = t):
         # args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, annotations
         nfixargs = _argspec_nfixargs(spec)
         default_xform = _astify_constant if astify_defaults else identity
@@ -3767,7 +3766,7 @@ __ast_walkable_field_types__ = _py.set([_ast.stmt, (pylist, _ast.expr), (maybe, 
 __ast_infos__ = make_hash_table()
 def _find_ast_info(type):
         return __ast_infos__[_coerce_to_ast_type(type)]
-def _ast_info_check_args_type(info, args, atreep = True):
+def _ast_info_check_args_type(info, args, atreep = t):
         if len(args) < info.nfixed:
                 error("AST type '%s' requires %s %d arguments, but only %d were provided: %s.",
                       info.type.__name__, "exactly" if len(info.fields) == info.nfixed else "at least", info.nfixed,
@@ -3782,9 +3781,9 @@ def _ast_info_check_args_type(info, args, atreep = True):
                         return (_tuplep(x) and stringp(x[0]) and
                                 _find_ast_info(x[0]) and _py.issubclass(_find_ast_info(x[0]).type, type))
                 if atreep and not simple_typespec_p(type):
-                        maybe_typep, list_typep, type = ((True,  False, type[1]) if maybe_typespec_p(type) else
-                                                         (False,  True, type[1]) if list_typespec_p(type)  else
-                                                         (False, False, type))
+                        maybe_typep, list_typep, type = ((t,   nil, type[1]) if maybe_typespec_p(type) else
+                                                         (nil,   t, type[1]) if list_typespec_p(type)  else
+                                                         (nil, nil, type))
                         return (maybe_typep                                                       if arg is None else
                                 _listp(arg) and every(lambda x: atree_simple_typep(x, type), arg) if list_typep  else
                                 atree_simple_typep(arg, type))
@@ -3999,8 +3998,8 @@ def defast(fn):
 ###
 ### AST + Symbols
 ###
-_register_astifier_for_type(symbol.python_type, False, (lambda sym: _ast_funcall("_find_symbol_or_fail",
-                                                                                 [symbol_name(sym)])))
+_register_astifier_for_type(symbol.python_type, nil, (lambda sym: _ast_funcall("_find_symbol_or_fail",
+                                                                               [symbol_name(sym)])))
 
 ###
 ### ATrees (low-level IR)
@@ -4012,14 +4011,14 @@ def _try_atreeify_list(xs):
                 if not atreeifiedp:
                         return None, None
                 ret.append(atree)
-        return ret, True
-__atreeifier_map__ = { _py.str:     (False, lambda x: ("Str", x)),
-                       _py.int:     (False, lambda x: ("Num", x)),
-                       _py.bool:    (False, lambda x: ("Name", ("True" if x else "False"), ("Load",))),
-                       _NoneType:   (False, lambda x: ("Name", "None", ("Load",))),
-                       _py.list:    (True,  lambda x: ("List", x, ("Load"))),
-                       _py.tuple:   (True,  lambda x: ("Tuple", x, ("Load"))),
-                       _py.set:     (True,  lambda x: ("Set", x)),
+        return ret, t
+__atreeifier_map__ = { _py.str:     (nil, lambda x: ("Str", x)),
+                       _py.int:     (nil, lambda x: ("Num", x)),
+                       _py.bool:    (nil, lambda x: ("Name", ("True" if x else "False"), ("Load",))),
+                       _NoneType:   (nil, lambda x: ("Name", "None", ("Load",))),
+                       _py.list:    (t,   lambda x: ("List", x, ("Load"))),
+                       _py.tuple:   (t,   lambda x: ("Tuple", x, ("Load"))),
+                       _py.set:     (t,   lambda x: ("Set", x)),
                        ## symbol: see below
                      }
 def _register_atreeifier_for_type(type, recurse, atreeifier):
@@ -4030,10 +4029,10 @@ def _atreeifiable_p(x):
         type = type_of(x)
         type_recipe, _ = gethash(type, __atreeifier_map__)
         if not type_recipe:
-                return False
+                return nil
         recursep, _ = type_recipe
         if not recursep:
-                return True
+                return t
         return every(_atreeifiable_p, x)
 
 def _try_atreeify_constant(x):
@@ -4044,8 +4043,8 @@ def _try_atreeify_constant(x):
                 return None, None
         if rec:
                 atree, successp = _try_atreeify_list(x)
-                return (atreeifier(atree), True) if successp else (None, None)
-        return atreeifier(atree if rec else x), True
+                return (atreeifier(atree), t) if successp else (None, None)
+        return atreeifier(atree if rec else x), t
 
 def _atreeify_constant(x):
         atree, successp = _try_atreeify_constant(x)
@@ -5989,7 +5988,7 @@ def write_to_string(object,
         radix           = _defaulted_to_var(radix,           "*PRINT-RADIX*")
         readably        = _defaulted_to_var(readably,        "*PRINT-READABLY*")
         right_margin    = _defaulted_to_var(right_margin,    "*PRINT-RIGHT-MARGIN*")
-        # assert(True
+        # assert(t
         #        and array is t
         #        and base is 10
         #        # case is _keyword("upcase")
@@ -6115,7 +6114,7 @@ def parse_integer(xs, junk_allowed = nil, radix = 10):
         return _int(xform(xs[:(end + 1)]))
 
 @_cold_defun
-def _cold_read_from_string(string, eof_error_p = True, eof_value = nil,
+def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
                            start = 0, end = None, preserve_whitespace = None):
         "Does not conform."
         # _here("from \"%s\"" % string)
@@ -6147,7 +6146,7 @@ def _cold_read_from_string(string, eof_error_p = True, eof_value = nil,
                 nonlocal pos
                 ret = []
                 pos += 1
-                while True:
+                while t:
                         skip_whitespace()
                         char = string[pos]
                         if char == ")":
@@ -6166,7 +6165,7 @@ def _cold_read_from_string(string, eof_error_p = True, eof_value = nil,
                 def add_char(c):
                         nonlocal ret
                         ret += c
-                while True:
+                while t:
                         pos += 1
                         char = string[pos]
                         if char == "\"":
@@ -6207,7 +6206,7 @@ def _cold_read_from_string(string, eof_error_p = True, eof_value = nil,
                 nonlocal pos
                 token = ""
                 # _here(">> ..%s..%s" % (pos, end))
-                while True:
+                while t:
                         if pos >= end:
                                 break
                         char = string[pos]
@@ -6220,18 +6219,18 @@ def _cold_read_from_string(string, eof_error_p = True, eof_value = nil,
                 return token
         ret = handler_case(read,
                            (IndexError,
-                            lambda c: handle_short_read_if(True)))
+                            lambda c: handle_short_read_if(t)))
         # _here("lastly %s" % (ret,))
         return ret
 read_from_string = _cold_read_from_string
 
-def read_line(stream = None, eof_error_p = True, eof_value = nil):
+def read_line(stream = None, eof_error_p = t, eof_value = nil):
         stream = _defaulted_to_var(stream, "*STANDARD-INPUT*")
         return handler_case(lambda: stream.readline(),
                             (error,
                              lambda c: error(end_of_file, "end of file on %s" % (stream,))))
 
-def read_char(stream = None, eof_error_p = True, eof_value = nil, recursivep = nil):
+def read_char(stream = None, eof_error_p = t, eof_value = nil, recursivep = nil):
         stream = _defaulted_to_var(stream, "*STANDARD-INPUT*")
         ret = the(_global("stream"), stream).read(1)
         return (ret       if ret             else
@@ -6262,14 +6261,14 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
                      lambda c: c == peek_type   if stringp(peek_type) and _py.len(peek_type) == 1 else
                      error("Invalid peek-type: '%s'.", peek_type))
         stream = _defaulted(input_stream, symbol_value("*STANDARD-INPUT*"))
-        while True:
+        while t:
                 char = read_char(stream, eof_error_p, eof_value, recursive_p)
                 if criterion(char):
                         unread_char(char, stream)
                         return char
 
 @_cold_defun
-def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserve_whitespace = None, recursivep = nil):
+def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         ## Has not even a remote chance of conforming.
         def read_inner():
                 skip_whitespace()
@@ -6287,7 +6286,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserv
                 # _here("< %s" % (obj,))
                 return obj
         def skip_whitespace():
-                while True:
+                while t:
                         c = read_char(stream, nil, nil)
                         if c not in _py.frozenset([" ", "\t", "\n"]):
                                 if c is not nil:
@@ -6296,7 +6295,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserv
         def read_list():
                 ret = []
                 c = read_char(stream) # it's a #\(
-                while True:
+                while t:
                         skip_whitespace()
                         char = read_char(stream)
                         if char == ")":
@@ -6312,7 +6311,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserv
         def read_string():
                 ret = ""
                 read_char(stream) # seek the opening double-quote
-                while True:
+                while t:
                         char = read_char(stream)
                         if char == "\"":
                                 break
@@ -6340,7 +6339,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = True, eof_value = nil, preserv
         def read_token():
                 token = ""
                 # _here(">> ..%s..%s" % (pos, end))
-                while True:
+                while t:
                         char = read_char(stream, nil, nil)
                         if char in _py.set([nil, " ", "\t", "\n", "(", ")", "\"", "'"]):
                                 if char is not nil:
@@ -6706,9 +6705,9 @@ def __cl_condition_handler__(condspec, frame):
                 if type_of(raw_cond) not in __not_even_conditions__:
                         def _maybe_upgrade_condition(cond):
                                 "Fix up the shit routinely being passed around."
-                                return ((cond, False) if typep(cond, condition) else
+                                return ((cond, nil) if typep(cond, condition) else
                                         (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
-                                                       cond)), True))
+                                                       cond)), t))
                                        # _poor_man_typecase(cond,
                                        #                    (BaseException, lambda: cond),
                                        #                    (str,       lambda: error_(cond)))
@@ -7127,7 +7126,7 @@ def _eval_python(expr_or_stmt):
                   _py.tuple())
         return values if _tuplep(values) else (values,)
 
-def _callify(form, package = None, quoted = False):
+def _callify(form, package = None, quoted = nil):
         package = _defaulted_to_var(package, "*PACKAGE*")
         def callify_call(sym, args):
                 func = function(the(symbol, sym))
@@ -7165,9 +7164,9 @@ def _callify(form, package = None, quoted = False):
                 }
         if _listp(form):
                 if quoted or (form[0] is _find_symbol("QUOTE")[0]):
-                        return (_ast_list(mapcar(lambda x: _callify(x, package, True), form[1]))
+                        return (_ast_list(mapcar(lambda x: _callify(x, package, t), form[1]))
                                 if _listp(form[1]) else
-                                _callify(form[1], package, True))
+                                _callify(form[1], package, t))
                 else:
                         return callify_call(form[0], form[1:])
         elif symbolp(form):
@@ -8833,7 +8832,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                                                    keyword),
                               starargs = _ast_name(args) if args else None,
                               kwargs   = _ast_name(keys) if keys else None))])
-        if True:
+        if t:
                 import more_ast # Shall we concede, and import it all?
                 format(t, "; generic function '%s':\n%s",
                        function_name, more_ast.pp_ast_as_code(new_dfun_ast))
