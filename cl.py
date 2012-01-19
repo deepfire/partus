@@ -1200,6 +1200,10 @@ def _keyword(s, upcase = t):
         return _intern((s.upper() if upcase else s),
                        __keyword)[0]
 
+@defun
+def values(*xs):
+        return xs
+
 ###
 ### Early object system
 ###
@@ -5624,10 +5628,10 @@ valid for use as a name in DEFUN or FUNCTION, for example.  By
 convention, NIL is used to mean that FUNCTION has no name.  Any
 implementation may legitimately return NIL as the name of any
 FUNCTION."""
-        return values(gethash(slot, the(function, function_).__dict__, default)[0]
-                      for slot, default in [("lambda_expression", nil),
-                                            ("closure_p",         t),
-                                            ("name",              nil)])
+        return values(*(gethash(slot, the(function, function_).__dict__, default)[0]
+                        for slot, default in [("lambda_expression", nil),
+                                              ("closure_p",         t),
+                                              ("name",              nil)]))
 
 _string_set("*IN-COMPILATION-UNIT*", nil)
 
