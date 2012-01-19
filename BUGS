@@ -1,3 +1,10 @@
+Issue RESEARCH-COMPLIANCE-ENSURE-GENERIC-FUNCTION-USING-CLASS-NAME-ARGUMENT
+
+It's not clear how ENSURE-GENERIC-FUNCTION-USING-CLASS should resolve the
+NAME vs. FUNCTION-NAME conflict.
+
+For now we just ignore NAME.
+
 Issue BLOCK-STACK-OVERHEAD
 
      the(type, x)

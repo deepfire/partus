@@ -124,6 +124,10 @@ def _fprintf(stream, format_control, *format_args):
 def _debug_printf(format_control, *format_args):
         _fprintf(_sys.stderr, format_control + "\n", *format_args)
 
+def _debug_printf_if(condition, format_control, *format_args):
+        if condition:
+                _debug_printf(format_control, *format_args)
+
 ###
 ### First-class namespaces
 ###
@@ -238,7 +242,7 @@ def stringp(x):        return _py.isinstance(x, _cold_string_type)
 @boot_defun ## Unregistered Issue COMPLIANCE-EVALUATION-MODEL-FUNCTIONP
 def functionp(o):      return (_py.isinstance(o, _cold_function_type) or
                                _py.isinstance(o, symbol.python_type) and o.function)
-@boot_defun
+
 def _python_type_p(x): return _py.isinstance(o, _cold_class_type)
 
 ###
@@ -349,7 +353,6 @@ def set(symbol_, value):
 ###
 ### Boot conditions
 ###
-@boot_defun
 def _conditionp(x):
         return _py.isinstance(x, _cold_condition_type)
 
@@ -786,10 +789,10 @@ class __catcher_throw__(_cold_condition_type):
         def __str__(self):
                 return "@<ball %s>" % (self.ball,)
 
-@boot_defun
-def catch(ball, body):
+def _do_catch(ball, body):
         "This seeks the stack like mad, like the real one."
-        check_type(ball, symbol)
+        if not _py.isinstance(ball, symbol.python_type):
+                error("In %DO-CATCH: first argument must be a symbol, was: %s.", _py.repr(ball))
         try:
                 return body()
         except __catcher_throw__ as ct:
@@ -800,6 +803,9 @@ def catch(ball, body):
                         return ct.value
                 else:
                         raise
+@boot_defun
+def catch(ball, body):
+        return _do_catch(ball, body)
 
 @boot_defun
 def throw(ball, value):
@@ -811,8 +817,8 @@ def __block__(fn):
         "An easy decorator-styled interface for block establishment."
         nonce = gensym("BLOCK")
         ret = (lambda *args, **keys:
-                       catch(nonce,
-                             lambda: fn(*args, **keys)))
+                       _do_catch(nonce,
+                                 lambda: fn(*args, **keys)))
         _py.setattr(ret, "ball", nonce)
         return ret
 
@@ -1168,7 +1174,7 @@ for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, 
 class simple_condition(_cold_condition_type):
         def __init__(self, format_control, *format_arguments):
                 self.format_control, self.format_arguments = format_control, format_arguments
-                _debug_printf("About to signal a simple condition of type %s:\n%s", _py.type(self), self)
+                # _debug_printf("About to signal a simple condition of type %s:\n%s", _py.type(self), self)
         def __str__(self):
                 try:
                         return self.format_control % _py.tuple(self.format_arguments)
@@ -4777,7 +4783,6 @@ def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, def
         fixed = _py.list(lambda_list_[0:_defaulted(optpos, (restpos    if restposp    else
                                                             keypos     if keyposp     else
                                                             restkeypos if restkeyposp else None))])
-        _locals_printf(_py.locals(), "lambda_list_", "optpos", "restpos", "keypos", "fixed", "optional", "optdefs")
         if not every(symbolp, fixed):
                 error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, find_if_not(symbolp, fixed))
         total = fixed + optional + ([rest] if rest else []) + keys + ([restkey] if restkey else [])
@@ -4846,7 +4851,7 @@ _string_set("*COMPILER-DEBUG-P*",    nil)
 
 def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
-def _debugging_compiler_p():
+def _debugging_compiler():
         return symbol_value("*COMPILER-DEBUG-P*")
 
 __compiler_form_record__ = _collections.defaultdict(lambda: 0)
@@ -5445,9 +5450,10 @@ def _sex_deeper(n, body):
         with progv({"*SEX-JUSTIFICATION*": symbol_value("*SEX-JUSTIFICATION*") + n}):
                 return body()
 def _compiler_debug_printf(control, *args):
-        justification = _sex_space()
-        def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
-        _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
+        if _debugging_compiler():
+                justification = _sex_space()
+                def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
+                _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
 def _pp_sex(sex):
         code = ("atom"                        if not _tuplep(sex) or not sex                         else
                 _find_known(sex[0]).pp_code   if symbolp(sex[0]) and _find_known(sex[0])             else
@@ -5506,15 +5512,14 @@ def _lower(form):
         # - scopes
         # - symbols not terribly clear
         # - proper quote processing
-        if _debugging_compiler_p():
+        if _debugging_compiler():
                 _compiler_track_compiled_form(form)
                 _debug_printf(";;; compiling:\n%s", _pp_sex(form))
                 _compiler_report_context()
         def _rec(x):
                 # NOTE: we are going to splice unquoting processing here, as we must be able
                 # to work in READ-less environment.
-                if _debugging_compiler_p():
-                        _debug_printf(";;; lowering:\n%s", _pp_sex(x))
+                _debug_printf_if(_debugging_compiler(), ";;; lowering:\n%s", _pp_sex(x))
                 if _tuplep(x):
                         def noisep(x): return x in [symbol]
                         def puntedp(x):
@@ -5524,17 +5529,19 @@ def _lower(form):
                                 known = _find_known(name)
                                 if not known:
                                         return nil, nil
-                                not noisep(name) and _debug_printf("%s>>> %s\n%s%s", _sex_space(), name, _sex_space(), ("\n" + _sex_space()).join(_pp_sex(f) for f in forms))
+                                _debug_printf_if(_debugging_compiler() and not noisep(name),
+                                                 "%s>>> %s\n%s%s", _sex_space(), name, _sex_space(), ("\n" + _sex_space()).join(_pp_sex(f) for f in forms))
                                 ret = known.compiler(*forms, **_alist_hash_table(_plist_alist(args)))
                                 if puntedp(ret):
-                                        not noisep(name) and _debug_printf("%s===========================\n"
-                                                                           "%s\n%s-------------------------->\n%s\n"
-                                                                           "%s...........................",
-                                                                           _sex_space(),
-                                                                           _sex_space() + _pp_sex((name,) + forms),
-                                                                           _sex_space(),
-                                                                           _sex_space() + _pp_sex(ret),
-                                                                           _sex_space())
+                                        _debug_printf_if(_debugging_compiler() and not noisep(name),
+                                                         "%s===========================\n"
+                                                         "%s\n%s-------------------------->\n%s\n"
+                                                         "%s...........................",
+                                                         _sex_space(),
+                                                         _sex_space() + _pp_sex((name,) + forms),
+                                                         _sex_space(),
+                                                         _sex_space() + _pp_sex(ret),
+                                                         _sex_space())
                                         return _sex_deeper(4, lambda: _rec(ret)), t
                                 else:
                                         not noisep(name) and _compiler_debug_printf("=== %s done", name)
@@ -5572,9 +5579,9 @@ def _lower(form):
                         else:
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
         pv = _rec(form)
-        if _debugging_compiler_p():
-                _debug_printf(";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
-                              form, *pv)
+        _debug_printf_if(_debugging_compiler(),
+                         ";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
+                         form, *pv)
         expected_return_type = (pytuple, pylist, (maybe, (partuple, string)))
         if not typep(pv, expected_return_type):
                 error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
@@ -5842,7 +5849,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 pv = pro, _ = _lower(form) # We're only interested in the resulting DEF.
                 assert _py.len(pro) is 1
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(pv))
-                if _debugging_compiler_p():
+                if _debugging_compiler():
                         import more_ast
                         _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
                                       _pp_sex(form), "".join(more_ast.pp_ast_as_code(x) for x in pro_ast))
@@ -5890,8 +5897,6 @@ def cond(*clauses):
             (quaquote, (if_, (unquote, test),
                         (progn, (splice, body)),
                         (cond, (splice, rest))))))))
-
-_debug_printf("cond: %s", cond)
 
 @lisp
 def fdefinition(name):
@@ -6128,7 +6133,7 @@ def parse_integer(xs, junk_allowed = nil, radix = 10):
                                 error("Junk in string \"%s\".", xs)
         return _int(xform(xs[:(end + 1)]))
 
-@_cold_defun
+@__block__
 def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
                            start = 0, end = None, preserve_whitespace = None):
         "Does not conform."
@@ -6282,7 +6287,7 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
                         unread_char(char, stream)
                         return char
 
-@_cold_defun
+@__block__
 def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         ## Has not even a remote chance of conforming.
         def read_inner():
@@ -6604,8 +6609,8 @@ def load(pathspec, verbose = None, print = None,
                 def next(): return read(f, eof_error_p = nil, eof_value = f)
                 form = next()
                 while next != f:
-                        if _debugging_compiler_p():
-                                _debug_printf("; LOAD: processing\n%s", _pp_sex(form))
+                        _debug_printf_if(_debugging_compiler(),
+                                         "; LOAD: processing\n%s", _pp_sex(form))
                         toplevel_lambda = compile(nil, form)
                         try:
                                 toplevel_lambda()
@@ -7389,6 +7394,7 @@ class generic_function(funcallable_standard_class.python_type):
         "All generic functions are of this type."
         def __init__(self, **initargs): # Simulate a :BEFORE method.
                 self.__dependents__ = _py.set()
+                _here("args: %s", initargs)
                 super().__init__(**initargs)
 
 # Dependent Maintenance Protocol
@@ -7533,7 +7539,7 @@ once. If, during the mapping, ADD-DEPENDENT or REMOVE-DEPENDENT is
 called to alter the dependents of METAOBJECT, it is not specified
 whether the newly added or removed dependent will have function
 applied to it."""
-        mapc(function, the(metaobject).__dependents__)
+        mapc(function, metaobject.__dependents__)
 
 def update_dependent(metaobject, dependent, **initargs):
         """update-dependent metaobject dependent &rest initargs
@@ -7593,7 +7599,7 @@ class method_combination():
 class standard_method(method.python_type):
         def __init__(self, **initargs):
                 super().__init__(**initargs)
-                _standard_method_shared_initialize(method, **initargs)
+                _standard_method_shared_initialize(self, **initargs)
         def __call__(self, gfun_args, next_methods):
                 return self.function(gfun_args, next_methods)
 
@@ -7780,16 +7786,17 @@ the specified initialization has taken effect."""
         if _specifiedp(lambda_list):
                 # XXX: _not_implemented("lambda-list validation")
                 generic_function.lambda_list = lambda_list
-        generic_function.method_combination  = _defaulted(method_combination, standard_method_combination,
-                                                          type = _frost.global_("method_combination", _py.globals())[0])
-        generic_function.method_class        = _defaulted(method_class, standard_method,
-                                                          type = _py.type) # method metaclass
+        generic_function.method_combination  = _defaulted(method_combination, standard_method_combination.python_type,
+                                                          type = _cold_class_type)
+        generic_function.method_class        = _defaulted(method_class, standard_method.python_type,
+                                                          type = _cold_class_type) # method metaclass
         generic_function.name                = _defaulted(name, nil)
         # The discriminating function may reuse the
         # list of applicable methods without calling
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
         # (ii) the generic function has not been reinitialized,
         generic_function.__applicable_method_cache__ = make_hash_table() # (list, _type) -> _list
+        generic_function.__methods__ = make_hash_table()
         filename, lineno = (_defaulted(filename, "<unknown>"),
                             _defaulted(lineno,   0))
         _update_generic_function_and_dependents(
@@ -7806,8 +7813,8 @@ the specified initialization has taken effect."""
                                        lineno = lineno))
         # Simulate a python function (XXX: factor):
         generic_function.__doc__ = documentation
-        generic_function.__code__.co_filename    = filename
-        generic_function.__code__.co_firstlineno = lineno
+        # generic_function.__code__.co_filename    = filename
+        # generic_function.__code__.co_firstlineno = lineno
         return generic_function
 
 def generic_function_argument_precedence_order(x): return x.argument_precedence_order
@@ -8236,8 +8243,8 @@ executed."""
                                # (or_, (pylist, (or_, star, _py.list)),
                                #       function),
                                if ((_listp(qualifier_spec) and
-                                    some(curry(method_qualifiers_match_pattern_p, qualifiers),
-                                               qualifier_spec))
+                                    some(_curry(method_qualifiers_match_pattern_p, qualifiers),
+                                         qualifier_spec))
                                    # must be an fbound symbol, as per the above TYPEP
                                    or qualifier_spec(qualifiers)):
                                        grouped_methods[group.name].append(method)
@@ -8363,7 +8370,7 @@ executed."""
 # If only primary methods are used and if call-next-method is not used,
 # only the most specific method is invoked; that is, more specific
 # methods shadow more general ones.
-standard_method_combination = None
+standard_method_combination = method_combination # Crude XXX
 # standard_method_combination = define_method_combination(
 #         _i("STANDARD"),
 #         [(_i("around"),  [(_keyword("around"),)]),
@@ -8782,12 +8789,16 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
         (function_name,
          lambda_list,
          applicable_method_cache,
-         filename,
-         lineno) = (generic_function.name,
+         # filename,
+         # lineno
+         ) = (generic_function.name,
                     generic_function.lambda_list,
                     generic_function.__applicable_method_cache__,
-                    generic_function.__code__.co_filename,
-                    generic_function.__code__.co_lineno)
+                    # generic_function.__code__.co_filename,
+                    # generic_function.__code__.co_lineno
+              )
+        if not function_name:
+                error("In COMPUTE-DISCRIMINATING-FUNCTION: name is %s.", function_name)
         fixed, optional, args, keyword, keys = lambda_list
         nfixed = _py.len(fixed)
         def dfun_compute_applicable_methods(generic_function, args):
@@ -8832,15 +8843,15 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
         ##                                 fixed, optional, args, keyword, keys,
         ##                                 nfixed):
         new_dfun_ast = _ast_functiondef(
-            function_name,
+            string(function_name),
             lambda_list,
             # How do we access methods themselves?
             [_ast_return(
                  _ast_funcall(_ast_funcall("compute_effective_method",
-                                           [_ast_name(function_name),
+                                           [_ast_name(string(function_name)),
                                             None, # method combination
                                             _ast_funcall("dfun_compute_applicable_methods",
-                                                         [_ast_name(function_name),
+                                                         [_ast_name(string(function_name)),
                                                           mapcar(_ast_name, fixed)])]),
                               mapcar(_ast_name, fixed + mapcar(car, optional)),
                               _map_into_hash_star(lambda key, default: (key, _ast_name(default)),
@@ -8855,10 +8866,12 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                        _find_symbol_or_fail            = _find_symbol_or_fail,
                        dfun_compute_applicable_methods = dfun_compute_applicable_methods)
         return _ast_compiled_name(
-                    function_name,
+                    string(function_name),
                     new_dfun_ast,
-                    filename = _defaulted(filename, ""),
-                    lineno   = lineno,
+                    filename = "" # _defaulted(filename, "")
+                    ,
+                    lineno   = 0 # lineno
+                    ,
                     globals  = env,
                     locals   = env)
 
@@ -8949,7 +8962,7 @@ GENERIC-FUNCTION argument is then returned."""
                 ## is called, it immediately calls ENSURE-GENERIC-FUNCTION-USING-CLASS and
                 ## returns that result as its own.
                 # ..and so, we decide that AMOP trumps CLHS.
-                mapc(curry(remove_method, generic_function),
+                mapc(_curry(remove_method, generic_function),
                      generic_function_methods(generic_function))
         if lambda_list:
                 fixed, optional, args, keyword, kwarg = lambda_list
@@ -8962,11 +8975,12 @@ GENERIC-FUNCTION argument is then returned."""
                 lambda_list               = lambda_list,
                 method_class              = method_class,
                 method_combination        = method_combination,
-                name                      = name,
+                name                      = function_name, # name # Issue RESEARCH-COMPLIANCE-ENSURE-GENERIC-FUNCTION-USING-CLASS-NAME-ARGUMENT
                 # incompatible..
                 filename                  = filename,
                 lineno                    = lineno)
         initargs.update(keys)
+        _here("args: %s", initargs)
         ###
         ### Second step:
         if not generic_function:
@@ -9033,7 +9047,7 @@ as follows:
 The second argument is FUNCTION-NAME. The remaining arguments are the
 complete set of keyword arguments received by
 ENSURE-GENERIC-FUNCTION."""
-        maybe_gfun, therep = _defaulted(_frost.global_(the(string, function_name),
+        maybe_gfun, therep = _defaulted(_frost.global_(the(symbol, function_name),
                                                        _defaulted(globals, _py.globals())), nil)
         if functionp(maybe_gfun) and not generic_function_p(maybe_gfun):
                 error("%s already names an ordinary function.", function_name)
@@ -9042,9 +9056,9 @@ ENSURE-GENERIC-FUNCTION."""
 def defgeneric(_ = None,
                argument_precedence_order = None,
                documentation = None,
-               method_combination = standard_method_combination,
-               generic_function_class = standard_generic_function,
-               method_class = standard_method):
+               method_combination = standard_method_combination.python_type,
+               generic_function_class = standard_generic_function.python_type,
+               method_class = standard_method.python_type):
 # Unregistered Issue: COMPLIANCE-DEFGENERIC-METHOD-DESCRIPTIONS-UNIMPLEMENTABLE
         """defgeneric function-name gf-lambda-list [[option | {method-description}*]]
 
@@ -9226,7 +9240,8 @@ noting that a definition for the function name has been seen)."""
                 #           (:method-combination method-combination method-combination-argument*) |
                 #           (:generic-function-class generic-function-class) |
                 #           (:method-class method-class)
-                return ensure_generic_function(fn.__name__,
+                _, sym, __ = _interpret_toplevel_value(fn, functionp)
+                return ensure_generic_function(sym,
                                                argument_precedence_order = argument_precedence_order,
                                                documentation             = fn.__doc__,
                                                method_combination        = method_combination,
@@ -9934,7 +9949,8 @@ object."""
         generic_function, definedp = _frost.global_(fn.__name__, _py.globals())
         fixed, optional, args, keyword, keys = lambda_list = _function_lambda_list(fn)
         if not definedp:
-                generic_function = ensure_generic_function(fn.__name__,
+                _, sym, __ = _interpret_toplevel_value(fn, functionp)
+                generic_function = ensure_generic_function(sym,
                                                            lambda_list = lambda_list,
                                                            # the rest is defaulted
                                                            )
