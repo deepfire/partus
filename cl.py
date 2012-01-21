@@ -110,7 +110,18 @@ def _defaulted(x, value, type = None):
         return x if x is not None else value
 
 def _defaulted_to_var(x, variable, type = None):
-        return _defaulted(x, _str_symbol_value(variable), type = type)
+        return x if x is not None else _defaulted(x, _str_symbol_value(variable), type = type)
+
+def _specifiedp(x):
+        return x is not None
+
+def _only_specified_keys(**keys):
+        return _py.dict(((k, v) for k, v in keys.items()
+                        if _specifiedp(k)))
+
+def _defaulted_keys(**keys):
+        return _py.dict((key, (default if value is None else value))
+                        for key, (value, default) in keys.items())
 
 ###
 ### Boot messaging
@@ -223,16 +234,16 @@ story = _storyteller.advance
 ###
 ### Cold type names
 ###
-_cold_class_type      = _py.type
-_cold_condition_type  = _py.BaseException
-_cold_error_type      = _py.Exception
-_cold_hash_table_type = _py.dict
-_cold_stream_type     = __io._IOBase
-_cold_fd_stream_type  = __io.TextIOWrapper
-_cold_function_type   = _types.FunctionType.__mro__[0]
-_cold_tuple_type      = _py.tuple
-_cold_string_type     = _py.str
-_cold_list_type       = _py.list
+_cold_class_type       = _py.type
+_cold_condition_type   = _py.BaseException
+_cold_error_type       = _py.Exception
+_cold_hash_table_type  = _py.dict
+_cold_stream_type      = __io._IOBase
+_cold_file_stream_type = __io.TextIOWrapper
+_cold_function_type    = _types.FunctionType.__mro__[0]
+_cold_tuple_type       = _py.tuple
+_cold_string_type      = _py.str
+_cold_list_type        = _py.list
 
 ## As-of-yet -homeless type predicates..
 @boot_defun
@@ -722,7 +733,7 @@ def _init_package_system_0():
                 "&RESTKEY", # pythonism
                 ]
         __more_symbol_names__ = [
-                "SOME", "EVERY",
+                "SOME", "EVERY", "LOCALLY", "MACROLET", "SYMBOL_MACROLET"
                 ]
         __packages__ = make_hash_table()
         t                  = _intern("T", __cl)[0]     # Nothing much works without this.
@@ -735,7 +746,7 @@ def _init_package_system_0():
         export([t, nil] + [_intern(n[0] if _tuplep(n) else n, __cl)[0]
                            for n in __core_symbol_names__ + __more_symbol_names__],
                __cl)
-        for spec in __core_symbol_names__:
+        for spec in __core_symbol_names__ + __more_symbol_names__:
                 lisp_name, python_name = (spec, _frost.lisp_symbol_name_python_name(spec)) if stringp(spec) else spec
                 _frost.setf_global(_find_symbol_or_fail(lisp_name, __cl), python_name, _py.globals())
                 # Unregistered Issue PACKAGE-SYSTEM-INIT-SHOULD-USE-GLOBAL-SETTER-INSTEAD-OF-CUSTOM-HACKERY
@@ -874,14 +885,61 @@ def signal(cond):
                                         handler(cond)
         return nil
 
+def _run_hook(variable, condition):
+        old_hook = symbol_value(variable)
+        if old_hook:
+                with progv({ variable: nil }):
+                        old_hook(condition, old_hook)
+
+def _flush_standard_output_streams():
+        _warn_not_implemented()
+
+def _funcall_with_debug_io_syntax(function, *args, **keys):
+        _warn_not_implemented()
+        return function(*args, **keys)
+
+def _invoke_debugger(condition):
+        ## SBCL is being careful to not handle STEP-CONDITION here..
+        with progv({"*DEBUG-CONDITION*": condition,
+                    "*DEBUG-RESTARTS*": compute_restarts(condition),
+                    "*NESTED-DEBUG-CONDITION*": nil }):
+                def error_handler_body(condition):
+                        _string_set("*NESTED-DEBUG-CONDITION*", condition)
+                        ndc_type = type_of(condition)
+                        format(_str_symbol_value("*ERROR-OUTPUT*"),
+                               "\nA %s was caught when trying to print %s when "
+                               "entering the debugger. Printing was aborted and the "
+                               "%s was stored in %s.)\n",
+                               ndc_type, "*DEBUG-CONDITION*", ndc_type, "*NESTED-DEBUG-CONDITION*")
+                        if typep(condition, cell_error):
+                                format(_str_symbol_value("*ERROR-OUTPUT*"),
+                                       "\n(CELL-ERROR-NAME %s) = %s\n",
+                                       "*NESTED-DEBUG-CONDITION*", cell_error_name(condition))
+                handler_case(lambda: _print_debugger_invocation_reason(condition,
+                                                                       _str_symbol_value("*ERROR-OUTPUT*")),
+                             (error, error_handler_body))
+                try:
+                        pass
+                finally:
+                        with progv({ "*STANDARD-OUTPUT*": _str_symbol_value("*STANDARD-OUTPUT*"),
+                                     "*ERROR-OUTPUT*": _str_symbol_value("*DEBUG-IO*") }):
+                                format(_str_symbol_value("*DEBUG-IO*"), "\nType HELP for debugger help, or (VPCL:QUIT) to exit from VPCL.\n\n")
+                                _show_restarts(_str_symbol_value("*DEBUG-RESTARTS*"), _str_symbol_value("*DEBUG-IO*"))
+                                _internal_debug()
+
 @boot_defun
-def invoke_debugger(cond):
+def invoke_debugger(condition):
         "XXX: non-compliant: doesn't actually invoke the debugger."
-        debugger_hook = _str_symbol_value("*DEBUGGER-HOOK*")
-        if debugger_hook:
-                with progv({"*DEBUGGER-HOOK*": nil}):
-                        debugger_hook(cond, debugger_hook)
-        error(BaseError, "INVOKE-DEBUGGER fell through.")
+        _run_hook("*INVOKE-DEBUGGER-HOOK*", condition)
+        _run_hook("*DEBUGGER-HOOK*", condition)
+        if not (packagep(_str_symbol_value("*PACKAGE*")) and
+                package_name(_str_symbol_value("*PACKAGE*"))):
+                _string_set("*PACKAGE*", find_package("CL-USER"))
+                format(_str_symbol_value("*ERROR-OUTPUT*"),
+                       "The value of %s was not an undeleted PACKAGE. It has been reset to %s.",
+                       "*PACKAGE*", _str_symbol_value("*PACKAGE*"))
+        _flush_standard_output_streams()
+        return funcall_with_debug_io_syntax(_invoke_debugger, condition)
 
 ###
 ### Types: early core
@@ -928,7 +986,7 @@ _define_python_type_map("SERIOUS-CONDITION", _py.Exception)
 _define_python_type_map("END-OF-FILE",       _py.EOFError)
 
 ## non-standard type names
-_define_python_type_map("FD-STREAM",   _cold_fd_stream_type)
+_define_python_type_map("FILE-STREAM", _cold_file_stream_type)
 _define_python_type_map("PYBOOL",      _py.bool)
 _define_python_type_map("PYLIST",      _py.list)
 _define_python_type_map("PYTUPLE",     _py.tuple)
@@ -1007,12 +1065,6 @@ def deftype(type_name_or_fn):
                       _py.repr(symbol_name_or_fn)))
 
 @deftype
-def pytypename(x, type):
-        return ((x, type, True)  if _py.len(type) is not 1                         else
-                (x, type, False) if not (symbolp(x) and _symbol_python_type(x)) else
-                nil)
-
-@deftype
 def boolean(x, type):
         return ((x, type, True)  if _py.len(type) is not 1 else
                 (x, type, False) if x not in [t, nil] else
@@ -1051,6 +1103,32 @@ def member(x, type):
                 (x, type, False))
 
 @deftype
+def satisfies(x, type):
+        return ((x, type, True) if ((_py.len(type) is not 2) or
+                                    not functionp(type[1])) else
+                ((not type[1](x)) and
+                 (x, type, False)))
+
+@deftype
+def eql(x, type):
+        return ((x, type, True) if _py.len(type) is not 2 else
+                ((not eql(x, type[1])) and
+                 (x, type, False)))
+
+@deftype
+def unsigned_byte(x, type):
+        return (((x, type, False) if not integerp(x) or minusp(x) else nil)                        if _py.len(type) is 1 else
+                ((x, type, False) if not integerp(x) or minusp(x) or (x >= 1 << type[1]) else nil) if _py.len(type) is 2 else
+                (x, type, True))
+
+## Non-standard
+@deftype
+def pytypename(x, type):
+        return ((x, type, True)  if _py.len(type) is not 1                      else
+                (x, type, False) if not (symbolp(x) and _symbol_python_type(x)) else
+                nil)
+
+@deftype
 def maybe(x, type):
         return ((x, type, True)  if _py.len(type) is not 2 else
                 _poor_man_let(_type_mismatch(x, type[1]),
@@ -1064,19 +1142,6 @@ def pylist(x, type):
         return ((x, type, True)  if _py.len(type) is not 2       else
                 (x, type, False) if not _py.isinstance(x, _py.list) else
                 some(_type_mismatch, x, _infinite(type[1])))
-
-@deftype
-def satisfies(x, type):
-        return ((x, type, True) if ((_py.len(type) is not 2) or
-                                    not functionp(type[1])) else
-                ((not type[1](x)) and
-                 (x, type, False)))
-
-@deftype
-def eql(x, type):
-        return ((x, type, True) if _py.len(type) is not 2 else
-                ((not eql(x, type[1])) and
-                 (x, type, False)))
 
 @deftype
 def pytuple(x, type):
@@ -1159,11 +1224,11 @@ del boot_defun
 del boot_defclass
 
 defun            = _cold_defun    = _make_cold_definer("%COLD-DEFUN",    functionp,
-                                                       "function",    __block__, _frost.make_object_like_python_function)
+                                                       "function",    identity, _frost.make_object_like_python_function)
 defclass         = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: _py.isinstance(x, _py.type),
                                                        "python_type", identity,  _frost.make_object_like_python_class)
 defun_with_block = _cold_defun_with_block = _make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp,
-                                                               "function", identity,  _frost.make_object_like_python_function)
+                                                               "function", __block__, _frost.make_object_like_python_function)
 
 for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  _py.globals())
 for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
@@ -1679,13 +1744,6 @@ def _make_timestamping_cache(map_computer):
                 res = cache[(x, 0)]
                 return res[0] if res is not None else None
         return cache, cache_getter
-
-def _specifiedp(x):
-        return x is not None
-
-def _only_specified_keys(**keys):
-        return _py.dict(((k, v) for k, v in keys.items()
-                        if _specifiedp(k)))
 
 def _read_case_xformed(x):
         return _case_xform(_str_symbol_value("*READ-CASE*"), x)
@@ -3032,9 +3090,88 @@ _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
 ###
 ### Early-earlified streaming
 ###
+@defclass
+class base_char(): pass
+
 @defun
 def streamp(x):                     return typep(x, _cold_stream_type)
-def _fd_stream_p(x):                return typep(x, _cold_fd_stream_type)
+
+def _file_stream_p(x):              return typep(x, _cold_file_stream_type)
+
+@defun
+def with_open_stream(stream, fn):
+        try:
+                return fn(stream)
+        finally:
+                close(stream)
+
+@defun
+def open(pathname, direction = _keyword("INPUT"), element_type = base_char,
+         if_exists = _keyword("ERROR"), if_does_not_exist = _keyword("ERROR"),
+         external_format = _keyword("DEFAULT")):
+        """Return a stream which reads from or writes to FILENAME.
+Defined keywords:
+ :DIRECTION - one of :INPUT, :OUTPUT, :IO, or :PROBE
+ :ELEMENT-TYPE - the type of object to read or write, default BASE-CHAR
+ :IF-EXISTS - one of :ERROR, :NEW-VERSION, :RENAME, :RENAME-AND-DELETE,
+                     :OVERWRITE, :APPEND, :SUPERSEDE or NIL
+ :IF-DOES-NOT-EXIST - one of :ERROR, :CREATE or NIL"""
+        ## Unregistered Issue COMPLIANCE-OPEN-PROBE-OUTPUT-DIRECTION
+        ## Unregistered Issue COMPLIANCE-OPEN-ELEMENT-TYPE
+        ## Unregistered Issue COMPLIANCE-OPEN-IF-EXISTS
+        ## Unregistered Issue COMPLIANCE-OPEN-IF-DOES-NOT-EXIST
+        return _py.open(namestring(pathname),
+                        _poor_man_ecase(direction,
+                                        (_keyword("INPUT"),  lambda: "r"),
+                                        (_keyword("OUTPUT"), lambda: "w"),
+                                        (_keyword("IO"),     lambda: "rw"),
+                                        (_keyword("PROBE"),  lambda: _not_implemented("direction :PROBE"))))
+
+@defun
+def with_open_file(pathname, body, direction = _keyword("INPUT"), element_type = base_char,
+                   if_exists = _keyword("ERROR"), if_does_not_exist = _keyword("ERROR"),
+                   external_format = _keyword("DEFAULT")):
+        return with_open_stream(open(pathname, direction, element_type, if_exists, if_does_not_exist, external_format),
+                                body)
+
+@defun
+def probe_file(x):
+        x = pathname(x)
+        return _without_condition_system(
+                lambda: truename(x) if _os.path.exists(namestring(x)) else nil,
+                reason = "os.path.exists")
+
+@defun
+def truename(x):
+        # Unregistered Issue COMPLIANCE-TRUENAME
+        x = pathname(x)
+        return namestring(x)
+
+@defun
+def file_length(stream):
+        f = namestring(pathname(stream))
+        return _os.path.getsize(f)
+
+@defun
+def file_write_date(pathspec):
+        """Returns a universal time representing the time
+at which the file specified by PATHSPEC was last written
+(or created), or returns NIL if such a time cannot be determined. """
+        f = namestring(pathname(stream))
+        # XXX: doesn't conform terribly well:
+        # 1. NIL isn't returned if the time cannot be determined: python will,
+        #    in most likelihood, raise an error.
+        # 2. (from CLHS) Exceptional Situations:
+        # An error of type FILE-ERROR is signaled if pathspec is wild.
+        # An error of type FILE-ERROR is signaled if the file system
+        # cannot perform the requested operation.
+        #
+        # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
+        # os.path.getmtime() returns microseconds..
+        return _py.int(_os.path.getmtime(f))
+
+def _file_name(x):
+        return parse_namestring(the(file_stream, x).name)[0]
 
 ###
 ### Describe
@@ -3092,16 +3229,27 @@ def _describe_function(name, function, stream):
                 ## (describe-function `(setf ,name) nil stream)
                 pass
 
-def describe_class(name, class_, stream):
+def _describe_class(name, class_, stream):
         pass
+
+def _describe_python_object(x, stream):
+        type = _py.type(x)
+        slots = [ x for x in _py.dir(x) if "__" not in x ]
+        maxslotnamelen = _py.max(_py.len(x) for x in slots)
+        def describe_slot(x, slot):
+                value = _py.getattr(x, slot)
+                format(stream, "\n  %%%ds: %%s" % maxslotnamelen, slot, _py.repr(value))
+        format(stream, "Python type: %s", type)
+        for slot in slots:
+                describe_slot(x, slot)
+        terpri(stream)
 
 def describe_object(o, stream):
         def object_self_string(o):
                 if symbolp(o):
                         return _print_symbol(o)
                 else:
-                        _not_implemented("OBJECT-SELF-STRING for non-symbols")
-                        return printer(o)
+                        return "#<python object %s>" % (o.__repr__(),)
         def object_type_string(o):
                 return _py.type(o).__name__
         def print_standard_describe_header(o, stream):
@@ -3112,7 +3260,7 @@ def describe_object(o, stream):
                 # var_kind = info(_keyword("variable"), _keyword("kind"), o)
                 # var_kind = _variable_kind(o)
                 _describe_function(o, nil, stream)
-                describe_class(o, nil, stream)
+                _describe_class(o, nil, stream)
                 ### type specifier
                 # type_kind = info(_keyword("type"), _keyword("kind"), o)
                 # type_kind = ???
@@ -3120,10 +3268,12 @@ def describe_object(o, stream):
                 ## primitive - translator
                 ### optimisation policy
                 ### properties
+                if not (fboundp(o) or o.python_type):
+                        _describe_python_object(o, stream)
         print_standard_describe_header(o, stream)
         if symbolp(o): describe_symbol(o, stream)
         else:
-                _not_implemented()
+                _describe_python_object(o, stream)
 
 def describe(object, stream_designator = None):
         "Print a description of OBJECT to STREAM-DESIGNATOR."
@@ -3462,11 +3612,158 @@ def _read_symbol(x, package = None, case = None):
 ###
 ### Rudimentary pathnames
 ###
+## Relevant sections:
+##  - 19.2.2.1.2 Case in Pathname Components          :: http://clhs.lisp.se/Body/19_bbab.htm
+##  - 19.2.2.1.2.1 Local Case in Pathname Components  :: http://clhs.lisp.se/Body/19_bbaba.htm
+##  - 19.2.2.1.2.2 Common Case in Pathname Components :: http://clhs.lisp.se/Body/19_bbabb.htm
 def _namestring_components(x):
         dirname, basename = _os.path.split(x)
         return _if_let(position(".", basename, from_end = t),
-                       lambda dotpos: (dirname, basename[:dotpos], basename[dotpos + 1:]),
-                       lambda:        (dirname, basename,          nil))
+                       lambda dotpos: (dirname or nil, basename[:dotpos], basename[dotpos + 1:]),
+                       lambda:        (dirname or nil, basename or nil,   nil))
+
+@defclass
+class pathname_host():
+        def parse(self, x):
+                ## Unregistered Issue COMPLIANCE-NAMESTRING-UNPARSING-NOT-REALLY-IMPLEMENTED
+                dirname, basename, type = _namestring_components(the(string, x))
+                directory = dirname.split(_os.sep)
+                return pathname.python_type(host      = _system_pathname_host,
+                                            device    = nil,
+                                            directory = directory and (([_keyword("ABSOLUTE")] + directory[1:]) if directory[0] == "" else
+                                                                       ([_keyword("RELATIVE")] + directory)),
+                                            name      = basename,
+                                            type      = type,
+                                            version   = _keyword("NEWEST") if x else nil)
+        def unparse(self, x):
+                return ((x.device or "") +
+                        (_os.sep                                   if x.directory and x.directory[0] is _keyword("ABSOLUTE") else "") +
+                        ((_os.sep.join(x.directory[1:]) + _os.sep) if x.directory                                            else "") +
+                        ("*"    if x.name is _keyword("WILD") else
+                         x.name if x.name is not nil          else
+                         "") +
+                        (("." + ("*" if x.type is _keyword("WILD") else x.type)) if x.type is not nil else ""))
+        def local_case(self, x): return self.localise_case(x)
+        def common_case(self, x):
+                return (self.customiser     if x.isupper() else
+                        self.anticustomiser if x.islower() else
+                        identity)(x)
+        def apply_case(self, case, x):
+                return (self.local_case(x)  if case is _keyword("LOCAL")  else
+                        self.common_case(x) if case is _keyword("COMMON") else
+                        error("Invalid case transform specifier: %s.  Must be one of either %s or %s.",
+                              case, _keyword("LOCAL"), _keyword("COMMON")))
+
+@defclass
+class unix_host(pathname_host.python_type):
+        localise_case              = identity
+        customiser, anticustomiser = _py.str.lower, _py.str.upper
+
+@defclass
+class windows_host(pathname_host.python_type):
+        localise_case              = identity
+        customiser, anticustomiser = _py.str.lower, _py.str.upper
+
+_system_pathname_host = make_instance(windows_host if _platform.system() == 'Windows' else
+                                      unix_host)
+
+@defclass
+class pathname():
+        def __init__(self, *args, host, device, directory, name, type, version):
+                assert not args
+                (self.host, self.device, self.directory, self.name, self.type, self.version) = host, device, directory, name, type, version
+        def __str__(self):
+                return "#P\"%s\"" % _py.repr(namestring(self))[1:-1]
+        def __repr__(self):
+                return self.__str__()
+
+@defun
+def pathnamep(x): return _py.isinstance(x, pathname.python_type)
+
+## Unregistered Issue COMPLIANCE-HOST-TYPE-WRONG
+@defun
+def make_pathname(*args, host = None, device = None, directory = None, name = None, type = None, version = None,
+                  default = None, case = _keyword("LOCAL")):
+        assert not args
+        default = default or pathname.python_type(**_defaulted_keys(
+                        host = pathname_host(_str_symbol_value("*DEFAULT-PATHNAME-DEFAULTS*")),
+                        device = nil, directory = nil, name = nil, type = nil, version = nil))
+        effective_host = _defaulted(host, default.host)
+        supplied_pathname = _py.dict(
+                (k, effective_host.apply_case(case, v) if stringp(v) else v)
+                for k, v in _only_specified_keys(host = host, device = device, directory = directory, name = name, type = type, version = version).items())
+        ## Unregistered Issue RESEARCH-COMPLIANCE-MAKE-PATHNAME-CANONICALISATION
+        return merge_pathnames(supplied_pathname, default)
+
+@defun
+def parse_namestring(thing, host = nil, default_pathname = None, *args, start = 0, end = nil, junk_allowed = nil):
+        assert not args
+        if junk_allowed:
+                _not_implemented("%s", _keyword("JUNK-ALLOWED")) ## Unregistered Issue COMPLIANCE-PARSE-NAMESTRING-JUNK-ALLOWED-NOT-IMPLEMENTED
+        if streamp(thing):
+                thing = pathname(thing)
+        if pathnamep(thing):
+                return (values(thing, start) if not (host or thing.host) or host is thing.host else
+                        error("The specified host %s does not match pathname's host %s.", host, thing.host))
+        ## It is a string.
+        check_type(thing, string)
+        # Unregistered Issue COMPLIANCE-LOGICAL-PATHNAMES-NOT-IMPLEMENTED
+        ## NI: If HOST is a logical host then THING is parsed as a
+        ##     logical pathname namestring on the HOST.
+        ## NI: If HOST is NIL and THING is a syntactically valid
+        ##     logical pathname namestring containing an explicit
+        ##     host, then it is parsed as a logical pathname
+        ##     namestring.
+        default_pathname = _defaulted_to_var(default_pathname, "*DEFAULT-PATHNAME-DEFAULTS*")
+        ## NI: If HOST is NIL, DEFAULT-PATHNAME is a logical pathname,
+        ##     and THING is a syntactically valid logical pathname
+        ##     namestring without an explicit host, then it is parsed
+        ##     as a logical pathname namestring on the host that is
+        ##     the host component of DEFAULT-PATHNAME.
+        ##
+        ## Now the haha part: "Otherwise, the parsing of thing is
+        ## implementation-defined."
+        ## We choose to follow SBCL.  Sort of.
+        effective_host = (host or default_pathname.host)
+        if not effective_host:
+                error("Can't parse the namestring for an unspecified host: either %s or a %s specifying a pathname host must be provided.",
+                      _keyword("HOST"), _keyword("DEFAULT-PATHNAME"))
+        return values(effective_host.parse(subseq(thing, start, end) if start or end else thing),
+                      start)
+
+@defun
+def namestring(x):
+        p = pathname(x)
+        if not p.host:
+                error("Can't determine the namestring for pathnames with no host:\n  %s", p)
+        ## Unregistered Issue COMPLIANCE-NAMESTRING-UNPARSING-NOT-REALLY-IMPLEMENTED
+        return p.host.unparse(p)
+
+@defun
+def pathname(x):
+        """pathname pathspec => pathname
+
+Arguments and Values:
+
+pathspec---a pathname designator.
+
+pathname---a pathname.
+
+Description:
+
+Returns the pathname denoted by PATHSPEC.
+
+If the PATHSPEC designator is a stream, the stream can be either open
+or closed; in both cases, the PATHNAME returned corresponds to the
+filename used to open the file.  PATHNAME returns the same pathname for
+a file stream after it is closed as it did when it was open.
+
+If the PATHSPEC designator is a file stream created by opening a
+logical pathname, a logical pathname is returned."""
+        return (x                      if pathnamep(x)          else
+                parse_namestring(x)[0] if stringp(x)            else
+                _file_name(x)          if typep(x, file_stream) else
+                error("PATHNAME only accepts pathnames, namestrings and file streams, was given: %s.", x))
 
 @defun
 def pathname_directory(x):
@@ -3481,33 +3778,16 @@ def pathname_name(x): return _namestring_components(x)[1]
 @defun
 def pathname_type(x): return _namestring_components(x)[2]
 
+def _init_pathnames():
+        _string_set("*DEFAULT-PATHNAME-DEFAULTS*", parse_namestring(_os.getcwd() + "/",
+                                                                    host = _system_pathname_host,
+                                                                    default_pathname = t)[0]) # T is junk, but avoid a bootstrap loop
+
+_init_pathnames()
+
 ###
 ### Earlified streaming
 ###
-@defclass
-class base_char(): pass
-
-@defun
-def open(pathname, direction = _keyword("INPUT"), element_type = base_char,
-         if_exists = _keyword("ERROR"), if_does_not_exist = _keyword("ERROR")):
-        """Return a stream which reads from or writes to FILENAME.
-Defined keywords:
- :DIRECTION - one of :INPUT, :OUTPUT, :IO, or :PROBE
- :ELEMENT-TYPE - the type of object to read or write, default BASE-CHAR
- :IF-EXISTS - one of :ERROR, :NEW-VERSION, :RENAME, :RENAME-AND-DELETE,
-                     :OVERWRITE, :APPEND, :SUPERSEDE or NIL
- :IF-DOES-NOT-EXIST - one of :ERROR, :CREATE or NIL"""
-        ## Unregistered Issue COMPLIANCE-OPEN-PROBE-OUTPUT-DIRECTION
-        ## Unregistered Issue COMPLIANCE-OPEN-ELEMENT-TYPE
-        ## Unregistered Issue COMPLIANCE-OPEN-IF-EXISTS
-        ## Unregistered Issue COMPLIANCE-OPEN-IF-DOES-NOT-EXIST
-        return _py.open(namestring(pathname),
-                        ecase(direction,
-                              (_keyword("INPUT"),  lambda: "r"),
-                              (_keyword("OUTPUT"), lambda: "w"),
-                              (_keyword("IO"),     lambda: "rw"),
-                              (_keyword("PROBE"),  lambda: _not_implemented("direction :PROBE"))))
-
 @defun
 def stream_external_format(stream): return _keyword(stream.encoding)
 
@@ -3558,6 +3838,244 @@ def _stream_as_string(stream):
 def _file_as_string(filename):
         with _py.open(filename, "r") as f:
                 return _stream_as_string(f)
+
+##
+## Restarts
+##
+@defclass
+class restart(_servile):
+        def __str__(self):
+                # XXX: must conform by honoring *PRINT-ESCAPE*:
+                # http://www.lispworks.com/documentation/lw51/CLHS/Body/m_rst_ca.htm#restart-case
+                return (with_output_to_string(lambda stream: self.report_function(stream)) if self.report_function else
+                        self.__repr__())
+        pass
+# RESTART-BIND executes the body of forms in a dynamic environment where
+# restarts with the given names are in effect.
+
+# If a name is nil, it indicates an anonymous restart; if a name is a
+# non-NIL symbol, it indicates a named restart.
+
+# The function, interactive-function, and report-function are
+# unconditionally evaluated in the current lexical and dynamic
+# environment prior to evaluation of the body. Each of these forms must
+# evaluate to a function.
+
+# If INVOKE-RESTART is done on that restart, the function which resulted
+# from evaluating function is called, in the dynamic environment of the
+# INVOKE-RESTART, with the arguments given to INVOKE-RESTART. The
+# function may either perform a non-local transfer of control or may
+# return normally.
+
+
+# If the restart is invoked interactively from the debugger (using
+# invoke-restart-interactively), the arguments are defaulted by calling
+# the function which resulted from evaluating interactive-function. That
+# function may optionally prompt interactively on query I/O, and should
+# return a list of arguments to be used by invoke-restart-interactively
+# when invoking the restart.
+
+# If a restart is invoked interactively but no interactive-function is
+# used, then an argument list of nil is used. In that case, the function
+# must be compatible with an empty argument list.
+
+# If the restart is presented interactively (e.g., by the debugger), the
+# presentation is done by calling the function which resulted from
+# evaluating report-function. This function must be a function of one
+# argument, a stream. It is expected to print a description of the
+# action that the restart takes to that stream. This function is called
+# any time the restart is printed while *print-escape* is nil.
+
+# restart_bind(body,
+#              name = ((lambda *args: 1),
+#                      _py.dict(interactive_function = lambda: compute_invoke_restart_interactively_args(),
+#                               report_function      = lambda stream: print_restart_summary(stream),
+#                               test_function        = lambda cond: visible_p(cond))))
+_string_set("*RESTART-CLUSTERS*", [])
+
+def _restartp(x):
+        return typep(x, restart)
+
+def restart_name(x):
+        return x.name
+
+def _specs_restarts_args(restart_specs):
+        # format (t, "_s_r: %s", restart_specs)
+        restarts_args = make_hash_table()
+        for name, spec in restart_specs.items():
+                function, options = ((spec[0], spec[1]) if _tuplep(spec) else
+                                     (spec, make_hash_table()))
+                restarts_args[name.upper()] = _updated_dict(options, _py.dict(function = function)) # XXX: name mangling!
+        return restarts_args
+
+##
+# XXX: :TEST-FUNCTION is currently IGNORED!
+##
+def _restart_bind(body, restarts_args):
+        with progv({"*RESTART-CLUSTERS*": (_str_symbol_value("*RESTART-CLUSTERS*") +
+                                           [_remap_hash_table(lambda _, restart_args: make_instance(restart, **restart_args), restarts_args)])}):
+                return body()
+
+def restart_bind(body, **restart_specs):
+        return _restart_bind(body, _specs_restarts_args(restart_specs))
+
+__valid_restart_options__ = _py.frozenset(["interactive", "report", "test", "function"])
+def _restart_case(body, **restarts_args):
+        def validate_restart_options(options):
+                unknown = _py.set(options.keys()) - __valid_restart_options__
+                return t if not unknown else error(simple_type_error, "Acceptable restart options are: (%s), not (%s)",
+                                                   " ".join(__valid_restart_options__), " ".join(options.keys()))
+        nonce = gensym("RESTART-CASE")
+        wrapped_restarts_args = {
+                restart_name: _poor_man_let(restart_args["function"],
+                                  restart_args["interactive"] if "interactive" in restart_args else nil,
+                                  restart_args["report"]      if "report"      in restart_args else nil,
+                                  lambda function, interactive, report:
+                                          (validate_restart_options(restart_args) and
+                                           _updated_dict(restart_args,
+                                                         _py.dict(name                 = restart_name,
+                                                                  function             =
+                                                                  lambda *args, **keys:
+                                                                          return_from(nonce, function(*args, **keys)),
+                                                                  interactive_function =
+                                                                  (interactive                  if functionp(interactive) else
+                                                                   lambda: []                   if null(interactive) else
+                                                                   error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
+                                                                  report_function      =
+                                                                  (report                       if functionp(report) else
+                                                                   _curry(write_string, report) if stringp(report) else
+                                                                   nil                          if null(report) else
+                                                                   error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
+                for restart_name, restart_args in restarts_args.items () }
+        return catch(nonce,
+                     lambda: _restart_bind(body, wrapped_restarts_args))
+
+def restart_case(body, **restart_specs):
+        return _restart_case(body, **_specs_restarts_args(restart_specs))
+
+def with_simple_restart(name, format_control_and_arguments, body):
+        """
+WITH-SIMPLE-RESTART establishes a restart.
+
+If the restart designated by NAME is not invoked while executing
+FORMS, all values returned by the last of FORMS are returned. If the
+restart designated by NAME is invoked, control is transferred to
+WITH-SIMPLE-RESTART, which returns two values, NIL and T.
+
+If name is NIL, an anonymous restart is established.
+
+The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
+"""
+        description = (format_control_and_arguments if stringp(format_control_and_arguments) else
+                       format(nil, format_control_and_arguments[0], *format_control_and_arguments[1:]))
+        return restart_case(body, **{ name: (lambda: None,
+                                             _py.dict(report = lambda stream: format(stream, "%s", description))) })
+
+def restart_condition_association_check(cond, restart):
+        """
+When CONDITION is non-NIL, only those restarts are considered that are
+either explicitly associated with that condition, or not associated
+with any condition; that is, the excluded restarts are those that are
+associated with a non-empty set of conditions of which the given
+condition is not an element. If condition is NIL, all restarts are
+considered.
+"""
+        return (not cond or
+                "associated_conditions" not in restart.__dict__ or
+                cond in restart.associated_conditions)
+
+def find_restart(identifier, condition = None):
+        """
+FIND-RESTART searches for a particular restart in the current dynamic
+environment.
+
+When CONDITION is non-NIL, only those restarts are considered that are
+either explicitly associated with that condition, or not associated
+with any condition; that is, the excluded restarts are those that are
+associated with a non-empty set of conditions of which the given
+condition is not an element. If condition is NIL, all restarts are
+considered.
+
+If IDENTIFIER is a symbol, then the innermost (most recently
+established) applicable restart with that name is returned. nil is
+returned if no such restart is found.
+
+If IDENTIFIER is a currently active restart, then it is
+returned. Otherwise, NIL is returned.
+"""
+        if _restartp(identifier):
+                return find_restart(restart_name(identifier)) is identifier
+        else:
+                for cluster in reversed(_str_symbol_value("*RESTART-CLUSTERS*")):
+                        # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
+                        restart = cluster[identifier] if identifier in cluster else None
+                        if restart and restart_condition_association_check(condition, restart):
+                                return restart
+
+def compute_restarts(condition = None):
+        """
+COMPUTE-RESTARTS uses the dynamic state of the program to compute a
+list of the restarts which are currently active.
+
+The resulting list is ordered so that the innermost (more-recently
+established) restarts are nearer the head of the list.
+
+When CONDITION is non-NIL, only those restarts are considered that are
+either explicitly associated with that condition, or not associated
+with any condition; that is, the excluded restarts are those that are
+associated with a non-empty set of conditions of which the given
+condition is not an element. If condition is NIL, all restarts are
+considered.
+
+COMPUTE-RESTARTS returns all applicable restarts, including anonymous
+ones, even if some of them have the same name as others and would
+therefore not be found by FIND-RESTART when given a symbol argument.
+
+Implementations are permitted, but not required, to return distinct
+lists from repeated calls to COMPUTE-RESTARTS while in the same
+dynamic environment. The consequences are undefined if the list
+returned by COMPUTE-RESTARTS is every modified.
+"""
+        restarts = _py.list()
+        for cluster in _py.reversed(_str_symbol_value("*RESTART-CLUSTERS*")):
+                # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
+                restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
+                                if condition else
+                                cluster.values())
+        return restarts
+
+def invoke_restart(restart, *args, **keys):
+        """
+Calls the function associated with RESTART, passing arguments to
+it. Restart must be valid in the current dynamic environment.
+"""
+        assert(stringp(restart) or _restartp(restart))
+        restart = restart if _restartp(restart) else find_restart(restart)
+        return restart.function(*args, **keys)
+
+def invoke_restart_interactively(restart):
+        """
+INVOKE-RESTART-INTERACTIVELY calls the function associated with
+RESTART, prompting for any necessary arguments. If RESTART is a name,
+it must be valid in the current dynamic environment.
+
+INVOKE-RESTART-INTERACTIVELY prompts for arguments by executing the
+code provided in the :INTERACTIVE KEYWORD to RESTART-CASE or
+:INTERACTIVE-FUNCTION keyword to RESTART-BIND.
+
+If no such options have been supplied in the corresponding
+RESTART-BIND or RESTART-CASE, then the consequences are undefined if
+the restart takes required arguments. If the arguments are optional,
+an argument list of nil is used.
+
+Once the arguments have been determined, INVOKE-RESTART-INTERACTIVELY
+executes the following:
+
+ (apply #'invoke-restart restart arguments)
+"""
+        assert(stringp(restart) or _restartp(restart))
+        restart = restart if _restartp(restart) else find_restart(restart)
+        return invoke_restart(restart, *restart.interactive_function())
 
 ###
 ### AST basis.
@@ -5456,7 +5974,8 @@ def let_(bindings, *body):
 #
 # Also: how do we represent fucking tuples?
 # Also: should we track form paths?
-def macroexpand_1(form):
+def macroexpand_1(form, env = nil):
+        ## Unregistered Issue COMPLIANCE-MACROEXPAND-MUST-CONSIDER-LEXENV
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
         return ((form, nil) if not _tuplep(form) else
                 _if_let((form and macro_function(form[0])),
@@ -5465,7 +5984,8 @@ def macroexpand_1(form):
                         lambda:
                                 (form, nil)))
 
-def macroexpand(form):
+def macroexpand(form, env = nil):
+        ## Unregistered Issue COMPLIANCE-MACROEXPAND-MUST-CONSIDER-LEXENV
         def do_macroexpand(form, expanded):
                 expansion, expanded_again = macroexpand_1(form)
                 return (do_macroexpand(expansion, t) if expanded_again else
@@ -6411,6 +6931,14 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
 read = _cold_read
 
 ###
+### Source info
+###
+@defclass
+class _source_info():
+        def __init__(self, pathname):
+                self.pathname = pathname
+
+###
 ### EVAL
 ###
 _string_set("*EVAL-SOURCE-CONTEXT*", nil)
@@ -6428,7 +6956,7 @@ def _simple_eval_in_lexenv(original_exp, lexenv):
                 return symbol_value(exp)
         elif _tuplep(exp):
                 name = car(exp)
-                n_args = _py.length(exp) - 1
+                n_args = _py.len(exp) - 1
                 if   name is function:        _not_implemented("%SIMPLE-EVAL-IN-LEXENV FUNCTION case")
                 elif name is quote:           return the((pytuple, symbol, t), exp)[1]
                 elif name is setq:            _not_implemented("%SIMPLE-EVAL-IN-LEXENV SETQ case")
@@ -6450,10 +6978,10 @@ def _eval_in_lexenv(exp, lexenv):
         return _simple_eval_in_lexenv(exp, lexenv)
 
 def _do_eval(exp, tlf_index, source_info, lexenv):
-        with progv({"*EVAL-SOURCE-CONTEXT*": original_exp,
+        with progv({"*EVAL-SOURCE-CONTEXT*": exp,
                     "*EVAL-TLF-INDEX*":      tlf_index,
                     "*EVAL-SOURCE-INFO*":    source_info}):
-                return _eval_in_lexenv(original_exp, lexenv)
+                return _eval_in_lexenv(exp, lexenv)
 
 def _eval_tlf(original_exp, tlf_index, lexenv = None):
         return _do_eval(original_exp, tlf_index, _str_symbol_value("*SOURCE-INFO*"),
@@ -6628,20 +7156,40 @@ def _sub_sub_compile_file():
 _string_set("*LOAD-VERBOSE*", nil)
 _string_set("*LOAD-PRINT*", nil)
 
-def _load_as_source(stream):
-        verbose and format(t, "; loading %s\n", _py.repr(stream))
+def _load_as_source(stream, verbose = None, print = None):
         _debug_compiler()
-        def next(): return read(f, eof_error_p = nil, eof_value = f)
-        form = next()
-        while next != f:
-                _debug_printf_if(_debugging_compiler(),
-                                 "; LOAD: processing\n%s", _pp_sex(form))
-                toplevel_lambda = compile(nil, form)
-                try:
-                        toplevel_lambda()
-                except error as cond:
-                        error("")
+        pathname = _file_name(stream)
+        verbose and format(t, "; loading %s\n", _py.repr(pathname))
+        def with_abort_restart_body():
+                def eval_form(form, index):
+                        def with_continue_restart_body():
+                                while t:
+                                        def with_retry_restart_body():
+                                                results = _eval_tlf(form, index)
+                                                if print:
+                                                        format(t, "%s\n", ", ".join(_py.repr(x) for x in results))
+                                        with_simple_restart("RETRY", ("Retry EVAL of current toplevel form.",),
+                                                            with_retry_restart_body)
+                                        return
+                        with_simple_restart("CONTINUE", ("Ignore error and continue loading file %s.", _py.repr(pathname)),
+                                            with_continue_restart_body)
+                ## Unregistered Issue DEBUG-LOAD-FILE-SOURCE-INFO-IGNORED
+                def next(): return read(stream, eof_error_p = nil, eof_value = stream)
                 form = next()
+                if pathname:
+                        with progv({ "*SOURCE-INFO*": _source_info.python_type(pathname = pathname) }):
+                                while form != stream:
+                                        eval_form(form, nil)
+                                        form = next()
+                else:
+                        with progv({ "*SOURCE-INFO*": nil }):
+                                while form != stream:
+                                        eval_form(form, nil)
+                                        form = next()
+        return with_simple_restart("ABORT", ("Abort loading file %s.", _file_name(stream)),
+                                   with_abort_restart_body)
+
+_string_set("*FASL-FILE-TYPE*", "vpfas")
 
 @_cold_defun_with_block
 def load(pathspec, verbose = None, print = None,
@@ -6649,18 +7197,23 @@ def load(pathspec, verbose = None, print = None,
          external_format = _keyword("default")):
         verbose = _defaulted_to_var(verbose, "*LOAD-VERBOSE*")
         print   = _defaulted_to_var(verbose, "*LOAD-PRINT*")
+        def fasl_header_p(stream, errorp = nil):
+                _warn_not_implemented()
+                if errorp:
+                        error("The file pointed at by stream %s does not contain a FASL file.", stream)
+                return nil
         def load_stream(stream, faslp):
                 with progv({ "*READTABLE*":     _str_symbol_value("*READTABLE*"),
                              "*PACKAGE*":       _str_symbol_value("*PACKAGE*"),
                              "*LOAD-PATHNAME*": pathname(stream),
                              "*LOAD-TRUENAME*": handler_case(lambda: truename(stream),
-                                                             (error, lambda _, nil))}):
+                                                             (error, lambda _: nil)) }):
                         return_from(load, (_load_as_fasl if faslp else
                                            _load_as_source)(stream, verbose = verbose, print = print))
         ## Case 1: stream.
         if streamp(pathspec):
                 return load_stream(pathspec, _stream_faslp(pathspec))
-        pathname = pathname(pathspec)
+        pathname_ = pathname(pathspec)
         ## Case 2: Open as binary, try to process as a fasl.
         def with_open_stream_body(stream):
                 if not stream:
@@ -6671,12 +7224,12 @@ def load(pathspec, verbose = None, print = None,
                     fasl_header_p(stream, errorp = should_be_fasl_p)):
                         return_from(load, load_stream(stream, t))
         def typeless_pathname_branch():
-                nonlocal pathname
+                nonlocal pathname_
                 defaulted_pathname = probe_load_defaults(pathspec)
                 if defaulted_pathname:
-                        pathname = defaulted_pathname
-                        return open(pathname, if_does_not_exist = (_keyword("ERROR") if if_does_not_exist else
-                                                                   nil),
+                        pathname_ = defaulted_pathname
+                        return open(pathname_, if_does_not_exist = (_keyword("ERROR") if if_does_not_exist else
+                                                                    nil),
                                     element_type = (unsigned_byte, 8))
         with_open_stream((open(pathspec, element_type = (unsigned_byte, 8),
                                if_does_not_exist = nil) or
@@ -6687,46 +7240,9 @@ def load(pathspec, verbose = None, print = None,
                                  format_arguments = [pathspec]))),
                          with_open_stream_body)
         ## Case 3: Open using the gived external format, process as source.
-        with_open_file(pathname,
+        with_open_file(pathname_,
                        lambda stream: load_stream(stream, nil),
                        external_format = external_format)
-
-##
-## Files
-##
-def probe_file(pathname):
-        "No, no real pathnames, just namestrings.."
-        assert(stringp(pathname))
-        return _without_condition_system(
-                lambda: _os.path.exists(pathname),
-                reason = "os.path.exists")
-
-def namestring(pathname):
-        return _poor_man_etypecase(pathname,
-                                   (_py.str,   pathname),
-                                   (fd_stream, pathname.name))
-
-def truename(pathname):
-        # Unregistered Issue COMPLIANCE-TRUENAME
-        return _poor_man_etypecase(pathname,
-                                   (_py.str,   pathname),
-                                   (fd_stream, pathname.name))
-
-def file_write_date(pathspec):
-        """Returns a universal time representing the time
-at which the file specified by PATHSPEC was last written
-(or created), or returns NIL if such a time cannot be determined. """
-        # XXX: doesn't conform terribly well:
-        # 1. NIL isn't returned if the time cannot be determined: python will,
-        #    in most likelihood, raise an error.
-        # 2. (from CLHS) Exceptional Situations:
-        # An error of type FILE-ERROR is signaled if pathspec is wild.
-        # An error of type FILE-ERROR is signaled if the file system
-        # cannot perform the requested operation.
-        #
-        # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
-        # os.path.getmtime() returns microseconds..
-        return _py.int(_os.path.getmtime(pathspec))
 
 @defclass
 class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
@@ -6864,244 +7380,6 @@ def ignore_errors(body):
         return handler_case(body,
                             (Exception,
                              lambda _: None))
-
-##
-## Restarts
-##
-@defclass
-class restart(_servile):
-        def __str__(self):
-                # XXX: must conform by honoring *PRINT-ESCAPE*:
-                # http://www.lispworks.com/documentation/lw51/CLHS/Body/m_rst_ca.htm#restart-case
-                return (with_output_to_string(lambda stream: self.report_function(stream)) if self.report_function else
-                        self.__repr__())
-        pass
-# RESTART-BIND executes the body of forms in a dynamic environment where
-# restarts with the given names are in effect.
-
-# If a name is nil, it indicates an anonymous restart; if a name is a
-# non-NIL symbol, it indicates a named restart.
-
-# The function, interactive-function, and report-function are
-# unconditionally evaluated in the current lexical and dynamic
-# environment prior to evaluation of the body. Each of these forms must
-# evaluate to a function.
-
-# If INVOKE-RESTART is done on that restart, the function which resulted
-# from evaluating function is called, in the dynamic environment of the
-# INVOKE-RESTART, with the arguments given to INVOKE-RESTART. The
-# function may either perform a non-local transfer of control or may
-# return normally.
-
-
-# If the restart is invoked interactively from the debugger (using
-# invoke-restart-interactively), the arguments are defaulted by calling
-# the function which resulted from evaluating interactive-function. That
-# function may optionally prompt interactively on query I/O, and should
-# return a list of arguments to be used by invoke-restart-interactively
-# when invoking the restart.
-
-# If a restart is invoked interactively but no interactive-function is
-# used, then an argument list of nil is used. In that case, the function
-# must be compatible with an empty argument list.
-
-# If the restart is presented interactively (e.g., by the debugger), the
-# presentation is done by calling the function which resulted from
-# evaluating report-function. This function must be a function of one
-# argument, a stream. It is expected to print a description of the
-# action that the restart takes to that stream. This function is called
-# any time the restart is printed while *print-escape* is nil.
-
-# restart_bind(body,
-#              name = ((lambda *args: 1),
-#                      _py.dict(interactive_function = lambda: compute_invoke_restart_interactively_args(),
-#                               report_function      = lambda stream: print_restart_summary(stream),
-#                               test_function        = lambda cond: visible_p(cond))))
-_string_set("*RESTART-CLUSTERS*", [])
-
-def _restartp(x):
-        return typep(x, restart)
-
-def restart_name(x):
-        return x.name
-
-def _specs_restarts_args(restart_specs):
-        # format (t, "_s_r: %s", restart_specs)
-        restarts_args = make_hash_table()
-        for name, spec in restart_specs.items():
-                function, options = ((spec[0], spec[1]) if _tuplep(spec) else
-                                     (spec, make_hash_table()))
-                restarts_args[name.upper()] = _updated_dict(options, _py.dict(function = function)) # XXX: name mangling!
-        return restarts_args
-
-##
-# XXX: :TEST-FUNCTION is currently IGNORED!
-##
-def _restart_bind(body, restarts_args):
-        with progv({"*RESTART-CLUSTERS*": (_str_symbol_value("*RESTART-CLUSTERS*") +
-                                           [_remap_hash_table(lambda _, restart_args: make_instance(restart, **restart_args), restarts_args)])}):
-                return body()
-
-def restart_bind(body, **restart_specs):
-        return _restart_bind(body, _specs_restarts_args(restart_specs))
-
-__valid_restart_options__ = _py.frozenset(["interactive", "report", "test", "function"])
-def _restart_case(body, **restarts_args):
-        def validate_restart_options(options):
-                unknown = _py.set(options.keys()) - __valid_restart_options__
-                return t if not unknown else error(simple_type_error, "Acceptable restart options are: (%s), not (%s)",
-                                                   " ".join(__valid_restart_options__), " ".join(options.keys()))
-        nonce = gensym("RESTART-CASE")
-        wrapped_restarts_args = {
-                restart_name: _poor_man_let(restart_args["function"],
-                                  restart_args["interactive"] if "interactive" in restart_args else nil,
-                                  restart_args["report"]      if "report"      in restart_args else nil,
-                                  lambda function, interactive, report:
-                                          (validate_restart_options(restart_args) and
-                                           _updated_dict(restart_args,
-                                                         _py.dict(name                 = restart_name,
-                                                                  function             =
-                                                                  lambda *args, **keys:
-                                                                          return_from(nonce, function(*args, **keys)),
-                                                                  interactive_function =
-                                                                  (interactive                  if functionp(interactive) else
-                                                                   lambda: []                   if null(interactive) else
-                                                                   error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
-                                                                  report_function      =
-                                                                  (report                       if functionp(report) else
-                                                                   _curry(write_string, report) if stringp(report) else
-                                                                   nil                          if null(report) else
-                                                                   error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
-                for restart_name, restart_args in restarts_args.items () }
-        return catch(nonce,
-                     lambda: _restart_bind(body, wrapped_restarts_args))
-
-def restart_case(body, **restart_specs):
-        return _restart_case(body, **_specs_restarts_args(restart_specs))
-
-def with_simple_restart(name, format_control_and_arguments, body):
-        """
-WITH-SIMPLE-RESTART establishes a restart.
-
-If the restart designated by NAME is not invoked while executing
-FORMS, all values returned by the last of FORMS are returned. If the
-restart designated by NAME is invoked, control is transferred to
-WITH-SIMPLE-RESTART, which returns two values, NIL and T.
-
-If name is NIL, an anonymous restart is established.
-
-The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
-"""
-        description = (format_control_and_arguments if stringp(format_control_and_arguments) else
-                       format(nil, format_control_and_arguments[0], *format_control_and_arguments[1:]))
-        return restart_case(body, **{ name: (lambda: None,
-                                             _py.dict(report = lambda stream: format(stream, "%s", description))) })
-
-def restart_condition_association_check(cond, restart):
-        """
-When CONDITION is non-NIL, only those restarts are considered that are
-either explicitly associated with that condition, or not associated
-with any condition; that is, the excluded restarts are those that are
-associated with a non-empty set of conditions of which the given
-condition is not an element. If condition is NIL, all restarts are
-considered.
-"""
-        return (not cond or
-                "associated_conditions" not in restart.__dict__ or
-                cond in restart.associated_conditions)
-
-def find_restart(identifier, condition = None):
-        """
-FIND-RESTART searches for a particular restart in the current dynamic
-environment.
-
-When CONDITION is non-NIL, only those restarts are considered that are
-either explicitly associated with that condition, or not associated
-with any condition; that is, the excluded restarts are those that are
-associated with a non-empty set of conditions of which the given
-condition is not an element. If condition is NIL, all restarts are
-considered.
-
-If IDENTIFIER is a symbol, then the innermost (most recently
-established) applicable restart with that name is returned. nil is
-returned if no such restart is found.
-
-If IDENTIFIER is a currently active restart, then it is
-returned. Otherwise, NIL is returned.
-"""
-        if _restartp(identifier):
-                return find_restart(restart_name(identifier)) is identifier
-        else:
-                for cluster in reversed(_str_symbol_value("*RESTART-CLUSTERS*")):
-                        # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
-                        restart = cluster[identifier] if identifier in cluster else None
-                        if restart and restart_condition_association_check(condition, restart):
-                                return restart
-
-def compute_restarts(condition = None):
-        """
-COMPUTE-RESTARTS uses the dynamic state of the program to compute a
-list of the restarts which are currently active.
-
-The resulting list is ordered so that the innermost (more-recently
-established) restarts are nearer the head of the list.
-
-When CONDITION is non-NIL, only those restarts are considered that are
-either explicitly associated with that condition, or not associated
-with any condition; that is, the excluded restarts are those that are
-associated with a non-empty set of conditions of which the given
-condition is not an element. If condition is NIL, all restarts are
-considered.
-
-COMPUTE-RESTARTS returns all applicable restarts, including anonymous
-ones, even if some of them have the same name as others and would
-therefore not be found by FIND-RESTART when given a symbol argument.
-
-Implementations are permitted, but not required, to return distinct
-lists from repeated calls to COMPUTE-RESTARTS while in the same
-dynamic environment. The consequences are undefined if the list
-returned by COMPUTE-RESTARTS is every modified.
-"""
-        restarts = _py.list()
-        for cluster in _py.reversed(_str_symbol_value("*RESTART-CLUSTERS*")):
-                # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
-                restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
-                                if condition else
-                                cluster.values())
-        return restarts
-
-def invoke_restart(restart, *args, **keys):
-        """
-Calls the function associated with RESTART, passing arguments to
-it. Restart must be valid in the current dynamic environment.
-"""
-        assert(stringp(restart) or _restartp(restart))
-        restart = restart if _restartp(restart) else find_restart(restart)
-        return restart.function(*args, **keys)
-
-def invoke_restart_interactively(restart):
-        """
-INVOKE-RESTART-INTERACTIVELY calls the function associated with
-RESTART, prompting for any necessary arguments. If RESTART is a name,
-it must be valid in the current dynamic environment.
-
-INVOKE-RESTART-INTERACTIVELY prompts for arguments by executing the
-code provided in the :INTERACTIVE KEYWORD to RESTART-CASE or
-:INTERACTIVE-FUNCTION keyword to RESTART-BIND.
-
-If no such options have been supplied in the corresponding
-RESTART-BIND or RESTART-CASE, then the consequences are undefined if
-the restart takes required arguments. If the arguments are optional,
-an argument list of nil is used.
-
-Once the arguments have been determined, INVOKE-RESTART-INTERACTIVELY
-executes the following:
-
- (apply #'invoke-restart restart arguments)
-"""
-        assert(stringp(restart) or _restartp(restart))
-        restart = restart if _restartp(restart) else find_restart(restart)
-        return invoke_restart(restart, *restart.interactive_function())
 
 ##
 ## Interactivity
