@@ -110,7 +110,7 @@ def _defaulted(x, value, type = None):
         return x if x is not None else value
 
 def _defaulted_to_var(x, variable, type = None):
-        return _defaulted(x, symbol_value(variable), type = type)
+        return _defaulted(x, _str_symbol_value(variable), type = type)
 
 ###
 ### Boot messaging
@@ -327,7 +327,7 @@ def _find_dynamic_frame_for_set(name, force_toplevel = None):
                  (__tls__.dynamic_scope[-1] if __tls__.dynamic_scope else
                   __global_scope__)))
 
-def _symbol_value(name):
+def _str_symbol_value(name):
         frame = _find_dynamic_frame(name)
         return (frame[name] if frame else
                 error(AttributeError, "Unbound variable: %s." % name))
@@ -383,7 +383,7 @@ def warn(control, *args, **keys):
         badness = _poor_man_etypecase(condition,
                                       (style_warning, style_warning),
                                       (warning,       warning))
-        format(symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
+        format(_str_symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
         return nil
 
 # @boot(lambda error, datum, *args, **keys: _frost.raise_exception(_coerce_to_condition(datum, *args, **keys)))
@@ -525,8 +525,8 @@ def symbol_name(x):            return x.name
 @boot_defun
 def symbol_package(x):         return x.package
 @boot_defun # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
-def symbol_value(symbol):      return (_symbol_value(symbol) if stringp(symbol) else
-                                       symbol.value          if symbolp(symbol) else
+def symbol_value(symbol):      return (_str_symbol_value(symbol) if stringp(symbol) else
+                                       symbol.value              if symbolp(symbol) else
                                        error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
                                              symbol))
 def _symbol_function(symbol):  return (symbol.known          or
@@ -619,6 +619,9 @@ def _cold_make_nil():
 
 nil = _cold_make_nil()
 
+@boot_defun
+def null(x): return x is nil
+
 def _do_intern_symbol(s, p):
         p.own.add(s)
         p.accessible[s.name], s.package = s, p
@@ -636,9 +639,9 @@ def _intern_in_package(x, p):
         return s, presentp
 
 def _coerce_to_package(x, if_null = "current"):
-        return (find_package(x)                                          if stringp(x) or symbolp(x) or packagep(x) else
-                (_symbol_value("*PACKAGE*") if if_null == "current" else
-                 _package_not_found_error(x))                            if (not x)                                 else
+        return (find_package(x)                                              if stringp(x) or symbolp(x) or packagep(x) else
+                (_str_symbol_value("*PACKAGE*") if if_null == "current" else
+                 _package_not_found_error(x))                                if (not x)                                 else
                 error(simple_type_error, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
                       x, type_of(x)))
 
@@ -647,7 +650,7 @@ def _coerce_to_package(x, if_null = "current"):
 def _intern(x, package = None):
         "A version of INTERN, that does not compute the relationship between SYMBOL and designated PACKAGE."
         return _intern_in_package(x, find_package(package) if package else
-                                     _symbol_value("*PACKAGE*"))
+                                     _str_symbol_value("*PACKAGE*"))
 
 def _use_package_symbols(dest, src, syms):
         conflict_set = { x.name for x in syms.values() } & _py.set(dest.accessible.keys())
@@ -859,11 +862,11 @@ def _set_condition_handler(fn):
 
 @boot_defun
 def signal(cond):
-        for cluster in reversed(_symbol_value("*HANDLER-CLUSTERS*")):
+        for cluster in reversed(_str_symbol_value("*HANDLER-CLUSTERS*")):
                 for type, handler in cluster:
                         if not stringp(type):
                                 if typep(cond, type):
-                                        hook = symbol_value("*PREHANDLER-HOOK*")
+                                        hook = _str_symbol_value("*PREHANDLER-HOOK*")
                                         if hook:
                                                 frame = assoc("__frame__", cluster)
                                                 assert(frame)
@@ -874,7 +877,7 @@ def signal(cond):
 @boot_defun
 def invoke_debugger(cond):
         "XXX: non-compliant: doesn't actually invoke the debugger."
-        debugger_hook = symbol_value("*DEBUGGER-HOOK*")
+        debugger_hook = _str_symbol_value("*DEBUGGER-HOOK*")
         if debugger_hook:
                 with progv({"*DEBUGGER-HOOK*": nil}):
                         debugger_hook(cond, debugger_hook)
@@ -1155,10 +1158,12 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
 del boot_defun
 del boot_defclass
 
-defun    = _cold_defun    = _make_cold_definer("%COLD-DEFUN",    functionp,
-                                               "function",    __block__, _frost.make_object_like_python_function)
-defclass = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: _py.isinstance(x, _py.type),
-                                               "python_type", identity,  _frost.make_object_like_python_class)
+defun            = _cold_defun    = _make_cold_definer("%COLD-DEFUN",    functionp,
+                                                       "function",    __block__, _frost.make_object_like_python_function)
+defclass         = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: _py.isinstance(x, _py.type),
+                                                       "python_type", identity,  _frost.make_object_like_python_class)
+defun_with_block = _cold_defun_with_block = _make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp,
+                                                               "function", identity,  _frost.make_object_like_python_function)
 
 for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  _py.globals())
 for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
@@ -1683,7 +1688,7 @@ def _only_specified_keys(**keys):
                         if _specifiedp(k)))
 
 def _read_case_xformed(x):
-        return _case_xform(_symbol_value("*READ-CASE*"), x)
+        return _case_xform(_str_symbol_value("*READ-CASE*"), x)
 
 ###
 ### Basis
@@ -3045,9 +3050,9 @@ def _describe_function(name, function, stream):
                 format(stream, "%s names an undefined function.\n", name)
         else:
                 if not function and special_operator_p(name):
-                        fun, what, lambda_list = symbol_value(name), "a special operator"
+                        fun, what, lambda_list = symbol_value(name), "a special operator", _not_implemented()
                 elif not function and macro_function(name):
-                        fun, what, lambda_list = macro_function(name), "a macro"
+                        fun, what, lambda_list = macro_function(name), "a macro", _not_implemented()
                 else:
                         fun = function or fdefinition(name)
                         what = "a function"
@@ -3122,7 +3127,7 @@ def describe_object(o, stream):
 
 def describe(object, stream_designator = None):
         "Print a description of OBJECT to STREAM-DESIGNATOR."
-        stream_designator = _defaulted(stream_designator, symbol_value("*STANDARD-OUTPUT*"))
+        stream_designator = _defaulted(stream_designator, _str_symbol_value("*STANDARD-OUTPUT*"))
         with progv({"*PRINT-RIGHT-MARGIN*": 72}):
                 describe_object(object, stream_designator)
         # return values()
@@ -3159,8 +3164,8 @@ def make_two_way_stream(input, output):   return two_way_stream.python_type(inpu
 def two_way_stream_input_stream(stream):  return stream.input
 def two_way_stream_output_stream(stream): return stream.output
 
-_string_set("*DEBUG-IO*", make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
-_string_set("*QUERY-IO*", make_two_way_stream(symbol_value("*STANDARD-INPUT*"), symbol_value("*STANDARD-OUTPUT*")))
+_string_set("*DEBUG-IO*", make_two_way_stream(_str_symbol_value("*STANDARD-INPUT*"), _str_symbol_value("*STANDARD-OUTPUT*")))
+_string_set("*QUERY-IO*", make_two_way_stream(_str_symbol_value("*STANDARD-INPUT*"), _str_symbol_value("*STANDARD-OUTPUT*")))
 
 @defclass
 class broadcast_stream(_cold_stream_type):
@@ -3197,8 +3202,8 @@ def make_synonym_stream(symbol):   return synonym_stream.python_type(symbol)
 def synonym_stream_symbol(stream): return stream.symbol
 
 def _coerce_to_stream(x):
-        return (x                                 if streamp(x) else
-                symbol_value("*STANDARD-OUTPUT*") if x is t else
+        return (x                                      if streamp(x) else
+                _str_symbol_value("*STANDARD-OUTPUT*") if x is t else
                 error("%s cannot be coerced to a stream.", x))
 
 def write_char(c, stream = t):
@@ -3479,6 +3484,30 @@ def pathname_type(x): return _namestring_components(x)[2]
 ###
 ### Earlified streaming
 ###
+@defclass
+class base_char(): pass
+
+@defun
+def open(pathname, direction = _keyword("INPUT"), element_type = base_char,
+         if_exists = _keyword("ERROR"), if_does_not_exist = _keyword("ERROR")):
+        """Return a stream which reads from or writes to FILENAME.
+Defined keywords:
+ :DIRECTION - one of :INPUT, :OUTPUT, :IO, or :PROBE
+ :ELEMENT-TYPE - the type of object to read or write, default BASE-CHAR
+ :IF-EXISTS - one of :ERROR, :NEW-VERSION, :RENAME, :RENAME-AND-DELETE,
+                     :OVERWRITE, :APPEND, :SUPERSEDE or NIL
+ :IF-DOES-NOT-EXIST - one of :ERROR, :CREATE or NIL"""
+        ## Unregistered Issue COMPLIANCE-OPEN-PROBE-OUTPUT-DIRECTION
+        ## Unregistered Issue COMPLIANCE-OPEN-ELEMENT-TYPE
+        ## Unregistered Issue COMPLIANCE-OPEN-IF-EXISTS
+        ## Unregistered Issue COMPLIANCE-OPEN-IF-DOES-NOT-EXIST
+        return _py.open(namestring(pathname),
+                        ecase(direction,
+                              (_keyword("INPUT"),  lambda: "r"),
+                              (_keyword("OUTPUT"), lambda: "w"),
+                              (_keyword("IO"),     lambda: "rw"),
+                              (_keyword("PROBE"),  lambda: _not_implemented("direction :PROBE"))))
+
 @defun
 def stream_external_format(stream): return _keyword(stream.encoding)
 
@@ -3825,7 +3854,7 @@ def _ast_ensure_stmt(x):
 
 # (defvar *bound-free-recursor*)
 def _bound_free_recursor():
-        return symbol_value("*BOUND-FREE-RECURSOR*")
+        return _str_symbol_value("*BOUND-FREE-RECURSOR*")
 
 def _ast_bound_free(astxs):
         def ast_rec(astxs):
@@ -4856,7 +4885,7 @@ _string_set("*COMPILER-DEBUG-P*",    nil)
 def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
 def _debugging_compiler():
-        return symbol_value("*COMPILER-DEBUG-P*")
+        return _str_symbol_value("*COMPILER-DEBUG-P*")
 
 __compiler_form_record__ = _collections.defaultdict(lambda: 0)
 __compiler_form_record_threshold__ = 5
@@ -4871,13 +4900,13 @@ def _compiler_track_compiled_form(form):
 class _compiler_def(_servile):
         pass
 
-def _compiling_def():     return symbol_value("*COMPILER-DEF*")
-def _tail_position_p():   return symbol_value("*COMPILER-TAILP*")
+def _compiling_def():     return _str_symbol_value("*COMPILER-DEF*")
+def _tail_position_p():   return _str_symbol_value("*COMPILER-TAILP*")
 
 def _compiler_report_context():
         _here("def %s\n      tailp: %s",
-              *mapcar(symbol_value, ["*COMPILER-DEF*",
-                                     "*COMPILER-TAILP*"]))
+              *mapcar(_str_symbol_value, ["*COMPILER-DEF*",
+                                          "*COMPILER-TAILP*"]))
 
 _tail_position       = _defwith("_tail_position",
                                    lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_TAILP_ = t)),
@@ -5100,7 +5129,7 @@ def def_(name, lambda_list, *body, decorators = []):
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
         cdef = _compiler_def(name   = name,
                              parent = _compiling_def())
-        toplevelp = symbol_value("*COMPILER-TOPLEVEL-P*")
+        toplevelp = _str_symbol_value("*COMPILER-TOPLEVEL-P*")
         with progv({"*COMPILER-DEF*":      cdef,
                     "*COMPILER-TOPLEVEL-P*": nil}):
                 check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
@@ -5448,10 +5477,10 @@ if probe_file("/home/deepfire/.partus-debug-compiler"):
         _debug_compiler()
 
 _string_set("*SEX-JUSTIFICATION*", 0)
-def _sex_justification(): return symbol_value("*SEX-JUSTIFICATION*")
+def _sex_justification(): return _str_symbol_value("*SEX-JUSTIFICATION*")
 def _sex_space():         return " " * _sex_justification()
 def _sex_deeper(n, body):
-        with progv({"*SEX-JUSTIFICATION*": symbol_value("*SEX-JUSTIFICATION*") + n}):
+        with progv({"*SEX-JUSTIFICATION*": _str_symbol_value("*SEX-JUSTIFICATION*") + n}):
                 return body()
 def _compiler_debug_printf(control, *args):
         if _debugging_compiler():
@@ -5471,7 +5500,7 @@ def _pp_sex(sex):
                                                   error("Invalid separator specification %s.", _py.repr(x)))
         def code_interp_rec(spec, sex, continue_ = nil):
                 def structure_interp(spec, sex, increment = 1):
-                        with progv({"*SEX-JUSTIFICATION*": symbol_value("*SEX-JUSTIFICATION*") + increment}):
+                        with progv({"*SEX-JUSTIFICATION*": _str_symbol_value("*SEX-JUSTIFICATION*") + increment}):
                                 @block
                                 def horz_run(spec, sex):
                                         def horz_rec(acc, spec, sex):
@@ -5671,7 +5700,7 @@ Examples:
         def summarize_compilation_unit(failurep):
                 _warn_not_implemented()
         succeeded_p = nil
-        if symbol_value("*IN-COMPILATION-UNIT*") and not override:
+        if _str_symbol_value("*IN-COMPILATION-UNIT*") and not override:
                 try:
                         ret = fn()
                         succeeded_p = t
@@ -5679,7 +5708,7 @@ Examples:
                 finally:
                         if not succeeded_p:
                                 _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                            symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+                                            _str_symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
         else:
                 with progv({"*ABORTED-COMPILATION-UNIT-COUNT*":0,
                             "*COMPILER-ERROR-COUNT*":0,
@@ -5696,7 +5725,7 @@ Examples:
                         finally:
                                 if not succeeded_p:
                                         _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                                    symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+                                                    _str_symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
                                 summarize_compilation_unit(not succeeded_p)
 
 ##
@@ -5710,9 +5739,9 @@ _compilation_unit = _defwith("_compilation_unit",
                                                             make_hash_table()),
                              lambda *_: _dynamic_scope_pop())
 def _compilation_unit_set(k, v):
-        symbol_value("*COMPILATION-UNIT*")[k] = v
+        _str_symbol_value("*COMPILATION-UNIT*")[k] = v
 def _compilation_unit_get(k):
-        return symbol_value("*COMPILATION-UNIT*")[k]
+        return _str_symbol_value("*COMPILATION-UNIT*")[k]
 
 # getsource
 #   getsourcelines
@@ -5926,7 +5955,7 @@ def compile_file(input_file, output_file = None,
                                                                                                   "*COMPILE-PRINT*"])
         output_file = _compile_file_default_pathname(input_file, output_file = output_file)
         abort_p, warnings_p, failure_p = nil, nil, nil
-        with open(input_file, "r") as input:
+        with _py.open(input_file, "r") as input:
                 form = read(input)
                 while form:
                         # However, we need a total module here, not just a single form.
@@ -5936,7 +5965,7 @@ def compile_file(input_file, output_file = None,
                         failure_p  = failure_p or errp
                         warnings_p = warnings_p or warnp
                         form = read(input)
-        with open(output_file, "w") as output:
+        with _py.open(output_file, "w") as output:
                 _compiler_mumble("; writing %s..\n", output_file)
                 _not_implemented()
         return (abort_p,
@@ -6284,7 +6313,7 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
                      lambda c: c not in " \t\n" if peek_type is t                                       else
                      lambda c: c == peek_type   if stringp(peek_type) and _py.len(peek_type) == 1 else
                      error("Invalid peek-type: '%s'.", peek_type))
-        stream = _defaulted(input_stream, symbol_value("*STANDARD-INPUT*"))
+        stream = _defaulted(input_stream, _str_symbol_value("*STANDARD-INPUT*"))
         while t:
                 char = read_char(stream, eof_error_p, eof_value, recursive_p)
                 if criterion(char):
@@ -6427,7 +6456,7 @@ def _do_eval(exp, tlf_index, source_info, lexenv):
                 return _eval_in_lexenv(original_exp, lexenv)
 
 def _eval_tlf(original_exp, tlf_index, lexenv = None):
-        return _do_eval(original_exp, tlf_index, symbol_value("*SOURCE-INFO*"),
+        return _do_eval(original_exp, tlf_index, _str_symbol_value("*SOURCE-INFO*"),
                         _defaulted(lexenv, _make_null_lexenv()))
 
 def eval(original_exp):
@@ -6494,7 +6523,7 @@ def _preprocessor_macroexpand_1(form):
         ## We only expand one level, so that we retain all the intervening
         ## forms in the source path.
         try:
-                return _macroexpand_1(form, symbol_value("*LEXENV*"))
+                return _macroexpand_1(form, _str_symbol_value("*LEXENV*"))
         except error.python_type as condition:
                 _compiler_error("(during macroexpansion of %s)\n%s", format(nil, "%s", form), condition)
 
@@ -6521,20 +6550,20 @@ def _parse_eval_when_situations(situ_form):
 # process-toplevel-cold-fset name lambda-expression path
 
 def _note_top_level_form(form, finalp = nil):
-        if symbol_value("*COMPILE-PRINT*"):
-                if not symbol_value("*TOP-LEVEL-FORM-NOTED*"):
+        if _str_symbol_value("*COMPILE-PRINT*"):
+                if not _str_symbol_value("*TOP-LEVEL-FORM-NOTED*"):
                         _compiler_mumble("; compiling %s\n", _pp_sex(form[:min(2, _py.len(form))]))
                         return form
                 else:
-                        return symbol_value("*TOP-LEVEL-FORM-NOTED*")
+                        return _str_symbol_value("*TOP-LEVEL-FORM-NOTED*")
 
 ## This returns a list of %C-A-M-C retvals, just as PROCESS-* do.
 def _eval_compile_toplevel(body, path):
         ## Handle the evaluation the a :COMPILE-TOPLEVEL body during
         ## compilation. Normally just evaluate in the appropriate
         ## environment, but also compile if outputting a CFASL.
-        eval_tlf((progn,) + body, source_path_tlf_number(path), symbol_value("*LEXENV*"))
-        cto = symbol_value("*COMPILE-TOPLEVEL-OBJECT*")
+        eval_tlf((progn,) + body, source_path_tlf_number(path), _str_symbol_value("*LEXENV*"))
+        cto = _str_symbol_value("*COMPILE-TOPLEVEL-OBJECT*")
         if cto:
                 with progv({"*COMPILE-OBJECT*": cto}):
                         return [_convert_and_maybe_compile((progn,) + body, path)]
@@ -6599,50 +6628,68 @@ def _sub_sub_compile_file():
 _string_set("*LOAD-VERBOSE*", nil)
 _string_set("*LOAD-PRINT*", nil)
 
-@_cold_defun
+def _load_as_source(stream):
+        verbose and format(t, "; loading %s\n", _py.repr(stream))
+        _debug_compiler()
+        def next(): return read(f, eof_error_p = nil, eof_value = f)
+        form = next()
+        while next != f:
+                _debug_printf_if(_debugging_compiler(),
+                                 "; LOAD: processing\n%s", _pp_sex(form))
+                toplevel_lambda = compile(nil, form)
+                try:
+                        toplevel_lambda()
+                except error as cond:
+                        error("")
+                form = next()
+
+@_cold_defun_with_block
 def load(pathspec, verbose = None, print = None,
          if_does_not_exist = t,
          external_format = _keyword("default")):
         verbose = _defaulted_to_var(verbose, "*LOAD-VERBOSE*")
         print   = _defaulted_to_var(verbose, "*LOAD-PRINT*")
-        def do_load(loader, filename, stream):
-                verbose and format(t, "; loading %s\n", _py.repr(filename))
-                loader(stream)
-        def load_as_source(f):
-                _debug_compiler()
-                def next(): return read(f, eof_error_p = nil, eof_value = f)
-                form = next()
-                while next != f:
-                        _debug_printf_if(_debugging_compiler(),
-                                         "; LOAD: processing\n%s", _pp_sex(form))
-                        toplevel_lambda = compile(nil, form)
-                        try:
-                                toplevel_lambda()
-                        except error as cond:
-                                error("")
-                        form = next()
-        def load_fasl(f):
-                _not_implemented()
-        filename, stream = ((pathspec, nil)          if stringp(pathspec)      else
-                            (name, namestring(name)) if _fd_stream_p(pathspec) else
-                            _not_implemented("loading from generic streams") if streamp(pathspec) else
-                            error("In LOAD %s: the first argument must be either a pathname or a stream."))
-        type = pathname_type(pathspec)
-        loader = (load_fasl if type in ["py", "pyc"] else
-                  load_as_source)
-        if stream:
-                do_load(loader, filename, stream)
-        else:
-                existsp = probe_file(filename)
-                if existsp:
-                        with _py.open(filename, "r") as stream:
-                                do_load(loader, filename, stream)
-                elif if_does_not_exist:
-                        # Unregistered Issue COMPLIANCE-CONDITION-TYPE
-                        error("In LOAD %s: designated file does not exist.", _py.repr(filename))
-                else:
-                        return nil
-        return t
+        def load_stream(stream, faslp):
+                with progv({ "*READTABLE*":     _str_symbol_value("*READTABLE*"),
+                             "*PACKAGE*":       _str_symbol_value("*PACKAGE*"),
+                             "*LOAD-PATHNAME*": pathname(stream),
+                             "*LOAD-TRUENAME*": handler_case(lambda: truename(stream),
+                                                             (error, lambda _, nil))}):
+                        return_from(load, (_load_as_fasl if faslp else
+                                           _load_as_source)(stream, verbose = verbose, print = print))
+        ## Case 1: stream.
+        if streamp(pathspec):
+                return load_stream(pathspec, _stream_faslp(pathspec))
+        pathname = pathname(pathspec)
+        ## Case 2: Open as binary, try to process as a fasl.
+        def with_open_stream_body(stream):
+                if not stream:
+                        return_from(load, nil)
+                real = probe_file(stream)
+                should_be_fasl_p = real and string_equal(pathname_type(real), _str_symbol_value("*FASL-FILE-TYPE*"))
+                if ((should_be_fasl_p or file_length(stream)) and
+                    fasl_header_p(stream, errorp = should_be_fasl_p)):
+                        return_from(load, load_stream(stream, t))
+        def typeless_pathname_branch():
+                nonlocal pathname
+                defaulted_pathname = probe_load_defaults(pathspec)
+                if defaulted_pathname:
+                        pathname = defaulted_pathname
+                        return open(pathname, if_does_not_exist = (_keyword("ERROR") if if_does_not_exist else
+                                                                   nil),
+                                    element_type = (unsigned_byte, 8))
+        with_open_stream((open(pathspec, element_type = (unsigned_byte, 8),
+                               if_does_not_exist = nil) or
+                          (null(pathname_type(pathspec)) and typeless_pathname_branch()) or
+                          (if_does_not_exist and
+                           error(simple_file_error, pathname = pathspec,
+                                 format_control = "Couldn't load %s: file does not exist.",
+                                 format_arguments = [pathspec]))),
+                         with_open_stream_body)
+        ## Case 3: Open using the gived external format, process as source.
+        with_open_file(pathname,
+                       lambda stream: load_stream(stream, nil),
+                       external_format = external_format)
 
 ##
 ## Files
@@ -6710,7 +6757,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
                 def wrapped_hook(cond, hook_value):
                         "Let's honor the old hook."
                         _report_condition(cond,
-                                          stream = symbol_value("*DEBUG-IO*"),
+                                          stream = _str_symbol_value("*DEBUG-IO*"),
                                           backtrace = backtrace)
                         if old_hook_value:
                                 old_hook_value(cond, old_hook_value)
@@ -6741,15 +6788,15 @@ def __cl_condition_handler__(condspec, frame):
                                 _here("Condition Upgrader: %s(%s) -> %s(%s)",
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
-                                      callers = 45, frame = symbol_value("*STACK-TOP-HINT*"))
+                                      callers = 45, frame = _str_symbol_value("*STACK-TOP-HINT*"))
                         with progv({"*TRACEBACK*": traceback,
                                     "*SIGNALLING-FRAME*": frame}): # These bindings are the deviation from the CL standard.
-                                presignal_hook = symbol_value("*PRESIGNAL-HOOK*")
+                                presignal_hook = _str_symbol_value("*PRESIGNAL-HOOK*")
                                 if presignal_hook:
                                         with progv({"*PRESIGNAL-HOOK*": nil}):
                                                 presignal_hook(cond, presignal_hook)
                                 signal(cond)
-                                debugger_hook = symbol_value("*DEBUGGER-HOOK*")
+                                debugger_hook = _str_symbol_value("*DEBUGGER-HOOK*")
                                 if debugger_hook:
                                         with progv({"*DEBUGGER-HOOK*": nil}):
                                                 debugger_hook(cond, debugger_hook)
@@ -6786,7 +6833,7 @@ def handler_bind(fn, *handlers, no_error = identity):
         # ..inlined for speed.
         if _frost.pytracer_enabled_p() and _frost.tracer_hook("exception") is __cl_condition_handler__:
                 # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
-                with progv({"*HANDLER-CLUSTERS*": (_symbol_value("*HANDLER-CLUSTERS*") +
+                with progv({"*HANDLER-CLUSTERS*": (_str_symbol_value("*HANDLER-CLUSTERS*") +
                                                    [handlers + (("__frame__", _caller_frame()),)])}):
                         return no_error(fn())
         else:
@@ -6891,7 +6938,7 @@ def _specs_restarts_args(restart_specs):
 # XXX: :TEST-FUNCTION is currently IGNORED!
 ##
 def _restart_bind(body, restarts_args):
-        with progv({"*RESTART-CLUSTERS*": (_symbol_value("*RESTART-CLUSTERS*") +
+        with progv({"*RESTART-CLUSTERS*": (_str_symbol_value("*RESTART-CLUSTERS*") +
                                            [_remap_hash_table(lambda _, restart_args: make_instance(restart, **restart_args), restarts_args)])}):
                 return body()
 
@@ -6985,7 +7032,7 @@ returned. Otherwise, NIL is returned.
         if _restartp(identifier):
                 return find_restart(restart_name(identifier)) is identifier
         else:
-                for cluster in reversed(_symbol_value("*RESTART-CLUSTERS*")):
+                for cluster in reversed(_str_symbol_value("*RESTART-CLUSTERS*")):
                         # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                         restart = cluster[identifier] if identifier in cluster else None
                         if restart and restart_condition_association_check(condition, restart):
@@ -7016,7 +7063,7 @@ dynamic environment. The consequences are undefined if the list
 returned by COMPUTE-RESTARTS is every modified.
 """
         restarts = _py.list()
-        for cluster in _py.reversed(_symbol_value("*RESTART-CLUSTERS*")):
+        for cluster in _py.reversed(_str_symbol_value("*RESTART-CLUSTERS*")):
                 # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                 restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
                                 if condition else
@@ -7130,7 +7177,7 @@ def _coerce_to_expr(x):
 
 def _eval_python(expr_or_stmt):
         "In AST form, naturally."
-        package = symbol_value("*PACKAGE*")
+        package = _str_symbol_value("*PACKAGE*")
         exprp = typep(the(_ast.AST, expr_or_stmt), (or_, _ast.expr, _ast.Expr))
         call = _ast.fix_missing_locations(_ast_module(
                         [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
@@ -7143,7 +7190,7 @@ def _eval_python(expr_or_stmt):
                                      error("EVAL: error while trying to compile <%s>: %s",
                                            more_ast.pp_ast_as_code(expr_or_stmt), cond)))
         if boundp("*SOURCE-FOR-EVAL*"):
-                __eval_source_cache__[code] = symbol_value("*SOURCE-FOR-EVAL*")
+                __eval_source_cache__[code] = _str_symbol_value("*SOURCE-FOR-EVAL*")
         # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         _py.exec(code, _find_module(_frost.lisp_symbol_name_python_name(package_name(package))).__dict__)
         values = (__evget__() if exprp else
