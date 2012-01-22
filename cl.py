@@ -128,9 +128,9 @@ def _defaulted_keys(**keys):
 ###
 def _fprintf(stream, format_control, *format_args):
         try:
-                return _neutrality._write_string(format_control % format_args, stream)
+                _neutrality._write_string(format_control % format_args, stream)
         except _py.UnicodeEncodeError:
-                return _neutrality._write_string((format_control % format_args).encode("utf-8"), stream)
+                _neutrality._write_string((format_control % format_args).encode("utf-8"), stream)
 
 def _debug_printf(format_control, *format_args):
         _fprintf(_sys.stderr, format_control + "\n", *format_args)
@@ -290,6 +290,11 @@ def identity(x):  return x
 def make_hash_table():
         return _py.dict()
 
+@boot_defun
+def length(x):
+        return (_py.len(x) if stringp(x) else
+                error("Argument of invalid or unsupported type: %s.", _py.repr(x)))
+
 def _map_into_hash(f, xs,
                    key_test = lambda k: k is not None,
                    value_test = lambda _: True) -> _py.dict:
@@ -402,7 +407,9 @@ def warn(control, *args, **keys):
 def error(datum, *args, **keys):
         ## Shouldn't we ditch Python compat entirely, doing instead
         ## the typical SIGNAL/INVOKE-DEBUGGER thing?
-        raise _coerce_to_condition(datum, *args, **keys)
+        c = _coerce_to_condition(datum, *args, **keys)
+        _debug_printf("About to raise %s", c)
+        raise c
 
 ###
 ### Package system: early core
@@ -628,7 +635,7 @@ def _cold_make_nil():
          nil.known) = nil, nil, nil, nil
         return nil
 
-nil = _cold_make_nil()
+NIL = nil = _cold_make_nil()
 
 @boot_defun
 def null(x): return x is nil
@@ -725,7 +732,7 @@ def export(symbols, package = None):
 def _init_package_system_0():
         global __packages__
         global __keyword
-        global t, symbol, make_symbol, make_package
+        global t, T, symbol, make_symbol, make_package
         __core_symbol_names__ = [
                 "QUOTE",
                 "ABORT", ("CONTINUE", "continue_"), ("BREAK", "break_"),
@@ -736,7 +743,7 @@ def _init_package_system_0():
                 "SOME", "EVERY", "LOCALLY", "MACROLET", "SYMBOL_MACROLET"
                 ]
         __packages__ = make_hash_table()
-        t                  = _intern("T", __cl)[0]     # Nothing much works without this.
+        T = t              = _intern("T", __cl)[0]     # Nothing much works without this.
         t.value, nil.value = t, nil     # Self-evaluation.
         nil.__contains__   = lambda _: False
         nil.__getitem__    = lambda _, __: nil
@@ -1247,17 +1254,23 @@ class simple_condition(_cold_condition_type):
                 # _debug_printf("About to signal a simple condition of type %s:\n%s", _py.type(self), self)
         def __str__(self):
                 try:
-                        return self.format_control % _py.tuple(self.format_arguments)
-                except TypeError:
-                        return "Failed to format into %s args %s." % (_py.repr(self.format_control),
-                                                                      _py.repr(self.format_arguments))
+                        # with _py.open("/home/deepfire/src/partus/error.log", "w") as f:
+                        #         _fprintf(f, "_sys: %s, _py: %s", _sys, _py)
+                        return self.format_control % (1,).__class__(self.format_arguments)
+                ## Unregistered Issue PROBABLE-PYTHON-BUG-PY-IS-NONE
+                except self.__class__.__mro__[-2] as x: # Workaround for the above issue..
+                        with _py.open("/home/deepfire/src/partus/error.log", "w") as f:
+                                _fprintf(f, "caught shit: %s", x)
+                        return "Failed to format into %s args %s." % (self.format_control.__repr__(),
+                                                                      self.format_arguments.__repr__())
         def __repr__(self):
                 return self.__str__()
+
 @defclass
-class simple_error(simple_condition.python_type, _cold_error_type):
+class simple_error(simple_condition.python_type, error.python_type):
         pass
 @defclass
-class package_error(_cold_error_type):
+class package_error(error.python_type):
         pass
 @defclass
 class simple_package_error(simple_error.python_type, package_error.python_type):
@@ -3446,7 +3459,7 @@ class type_error(error.python_type):
         pass
 
 @defclass
-class simple_type_error(simple_condition.python_type, type_error.python_type):
+class simple_type_error(simple_error.python_type, type_error.python_type):
         pass
 
 @defclass
@@ -3627,7 +3640,7 @@ class pathname_host():
         def parse(self, x):
                 ## Unregistered Issue COMPLIANCE-NAMESTRING-UNPARSING-NOT-REALLY-IMPLEMENTED
                 dirname, basename, type = _namestring_components(the(string, x))
-                directory = dirname.split(_os.sep)
+                directory = dirname.split(_os.sep) if dirname else nil
                 return pathname.python_type(host      = _system_pathname_host,
                                             device    = nil,
                                             directory = directory and (([_keyword("ABSOLUTE")] + directory[1:]) if directory[0] == "" else
@@ -3839,9 +3852,142 @@ def _file_as_string(filename):
         with _py.open(filename, "r") as f:
                 return _stream_as_string(f)
 
-##
-## Restarts
-##
+###
+### Condition system
+###
+def _report_handling_handover(cond, frame, hook):
+        format(_sys.stderr, "Handing over handling of %s to frame %s\n",
+               prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
+
+__main_thread__ = _threading.current_thread()
+def _report_condition(cond, stream = None, backtrace = None):
+        stream = _defaulted_to_var(stream, "*DEBUG-IO*")
+        format(stream, "%sondition of type %s: %s\n",
+               (("In thread \"%s\": c" % _threading.current_thread().name)
+                if _threading.current_thread() is not __main_thread__ else
+                "C"),
+               _py.type(cond), cond)
+        if backtrace:
+                _backtrace(-1, stream)
+        return t
+
+def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
+        if p:
+                old_hook_value = symbol_value(hook)
+                def wrapped_hook(cond, hook_value):
+                        "Let's honor the old hook."
+                        _report_condition(cond,
+                                          stream = _str_symbol_value("*DEBUG-IO*"),
+                                          backtrace = backtrace)
+                        if old_hook_value:
+                                old_hook_value(cond, old_hook_value)
+                with env.maybe_let(p, **{string(hook): wrapped_hook}):
+                        return body()
+        else:
+                return body()
+
+__not_even_conditions__ = _py.frozenset([SystemExit, __catcher_throw__])
+"A set of condition types which are entirely ignored by the condition system."
+
+def __cl_condition_handler__(condspec, frame):
+        def continuation():
+                type, raw_cond, traceback = condspec
+                # _print_frames(_frames_calling(frame))
+                if type_of(raw_cond) not in __not_even_conditions__:
+                        def _maybe_upgrade_condition(cond):
+                                "Fix up the shit routinely being passed around."
+                                return ((cond, nil) if typep(cond, condition) else
+                                        (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
+                                                       cond)), t))
+                                       # _poor_man_typecase(cond,
+                                       #                    (BaseException, lambda: cond),
+                                       #                    (str,       lambda: error_(cond)))
+                        cond, upgradedp = _maybe_upgrade_condition(raw_cond)
+                        if upgradedp:
+                                _backtrace()
+                                _here("Condition Upgrader: %s(%s) -> %s(%s)",
+                                      prin1_to_string(raw_cond), type_of(raw_cond),
+                                      prin1_to_string(cond), type_of(cond),
+                                      callers = 45, frame = _str_symbol_value("*STACK-TOP-HINT*"))
+                        with progv({"*TRACEBACK*": traceback,
+                                    "*SIGNALLING-FRAME*": frame}): # These bindings are the deviation from the CL standard.
+                                presignal_hook = _str_symbol_value("*PRESIGNAL-HOOK*")
+                                if presignal_hook:
+                                        with progv({"*PRESIGNAL-HOOK*": nil}):
+                                                presignal_hook(cond, presignal_hook)
+                                signal(cond)
+                                debugger_hook = _str_symbol_value("*DEBUGGER-HOOK*")
+                                if debugger_hook:
+                                        with progv({"*DEBUGGER-HOOK*": nil}):
+                                                debugger_hook(cond, debugger_hook)
+                        return cond
+                else:
+                        return raw_cond
+        with progv({"*STACK-TOP-HINT*": _caller_frame(caller_relative = 1)}):
+                cond = _sys.call_tracing(continuation, _py.tuple())
+        if type_of(cond) not in __not_even_conditions__:
+                is_not_ball = type_of(cond) is not __catcher_throw__
+                _here("In thread '%s': unhandled condition : %s%s",
+                      _threading.current_thread().name, prin1_to_string(cond),
+                      ("\n; Disabling CL condition system." if is_not_ball else
+                       ""),
+                      callers = 15)
+                if is_not_ball:
+                        _frost.disable_pytracer()
+        ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
+        # At this point, the Python condition handler kicks in,
+        # and the stack gets unwound for the first time.
+        #
+        # ..too bad, we've already called all HANDLER-BIND-bound
+        # condition handlers.
+        # If we've hit any HANDLER-CASE-bound handlers, then we won't
+        # even reach this point, as the stack is already unwound.
+_set_condition_handler(__cl_condition_handler__)
+
+def handler_bind(fn, *handlers, no_error = identity):
+        "Works like real HANDLER-BIND, when the conditions are right.  Ha."
+        value = None
+
+        # this is:
+        #     _frost.pytracer_enabled_p() and condition_handler_active_p()
+        # ..inlined for speed.
+        if _frost.pytracer_enabled_p() and _frost.tracer_hook("exception") is __cl_condition_handler__:
+                # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
+                with progv({"*HANDLER-CLUSTERS*": (_str_symbol_value("*HANDLER-CLUSTERS*") +
+                                                   [handlers + (("__frame__", _caller_frame()),)])}):
+                        return no_error(fn())
+        else:
+                # old world case..
+                # format(t, "crap FAIL: pep %s, exhook is cch: %s",
+                #        _frost.pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
+                if _py.len(handlers) > 1:
+                        error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
+                              _py.len(handlers))
+                condition_type_name, handler = handlers[-1]
+                try:
+                        value = fn()
+                except find_class(condition_type_name) as cond:
+                        return handler(cond)
+                finally:
+                        return no_error(value)
+
+def handler_case(body, *handlers, no_error = identity):
+        "Works like real HANDLER-CASE, when the conditions are right.  Ha."
+        nonce            = gensym("HANDLER-CASE")
+        wrapped_handlers = _mapcar_star(lambda type, handler:
+                                                (type, lambda cond: return_from(nonce, handler(cond))),
+                                        handlers)
+        return catch(nonce,
+                     lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
+
+def ignore_errors(body):
+        return handler_case(body,
+                            (Exception,
+                             lambda _: None))
+
+###
+### Restarts
+###
 @defclass
 class restart(_servile):
         def __str__(self):
@@ -5494,9 +5640,13 @@ def _ir_args_when(when, ir, **parameters):
 @defknown
 def symbol(name):
         # Urgent Issue IR-LEVEL-SYMBOLS
-        check_type(name, (or_, str, symbol))
+        check_type(name, symbol)
         return ([],
-                ("Name", string(name), ("Load",)))
+                (("Name", ":" + name, ("Load",)) if keywordp(name) else
+                 ("Call", ("Name", "FIND-SYMBOL", ("Load",)),
+                  [("Str", symbol_name(name)),
+                   ("Str", package_name(symbol_package(name)))],
+                  [])))
 
 def _lower_name(name, ctx = "Load"):
         check_type(name, (or_, str, symbol, (pytuple, (eql, symbol), (or_, str, symbol))))
@@ -6045,7 +6195,7 @@ def _pp_sex(sex, initial_depth = None):
                                         acc += sub + separatorp("\n" if sex else "")[0]
                                 return acc
                 if spec == "atom":  # primitive
-                        return (symbol_name(sex).lower()       if symbolp(sex) else
+                        return (_py.repr(sex)                  if symbolp(sex) else
                                 "\"%s\"" % _py.repr(sex)[1:-1] if stringp(sex) else
                                 _py.repr(sex))
                 elif _tuplep(spec): # fixed structure
@@ -6384,11 +6534,18 @@ and true otherwise."""
         #  - _ast_compiled_name() requires one
         #  - THERE-EXIST lambdas non-expressible in Python
         # Coerce the lambda to a named def, for _ast_compiled_name purposes:
-        return _no_other_way_but_compile_lambda_as_named_toplevel(final_name, lambda_expression,
+        return _no_other_way_but_compile_lambda_as_named_toplevel(final_name, lambda_expression, _make_null_lexenv(),
                                                                   globalp = not not name,
                                                                   macrop = name and not not macro_function(name))
 
-def _no_other_way_but_compile_lambda_as_named_toplevel(name, lambda_expression, globalp = None, macrop = None):
+def _compile_in_lexenv(name, lambda_expression, lexenv):
+        def _convert_lambda_to_defun(name, lambda_expression):
+                return (defun, the(symbol, name)) + lambda_expression[1:]
+        final_name = the(symbol, name) or gensym("compiled_lambda")
+        return _compile_toplevel_def_in_lexenv(final_name, _convert_lambda_to_defun(final_name, lambda_expression), lexenv,
+                                               lambda_expression = lambda_expression)
+
+def _no_other_way_but_compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
         "There really is no other way.  Trust me.  Please."
         def _convert_lambda_to_def(name, lambda_expression):
                 return (def_, the(symbol, name)) + lambda_expression[1:]
@@ -6396,11 +6553,12 @@ def _no_other_way_but_compile_lambda_as_named_toplevel(name, lambda_expression, 
                 name, _ir_args_when(globalp, _convert_lambda_to_def(name, lambda_expression),
                                     decorators = [(symbol, "_set_macro_definition") if macrop else
                                                   (symbol, "_set_function_definition")]),
-                _make_null_lexenv(),
+                lexenv,
                 globalp = globalp, macrop = globalp and macrop,
                 lambda_expression = lambda_expression)
 
 def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = nil, lambda_expression = None):
+        ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
         def _in_compilation_unit():
                 pv = pro, _ = _lower(form) # We're only interested in the resulting DEF.
                 assert _py.len(pro) is 1
@@ -6957,7 +7115,8 @@ _string_set("*EVAL-SOURCE-INFO*", nil)
 
 def _simple_eval(expr, lexenv):
         lam = (lambda_, _py.tuple()) + expr
-        fun = _compile_in_lexenv(nil, lam, lexenv)
+        fun = _compile_in_lexenv(nil, lam, lexenv)[0]
+        # _debug_printf("got: %s", fun)
         return fun()
 
 def _simple_eval_in_lexenv(original_exp, lexenv):
@@ -7166,16 +7325,18 @@ def _sub_sub_compile_file():
 _string_set("*LOAD-VERBOSE*", nil)
 _string_set("*LOAD-PRINT*", nil)
 
-def _load_as_source(stream, verbose = None, print = None):
-        _debug_compiler()
+def _load_as_source(stream, verbose = nil, print = nil):
         pathname = _file_name(stream)
         verbose and format(t, "; loading %s\n", _py.repr(pathname))
         def with_abort_restart_body():
                 def eval_form(form, index):
+                        spref = "; evaluating "
+                        print and format(t, spref + "%s\n", _pp_sex(form, initial_depth = length(spref)))
                         def with_continue_restart_body():
                                 while t:
                                         def with_retry_restart_body():
                                                 results = _eval_tlf(form, index)
+                                                results = (results,) if not _tuplep(results) else results
                                                 if print:
                                                         format(t, "%s\n", ", ".join(_py.repr(x) for x in results))
                                         with_simple_restart("RETRY", ("Retry EVAL of current toplevel form.",),
@@ -7259,137 +7420,10 @@ class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
         pass
 
 ###
-### Condition system
+### Cold boot complete, now we can LOAD vpcl.lisp
 ###
-def _report_handling_handover(cond, frame, hook):
-        format(_sys.stderr, "Handing over handling of %s to frame %s\n",
-               prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
-
-__main_thread__ = _threading.current_thread()
-def _report_condition(cond, stream = None, backtrace = None):
-        stream = _defaulted_to_var(stream, "*DEBUG-IO*")
-        format(stream, "%sondition of type %s: %s\n",
-               (("In thread \"%s\": c" % _threading.current_thread().name)
-                if _threading.current_thread() is not __main_thread__ else
-                "C"),
-               _py.type(cond), cond)
-        if backtrace:
-                _backtrace(-1, stream)
-        return t
-
-def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
-        if p:
-                old_hook_value = symbol_value(hook)
-                def wrapped_hook(cond, hook_value):
-                        "Let's honor the old hook."
-                        _report_condition(cond,
-                                          stream = _str_symbol_value("*DEBUG-IO*"),
-                                          backtrace = backtrace)
-                        if old_hook_value:
-                                old_hook_value(cond, old_hook_value)
-                with env.maybe_let(p, **{string(hook): wrapped_hook}):
-                        return body()
-        else:
-                return body()
-
-__not_even_conditions__ = _py.frozenset([SystemExit, __catcher_throw__])
-"A set of condition types which are entirely ignored by the condition system."
-
-def __cl_condition_handler__(condspec, frame):
-        def continuation():
-                type, raw_cond, traceback = condspec
-                # _print_frames(_frames_calling(frame))
-                if type_of(raw_cond) not in __not_even_conditions__:
-                        def _maybe_upgrade_condition(cond):
-                                "Fix up the shit routinely being passed around."
-                                return ((cond, nil) if typep(cond, condition) else
-                                        (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
-                                                       cond)), t))
-                                       # _poor_man_typecase(cond,
-                                       #                    (BaseException, lambda: cond),
-                                       #                    (str,       lambda: error_(cond)))
-                        cond, upgradedp = _maybe_upgrade_condition(raw_cond)
-                        if upgradedp:
-                                _backtrace()
-                                _here("Condition Upgrader: %s(%s) -> %s(%s)",
-                                      prin1_to_string(raw_cond), type_of(raw_cond),
-                                      prin1_to_string(cond), type_of(cond),
-                                      callers = 45, frame = _str_symbol_value("*STACK-TOP-HINT*"))
-                        with progv({"*TRACEBACK*": traceback,
-                                    "*SIGNALLING-FRAME*": frame}): # These bindings are the deviation from the CL standard.
-                                presignal_hook = _str_symbol_value("*PRESIGNAL-HOOK*")
-                                if presignal_hook:
-                                        with progv({"*PRESIGNAL-HOOK*": nil}):
-                                                presignal_hook(cond, presignal_hook)
-                                signal(cond)
-                                debugger_hook = _str_symbol_value("*DEBUGGER-HOOK*")
-                                if debugger_hook:
-                                        with progv({"*DEBUGGER-HOOK*": nil}):
-                                                debugger_hook(cond, debugger_hook)
-                        return cond
-                else:
-                        return raw_cond
-        with progv({"*STACK-TOP-HINT*": _caller_frame(caller_relative = 1)}):
-                cond = _sys.call_tracing(continuation, _py.tuple())
-        if type_of(cond) not in __not_even_conditions__:
-                is_not_ball = type_of(cond) is not __catcher_throw__
-                _here("In thread '%s': unhandled condition : %s%s",
-                      _threading.current_thread().name, prin1_to_string(cond),
-                      ("\n; Disabling CL condition system." if is_not_ball else
-                       ""),
-                      callers = 15)
-                if is_not_ball:
-                        _frost.disable_pytracer()
-        ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
-        # At this point, the Python condition handler kicks in,
-        # and the stack gets unwound for the first time.
-        #
-        # ..too bad, we've already called all HANDLER-BIND-bound
-        # condition handlers.
-        # If we've hit any HANDLER-CASE-bound handlers, then we won't
-        # even reach this point, as the stack is already unwound.
-_set_condition_handler(__cl_condition_handler__)
-
-def handler_bind(fn, *handlers, no_error = identity):
-        "Works like real HANDLER-BIND, when the conditions are right.  Ha."
-        value = None
-
-        # this is:
-        #     _frost.pytracer_enabled_p() and condition_handler_active_p()
-        # ..inlined for speed.
-        if _frost.pytracer_enabled_p() and _frost.tracer_hook("exception") is __cl_condition_handler__:
-                # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
-                with progv({"*HANDLER-CLUSTERS*": (_str_symbol_value("*HANDLER-CLUSTERS*") +
-                                                   [handlers + (("__frame__", _caller_frame()),)])}):
-                        return no_error(fn())
-        else:
-                # old world case..
-                # format(t, "crap FAIL: pep %s, exhook is cch: %s",
-                #        _frost.pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
-                if _py.len(handlers) > 1:
-                        error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
-                              _py.len(handlers))
-                condition_type_name, handler = handlers[-1]
-                try:
-                        value = fn()
-                except find_class(condition_type_name) as cond:
-                        return handler(cond)
-                finally:
-                        return no_error(value)
-
-def handler_case(body, *handlers, no_error = identity):
-        "Works like real HANDLER-CASE, when the conditions are right.  Ha."
-        nonce            = gensym("HANDLER-CASE")
-        wrapped_handlers = _mapcar_star(lambda type, handler:
-                                                (type, lambda cond: return_from(nonce, handler(cond))),
-                                        handlers)
-        return catch(nonce,
-                     lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
-
-def ignore_errors(body):
-        return handler_case(body,
-                            (Exception,
-                             lambda _: None))
+_debug_compiler()
+load("vpcl.lisp", verbose = t)
 
 ##
 ## Interactivity
