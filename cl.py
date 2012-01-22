@@ -6007,7 +6007,7 @@ def _compiler_debug_printf(control, *args):
                 justification = _sex_space()
                 def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
                 _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
-def _pp_sex(sex):
+def _pp_sex(sex, initial_depth = None):
         code = ("atom"                        if not _tuplep(sex) or not sex                         else
                 _find_known(sex[0]).pp_code   if symbolp(sex[0]) and _find_known(sex[0])             else
                 ("atom", " ", ["sex", " "])   if symbolp(sex[0])                                     else
@@ -6045,7 +6045,9 @@ def _pp_sex(sex):
                                         acc += sub + separatorp("\n" if sex else "")[0]
                                 return acc
                 if spec == "atom":  # primitive
-                        return (symbol_name(sex).lower() if symbolp(sex) else _py.repr(sex))
+                        return (symbol_name(sex).lower()       if symbolp(sex) else
+                                "\"%s\"" % _py.repr(sex)[1:-1] if stringp(sex) else
+                                _py.repr(sex))
                 elif _tuplep(spec): # fixed structure
                         return "(" + structure_interp(spec, sex, increment = 1) + ")"
                 elif _listp(spec):  # iteration: exactly like a homogenous fixed structure with an interspersed separator
@@ -6056,8 +6058,9 @@ def _pp_sex(sex):
                         return _pp_sex(sex)
                 else:
                         error("Invalid spec %s, while pretty-printing %s.", _py.repr(spec), sex)
-        ret = code_interp_rec(code, sex)
-        return ret
+        with progv({ "*SEX-JUSTIFICATION*": _defaulted_to_var(initial_depth, "*SEX-JUSTIFICATION*") }):
+                ret = code_interp_rec(code, sex)
+                return ret
 
 # Urgent Issue COMPILER-MACRO-SYSTEM
 def _lower(form):
@@ -6843,6 +6846,7 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
 @__block__
 def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         ## Has not even a remote chance of conforming.
+        def read_char_maybe_eof(): return read_char(stream, nil, nil)
         def read_inner():
                 skip_whitespace()
                 char = read_char(stream)
@@ -6858,10 +6862,16 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                                 error("Consing dot not implemented")
                         # _here("< %s" % (obj,))
                 return obj
+        def skip_until_eol():
+                c = read_char_maybe_eof()
+                while c and c != "\n":
+                        c = read_char_maybe_eof()
         def skip_whitespace():
                 while t:
-                        c = read_char(stream, nil, nil)
-                        if c not in _py.frozenset([" ", "\t", "\n"]):
+                        c = read_char_maybe_eof()
+                        if c == ";":
+                                skip_until_eol()
+                        elif c not in _py.frozenset([" ", "\t", "\n"]):
                                 if c is not nil:
                                         unread_char(c, stream)
                                 return
@@ -6880,7 +6890,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                                         error("Consing dot not implemented")
                                 ret += [obj]
                 # _here("< %s" % (ret,))
-                return ret
+                return _py.tuple(ret)
         def read_string():
                 ret = ""
                 read_char(stream) # seek the opening double-quote
@@ -6913,7 +6923,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                 token = ""
                 # _here(">> ..%s..%s" % (pos, end))
                 while t:
-                        char = read_char(stream, nil, nil)
+                        char = read_char_maybe_eof()
                         if char in _py.set([nil, " ", "\t", "\n", "(", ")", "\"", "'"]):
                                 if char is not nil:
                                         unread_char(char, stream)
