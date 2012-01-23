@@ -407,9 +407,7 @@ def warn(control, *args, **keys):
 def error(datum, *args, **keys):
         ## Shouldn't we ditch Python compat entirely, doing instead
         ## the typical SIGNAL/INVOKE-DEBUGGER thing?
-        c = _coerce_to_condition(datum, *args, **keys)
-        _debug_printf("About to raise %s", c)
-        raise c
+        raise _coerce_to_condition(datum, *args, **keys)
 
 ###
 ### Package system: early core
@@ -1086,7 +1084,7 @@ def null(x, type):
 @deftype("OR")
 def or_(x, type):
         return ((x, type, False) if _py.len(type) is 1 else
-                _poor_man_let(mapcar(_type_mismatch, _infinite(x), type[1:]),
+                _poor_man_let(mapcar(_type_mismatch, [x] * (_py.len(type) - 1), type[1:]),
                               lambda mismatches:
                                       (some(lambda m: m and m[2] and m, mismatches) or
                                        (every(identity, mismatches) and (x, type, False)))))
@@ -1094,7 +1092,7 @@ def or_(x, type):
 @deftype("AND")
 def and_(x, type):
         return (nil       if _py.len(type) is 1 else
-                some(_type_mismatch, _infinite(x), type[1:]))
+                some(_type_mismatch, [x] * (_py.len(type) - 1), type[1:]))
 
 @deftype("NOT")
 def not_(x, type):
@@ -1254,13 +1252,9 @@ class simple_condition(_cold_condition_type):
                 # _debug_printf("About to signal a simple condition of type %s:\n%s", _py.type(self), self)
         def __str__(self):
                 try:
-                        # with _py.open("/home/deepfire/src/partus/error.log", "w") as f:
-                        #         _fprintf(f, "_sys: %s, _py: %s", _sys, _py)
                         return self.format_control % (1,).__class__(self.format_arguments)
                 ## Unregistered Issue PROBABLE-PYTHON-BUG-PY-IS-NONE
                 except self.__class__.__mro__[-2] as x: # Workaround for the above issue..
-                        with _py.open("/home/deepfire/src/partus/error.log", "w") as f:
-                                _fprintf(f, "caught shit: %s", x)
                         return "Failed to format into %s args %s." % (self.format_control.__repr__(),
                                                                       self.format_arguments.__repr__())
         def __repr__(self):
@@ -2265,7 +2259,7 @@ def _infinite(x):
 
 def _seek(n, iterator):
         for i in range(n):
-                next(iterator, nil)
+                _py.next(iterator, nil)
 
 def _from(n, xs):
         iterator = iter(xs)
@@ -3100,6 +3094,8 @@ _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
                                                                 "COMPILE-TOPLEVEL",
                                                                 "EXECUTE"])
 
+_init_condition_system()
+
 ###
 ### Early-earlified streaming
 ###
@@ -3318,6 +3314,11 @@ class two_way_stream(_cold_stream_type):
         def flush(self):
                 return self.output.flush()
         def close(self):
+                ## Unregistered Issue PROBABLE-PYTHON-BUG-TWO-WAY-STREAM-CLOSE-GETS-CALLED-WITHOUT-REASON
+                # Repro?  Pretty strange as it is..
+                #  1. Comment out the _debug_printf below.
+                #  2. Uncomment the 'raise' line immediately below %STRING-SET calls.
+                _debug_printf("For the love of all things living: about to close the funky streams!")
                 self.output.close()
                 self.input.close()
         def readable(self): return t
@@ -3329,6 +3330,7 @@ def two_way_stream_output_stream(stream): return stream.output
 
 _string_set("*DEBUG-IO*", make_two_way_stream(_str_symbol_value("*STANDARD-INPUT*"), _str_symbol_value("*STANDARD-OUTPUT*")))
 _string_set("*QUERY-IO*", make_two_way_stream(_str_symbol_value("*STANDARD-INPUT*"), _str_symbol_value("*STANDARD-OUTPUT*")))
+# raise simple_condition.python_type("Boo %s.", 2)
 
 @defclass
 class broadcast_stream(_cold_stream_type):
@@ -3855,6 +3857,11 @@ def _file_as_string(filename):
 ###
 ### Condition system
 ###
+def _cold_prin1_to_string(x):
+        return x.__repr__()
+
+prin1_to_string = _cold_prin1_to_string
+
 def _report_handling_handover(cond, frame, hook):
         format(_sys.stderr, "Handing over handling of %s to frame %s\n",
                prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
@@ -3886,26 +3893,29 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
         else:
                 return body()
 
-__not_even_conditions__ = _py.frozenset([SystemExit, __catcher_throw__])
+__not_even_conditions__ = _py.frozenset([_py.GeneratorExit, _py.SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
 def __cl_condition_handler__(condspec, frame):
+        backtrace_printed = nil
         def continuation():
+                nonlocal backtrace_printed
                 type, raw_cond, traceback = condspec
                 # _print_frames(_frames_calling(frame))
-                if type_of(raw_cond) not in __not_even_conditions__:
-                        def _maybe_upgrade_condition(cond):
-                                "Fix up the shit routinely being passed around."
-                                return ((cond, nil) if typep(cond, condition) else
-                                        (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
-                                                       cond)), t))
-                                       # _poor_man_typecase(cond,
-                                       #                    (BaseException, lambda: cond),
-                                       #                    (str,       lambda: error_(cond)))
-                        cond, upgradedp = _maybe_upgrade_condition(raw_cond)
+                def _maybe_upgrade_condition(cond):
+                        "Fix up the shit routinely being passed around."
+                        return ((cond, nil) if typep(cond, condition) else
+                                (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
+                                               cond)), t))
+                        # _poor_man_typecase(cond,
+                        #                    (BaseException, lambda: cond),
+                        #                    (str,       lambda: error_(cond)))
+                cond, upgradedp = _maybe_upgrade_condition(raw_cond)
+                if type_of(cond) not in __not_even_conditions__:
                         if upgradedp:
                                 _backtrace()
-                                _here("Condition Upgrader: %s(%s) -> %s(%s)",
+                                backtrace_printed = t
+                                _here("Condition Upgrader: %s of-type %s -> %s of-type %s",
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
                                       callers = 45, frame = _str_symbol_value("*STACK-TOP-HINT*"))
@@ -3920,9 +3930,7 @@ def __cl_condition_handler__(condspec, frame):
                                 if debugger_hook:
                                         with progv({"*DEBUGGER-HOOK*": nil}):
                                                 debugger_hook(cond, debugger_hook)
-                        return cond
-                else:
-                        return raw_cond
+                return cond
         with progv({"*STACK-TOP-HINT*": _caller_frame(caller_relative = 1)}):
                 cond = _sys.call_tracing(continuation, _py.tuple())
         if type_of(cond) not in __not_even_conditions__:
@@ -3932,6 +3940,8 @@ def __cl_condition_handler__(condspec, frame):
                       ("\n; Disabling CL condition system." if is_not_ball else
                        ""),
                       callers = 15)
+                if not backtrace_printed:
+                        _backtrace()
                 if is_not_ball:
                         _frost.disable_pytracer()
         ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
@@ -4240,7 +4250,7 @@ def _text_ast(text):
         return _py.compile(text, "", 'exec', flags = _ast.PyCF_ONLY_AST).body
 
 def _function_ast(fn):
-        fn_ast = _text_ast(_inspect.getsource(fn))[0]
+        fn_ast = _text_ast(_without_condition_system(lambda: _inspect.getsource(fn)))[0]
         return fn_ast.args, fn_ast.body
 
 def _function_body_pass_p(fn):
@@ -4639,7 +4649,7 @@ def defast(fn):
                                     i, fname, ast_fname, ast_type._fields)
                 return ast_field_types
         def arglist_field_infos(parameters, nfix, with_defaults, ast_field_types):
-                fields = _collections.OrderedDict()
+                fields = _without_condition_system(lambda: _collections.OrderedDict())
                 def process_ast_field_arglist_entry(name, type, default, fixed = t):
                         walkp = (type in __ast_walkable_field_types__ or
                                  declaredp(grouped_decls, p, "walk"))
@@ -6426,7 +6436,7 @@ def _compilation_unit_get(k):
 #       linecache.getlines(file)
 #     getblock
 #       <boring>
-__def_sources__ = _collections.OrderedDict()
+__def_sources__ = _without_condition_system(lambda: _collections.OrderedDict())
 __def_sources__[""] = "" # placeholder
 __def_sources_filename__ = "<lisp>"
 def _lisp_add_def(name, source):
