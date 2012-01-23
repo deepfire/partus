@@ -5530,13 +5530,38 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 ###
 ### Lexical environment
 ###
+class _binding():
+        name = None
+        def __init__(self, name, value = None, function = None, **attributes):
+                self.name, self.value, self.function = name, value, function
+                self.__dict__.update(attributes)
+def _bindingp(x): return _py.isinstance(x, _binding)
+
 @defclass
 class _lexenv(_collections.UserDict):
-        def __init__(self, **initial_content):
-                self.__dict__.update(data = _py.dict(initial_content))
+        scope = nil
+        def __init__(self, initial_content = None):
+                self.data = _py.dict(initial_content or {})
+                for k, v in self.data.items():
+                        symbolp(k)   or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
+                        _bindingp(k) or error("Lexenv values must be bindings, found: %s.", v.__repr__())
+                self.scope = (self, _str_symbol_value("*LEXENV*"))
+        def __bool__(selt): return t
+        def find_scope(self, x):
+                scope = self.scope
+                while scope:
+                        if x in scope[0]:
+                                return scope
+                        scope = scope[1] # COLD-CDR
+        def __get__(self, x):
+                scope = self.find_scope(x)
+                return scope[x] if scope else None
+def _lexenvp(x):         return _py.isinstance(x, _lexenv)
+def _make_null_lexenv(): return make_instance(_lexenv)
 
-def _make_null_lexenv():
-        return make_instance(_lexenv)
+## lexical info kinds
+def _fbindingp(x): return x.function
+def _fspecialp(x): return _py.getattr(x, "special")
 
 ###
 ### Tuple intermediate IR
