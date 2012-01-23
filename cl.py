@@ -199,8 +199,8 @@ def _unboot_set(set):
 
 def _interpret_toplevel_value(name_or_obj, objness_predicate):
         def stringp(x): return _py.isinstance(x, _py.str)
-        name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj) else
-                     (name_or_obj, None)                 if stringp(name_or_obj)           else
+        name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj)               else
+                     (name_or_obj, None)                 if stringp(name_or_obj) or symbolp(name_or_obj) else
                      error("Bad cold object definition: %s", name_or_obj))
         ####### Thought paused here:
         # ..delay symbol computation!
@@ -3023,9 +3023,11 @@ def _do_set_macro_definition(function, x):
         function and _frost.make_object_like_python_function(x, function)
         return x
 
+@defun(intern("_set_function_definition")[0])
 def _set_function_definition(function):
         return _do_set_function_definition(function, intern(function.__name__)[0])
 
+@defun(intern("_set_macro_definition")[0])
 def _set_macro_definition(function):
         return _do_set_macro_definition(function, intern(function.__name__)[0])
 
@@ -3944,6 +3946,12 @@ def __cl_condition_handler__(condspec, frame):
                         _backtrace()
                 if is_not_ball:
                         _frost.disable_pytracer()
+                        try:
+                                invoke_debugger(cond)
+                        except _cold_error_type as debugger_cond:
+                                _debug_printf("Failed to enter the debugger:\n%s\nHave a nice day!", debugger_cond)
+                                _sys.stderr.flush()
+                                _py.exit()
         ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
@@ -5652,11 +5660,7 @@ def symbol(name):
         # Urgent Issue IR-LEVEL-SYMBOLS
         check_type(name, symbol)
         return ([],
-                (("Name", ":" + name, ("Load",)) if keywordp(name) else
-                 ("Call", ("Name", "FIND-SYMBOL", ("Load",)),
-                  [("Str", symbol_name(name)),
-                   ("Str", package_name(symbol_package(name)))],
-                  [])))
+                ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
 
 def _lower_name(name, ctx = "Load"):
         check_type(name, (or_, str, symbol, (pytuple, (eql, symbol), (or_, str, symbol))))
@@ -5825,9 +5829,11 @@ def def_(name, lambda_list, *body, decorators = []):
                                 if pro_deco:
                                         error("in DEF %s: decorators must lower to python expressions.", name)
                                 deco_vals.append(val_deco)
-                        return ([("FunctionDef", string(name), compiled_lambda_list,
+                        short_name, full_name = string(name), _frost.full_symbol_name_python_name(name)
+                        return ([("FunctionDef", short_name, compiled_lambda_list,
                                                  body_ret,
-                                                 deco_vals)],
+                                                 deco_vals),
+                                 ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))],
                                 _lower((symbol, name))[1])
                 ## Xtnls feedback loop stabilisation scheme.
                 ##
@@ -5900,9 +5906,11 @@ def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
         setf_macro_function(t, name) # COMPILE should be able to use that
-        fn, warnedp, failedp, [macfundef] = _compile(the(symbol, name),
-                                                     (lambda_, lambda_list) + body)
-        return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this: the((varituple, (eql, def_), pytuple), macfundef)
+        fn, warnedp, failedp, [macfundef, symassign] = _compile(the(symbol, name),
+                                                                (lambda_, lambda_list) + body)
+        return ([macfundef, # Used to mistakingly (?) force MACFUNDEF like this:
+                            # the((varituple, (eql, def_), pytuple), macfundef)
+                 symassign],
                 _lower((quote, (symbol, string(name))))[1])
 
 @defknown(("atom", " ", "atom", " ", (["sex", " "],),
@@ -5910,9 +5918,10 @@ def defmacro(name, lambda_list, *body):
 def defun(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
         _do_set_function_definition(nil, name) # We must not do this - this amounts to EVAL-WHEN :COMPILE-TOPLEVEL!
-        fn, warnedp, failedp, [fundef] = _compile(the(symbol, name),
-                                                  (lambda_, lambda_list) + body)
-        return ([fundef],
+        fn, warnedp, failedp, [fundef, symassign] = _compile(the(symbol, name),
+                                                             (lambda_, lambda_list) + body)
+        return ([fundef,
+                 symassign],
                 _lower((quote, (symbol, string(name))))[1])
 
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
@@ -6283,7 +6292,7 @@ def _lower(form):
                         else:
                                 error("Invalid form: %s.", princ_to_string(x))
                 elif symbolp(x):
-                        return _rec((symbol, string(x)))
+                        return _rec((symbol, x))
                 else:
                         # NOTE: we don't care about quoting here, as constants are self-evaluating.
                         atree, successp = _try_atreeify_constant(x) # NOTE: this allows to directly pass through ASTs.
@@ -6295,9 +6304,9 @@ def _lower(form):
                         else:
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
         pv = _rec(form)
-        _debug_printf_if(_debugging_compiler(),
-                         ";;; compilation atree output for %s:\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
-                         form, *pv)
+        # _debug_printf_if(_debugging_compiler(),
+        #                  ";;; compilation atree output for\n%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
+        #                  _pp_sex(form), *pv)
         expected_return_type = (pytuple, pylist, (maybe, (partuple, string)))
         if not typep(pv, expected_return_type):
                 error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
@@ -6561,8 +6570,8 @@ def _no_other_way_but_compile_lambda_as_named_toplevel(name, lambda_expression, 
                 return (def_, the(symbol, name)) + lambda_expression[1:]
         return _compile_toplevel_def_in_lexenv(
                 name, _ir_args_when(globalp, _convert_lambda_to_def(name, lambda_expression),
-                                    decorators = [(symbol, "_set_macro_definition") if macrop else
-                                                  (symbol, "_set_function_definition")]),
+                                    decorators = [(symbol, _set_macro_definition) if macrop else
+                                                  (symbol, _set_function_definition)]),
                 lexenv,
                 globalp = globalp, macrop = globalp and macrop,
                 lambda_expression = lambda_expression)
@@ -6571,19 +6580,22 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
         ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
         def _in_compilation_unit():
                 pv = pro, _ = _lower(form) # We're only interested in the resulting DEF.
-                assert _py.len(pro) is 1
+                assert _py.len(pro) is 2   # The FunctionDef and the symbol Assign
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(pv))
                 if _debugging_compiler():
                         import more_ast
                         _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
-                                      _pp_sex(form), "".join(more_ast.pp_ast_as_code(x) for x in pro_ast))
+                                      _pp_sex(form), "\n".join(more_ast.pp_ast_as_code(x) for x in pro_ast))
+                        ############################ This is an excess newline, so it is a bug workaround.
+                        ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
                         if typep(pro_ast[0], _ast.FunctionDef):
                                 _debug_printf("type of ast: %s\ndecorators: %s", type_of(pro_ast[0]), pro_ast[0].decorator_list)
                 # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
-                sym = the(symbol, _ast_compiled_name(string(name),
+                acn = _ast_compiled_name(string(name),
                                                      *pro_ast,
                                                      globals = _py.globals(),
-                                                     locals  = _py.locals()))
+                                                     locals  = _py.locals())
+                sym = the(symbol, acn)
                 func = the(function, symbol_function(sym))
                 # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
                 # Feed FUNCTION-LAMBDA-EXPRESSION:

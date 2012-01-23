@@ -47,9 +47,14 @@ def make_object_like_python_class(x, cls):
         x.__subclasshook__ = cls.__subclasshook__
         return x
 
+def full_symbol_name_python_name(x):
+        return ("#" if not x.package              else
+                "" if x.package.name == "KEYWORD" else
+                x.package.name) + ":" + x.name
+
 def frost_def(o, symbol, slot, globals):
         setattr(symbol, slot, o)
-        setf_global(symbol, symbol.name, globals)
+        setf_global(symbol, full_symbol_name_python_name(symbol), globals)
         return symbol
 
 def raise_exception(cond):
