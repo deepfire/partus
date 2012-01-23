@@ -17,6 +17,8 @@ def python_name_lisp_symbol_name(x):
                         starred = cs[0]  == cs[-1] == "_" # *very-nice*
                         anded   = cs[0]  == "_" != cs[-1] # &something; This #\& heuristic might bite us quite sensibly..
                         tailed  = cs[-1] == "_" != cs[0]  # something-in-conflict
+                else:
+                        starred = anded = tailed = False
                 pre, post, start, end = (("*", "*", 1, len(cs) - 1) if starred else
                                          ("&", "",  1, None)        if anded   else
                                          ("",  "",  0, len(cs) - 1) if tailed  else

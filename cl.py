@@ -256,6 +256,10 @@ def functionp(o):      return (_py.isinstance(o, _cold_function_type) or
 
 def _python_type_p(x): return _py.isinstance(o, _cold_class_type)
 
+@boot_defun
+def type_of(x):
+        return _py.type(x)
+
 ###
 ### Boot listery and consery (beware model issues)
 ###
@@ -516,10 +520,10 @@ class symbol(): # Turned to a symbol, during the package system bootstrap.
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __call__(self, *args, **keys):
-                function = _symbol_function(self)
+                function = self.function ## Well, it's an inlined SYMBOL-FUNCTION..
                 if not _py.isinstance(function, _cold_function_type):
                         error("While calling %s: SYMBOL-FUNCTION returned a non-callable object of type %s.",
-                              self, type_of(function))
+                              self, _py.type(function))
                 return function(*args, **keys)
         def __bool__(self):
                 return self is not nil
@@ -1246,7 +1250,17 @@ for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, 
 ### Delayed class definitions
 ###
 @defclass
-class simple_condition(_cold_condition_type):
+class nil():
+        @classmethod
+        def __instancecheck__(_, __): return False # This is an empty type
+
+@defclass
+class t():
+        @classmethod
+        def __instancecheck__(_, __): return True  # This is the absolute sum type
+
+@defclass
+class simple_condition(condition.python_type):
         def __init__(self, format_control, *format_arguments):
                 self.format_control, self.format_arguments = format_control, format_arguments
                 # _debug_printf("About to signal a simple condition of type %s:\n%s", _py.type(self), self)
@@ -1453,10 +1467,6 @@ def _nonep(o):      return o is None
 ### Constants
 ###
 most_positive_fixnum = 67108864
-
-@defun
-def type_of(x):
-        return _py.type(x)
 
 def _poor_man_let(*values_and_body):
         values, body = values_and_body[:-1], values_and_body[-1]
@@ -2934,7 +2944,7 @@ SETF of MACRO-FUNCTION."""
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-PROVIDED-ENVIRONMENT-IGNORED
         _nonep(environment) or _not_implemented("query of environments other than global")
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
-        return the((or_, _cold_function_type, null, (eql, t)), the(symbol, symbol_).macro_function)
+        return the((or_, function, null), the(symbol, symbol_).macro_function)
 
 def _style_warn(control, *args):
         warn(simple_style_warning, control, *args)
@@ -2952,10 +2962,8 @@ def setf_macro_function(new_function, symbol, environment = None):
         if symbol.function:
                 _warn_incompatible_function_redefinition(symbol, "macro", "function")
                 symbol.function = nil
-        # T is used by DEFMACRO as a namespace toggle request token for COMPILE.
-        if symbol.macro_function is not "bonghits":
-                _warn_possible_redefinition(gethash("macro_function", symbol.__dict__)[0], defmacro)
-        symbol.macro_function = the((or_, (eql, t), _cold_function_type), new_function)
+        _warn_possible_redefinition(symbol.macro_function, defmacro)
+        symbol.macro_function = the(function, new_function)
         return new_function
 
 @defun
@@ -3105,9 +3113,9 @@ _init_condition_system()
 class base_char(): pass
 
 @defun
-def streamp(x):                     return typep(x, _cold_stream_type)
+def streamp(x):                     return typep(x, stream)
 
-def _file_stream_p(x):              return typep(x, _cold_file_stream_type)
+def _file_stream_p(x):              return typep(x, file_stream)
 
 @defun
 def with_open_stream(stream, fn):
@@ -3306,7 +3314,7 @@ def output_stream_p(x):
         return open_stream_p(x) and x.writable()
 
 @defclass
-class two_way_stream(_cold_stream_type):
+class two_way_stream(stream.python_type):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
         def read(self, amount):
@@ -3335,7 +3343,7 @@ _string_set("*QUERY-IO*", make_two_way_stream(_str_symbol_value("*STANDARD-INPUT
 # raise simple_condition.python_type("Boo %s.", 2)
 
 @defclass
-class broadcast_stream(_cold_stream_type):
+class broadcast_stream(stream.python_type):
         def __init__(self, *streams):
                 self.streams  = streams
         def write(self, data):
@@ -3351,7 +3359,7 @@ def make_broadcast_stream(*streams):  return broadcast_stream.python_type(*strea
 def broadcast_stream_streams(stream): return stream.streams
 
 @defclass
-class synonym_stream(_cold_stream_type):
+class synonym_stream(stream.python_type):
         def __init__(self, symbol):
                 self.symbol  = symbol
         def stream():
@@ -3948,7 +3956,7 @@ def __cl_condition_handler__(condspec, frame):
                         _frost.disable_pytracer()
                         try:
                                 invoke_debugger(cond)
-                        except _cold_error_type as debugger_cond:
+                        except error.python_type as debugger_cond:
                                 _debug_printf("Failed to enter the debugger:\n%s\nHave a nice day!", debugger_cond)
                                 _sys.stderr.flush()
                                 _py.exit()
@@ -5532,7 +5540,9 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 ###
 class _binding():
         name = None
-        def __init__(self, name, value = None, function = None, **attributes):
+        def __init__(self, name, value = None, function = None, ):
+                # It's not terribly clear how to tag values in a binding..
+                check_type(value, (member, _keyword("PLAIN"), _keyword("SPECIAL"), _keyword("CONSTANT")))
                 self.name, self.value, self.function = name, value, function
                 self.__dict__.update(attributes)
 def _bindingp(x): return _py.isinstance(x, _binding)
@@ -5540,12 +5550,14 @@ def _bindingp(x): return _py.isinstance(x, _binding)
 @defclass
 class _lexenv(_collections.UserDict):
         scope = nil
-        def __init__(self, initial_content = None):
+        def __init__(self, initial_content = None, parent = nil):
                 self.data = _py.dict(initial_content or {})
                 for k, v in self.data.items():
                         symbolp(k)   or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
                         _bindingp(k) or error("Lexenv values must be bindings, found: %s.", v.__repr__())
-                self.scope = (self, _str_symbol_value("*LEXENV*"))
+                self.scope = (self, (nil                        if null(parent)        else
+                                     the(_lexenv, parent).scope if _specifiedp(parent) else
+                                     _str_symbol_value("*LEXENV*").scope))
         def __bool__(selt): return t
         def find_scope(self, x):
                 scope = self.scope
@@ -5557,11 +5569,11 @@ class _lexenv(_collections.UserDict):
                 scope = self.find_scope(x)
                 return scope[x] if scope else None
 def _lexenvp(x):         return _py.isinstance(x, _lexenv)
-def _make_null_lexenv(): return make_instance(_lexenv)
+def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
 
 ## lexical info kinds
 def _fbindingp(x): return x.function
-def _fspecialp(x): return _py.getattr(x, "special")
+def _specialp(x): return _py.getattr(x, "special")
 
 ###
 ### Tuple intermediate IR
@@ -5930,9 +5942,10 @@ when EVAL-WHEN appears as a top level form."""
 def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
-        setf_macro_function(t, name) # COMPILE should be able to use that
-        fn, warnedp, failedp, [macfundef, symassign] = _compile(the(symbol, name),
-                                                                (lambda_, lambda_list) + body)
+        fn, warnedp, failedp, [macfundef, symassign] = _compile_lambda_as_named_toplevel(the(symbol, name),
+                                                                                         (lambda_, lambda_list) + body,
+                                                                                         _str_symbol_value("*LEXENV*"),
+                                                                                         globalp = t, macrop = t)
         return ([macfundef, # Used to mistakingly (?) force MACFUNDEF like this:
                             # the((varituple, (eql, def_), pytuple), macfundef)
                  symassign],
@@ -5942,9 +5955,10 @@ def defmacro(name, lambda_list, *body):
            1, ["sex", "\n"]))
 def defun(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
-        _do_set_function_definition(nil, name) # We must not do this - this amounts to EVAL-WHEN :COMPILE-TOPLEVEL!
-        fn, warnedp, failedp, [fundef, symassign] = _compile(the(symbol, name),
-                                                             (lambda_, lambda_list) + body)
+        fn, warnedp, failedp, [fundef, symassign] = _compile_lambda_as_named_toplevel(the(symbol, name),
+                                                                                      (lambda_, lambda_list) + body,
+                                                                                      _str_symbol_value("*LEXENV*"),
+                                                                                      globalp = t, macrop = t)
         return ([fundef,
                  symassign],
                 _lower((quote, (symbol, string(name))))[1])
@@ -6578,9 +6592,9 @@ and true otherwise."""
         #  - _ast_compiled_name() requires one
         #  - THERE-EXIST lambdas non-expressible in Python
         # Coerce the lambda to a named def, for _ast_compiled_name purposes:
-        return _no_other_way_but_compile_lambda_as_named_toplevel(final_name, lambda_expression, _make_null_lexenv(),
-                                                                  globalp = not not name,
-                                                                  macrop = name and not not macro_function(name))
+        return _compile_lambda_as_named_toplevel(final_name, lambda_expression, _make_null_lexenv(),
+                                                 globalp = not not name,
+                                                 macrop = name and not not macro_function(name))
 
 def _compile_in_lexenv(name, lambda_expression, lexenv):
         def _convert_lambda_to_defun(name, lambda_expression):
@@ -6589,7 +6603,7 @@ def _compile_in_lexenv(name, lambda_expression, lexenv):
         return _compile_toplevel_def_in_lexenv(final_name, _convert_lambda_to_defun(final_name, lambda_expression), lexenv,
                                                lambda_expression = lambda_expression)
 
-def _no_other_way_but_compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
+def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
         "There really is no other way.  Trust me.  Please."
         def _convert_lambda_to_def(name, lambda_expression):
                 return (def_, the(symbol, name)) + lambda_expression[1:]
