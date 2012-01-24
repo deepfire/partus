@@ -6218,14 +6218,12 @@ def _compiler_debug_printf(control, *args):
                 def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
                 _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
 def _pp_sex(sex, initial_depth = None):
-        if _tuplep(sex) and symbolp(sex[0]):
-                _debug_printf("PP-ing symtuple %s, known %s, truep %s",
-                              sex, _find_known(sex[0]), not not _find_known(sex[0]))
         code = ("atom"                        if not _tuplep(sex) or not sex                         else
                 _find_known(sex[0]).pp_code   if symbolp(sex[0]) and _find_known(sex[0])             else
                 ("atom", " ", ["sex", " "])   if symbolp(sex[0])                                     else
                 ("sex", "\n", ["sex", " "])   if _tuplep(sex[0]) and sex[0] and sex[0][0] is lambda_ else
                 ["sex", " "])
+        top_sex, top_code = sex, code
         def separatorp(x, require = nil): return ((x, 1, nil)              if x == " "    else
                                                   (x + _sex_space(), 0, t) if x == "\n"   else
                                                   ("", x, t)               if integerp(x) else
@@ -6248,6 +6246,11 @@ def _pp_sex(sex, initial_depth = None):
                                                         return_from(horz_run, (acc, inc, spec[1:], sex))
                                                 elif sep:
                                                         return _sex_deeper(inc, lambda: horz_rec(acc + sep, spec[1:], sex))
+                                                if symbolp(sex) or symbolp(spec):
+                                                        warn(simple_warning,
+                                                             "While pretty-printing: encountered an invalid SEX: %s.",
+                                                             top_sex)
+                                                        return acc, 0, nil, nil
                                                 sub = code_interp_rec(spec[0], sex[0])
                                                 return _sex_deeper(_py.len(sub), lambda: horz_rec(acc + sub, spec[1:], sex[1:]))
                                         return horz_rec("", spec, sex)
@@ -6264,7 +6267,11 @@ def _pp_sex(sex, initial_depth = None):
                 elif _tuplep(spec): # fixed structure
                         return "(" + structure_interp(spec, sex, increment = 1) + ")"
                 elif _listp(spec):  # iteration: exactly like a homogenous fixed structure with an interspersed separator
-                        _tuplep(sex) or error("List spec %s does not match SEX %s.", _py.repr(spec), sex)
+                        if not _tuplep(sex):
+                                warn(simple_warning,
+                                     "While pretty-printing: encountered an invalid SEX: %s.",
+                                     top_sex)
+                                return "#<INVALID-SEX>"
                         spec, sepspec = spec
                         return structure_interp(_py.tuple(_intersperse(sepspec, (spec,) * _py.len(sex))), sex, increment = 0)
                 elif spec == "sex": # recursion
