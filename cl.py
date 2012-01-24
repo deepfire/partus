@@ -254,6 +254,9 @@ def stringp(x):        return _py.isinstance(x, _cold_string_type)
 def functionp(o):      return (_py.isinstance(o, _cold_function_type) or
                                _py.isinstance(o, symbol.python_type) and o.function)
 
+def _symbol_type_specifier_p(x):
+        return _py.hasattr(x, "python_type")
+
 def _python_type_p(x): return _py.isinstance(o, _cold_class_type)
 
 @boot_defun
@@ -389,9 +392,9 @@ def _conditionp(x):
 def _coerce_to_condition(datum, *args, default_type = None, **keys):
         type_specifier = _defaulted(default_type, error) if stringp(datum) else datum
 
-        type = (type_specifier             if typep(type_specifier, _cold_class_type)                                else
-                None                       if _conditionp(type_specifier)                                            else
-                type_specifier.python_type if symbolp(type_specifier) and _py.hasattr(type_specifier, "python_type") else
+        type = (type_specifier             if typep(type_specifier, _cold_class_type)                              else
+                None                       if _conditionp(type_specifier)                                          else
+                type_specifier.python_type if symbolp(type_specifier) and _symbol_type_specifier_p(type_specifier) else
                 error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
         cond = (datum              if type is None   else # Already a condition.
                 type(datum % args) if stringp(datum) else
@@ -1093,13 +1096,19 @@ def deftype(type_name_or_fn):
 @deftype
 def boolean(x, type):
         return ((x, type, True)  if _py.len(type) is not 1 else
-                (x, type, False) if x not in [t, nil] else
+                (x, type, False) if x not in [t, nil]      else
                 nil)
 
 @deftype
 def null(x, type):
         return ((x, type, True)  if _py.len(type) is not 1 else
-                (x, type, False) if x is not nil else
+                (x, type, False) if x is not nil           else
+                nil)
+
+@deftype
+def keyword(x, type):
+        return ((x, type, True)  if _py.len(type) is not 1 else
+                (x, type, False) if not keywordp(x)        else
                 nil)
 
 @deftype("OR")
@@ -3288,7 +3297,7 @@ def describe_object(o, stream):
                 ## primitive - translator
                 ### optimisation policy
                 ### properties
-                if not (fboundp(o) or o.python_type):
+                if not (fboundp(o) or _symbol_type_specifier_p(o)):
                         _describe_python_object(o, stream)
         print_standard_describe_header(o, stream)
         if symbolp(o): describe_symbol(o, stream)
@@ -5465,12 +5474,12 @@ def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, def
         default_expr = _defaulted(default_expr, (symbol, "None"))
         if not _tuplep(lambda_list_):
                 error("In %s: lambda list must be a tuple.", lambda_list_)
-        def valid_parameter_specifier_p(x): return stringp(x) or (symbolp(x) and not keywordp(x))
+        def valid_parameter_specifier_p(x): return typep(x, (and_, symbol, (not_, keyword)))
         test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (_tuplep(x) and _py.len(x) == 2 and
-                                                              valid_parameter_specifier_p(x[0])),
-                                 "In %s: lambda lists can only contain strings, non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
+                                                                               valid_parameter_specifier_p(x[0])),
+                                 "In %s: lambda lists can only contain non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
                                  if allow_defaults else
-                                 (valid_parameter_specifier_p, "In %s: lambda list must consist of strings and non-keyword symbols: %s.  Default values are forbidden in this context."))
+                                 (valid_parameter_specifier_p, "In %s: lambda list must consist of non-keyword symbols: %s.  Default values are forbidden in this context."))
         ### 0. locate lambda list keywords
         lambda_words = [_optional, _rest, _key, _restkey]
         optpos,  restpos,  keypos,  restkeypos = lambda_posns = mapcar(lambda x: position(x, lambda_list_), lambda_words)
@@ -5530,10 +5539,10 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
         if odef_pros or kdef_pros:
                 _compiler_error("In LAMBDA %s: invariant failed: target lambda lists must have expressible defaults: %s.", context)
         return ("arguments",
-                mapcar(lambda x: ("arg", string(x)), fixed + optional),
-                rest and string(rest) or None, None,
-                mapcar(lambda x: ("arg", string(x)), keys),
-                restkey and string(restkey) or None, None,
+                mapcar(lambda x: ("arg", _frost.full_symbol_name_python_name(x)), fixed + optional),
+                rest and _frost.full_symbol_name_python_name(rest) or None, None,
+                mapcar(lambda x: ("arg", _frost.full_symbol_name_python_name(x)), keys),
+                restkey and _frost.full_symbol_name_python_name(restkey) or None, None,
                 odef_vals,
                 kdef_vals)
 
@@ -5854,7 +5863,8 @@ def def_(name, lambda_list, *body, decorators = []):
         toplevelp = _str_symbol_value("*COMPILER-TOPLEVEL-P*")
         with progv({"*COMPILER-DEF*":      cdef,
                     "*COMPILER-TOPLEVEL-P*": nil}):
-                check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
+                check_type(name, (and_, symbol, (not_, keyword)))
+                # check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
                 def try_compile():
                         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                         total, args, defaults = _prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
@@ -5869,11 +5879,11 @@ def def_(name, lambda_list, *body, decorators = []):
                                 if pro_deco:
                                         error("in DEF %s: decorators must lower to python expressions.", name)
                                 deco_vals.append(val_deco)
-                        short_name, full_name = string(name), _frost.full_symbol_name_python_name(name)
-                        return ([("FunctionDef", short_name, compiled_lambda_list,
+                        return ([("FunctionDef", _frost.full_symbol_name_python_name(name), compiled_lambda_list,
                                                  body_ret,
                                                  deco_vals),
-                                 ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))],
+                                 # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
+                                 ],
                                 _lower((symbol, name))[1])
                 ## Xtnls feedback loop stabilisation scheme.
                 ##
@@ -5945,25 +5955,23 @@ when EVAL-WHEN appears as a top level form."""
 def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
-        fn, warnedp, failedp, [macfundef, symassign] = _compile_lambda_as_named_toplevel(the(symbol, name),
-                                                                                         (lambda_, lambda_list) + body,
-                                                                                         _str_symbol_value("*LEXENV*"),
-                                                                                         globalp = t, macrop = t)
-        return ([macfundef, # Used to mistakingly (?) force MACFUNDEF like this:
-                            # the((varituple, (eql, def_), pytuple), macfundef)
-                 symassign],
+        fn, warnedp, failedp, [macfundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
+                                                                              (lambda_, lambda_list) + body,
+                                                                              _str_symbol_value("*LEXENV*"),
+                                                                              globalp = t, macrop = t)
+        return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this:
+                             # the((varituple, (eql, def_), pytuple), macfundef)
                 _lower((quote, (symbol, string(name))))[1])
 
 @defknown(("atom", " ", "atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))
 def defun(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
-        fn, warnedp, failedp, [fundef, symassign] = _compile_lambda_as_named_toplevel(the(symbol, name),
-                                                                                      (lambda_, lambda_list) + body,
-                                                                                      _str_symbol_value("*LEXENV*"),
-                                                                                      globalp = t, macrop = t)
-        return ([fundef,
-                 symassign],
+        fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
+                                                                           (lambda_, lambda_list) + body,
+                                                                           _str_symbol_value("*LEXENV*"),
+                                                                           globalp = t, macrop = t)
+        return ([fundef],
                 _lower((quote, (symbol, string(name))))[1])
 
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
@@ -6634,7 +6642,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
         ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
         def _in_compilation_unit():
                 pv = pro, _ = _lower(form) # We're only interested in the resulting DEF.
-                assert _py.len(pro) is 2   # The FunctionDef and the symbol Assign
+                assert _py.len(pro) is 1   # The FunctionDef and the symbol Assign
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(pv))
                 if _debugging_compiler():
                         import more_ast
@@ -6645,10 +6653,10 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                         if typep(pro_ast[0], _ast.FunctionDef):
                                 _debug_printf("type of ast: %s\ndecorators: %s", type_of(pro_ast[0]), pro_ast[0].decorator_list)
                 # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
-                acn = _ast_compiled_name(string(name),
-                                                     *pro_ast,
-                                                     globals = _py.globals(),
-                                                     locals  = _py.locals())
+                acn = _ast_compiled_name(_frost.full_symbol_name_python_name(name),
+                                         *pro_ast,
+                                         globals = _py.globals(),
+                                         locals  = _py.locals())
                 sym = the(symbol, acn)
                 func = the(function, symbol_function(sym))
                 # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
