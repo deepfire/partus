@@ -295,6 +295,11 @@ def make_hash_table():
         return _py.dict()
 
 @boot_defun
+def gethash(key, dict, default = None):
+        therep = key in dict
+        return (dict[key] if therep else default), therep
+
+@boot_defun
 def length(x):
         return (_py.len(x) if stringp(x) else
                 error("Argument of invalid or unsupported type: %s.", _py.repr(x)))
@@ -559,25 +564,33 @@ def _symbol_function(symbol):  return (symbol.known          or
 def string(x):
         ## NOTE: These type check branches can be in bootstrap order or in usage frequency order!
         return (x      if stringp(x) else
-                x.name if symbolp(x)  else
+                x.name if symbolp(x) else
                 error("%s must have been either a string or a symbol.", x))
 
-def _do_find_symbol(x, package):
-        return package.accessible.get(x) if x in package.accessible else None
+def _do_find_symbol(str, package):
+        return gethash(str, package.accessible, None)[0]
 
 def _find_symbol_or_fail(x, package = None):
         sym = _do_find_symbol(x, _coerce_to_package(package))
         return (sym if sym is not None else
                 _symbols_not_accessible_error(p, [x]))
 
-def _find_symbol(x, package):
-        s = _do_find_symbol(x, package)
+def _symbol_relation(x, p):
+        "NOTE: here we trust that X belongs to P, when it's a symbol."
+        s = gethash(x, p.accessible, None)[0] if stringp(x) else x
+        if s is not None:
+                return _keyword("INHERITED" if s.name in p.inherited else
+                                "EXTERNAL"  if s      in p.external  else
+                                "INTERNAL")
+
+def _find_symbol(str, package):
+        s = _do_find_symbol(str, package)
         return ((s, _symbol_relation(s, package)) if s is not None else
                 (None, None))
 
 @boot_defun
-def find_symbol(x, package = None):
-        return _find_symbol(x, _coerce_to_package(package))
+def find_symbol(str, package = None):
+        return _find_symbol(str, _coerce_to_package(package))
 
 @boot("print", lambda _, s, **__:
               (("#"            if not s.package          else
@@ -627,21 +640,6 @@ def _core_package_init():
 
 _core_package_init()
 
-def _cold_make_nil():
-        nil = symbol.__new__(symbol)
-        nil.name = "NIL"
-        nil.package = __cl
-        (nil.value,
-         nil.function,
-         nil.macro_function,
-         nil.known) = nil, nil, nil, nil
-        return nil
-
-NIL = nil = _cold_make_nil()
-
-@boot_defun
-def null(x): return x is nil
-
 def _do_intern_symbol(s, p):
         p.own.add(s)
         p.accessible[s.name], s.package = s, p
@@ -649,6 +647,21 @@ def _do_intern_symbol(s, p):
                 p.external.add(s)
                 s.value = s
         return s
+
+def _cold_make_nil():
+        nil = symbol.__new__(symbol)
+        (nil.name,
+         nil.package,
+         nil.value,
+         nil.function,
+         nil.macro_function,
+         nil.known) = "NIL", __cl, nil, nil, nil, nil
+        return _do_intern_symbol(nil, __cl)
+
+NIL = nil = _cold_make_nil()
+
+@boot_defun
+def null(x): return x is nil
 
 def _intern_in_package(x, p):
         s, presentp = (error("X must be a symbol: %s.", _py.repr(x)) if not _py.isinstance(x, _py.str) else
@@ -671,6 +684,10 @@ def _intern(x, package = None):
         "A version of INTERN, that does not compute the relationship between SYMBOL and designated PACKAGE."
         return _intern_in_package(x, find_package(package) if package else
                                      _str_symbol_value("*PACKAGE*"))
+
+def _keyword(s, upcase = True):
+        return _intern((s.upper() if upcase else s),
+                       __keyword)[0]
 
 def _use_package_symbols(dest, src, syms):
         conflict_set = { x.name for x in syms.values() } & _py.set(dest.accessible.keys())
@@ -1210,6 +1227,7 @@ _unboot_set("typep")
 ###
 ### Toplevel names
 ###
+doit = False
 def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
         def cold_definer(name_or_obj):
                 obj, sym, name = _interpret_toplevel_value(name_or_obj, predicate)
@@ -1241,7 +1259,7 @@ defun_with_block = _cold_defun_with_block = _make_cold_definer("%COLD-DEFUN-WITH
 
 for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  _py.globals())
 for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
-
+doit = True
 ################################################################################
 ###
 ### Chapter 1: We now have symbols, packages, types, semi-proper DEFUN/DEFCLASS and
@@ -1287,10 +1305,6 @@ class simple_package_error(simple_error.python_type, package_error.python_type):
 ###
 ### ???
 ###
-def _keyword(s, upcase = t):
-        return _intern((s.upper() if upcase else s),
-                       __keyword)[0]
-
 @defun
 def values(*xs):
         return xs
@@ -1536,11 +1550,6 @@ def char_downcase(x):     return x.lower()
 def upper_case_p(x):      return x.isupper()
 @defun
 def lower_case_p(x):      return x.islower()
-
-@defun
-def gethash(key, dict, default = None):
-        therep = key in dict
-        return (dict.get(key) if therep else default), therep
 
 _case_attribute_map = _py.dict(UPCASE     = string_upcase,
                                DOWNCASE   = string_downcase,
@@ -3046,14 +3055,6 @@ def _read_python_toplevel_name(f):
 
 def _coerce_to_symbol(s_or_n, package = None):
         return intern(s_or_n, _coerce_to_package(package))
-
-def _symbol_relation(x, p):
-        "NOTE: here we trust that X belongs to P, when it's a symbol."
-        s = (p.accessible.get(x) if x in p.accessible else None) if stringp(x) else x
-        if s is not None:
-                return (_keyword("inherited") if s.name in p.inherited else
-                        _keyword("external")  if s in p.external else
-                        _keyword("internal"))
 
 # requires that __keyword is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
 def _i(x):                       return _intern(the(string, x).upper(), None)[0]
@@ -5411,21 +5412,21 @@ _known = _poor_man_defstruct("known",
                              "compiler",
                              "compiler_params")
 def defknown(pp_code_or_fn):
-        def do_defknown(fn, pp_code = pp_code_or_fn):
-                name = fn.__name__
-                fn.__name__ = "_lower_" + fn.__name__
-                sym, presentp = _frost.global_(name, globals = _py.globals())
-                if not presentp or not symbolp(sym):
-                        sym = _intern(name.upper())[0]
-                        _frost.setf_global(sym, name, globals = _py.globals())
+        def do_defknown(fn, sym, pyname, pp_code):
+                fn.__name__ = "_lower_" + pyname
+                _frost.setf_global(sym, pyname, globals = _py.globals())
                 compiler_params = _function_lambda_list(fn)[3]
                 sym.known = _known(name = sym,
                                    pp_code = pp_code,
                                    compiler = fn,
                                    compiler_params = _mapset(_indexing(0), compiler_params))
                 return sym # pass through
-        return (do_defknown(pp_code_or_fn, pp_code = ("atom", " ", ["sex", " "])) if functionp(pp_code_or_fn) else
-                do_defknown                                                       if _tuplep(pp_code_or_fn)   else
+        default_pp_code = ("atom", " ", ["sex", " "])
+        def _defknown(fn, pp_code = pp_code_or_fn):
+                _, sym, pyname = _interpret_toplevel_value(fn, functionp)
+                return do_defknown(fn, sym, pyname, default_pp_code)
+        return (_defknown(pp_code_or_fn, pp_code = default_pp_code) if functionp(pp_code_or_fn) else
+                _defknown                                           if _tuplep(pp_code_or_fn)   else
                 error("In DEFKNOWN: argument must be either a function or a pretty-printer code tuple, was: %s.",
                       _py.repr(pp_code_or_fn)))
 def _find_known(x):
@@ -5830,6 +5831,7 @@ def if_(test, consequent, antecedent = nil):
                                     ((funcall, (symbol, name_ante)), ((name_ante, _py.tuple()) + (antecedent,),)))
                 return (flet, cons_fdefn + ante_fdefn,
                          (if_, test, cons, ante))
+
 # 1. I'd rather much separate:
 #    - named lambda compilation
 #        def thunk():
@@ -6216,6 +6218,9 @@ def _compiler_debug_printf(control, *args):
                 def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
                 _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
 def _pp_sex(sex, initial_depth = None):
+        if _tuplep(sex) and symbolp(sex[0]):
+                _debug_printf("PP-ing symtuple %s, known %s, truep %s",
+                              sex, _find_known(sex[0]), not not _find_known(sex[0]))
         code = ("atom"                        if not _tuplep(sex) or not sex                         else
                 _find_known(sex[0]).pp_code   if symbolp(sex[0]) and _find_known(sex[0])             else
                 ("atom", " ", ["sex", " "])   if symbolp(sex[0])                                     else
