@@ -5411,7 +5411,7 @@ _known = _poor_man_defstruct("known",
                              "pp_code",
                              "compiler",
                              "compiler_params")
-def defknown(pp_code_or_fn):
+def defknown(pp_code_or_fn, name = None):
         def do_defknown(fn, sym, pyname, pp_code):
                 fn.__name__ = "_lower_" + pyname
                 _frost.setf_global(sym, pyname, globals = _py.globals())
@@ -5422,9 +5422,10 @@ def defknown(pp_code_or_fn):
                                    compiler_params = _mapset(_indexing(0), compiler_params))
                 return sym # pass through
         default_pp_code = ("atom", " ", ["sex", " "])
-        def _defknown(fn, pp_code = pp_code_or_fn):
+        def _defknown(fn, pp_code = pp_code_or_fn, name = name):
                 _, sym, pyname = _interpret_toplevel_value(fn, functionp)
-                return do_defknown(fn, sym, pyname, default_pp_code)
+                name = _defaulted(name, sym, symbol)
+                return do_defknown(fn, name, pyname, pp_code)
         return (_defknown(pp_code_or_fn, pp_code = default_pp_code) if functionp(pp_code_or_fn) else
                 _defknown                                           if _tuplep(pp_code_or_fn)   else
                 error("In DEFKNOWN: argument must be either a function or a pretty-printer code tuple, was: %s.",
