@@ -278,7 +278,7 @@ def listp(x):       return x is nil or _tuplep(x)
 @boot_defun # Unregistered Issue LIST-CONSNESS
 def list(*xs):      return xs
 @boot_defun # Unregistered Issue LIST-CONSNESS
-def append(*xs):    return _py.sum(xs, _py.tuple())
+def append(*xs):    return _py.sum(xs, xs[0].__class__()) or _py.tuple()
 # def append(*xs): return reduce(lambda x, y: x + y, xs) if (xs and xs[0]) else []
 @boot_defun
 def cons(car, cdr): return (x, y)
@@ -5376,9 +5376,15 @@ def _ast_alias(name:    string,
 def _anode_expression_p(x):
         return _tuplep(x) and _py.issubclass(_ast.__dict__(x[0]), _ast.expr)
 
+#
+##
 ###
-### A rudimentary Lisp -> Python compiler
+####
+##### A rudimentary Lisp -> Python compiler
+####
 ###
+##
+#
 def _parse_body(body, doc_string_allowed = t, toplevel = nil):
         doc = nil
         def doc_string_p(x, remaining_forms):
@@ -5403,6 +5409,11 @@ def _parse_body(body, doc_string_allowed = t, toplevel = nil):
 def _process_decls(decls, vars, fvars):
         _warn_not_implemented()
 
+#
+##
+### Compiler conditions
+##
+#
 @defclass
 class _compiler_error(error.python_type):
         pass
@@ -5415,6 +5426,161 @@ class _simple_compiler_error(simple_condition.python_type, _compiler_error.pytho
 def _compiler_error(control, *args):
         return _simple_compiler_error.python_type(control, *args)
 
+#
+##
+### Compilation environment
+##
+#
+_string_set("*IN-COMPILATION-UNIT*", nil)
+
+def with_compilation_unit(fn, override = nil):
+        """Affects compilations that take place within its dynamic extent. It is
+intended to be eg. wrapped around the compilation of all files in the same system.
+
+Following options are defined:
+
+  :OVERRIDE Boolean-Form
+      One of the effects of this form is to delay undefined warnings until the
+      end of the form, instead of giving them at the end of each compilation.
+      If OVERRIDE is NIL (the default), then the outermost
+      WITH-COMPILATION-UNIT form grabs the undefined warnings. Specifying
+      OVERRIDE true causes that form to grab any enclosed warnings, even if it
+      is enclosed by another WITH-COMPILATION-UNIT.
+
+Examples:
+
+  ;; Prevent proclamations from the file leaking, and restrict
+  ;; SAFETY to 3 -- otherwise uses the current global policy.
+  (with-compilation-unit (:policy '(optimize))
+    (restrict-compiler-policy 'safety 3)
+    (load \"foo.lisp\"))
+
+  ;; Using default policy instead of the current global one,
+  ;; except for DEBUG 3.
+  (with-compilation-unit (:policy '(optimize debug)
+                          :override t)
+    (load \"foo.lisp\"))
+
+  ;; Same as if :POLICY had not been specified at all: SAFETY 3
+  ;; proclamation leaks out from WITH-COMPILATION-UNIT.
+  (with-compilation-unit (:policy nil)
+    (declaim (optimize safety))
+    (load \"foo.lisp\"))"""
+        ## What do we use this for:
+        ##
+        ## 1. Self-evaluating names fixup.
+        ## ...
+        ## N-1. Warning/error summaries.
+        def summarize_compilation_unit(failurep):
+                _warn_not_implemented()
+        succeeded_p = nil
+        if _str_symbol_value("*IN-COMPILATION-UNIT*") and not override:
+                try:
+                        with progv({"*TOP-COMPILATION-UNIT-P*": nil}):
+                                ret = fn()
+                        succeeded_p = t
+                        return ret
+                finally:
+                        if not succeeded_p:
+                                _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
+                                            _str_symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+        else:
+                with progv({"*ABORTED-COMPILATION-UNIT-COUNT*": 0, # What is this for?
+                            "*COMPILER-ERROR-COUNT*": 0,
+                            "*COMPILER-WARNINGS-COUNT*": 0,
+                            "*COMPILER-STYLE-WARNINGS-COUNT*": 0,
+                            "*COMPILER-NOTE-COUNT*": 0,
+                            "*UNDEFINED-WARNINGS*": nil,
+                            "*IN-COMPILATION-UNIT*": t,
+                            ##
+                            "*TOP-COMPILATION-UNIT-P*": t,
+                            "*SYMBOLS*": _py.set(),
+                            }):
+                        try:
+                               ret = fn()
+                               succeeded_p = t
+                               return ret
+                        finally:
+                                if not succeeded_p:
+                                        _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
+                                                    _str_symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+                                summarize_compilation_unit(not succeeded_p)
+
+def _compilation_note_symbol(x):
+        _str_symbol_value("*SYMBOLS*").add(the(symbol, x))
+        return t
+
+def _compilation_symbols():
+        return _str_symbol_value("*SYMBOLS*")
+
+def _top_compilation_unit_p():
+        return _str_symbol_value("*TOP-COMPILATION-UNIT-P*")
+
+def _compilation_unit_prologue():
+        "This computes the prologue.  Supposed to be called once, at the end of all processing."
+        def symbol_prologue():
+                symbols = _compilation_symbols()
+                # _debug_printf("prologue: %s", symbols)
+                with progv({"*SYMBOLS*": _py.set()}):
+                        # for s in symbols:
+                        #         _debug_printf("++++++++++++++++++++++++++++++++++++ emitting init for %s:\n%s\n]]]]]]]]]]]]]]]\n",
+                        #                       s, _lower((setq, s, (intern, symbol_name(s), package_name(symbol_package(s))))))
+                        return mapcan((lambda s: _lower((setq, s, (intern, symbol_name(s), (find_package, package_name(symbol_package(s))))))[0]),
+                                      symbols)
+        return ((symbol_prologue() +
+                 [])
+                if _top_compilation_unit_p() else
+                [])
+
+#
+##
+### Lexical environments
+##
+#
+class _binding():
+        name = None
+        def __init__(self, name, value = None, function = None, ):
+                # It's not terribly clear how to tag values in a binding..
+                check_type(value, (member, _keyword("PLAIN"), _keyword("SPECIAL"), _keyword("CONSTANT")))
+                self.name, self.value, self.function = name, value, function
+                self.__dict__.update(attributes)
+def _bindingp(x): return _py.isinstance(x, _binding)
+
+@defclass
+class _lexenv(_collections.UserDict):
+        scope = nil
+        def __init__(self, initial_content = None, parent = nil):
+                self.data = _py.dict(initial_content or {})
+                for k, v in self.data.items():
+                        symbolp(k)   or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
+                        _bindingp(k) or error("Lexenv values must be bindings, found: %s.", v.__repr__())
+                self.scope = (self, (nil                        if null(parent)        else
+                                     the(_lexenv, parent).scope if _specifiedp(parent) else
+                                     _str_symbol_value("*LEXENV*").scope))
+        def __bool__(selt): return t
+        def find_scope(self, x):
+                scope = self.scope
+                while scope:
+                        if x in scope[0]:
+                                return scope
+                        scope = scope[1] # COLD-CDR
+        def __get__(self, x):
+                scope = self.find_scope(x)
+                return scope[x] if scope else None
+def _lexenvp(x):         return _py.isinstance(x, _lexenv)
+def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
+
+## lexical info kinds
+def _fbindingp(x): return x.function
+def _specialp(x): return _py.getattr(x, "special")
+
+#
+##
+###
+#### Knowns: the IR
+###
+##
+#
 _known = _poor_man_defstruct("known",
                              "name",
                              "pp_code",
@@ -5441,34 +5607,6 @@ def defknown(pp_code_or_fn, name = None):
                       _py.repr(pp_code_or_fn)))
 def _find_known(x):
         return _symbol_known(the(symbol, x))
-
-###
-### Thunking is defined as code movement, introduced by the need for
-### statement sequencing in AST nodes lowerable to IR incapable of sequencing.
-### It is a kind of situation perceived to be rare for target IRs.
-###
-### From the standpoint of thunking, There are two kinds of expressions:
-###  - thunk acceptors -- high-level IRs lowering to IRs "capable" of storing
-###                       named functions with an arbitrary amount of subforms.
-###    In short, anything lowering to:
-###      - Module, Interactive
-###      - FunctionDef, ClassDef
-###      - For, While, If, With
-###      - TryExcept, TryFinally, ExceptHandler
-###  - thunk requestors -- high-level IRs with implicit PROGN (including PROGN itself),
-###                        lowering to "incapable" IRs.
-###
-### Code movement introduces a lexical scope difference, the relevance of which is
-###  in its effect on the free variables of the moved expression.
-### This difference is twofold, in the context of Python:
-###  - expression-wise de-scoping, where the difference is introduced by the
-###    containing lambda expressions
-###  - statement-wise scope change, with the differences introduced by assignment
-###    statements (including destructuring)
-### The second kind of difference can be avoided entirely, by placing the thunks,
-###  generated by an expression, immediately before the statement containing the
-###  expression.
-###
 
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (symbol, "None"))
@@ -5547,46 +5685,6 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
                 kdef_vals)
 
 ###
-### Lexical environment
-###
-class _binding():
-        name = None
-        def __init__(self, name, value = None, function = None, ):
-                # It's not terribly clear how to tag values in a binding..
-                check_type(value, (member, _keyword("PLAIN"), _keyword("SPECIAL"), _keyword("CONSTANT")))
-                self.name, self.value, self.function = name, value, function
-                self.__dict__.update(attributes)
-def _bindingp(x): return _py.isinstance(x, _binding)
-
-@defclass
-class _lexenv(_collections.UserDict):
-        scope = nil
-        def __init__(self, initial_content = None, parent = nil):
-                self.data = _py.dict(initial_content or {})
-                for k, v in self.data.items():
-                        symbolp(k)   or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
-                        _bindingp(k) or error("Lexenv values must be bindings, found: %s.", v.__repr__())
-                self.scope = (self, (nil                        if null(parent)        else
-                                     the(_lexenv, parent).scope if _specifiedp(parent) else
-                                     _str_symbol_value("*LEXENV*").scope))
-        def __bool__(selt): return t
-        def find_scope(self, x):
-                scope = self.scope
-                while scope:
-                        if x in scope[0]:
-                                return scope
-                        scope = scope[1] # COLD-CDR
-        def __get__(self, x):
-                scope = self.find_scope(x)
-                return scope[x] if scope else None
-def _lexenvp(x):         return _py.isinstance(x, _lexenv)
-def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
-
-## lexical info kinds
-def _fbindingp(x): return x.function
-def _specialp(x): return _py.getattr(x, "special")
-
-###
 ### Tuple intermediate IR
 ###
 ## A pro/val tuple:
@@ -5654,13 +5752,9 @@ _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_DEBUG_P_ = t)),
                                    lambda *_: _dynamic_scope_pop())
 
-#### Issue stack:
+#### Issues:
 ## Tail position optimisations
-### LET optimisation
-## Atree bfx queries
 ## Lisp-level bound/free
-## Quote processing
-## FUNCALL order of evaluation (closed?)
 ## is the value generally side-effect-free?
 
 ###                                      (QUAQUOTE)    <-
@@ -5707,14 +5801,15 @@ def _ir_args_when(when, ir, **parameters):
 def symbol(name):
         # Urgent Issue IR-LEVEL-SYMBOLS
         check_type(name, symbol)
+        _compilation_note_symbol(name)
         return ([],
                 ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
 
 def _lower_name(name, ctx = "Load"):
-        check_type(name, (or_, str, symbol, (pytuple, (eql, symbol), (or_, str, symbol))))
+        check_type(name, (or_, symbol, (pytuple, (eql, symbol), symbol)))
         if _tuplep(name) and ctx != "Load":
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
-        return ("Name", string(name[1] if _tuplep(name) else name), (ctx,))
+        return ("Name", _frost.full_symbol_name_python_name(name[1] if _tuplep(name) else name), (ctx,))
 
 @defknown(("atom", " ", "atom", " ", "sex"))
 def setq(name, value):
@@ -6416,72 +6511,6 @@ FUNCTION."""
                                               ("closure_p",         t),
                                               ("name",              nil)]))
 
-_string_set("*IN-COMPILATION-UNIT*", nil)
-
-def with_compilation_unit(fn, override = nil):
-        """Affects compilations that take place within its dynamic extent. It is
-intended to be eg. wrapped around the compilation of all files in the same system.
-
-Following options are defined:
-
-  :OVERRIDE Boolean-Form
-      One of the effects of this form is to delay undefined warnings until the
-      end of the form, instead of giving them at the end of each compilation.
-      If OVERRIDE is NIL (the default), then the outermost
-      WITH-COMPILATION-UNIT form grabs the undefined warnings. Specifying
-      OVERRIDE true causes that form to grab any enclosed warnings, even if it
-      is enclosed by another WITH-COMPILATION-UNIT.
-
-Examples:
-
-  ;; Prevent proclamations from the file leaking, and restrict
-  ;; SAFETY to 3 -- otherwise uses the current global policy.
-  (with-compilation-unit (:policy '(optimize))
-    (restrict-compiler-policy 'safety 3)
-    (load \"foo.lisp\"))
-
-  ;; Using default policy instead of the current global one,
-  ;; except for DEBUG 3.
-  (with-compilation-unit (:policy '(optimize debug)
-                          :override t)
-    (load \"foo.lisp\"))
-
-  ;; Same as if :POLICY had not been specified at all: SAFETY 3
-  ;; proclamation leaks out from WITH-COMPILATION-UNIT.
-  (with-compilation-unit (:policy nil)
-    (declaim (optimize safety))
-    (load \"foo.lisp\"))"""
-        def summarize_compilation_unit(failurep):
-                _warn_not_implemented()
-        succeeded_p = nil
-        if _str_symbol_value("*IN-COMPILATION-UNIT*") and not override:
-                try:
-                        ret = fn()
-                        succeeded_p = t
-                        return ret
-                finally:
-                        if not succeeded_p:
-                                _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                            _str_symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
-        else:
-                with progv({"*ABORTED-COMPILATION-UNIT-COUNT*":0,
-                            "*COMPILER-ERROR-COUNT*":0,
-                            "*COMPILER-WARNINGS-COUNT*":0,
-                            "*COMPILER-STYLE-WARNINGS-COUNT*":0,
-                            "*COMPILER-NOTE-COUNT*":0,
-                            "*UNDEFINED-WARNINGS*":nil,
-                            "*IN-COMPILATION-UNIT*":t,
-                            }):
-                        try:
-                               ret = fn()
-                               succeeded_p = t
-                               return ret
-                        finally:
-                                if not succeeded_p:
-                                        _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                                    _str_symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
-                                summarize_compilation_unit(not succeeded_p)
-
 ##
 ### What is the status of this?
 def _make_compilation_unit():
@@ -6641,12 +6670,15 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
 def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = nil, lambda_expression = None):
         ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
         def _in_compilation_unit():
-                pv = pro, _ = _lower(form) # We're only interested in the resulting DEF.
+                pro, value = _lower(form) # We're only interested in the resulting DEF.
+                cu_pro = _compilation_unit_prologue()
+                final_pv = cu_pro + pro, value
                 assert _py.len(pro) is 1   # The FunctionDef and the symbol Assign
-                pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(pv))
+                pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(final_pv))
                 if _debugging_compiler():
                         import more_ast
-                        _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
+                        _debug_printf("cu_pro: %s\n", cu_pro)
+                        _debug_printf(";;; In C-T-D-I-L: Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
                                       _pp_sex(form), "\n".join(more_ast.pp_ast_as_code(x) for x in pro_ast))
                         ############################ This is an excess newline, so it is a bug workaround.
                         ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
@@ -10513,9 +10545,51 @@ def setf_symbol_plist(new_value, symbol):
 ##           so what is left?
 def _intern0(x, package = None): return _intern(the(_py.str, x), package)[0]
 
+#
+##
 ###
+####
+##### The Attic
+####
+###
+##
+#
+
+#
+##
+### Thunking is defined as code movement, introduced by the need for
+### statement sequencing in AST nodes lowerable to IR incapable of sequencing.
+### It is a kind of situation perceived to be rare for target IRs.
+###
+### From the standpoint of thunking, There are two kinds of expressions:
+###  - thunk acceptors -- high-level IRs lowering to IRs "capable" of storing
+###                       named functions with an arbitrary amount of subforms.
+###    In short, anything lowering to:
+###      - Module, Interactive
+###      - FunctionDef, ClassDef
+###      - For, While, If, With
+###      - TryExcept, TryFinally, ExceptHandler
+###  - thunk requestors -- high-level IRs with implicit PROGN (including PROGN itself),
+###                        lowering to "incapable" IRs.
+###
+### Code movement introduces a lexical scope difference, the relevance of which is
+###  in its effect on the free variables of the moved expression.
+### This difference is twofold, in the context of Python:
+###  - expression-wise de-scoping, where the difference is introduced by the
+###    containing lambda expressions
+###  - statement-wise scope change, with the differences introduced by assignment
+###    statements (including destructuring)
+### The second kind of difference can be avoided entirely, by placing the thunks,
+###  generated by an expression, immediately before the statement containing the
+###  expression.
+##
+#
+
+#
+##
 ### *PRINT/READ-<foo>* docstrings
-###
+##
+#
 """Controls the format in which arrays are printed. If it is false,
 the contents of arrays other than strings are never printed. Instead,
 arrays are printed in a concise form using #< that gives enough
@@ -10678,3 +10752,4 @@ If it is NIL, the right margin is taken to be the maximum line length
 such that output can be displayed without wraparound or truncation. If
 this cannot be determined, an implementation-dependent value is
 used."""
+
