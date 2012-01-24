@@ -5809,7 +5809,7 @@ def progn(*body):
         #         return lowered_body
 
 @defknown(("atom", " ", "sex",
-           4, "sex",
+           3, "sex",
            "\n", "sex"))
 def if_(test, consequent, antecedent = nil):
         with _no_tail_position():
@@ -6162,8 +6162,10 @@ def labels(bindings, *body):
 #   File "<stdin>", line 4, in val0_body1
 # NameError: global name 'val1' is not defined
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
-           1, ["sex", "\n"]))
+           1, ["sex", "\n"]),
+          name = intern("LET*")[0])
 def let_(bindings, *body):
+        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         if not (_tuplep(bindings) and
                 every(_of_type((or_, symbol, (pytuple, symbol, t))))):
                 error("LET*: malformed bindings: %s.", bindings)
