@@ -6675,11 +6675,14 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 final_pv = cu_pro + pro, value
                 assert _py.len(pro) is 1   # The FunctionDef and the symbol Assign
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(final_pv))
+                import more_ast
+                more_ast.assign_meaningful_locations(pro_ast, 0)
                 if _debugging_compiler():
                         import more_ast
                         _debug_printf("cu_pro: %s\n", cu_pro)
                         _debug_printf(";;; In C-T-D-I-L: Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
-                                      _pp_sex(form), "\n".join(more_ast.pp_ast_as_code(x) for x in pro_ast))
+                                      _pp_sex(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
+                                                               for x in pro_ast))
                         ############################ This is an excess newline, so it is a bug workaround.
                         ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
                         if typep(pro_ast[0], _ast.FunctionDef):

@@ -12,7 +12,7 @@ import sys
 
 import cl
 
-from cl         import t, nil, typep, null, integerp, floatp, sequencep, stringp, mapcar, mapc,\
+from cl         import t, nil, typep, null, integerp, floatp, sequencep, functionp, stringp, mapcar, mapc,\
                        remove_if, sort, car, identity, every, find, with_output_to_string, error, reduce,\
                        symbol_value, progv
 from cl         import _ast_rw as ast_rw, _ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
@@ -261,19 +261,83 @@ class NotImplemented(Exception):
         def __str__(self):
                 return "%s %s is not implemented." % (action.capitalize(), x)
 
+def chain(fn, xs, initial):
+        # Why do I always come up with crazy functional shit while drunk?
+        # ..in this case after physical endurance exercise..
+        # .."endura", Cathari legacy..
+        # Just for the record: this is indeed insane batshit.
+        # It essentially boils down to reduce(fn, append(*xs), initial)
+        # Its only saving grace is that it's non-consing.
+        return reduce(lambda val, x: reduce(fn, x, val), xs, initial)
+
+def assign_meaningful_locations(node, lineno = 0):
+        # Here and thereafter, lineno means 'next free lineno'
+        def advancing(xs): return [(x, True)  for x in xs]
+        def normally(xs):  return [(x, False) for x in xs]
+        def rec(lineno, xspec):
+                x, advance_spec = xspec if tuplep(xspec) else (None, xspec)
+                def attrs(*attrs): return tuple(getattr(x, attr) for attr in attrs)
+                if isinstance(x, ast.AST):
+                        x.lineno = lineno
+                advance_if = ((lambda _: advance_spec) if advance_spec in [True, False] else
+                              (lambda _: False)        if integerp(advance_spec)        else
+                              advance_spec             if functionp(advance_spec)       else
+                              error("Invariant failed in AST location walker: advance spec is: %s.", advance_spec))
+                def handle_body_orelse(x, prechain, intrachain = []):
+                        return chain(rec, (prechain + normally(x.body) + intrachain +
+                                           (([1] +
+                                             normally(x.orelse)) if hasattr(x, "orelse") and x.orelse else [])),
+                                     lineno)
+                reductios = { type(None):        (lambda x: lineno + advance_spec),
+                              ast.Module:        (lambda x: reduce(rec, normally(x.body), lineno)),
+                              ast.FunctionDef:   (lambda x: chain(rec, [advancing(x.decorator_list),
+                                                                        normally(attrs("name", "args", "returns")), [1],
+                                                                        normally(x.body)],
+                                                                  lineno)),
+                              ast.ClassDef:      (lambda x: chain(rec, [advancing(x.decorator_list),
+                                                                        normally(attrs("name", "bases", "keywords",
+                                                                                       "starargs", "kwargs")), [1],
+                                                                        normally(x.body)],
+                                                                  lineno)),
+                              ast.With:          (lambda x: handle_body_orelse(x, normally([x.context_expr, x.optional_vars]) + [1])),
+                              ast.For:           (lambda x: handle_body_orelse(x, normally([x.target, x.test]) + [1])),
+                              ast.If:            (lambda x: handle_body_orelse(x, normally([x.test]) + [1])),
+                              ast.While:         (lambda x: handle_body_orelse(x, normally([x.test]) + [1])),
+                              ast.TryExcept:     (lambda x: handle_body_orelse(x, [], normally(x.handlers))),
+                              ast.ExceptHandler: (lambda x: handle_body_orelse(x, normally([x.type, x.name]) + [1])),
+                              ast.TryFinally:    (lambda x: chain(rec, [[1],
+                                                                        normally(x.body), [1],
+                                                                        normally(x.finalbody)], lineno)) }
+                def default_reductio(x):
+                        if not isinstance(x, ast.AST):
+                                return lineno
+                        for f in x._fields:
+                                fv = getattr(x, f)
+                                [rec(lineno, (fvv, False)) for fvv in (fv if isinstance(fv, list) else [fv])
+                                 if isinstance(fvv, ast.AST)]
+                        return lineno + (1 if isinstance(x, ast.stmt) else 0)
+                return (1 if advance_if(x) else 0) + reductios.get(type(x), default_reductio)(x)
+        return (rec(lineno, (node, False))          if isinstance(node, ast.AST)       else
+                reduce(rec, normally(node), lineno) if isinstance(node, (list, tuple)) else
+                error("AST location assigner only accepts singular AST nodes and lists thereof."))
+
 cl._string_set("*AST-PP-DEPTH*", 0, force_toplevel = t)
-def pp_ast_as_code(x, tab = " " * 8):
-        def indent():
-                return tab * symbol_value("*AST-PP-DEPTH*")
+def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
+        fmtctl = "%%%dd " % ndigits
+        def indent(ast_or_lineno):
+                lineno = (ast_or_lineno.lineno if hasattr(ast_or_lineno, "lineno") else 0)
+                return ((fmtctl % lineno) if line_numbers else
+                        "") + tab * symbol_value("*AST-PP-DEPTH*")
         def iterate(xs):
                 return mapcar(rec, xs)
         def rec(x):
+                ## Expressions
                 def pp_call(x):
-                        return "%s(%s%s%s%s)" % (pp_ast_as_code(x.func),
-                                                 ", ".join(iterate(x.args)),
-                                                 ", ".join(iterate(x.keywords)),
-                                                 (", *%s" % pp_ast_as_code(x.starargs)) if x.starargs else "",
-                                                 (", **%s" % pp_ast_as_code(x.kwargs)) if x.kwargs else "")
+                        return ("%s(%s%s%s%s)" % (pp_ast_as_code(x.func),
+                                                  ", ".join(iterate(x.args)),
+                                                  ", ".join(iterate(x.keywords)),
+                                                  (", *%s" % pp_ast_as_code(x.starargs)) if x.starargs else "",
+                                                  (", **%s" % pp_ast_as_code(x.kwargs)) if x.kwargs else ""))
                 def pp_generatorexp(x):
                         return "%s%s" % (rec(x.elt), "".join(" " + rec(c) for c in x.generators))
                 def pp_comprehension(x):
@@ -344,8 +408,6 @@ def pp_ast_as_code(x, tab = " " * 8):
                         return (rec(x.body) + " if " +
                                 rec(x.test) + " else " +
                                 rec(x.orelse))
-                def pp_module(x):
-                        return "\n".join(iterate(x.body))
                 def pp_args(args):
                         (args, vararg,
                          kwonlyargs, kwarg,
@@ -364,42 +426,47 @@ def pp_ast_as_code(x, tab = " " * 8):
                 def pp_lambda(x):
                         args = rec(x.args)
                         return "lambda%s: %s" % (" " + args if args else "", rec(x.body))
-                def pp_subprogn(body):
-                        with progv({"*AST-PP-DEPTH*": symbol_value("*AST-PP-DEPTH*") + 1}):
-                                return "\n".join(iterate(body)) + "\n"
-                def pp_functiondef(x):
-                        "XXX: ignores __annotations__"
-                        return ("\n".join(indent() + "@" + rec(d) for d in x.decorator_list) +
-                                ("\n" if x.decorator_list else "") +
-                                indent() + "def " + x.name + "(" + rec(x.args) + "):\n" +
-                                pp_subprogn(x.body))
-                def pp_for(x):
-                        return (indent() + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n" +
-                                pp_subprogn(x.body) +
-                                (indent() + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else "")
-                def pp_if(x):
-                        def ifrec(x, firstp):
-                                chainp = len(x.orelse) is 1 and typep(x.orelse[0], ast.If)
-                                return (indent() + ("" if firstp else "el") + "if " + rec(x.test) + ":\n" +
-                                        pp_subprogn(x.body) +
-                                        ("" if not x.orelse else
-                                         (ifrec(x.orelse[0], False) if chainp else
-                                          (indent() + "else:\n" +
-                                           pp_subprogn(x.orelse)))))
-                        return ifrec(x, True)
+                ## Linefuls
                 def pp_Expr(x):
-                        return indent() + rec(x.value)
+                        return indent(x) + rec(x.value)
+                def pp_import(x):
+                        return indent(x) + "import " + ", ".join(iterate(x.names))
                 def pp_assign(x):
-                        return indent() + "%s = %s" % (", ".join(iterate(x.targets)),
-                                                       rec(x.value))
-                def make_trivial_pper(x):
-                        return lambda y: (indent() + x +
+                        return indent(x) + "%s = %s" % (", ".join(iterate(x.targets)),
+                                                        rec(x.value))
+                def make_trivial_pper(name):
+                        ## Assert Break Continue Pass Raise Return
+                        return lambda y: (indent(x) + name +
                                           ((" " + rec(y.value))
                                            if hasattr(y, "value") and y.value else
                                            "") +
                                           "\n")
-                def pp_import(x):
-                        return indent() + "import " + ", ".join(iterate(x.names))
+                ## Multilines
+                def pp_subprogn(body):
+                        with progv({"*AST-PP-DEPTH*": symbol_value("*AST-PP-DEPTH*") + 1}):
+                                return "\n".join(iterate(body)) + "\n"
+                def pp_module(x):
+                        return "\n".join(iterate(x.body))
+                def pp_functiondef(x):
+                        "XXX: ignores __annotations__"
+                        return ("\n".join(indent(d) + "@" + rec(d) for d in x.decorator_list) +
+                                ("\n" if x.decorator_list else "") +
+                                indent(x) + "def " + x.name + "(" + rec(x.args) + "):\n" +
+                                pp_subprogn(x.body))
+                def pp_for(x):
+                        return (indent(x) + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n" +
+                                pp_subprogn(x.body) +
+                                (indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else "")
+                def pp_if(x):
+                        def ifrec(x, firstp):
+                                chainp = len(x.orelse) is 1 and typep(x.orelse[0], ast.If)
+                                return (indent(x) + ("" if firstp else "el") + "if " + rec(x.test) + ":\n" +
+                                        pp_subprogn(x.body) +
+                                        ("" if not x.orelse else
+                                         (ifrec(x.orelse[0], False) if chainp else
+                                          (indent(x.orelse[0]) + "else:\n" +
+                                           pp_subprogn(x.orelse)))))
+                        return ifrec(x, True)
                 map = { ast.arguments:   pp_args,
                         ast.comprehension: pp_comprehension,
                         ast.GeneratorExp:  pp_generatorexp,
@@ -431,11 +498,12 @@ def pp_ast_as_code(x, tab = " " * 8):
                         ast.UnaryOp:     pp_unop,
                         ast.BoolOp:      pp_boolop,
                         ast.Compare:     pp_compare,
-                        ast.Return:      make_trivial_pper("return"),
-                        ast.Raise:       make_trivial_pper("raise"),
-                        ast.Pass:        make_trivial_pper("pass"),
+                        ast.Assert:      make_trivial_pper("assert"),
                         ast.Break:       make_trivial_pper("break"),
                         ast.Continue:    make_trivial_pper("continue"),
+                        ast.Pass:        make_trivial_pper("pass"),
+                        ast.Raise:       make_trivial_pper("raise"),
+                        ast.Return:      make_trivial_pper("return"),
                         ast.Import:      pp_import,
                         }
                 def fail(x): not_implemented("pretty-printing AST node %s" % (type(x),))
