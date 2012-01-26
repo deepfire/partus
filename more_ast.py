@@ -270,18 +270,22 @@ def chain(fn, xs, initial):
         # Its only saving grace is that it's non-consing.
         return reduce(lambda val, x: reduce(fn, x, val), xs, initial)
 
+import operator
+cl._string_set("AML", "", force_toplevel = t)
 def assign_meaningful_locations(node, lineno = 0):
         # Here and thereafter, lineno means 'next free lineno'
         def advancing(xs): return [(x, True)  for x in xs]
         def normally(xs):  return [(x, False) for x in xs]
         def rec(lineno, xspec):
                 x, advance_spec = xspec if tuplep(xspec) else (None, xspec)
-                def attrs(*attrs): return tuple(getattr(x, attr) for attr in attrs)
+                def attrs(*attrs): return reduce(operator.add, (([x] if not isinstance(x, list) else x)
+                                                                for x in (getattr(x, attr) for attr in attrs)
+                                                                if x is not None))
                 if isinstance(x, ast.AST):
                         x.lineno = lineno
-                advance_if = ((lambda _: advance_spec) if advance_spec in [True, False] else
-                              (lambda _: False)        if integerp(advance_spec)        else
-                              advance_spec             if functionp(advance_spec)       else
+                advance_if = ((cl._debug_printf("TF-%s" % type(x).__name__) or (lambda _: advance_spec)) if advance_spec in [True, False] else
+                              (cl._debug_printf("IN-%s" % type(x).__name__) or (lambda _: False))        if integerp(advance_spec)        else
+                              (cl._debug_printf("FN-%s" % type(x).__name__) or advance_spec)             if functionp(advance_spec)       else
                               error("Invariant failed in AST location walker: advance spec is: %s.", advance_spec))
                 def handle_body_orelse(x, prechain, intrachain = []):
                         return chain(rec, (prechain + normally(x.body) + intrachain +
@@ -316,7 +320,13 @@ def assign_meaningful_locations(node, lineno = 0):
                                 [rec(lineno, (fvv, False)) for fvv in (fv if isinstance(fv, list) else [fv])
                                  if isinstance(fvv, ast.AST)]
                         return lineno + (1 if isinstance(x, ast.stmt) else 0)
-                return (1 if advance_if(x) else 0) + reductios.get(type(x), default_reductio)(x)
+                thisname = cl._str_symbol_value("AML") + " %s" % type(x).__name__
+                advance = (1 if advance_if(x) else 0)
+                with cl.progv({"AML": thisname}):
+                        ret = reductios.get(type(x), default_reductio)(x) + advance
+                cl._debug_printf("%d-%s%d: %s%s", lineno, "+" if advance else "-", ret, thisname,
+                                 (" " + x.id) if isinstance(x, ast.Name) else "")
+                return ret
         return (rec(lineno, (node, False))          if isinstance(node, ast.AST)       else
                 reduce(rec, normally(node), lineno) if isinstance(node, (list, tuple)) else
                 error("AST location assigner only accepts singular AST nodes and lists thereof."))
