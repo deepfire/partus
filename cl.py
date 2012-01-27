@@ -1959,23 +1959,25 @@ def _escape_percent(x):
         return x.replace("%", "%%")
 
 def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
-        def format_args():
+        def _do_format(x, args):
                 try:
-                        return (""           if not note else
-                                " - " + note if not args else
-                                (note % _py.tuple((_escape_percent(a) if stringp(a) else a)
-                                                  for a in args)))
+                        return x % (_py.tuple(args))
                 except _cold_error_type as cond:
-                        return "#<error formatting %s into %s: %s>" % (args.__repr__(),
-                                                                       _escape_percent(note.__repr__()),
-                                                                       cond)
-        return _debug_printf("    (%s)  %s:\n      %s" % (_threading.current_thread().name.upper(),
-                                                          _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
-                                                                             callers = callers - 1,
-                                                                             print_fun_line = print_fun_line,
-                                                                             all_pretty = all_pretty),
-                                                          _without_condition_system(format_args)),
-                            # _defaulted(stream, default_stream)
+                        return "#<error formatting %s into %s: %s>" % (args.__repr__(), note.__repr__(), cond)
+        def format_args():
+                return (""           if not note else
+                        " - " + note if not args else
+                        # Unregistered Issue IDEA-MAPXFORM-IF
+                        _do_format(note, ((_escape_percent(a) if stringp(a) else a)
+                                          for a in args)))
+        return _debug_printf("    (%s)  %s:\n      %s",
+                             _threading.current_thread().name.upper(),
+                             _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
+                                                callers = callers - 1,
+                                                print_fun_line = print_fun_line,
+                                                all_pretty = all_pretty),
+                             _without_condition_system(format_args),
+                             # _defaulted(stream, default_stream)
                              )
 
 def _locals_printf(locals, *local_names):
