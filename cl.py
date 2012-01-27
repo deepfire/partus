@@ -1955,15 +1955,26 @@ def _pp_chain_of_frame(x, callers = 5, *args, **keys):
         fs.reverse()
         return _pp_frame_chain(fs, *args, **keys)
 
+def _escape_percent(x):
+        return x.replace("%", "%%")
+
 def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
+        def format_args():
+                try:
+                        return (""           if not note else
+                                " - " + note if not args else
+                                (note % _py.tuple((_escape_percent(a) if stringp(a) else a)
+                                                  for a in args)))
+                except _cold_error_type as cond:
+                        return "#<error formatting %s into %s: %s>" % (args.__repr__(),
+                                                                       _escape_percent(note.__repr__()),
+                                                                       cond)
         return _debug_printf("    (%s)  %s:\n      %s" % (_threading.current_thread().name.upper(),
                                                           _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
                                                                              callers = callers - 1,
                                                                              print_fun_line = print_fun_line,
                                                                              all_pretty = all_pretty),
-                                                          (""           if not note else
-                                                           " - " + note if not args else
-                                                           (note % args))),
+                                                          _without_condition_system(format_args)),
                             # _defaulted(stream, default_stream)
                              )
 
