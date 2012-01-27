@@ -275,12 +275,12 @@ def _type_name(x):
 
 import operator
 cl._string_set("AML", "", force_toplevel = t)
-def assign_meaningful_locations(node, lineno = 0):
+def assign_meaningful_locations(node, lineno = 1):
         # Here and thereafter, lineno means 'next free lineno'
         def advance0(lineno): return lineno
         def advance1(lineno): return lineno + 1
-        def normally(xs):  return [(x, advance0) for x in xs]
-        def advancing(xs): return [(x, advance1) for x in xs]
+        def normally(xs):  return [(x,    advance0) for x in xs]
+        def advancing(xs): return [(x,    advance1) for x in xs]
         def dir(x):        return [(None, (x                           if functionp(x) else
                                            (lambda lineno: lineno + x) if integerp(x)  else
                                            error("Invalid direct advancement specifier: %s.", x.__repr__())))]
@@ -292,11 +292,7 @@ def assign_meaningful_locations(node, lineno = 0):
                                                                 if x is not None))
                 def make_binder(node):
                         def binder(lineno):
-                                if not isinstance(lineno, int):
-                                        error("in BINDER of %s: %s not an integer.", _type_name(node), lineno)
                                 if isinstance(node, ast.AST):
-                                        cl._here("===== setting lineno of %s to %d",
-                                                 _type_name(binder), lineno, all_pretty = t)
                                         node.lineno = lineno
                                 return lineno
                         return binder
@@ -306,27 +302,27 @@ def assign_meaningful_locations(node, lineno = 0):
                                            ((dir(1) +
                                              normally(x.orelse)) if hasattr(x, "orelse") and x.orelse else [])),
                                      lineno)
-                reductios = { type(None):        (lambda x: self_binder()(x)),
-                              ast.Module:        (lambda x: reduce(rec, dir(self_binder()) + normally(x.body), lineno)),
-                              ast.FunctionDef:   (lambda x: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
-                                                                        normally(attrs("name", "args", "returns")), dir(1),
-                                                                        normally(x.body)],
-                                                                  lineno)),
-                              ast.ClassDef:      (lambda x: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
-                                                                        normally(attrs("name", "bases", "keywords",
-                                                                                       "starargs", "kwargs")), dir(1),
-                                                                        normally(x.body)],
-                                                                  lineno)),
-                              ast.With:          (lambda x: handle_body_orelse(x, normally([x.context_expr, x.optional_vars]) + dir(1))),
-                              ast.For:           (lambda x: handle_body_orelse(x, normally([x.target, x.test]) + dir(1))),
-                              ast.If:            (lambda x: handle_body_orelse(x, normally([x.test]) + dir(1))),
-                              ast.While:         (lambda x: handle_body_orelse(x, normally([x.test]) + dir(1))),
-                              ast.TryExcept:     (lambda x: handle_body_orelse(x, [], normally(x.handlers))),
-                              ast.ExceptHandler: (lambda x: handle_body_orelse(x, normally([x.type, x.name]) + dir(1))),
-                              ast.TryFinally:    (lambda x: chain(rec, [dir(self_binder()), dir(1),
-                                                                        normally(x.body), dir(1),
-                                                                        normally(x.finalbody)], lineno)) }
-                def default_reductio(x):
+                reductios = { type(None):        (lambda x, lineno: lineno),
+                              ast.Module:        (lambda x, lineno: reduce(rec, dir(self_binder()) + normally(x.body), lineno)),
+                              ast.FunctionDef:   (lambda x, lineno: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
+                                                                                normally(attrs("name", "args", "returns")), dir(1),
+                                                                                normally(x.body)],
+                                                                          lineno)),
+                              ast.ClassDef:      (lambda x, lineno: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
+                                                                                normally(attrs("name", "bases", "keywords",
+                                                                                               "starargs", "kwargs")), dir(1),
+                                                                                normally(x.body)],
+                                                                          lineno)),
+                              ast.With:          (lambda x, lineno: handle_body_orelse(x, normally([x.context_expr, x.optional_vars]) + dir(1))),
+                              ast.For:           (lambda x, lineno: handle_body_orelse(x, normally([x.target, x.test]) + dir(1))),
+                              ast.If:            (lambda x, lineno: handle_body_orelse(x, normally([x.test]) + dir(1))),
+                              ast.While:         (lambda x, lineno: handle_body_orelse(x, normally([x.test]) + dir(1))),
+                              ast.TryExcept:     (lambda x, lineno: handle_body_orelse(x, [], normally(x.handlers))),
+                              ast.ExceptHandler: (lambda x, lineno: handle_body_orelse(x, normally([x.type, x.name]) + dir(1))),
+                              ast.TryFinally:    (lambda x, lineno: chain(rec, [dir(self_binder()), dir(1),
+                                                                                normally(x.body), dir(1),
+                                                                                normally(x.finalbody)], lineno)) }
+                def default_reductio(x, lineno):
                         if not isinstance(x, ast.AST):
                                 return lineno
                         x.lineno = lineno
@@ -335,14 +331,7 @@ def assign_meaningful_locations(node, lineno = 0):
                                 [rec(lineno, (fvv, advance0)) for fvv in (fv if isinstance(fv, list) else [fv])
                                  if isinstance(fvv, ast.AST)]
                         return lineno + (1 if isinstance(x, ast.stmt) else 0)
-                thisname = cl._str_symbol_value("AML") + " %s" % _type_name(x)
-                with cl.progv({"AML": thisname}):
-                        reductio_ret = reductios.get(type(x), default_reductio)(x)
-                        ret = advance(reductio_ret)
-                cl._debug_printf("%s-%s%s: %s%s %s", lineno, ret - reductio_ret, ret, thisname,
-                                 (" " + x.id) if isinstance(x, ast.Name) else "",
-                                 advance)
-                return ret
+                return advance(reductios.get(type(x), default_reductio)(x, lineno))
         return (rec(lineno, (node, advance0))          if isinstance(node, ast.AST)       else
                 reduce(rec, normally(node), lineno) if isinstance(node, (list, tuple)) else
                 error("AST location assigner only accepts singular AST nodes and lists thereof."))
