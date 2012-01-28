@@ -1,4 +1,27 @@
+#+TITLE:     Venus Project Common Lisp
+#+AUTHOR:    Samium Gromoff
+#+EMAIL:     _deepfire@feelingofgreen.ru
+#+DATE:      2012-01-28 Sat
+#+DESCRIPTION: The birth of an implementation of Common Lisp.
+#+KEYWORDS: lisp, venus, project, futurology
+#+LANGUAGE:  en
+#+OPTIONS:   H:3 num:t toc:t \n:nil @:t ::t |:t ^:t -:t f:t *:t <:t
+#+OPTIONS:   TeX:t LaTeX:t skip:nil d:nil todo:t pri:nil tags:not-in-toc
+#+INFOJS_OPT: view:nil toc:nil ltoc:t mouse:underline buttons:0 path:http://orgmode.org/org-info.js
+#+EXPORT_SELECT_TAGS: export
+#+EXPORT_EXCLUDE_TAGS: noexport
+#+LINK_UP:   http://www.thevenusproject.com/
+#+LINK_HOME: http://www.thevenusproject.com/
+#+STYLE: <link rel="stylesheet" type="text/css" href="style.css" />
+#+XSLT:
+#+STARTUP: odd hidestars
+#+PROPERTY:  tangle cl.py
+#+PROPERTY:  no-expand t
 
+
+* Frost boot
+*** Builtins management
+#+begin_src python +n
 def _python_builtins_dictionary():
         import builtins    as _builtins
         return _builtins.getattr(__builtins__, "__dict__", __builtins__)
@@ -74,7 +97,11 @@ def _distance_oneself_from_python():
 ## o  __(build_class | debug | doc | import | name | package)__
 ## o  _python_builtins_dictionary, _python_builtin_names
 ## o  _python
+#+end_src
 
+*** Imports
+
+#+begin_src python +n
 ###
 ### Some surfacial Common Lisp compatibility.
 ###
@@ -98,7 +125,11 @@ import collections as _collections
 
 import neutrality  as _neutrality
 import frost       as _frost
+#+end_src
 
+*** Wave 0: unspecifically important..
+
+#+begin_src python +n
 def _defaulted(x, value, type = None):
         if x is not None and type is not None:
                 check_type(x, type) # Not a macro, so cannot access the actual defaulted name..
@@ -117,7 +148,11 @@ def _only_specified_keys(**keys):
 def _defaulted_keys(**keys):
         return _py.dict((key, (default if value is None else value))
                         for key, (value, default) in keys.items())
+#+end_src
 
+*** Boot messaging
+
+#+begin_src python +n
 def _fprintf(stream, format_control, *format_args):
         try:
                 _neutrality._write_string(format_control % format_args, stream)
@@ -130,7 +165,11 @@ def _debug_printf(format_control, *format_args):
 def _debug_printf_if(condition, format_control, *format_args):
         if condition:
                 _debug_printf(format_control, *format_args)
+#+end_src
 
+*** First-class namespaces
+
+#+begin_src python +n
 class _namespace(_collections.UserDict):
         def __str__(self):
                 return "#<NAMESPACE %s>" % (_py.repr(self.name),)
@@ -155,7 +194,11 @@ class _namespace(_collections.UserDict):
                 return value
 _namespace_type_and_constructor = _namespace
 _namespace = _namespace_type_and_constructor("")
+#+end_src
 
+*** Meta-boot 
+
+#+begin_src python +n
 ## 1. trivial enumeration for later DEFUN/DEFCLASS
 __boot_defunned__, __boot_defclassed__ = _py.set(),  _py.set()
 def boot_defun(fn):     __boot_defunned__.add(fn);    return fn
@@ -216,7 +259,11 @@ class _storyteller(_collections.UserDict):
                 self.__dict__.update(_py.dict(__call__ = lambda *_, **__: True))
 _storyteller = _storyteller()
 story = _storyteller.advance
+#+end_src
 
+*** Cold type names
+
+#+begin_src python +n
 _cold_class_type       = _py.type
 _cold_condition_type   = _py.BaseException
 _cold_error_type       = _py.Exception
@@ -227,7 +274,12 @@ _cold_function_type    = _types.FunctionType.__mro__[0]
 _cold_tuple_type       = _py.tuple
 _cold_string_type      = _py.str
 _cold_list_type        = _py.list
+#+end_src
 
+* Cold boot
+*** As-of-yet -homeless type predicates..
+
+#+begin_src python +n
 @boot_defun
 def stringp(x):        return _py.isinstance(x, _cold_string_type)
 @boot("symbol", lambda _, o: (_py.isinstance(o, _cold_function_type) or
@@ -244,7 +296,11 @@ def _python_type_p(x): return _py.isinstance(o, _cold_class_type)
 @boot_defun
 def type_of(x):
         return _py.type(x)
+#+end_src
 
+*** Boot listery and consery (beware model issues)
+
+#+begin_src python +n
 def _tuplep(x):
         return _py.isinstance(x, _cold_tuple_type)
 
@@ -265,7 +321,11 @@ def cons(car, cdr): return (x, y)
 def car(x):         return x[0] if x else nil
 @boot_defun
 def first(x):       return x[0] if x else nil
+#+end_src
 
+*** Wave 1: unspecifically important
+
+#+begin_src python +n
 @boot_defun
 def identity(x):  return x
 
@@ -292,7 +352,11 @@ def _map_into_hash(f, xs,
                 if key_test(k) and value_test(v):
                         acc[k] = v
         return acc
+#+end_src
 
+*** Dynamic scope: early core
+
+#+begin_src python +n
 __global_scope__ = make_hash_table()
 
 class _thread_local_storage(_threading.local):
@@ -350,7 +414,11 @@ def boundp(symbol):
 @boot_defun
 def set(symbol_, value):
         return _string_set(the(symbol, symbol_).name, value)
+#+end_src
 
+*** Boot conditions
+
+#+begin_src python +n
 def _conditionp(x):
         return _py.isinstance(x, _cold_condition_type)
 
@@ -391,6 +459,13 @@ def error(datum, *args, **keys):
         ## the typical SIGNAL/INVOKE-DEBUGGER thing?
         raise _coerce_to_condition(datum, *args, **keys)
 
+#+end_src
+
+*** Package system
+***** Package system conditions
+
+#+begin_src python +n
+
 def _package_not_found_error(x):
         error("The name \"%s\" does not designate any package.", x)
 
@@ -403,7 +478,11 @@ def _symbols_not_accessible_error(package, syms):
                 return "\"%s\"" % x if stringp(x) else _print_nonkeyword_symbol(x)
         error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
               package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
+#+end_src
 
+***** Package system classes
+
+#+begin_src python +n
 _namespace.grow("PACKAGES")
 
 @boot_defclass
@@ -632,7 +711,11 @@ NIL = nil = _cold_make_nil()
 
 @boot_defun
 def null(x): return x is nil
+#+end_src
 
+***** Package system core
+
+#+begin_src python +n
 def _intern_in_package(x, p):
         s, presentp = (error("X must be a symbol: %s.", _py.repr(x)) if not _py.isinstance(x, _py.str) else
                        (p.accessible.get(x), True)                   if x in p.accessible              else
@@ -717,7 +800,11 @@ def export(symbols, package = None):
                 self.internal.add(sym)
         package.external |= symset
         return True
+#+end_src
 
+***** Package system init
+
+#+begin_src python +n
 def _init_package_system_0():
         global __packages__
         global __keyword
@@ -765,7 +852,11 @@ def _init_package_system_0():
 _init_package_system_0()
 
 _unboot_set("symbol")
+#+end_src
 
+*** GENSYM
+
+#+begin_src python +n
 __gensym_counter__ = 0
 
 def _gensymname(x = "N"):
@@ -777,7 +868,11 @@ def _gensymname(x = "N"):
 @boot_defun
 def gensym(x = "G"):
         return make_symbol(_gensymname(x))
+#+end_src
 
+*** Non-local transfers of control
+
+#+begin_src python +n
 @boot_defun
 def unwind_protect(form, fn):
         "For the times, when statements won't do."
@@ -846,7 +941,11 @@ def return_from(nonce, value):
                  nonce                                             if stringp(nonce)   else
                  error("In RETURN-FROM: nonce must either be a string, or a function designator;  was: %s.", _py.repr(nonce)))
         throw(nonce, value)
+#+end_src
 
+*** Condition system: early core
+
+#+begin_src python +n
 ## standard globals:
 _string_set("*DEBUGGER-HOOK*",  nil)
 
@@ -877,7 +976,11 @@ def _run_hook(variable, condition):
         if old_hook:
                 with progv({ variable: nil }):
                         old_hook(condition, old_hook)
+#+end_src
 
+*** Debugger attempt
+
+#+begin_src python +n
 def _flush_standard_output_streams():
         _warn_not_implemented()
 
@@ -927,7 +1030,11 @@ def invoke_debugger(condition):
                        "*PACKAGE*", _str_symbol_value("*PACKAGE*"))
         _flush_standard_output_streams()
         return funcall_with_debug_io_syntax(_invoke_debugger, condition)
+#+end_src
 
+*** Types
+
+#+begin_src python +n
 ## basic stuff
 def integerp(o):      return _py.isinstance(o, _py.int)
 def floatp(o):        return _py.isinstance(o, _py.float)
@@ -1187,7 +1294,11 @@ def _not_of_type(x):
         return lambda y: not typep(y, x)
 
 _unboot_set("typep")
+#+end_src
 
+*** Toplevel names: @DEFUN and @DEFCLASS
+
+#+begin_src python +n
 doit = False
 def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
         def cold_definer(name_or_obj):
@@ -1221,7 +1332,16 @@ defun_with_block = _cold_defun_with_block = _make_cold_definer("%COLD-DEFUN-WITH
 for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  _py.globals())
 for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
 doit = True
+#+end_src
 
+* Chapter 1: Life
+
+    We now have symbols, packages, types, semi-proper DEFUN/DEFCLASS
+    and the top-level part of dynamic scope.
+
+*** Delayed class definitions
+
+#+begin_src python +n
 @defclass
 class nil():
         @classmethod
@@ -1256,11 +1376,19 @@ class package_error(error.python_type):
 @defclass
 class simple_package_error(simple_error.python_type, package_error.python_type):
         pass
+#+end_src
 
+*** Rudimentary multiple values
+
+#+begin_src python +n
 @defun
 def values(*xs):
         return xs
+#+end_src
 
+*** Early object system
+
+#+begin_src python +n
 @defun
 def find_class(x, errorp = t):
         _not_implemented()
@@ -1270,7 +1398,11 @@ def make_instance(class_or_name, **initargs):
         return (class_or_name             if _py.isinstance(class_or_name, _cold_class_type) else
                 class_or_name.python_type if symbolp(class_or_name)                          else
                 error("In MAKE-INSTANCE %s: first argument must be a class specifier.", class_or_name))(**initargs)
+#+end_src
 
+*** PRINT-UNREADABLE-OBJECT, sort of
+
+#+begin_src python +n
 def print_unreadable_object(object, stream, body, identity = None, type = None):
         write_string("#<", stream)
         if type:
@@ -1280,6 +1412,11 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, " {%x}", _py.id(object))
         write_string(">", stream)
 
+#+end_src
+
+*** Readtable and WITH-STANDARD-IO-SYNTAX
+
+#+begin_src python +n
 @defclass
 class readtable(_collections.UserDict):
         def __init__(self, case = _keyword("upcase")):
@@ -1383,7 +1520,29 @@ def _set_settable_standard_globals():
         _string_set("*READTABLE*",                 __standard_io_syntax__["*READTABLE*"])
 
 _set_settable_standard_globals()
+#+end_src
 
+*** Type naming policy, unfinished (stale?)
+
+    Two aspects are at play: the type aspect and the function aspect.
+    
+    In Python the type name has only one value associated with it, and
+    this value works both as a type specifier, and as its constructor
+    function -- everything in single value namespace.
+    
+    In CL this isn't so, and the symbol can have a function associated
+    with it, at the same time it can be interepreted as a type
+    specifier on its own, and still it might have no value attached to
+    it (this is, in fact, the common case).
+    
+    To be able to correctly reflect that picture, we need to introduce
+    an artificial split into the single python namespace.  So:
+    
+     - ...
+
+*** Derived names:  %NoneType, REDUCE, SORT, %CURRY, STRINGP, %CLASSP, %NONEP etc.
+
+#+begin_src python +n
 _NoneType         = _py.type(None)
 
 pi                = _math.pi
@@ -1398,7 +1557,11 @@ def _classp(x):     return _py.isinstance(x, _py.type)
 def _frozensetp(o): return _py.isinstance(o, _py.frozenset)
 def _setp(o):       return _py.isinstance(o, (_py.set, _py.frozenset))
 def _nonep(o):      return o is None
+#+end_src
 
+*** Constants
+
+#+begin_src python +n
 most_positive_fixnum = 67108864
 
 def _poor_man_let(*values_and_body):
@@ -1453,7 +1616,11 @@ def _cold_constantp(form):
                  form.package.name == "COMMON-LISP"     and
                  form.name in ["QUOTE"]))
 constantp = _cold_constantp
+#+end_src
 
+*** Basic string/char functions and %CASE-XFORM
+
+#+begin_src python +n
 @defun
 def string_upcase(x):     return x.upper()
 @defun
@@ -1478,7 +1645,14 @@ def _case_xform(type, s):
         if not (symbolp(type) and type.package.name == "KEYWORD"):
                 error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", _py.type(type), _print_symbol(type))
         return _case_attribute_map[type.name](s)
+#+end_src
 
+*** Possibly dangling cold boot code
+
+    I wonder if this boot state infrastructure is a good idea:
+    - it tangles the flow of things (?)
+
+#+begin_src python +n
 def _global(x):
         """This is important due to the single namespace, and the
 consequent shadowing of various specifiers."""
@@ -1499,7 +1673,11 @@ def _cold_probe_file(pathname):
         assert(stringp(pathname))
         return _os.path.exists(the(string, pathname))
 probe_file = _cold_probe_file
+#+end_src
 
+*** %_arg
+
+#+begin_src python +n
 def _0arg(*args):
         return args[0]
 
@@ -1508,7 +1686,12 @@ def _1arg(*args):
 
 def _narg(n, *args):
         return args[n]
+#+end_src
 
+*** Some python system stuff
+***** Python module compilation
+
+#+begin_src python +n
 def _load_code_object_as_module(name, co, filename = "", builtins = None, globals = None, locals = None, register = True):
         check_type(co, _py.type(_load_code_object_as_module.__code__))
         mod = _imp.new_module(name)
@@ -1550,7 +1733,11 @@ def _py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys)
 def _ast_compiled_name(name, *body, **keys):
         mod, globals, locals = _py_compile_and_load(*body, **keys)
         return locals[name]
+#+end_src
 
+***** Python frames
+
+#+begin_src python +n
 def _all_threads_frames():
         return _sys._current_frames()
 
@@ -1625,7 +1812,11 @@ def _fun_filename(f):    return f.co_filename
 def _fun_firstlineno(f): return f.co_firstlineno
 def _fun_bytecode(f):    return f.co_code
 def _fun_constants(f):   return f.co_consts
+#+end_src
 
+***** Frame pretty-printing
+
+#+begin_src python +n
 def _print_function_arglist(f):
         argspec = _inspect.getargspec(f)
         return ", ".join(argspec.args +
@@ -1674,7 +1865,11 @@ def _pp_chain_of_frame(x, callers = 5, *args, **keys):
 
 def _escape_percent(x):
         return x.replace("%", "%%")
+#+end_src
 
+***** Higher-level debug trace functions
+
+#+begin_src python +n
 def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
         def _do_format(x, args):
                 try:
@@ -1702,7 +1897,11 @@ def _locals_printf(locals, *local_names):
         _fprintf(_sys.stderr, ", ".join((("%s: %%s" % x) if stringp(x) else "%s")
                                         for x in local_names) + "\n",
                  *((locals[x] if stringp(x) else "\n") for x in local_names))
+#+end_src
 
+***** Raw data of frame research 
+
+#+begin_src python +n
 # >>> dir(f)
 # ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
 # "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
@@ -1887,7 +2086,12 @@ def _example_frame():
 # print >>self.stdout, "LEAVING RECURSIVE DEBUGGER"
 # sys.settrace(self.trace_dispatch)
 # self.lastcmd = p.lastcmd
+#+end_src
 
+*** Tools
+***** Alist/plist extensions
+
+#+begin_src python +n
 def _alist_plist(xs):
         return append(*xs)
 
@@ -1906,7 +2110,11 @@ def _hash_table_alist(xs):
 
 def _alist_hash_table(xs):
         return _py.dict(xs)
+#+end_src
 
+***** %CACHE
+
+#+begin_src python +n
 class _cache(_collections.UserDict):
         def __init__(self, filler):
                 self.filler = filler
@@ -1935,7 +2143,11 @@ def _make_timestamping_cache(map_computer):
 
 def _read_case_xformed(x):
         return _case_xform(_str_symbol_value("*READ-CASE*"), x)
+#+end_src
 
+***** Pergamum 0
+
+#+begin_src python +n
 def _if_let(x, consequent, antecedent = lambda: None):
         return consequent(x) if x else antecedent()
 
@@ -2026,6 +2238,11 @@ def _defwith(name, enter, exit, **initargs):
                                  __exit__  = exit))
         return _py.type(name, (object,), initargs)
 
+#+end_src
+
+***** Lesser non-CL tools
+
+#+begin_src python +n
 class _servile():
         def __repr__(self):
                 return "#%s(%s)" % (_py.type(self).__name__,
@@ -2042,6 +2259,12 @@ def _gen(n = 1, x = "G", gen = gensym):
 def _gensyms(**initargs):     return _gen(gen = gensym,      **initargs)
 def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
+#+end_src
+
+*** Generic
+***** Basic functions
+
+#+begin_src python +n
 @defun
 def eq(x, y):
         return x is y
@@ -2106,7 +2329,11 @@ def _xorf(x, y):
 
 def _nxorf(x, y):
         return (x and y) or not (x or y)
+#+end_src
 
+***** Predicates
+
+#+begin_src python +n
 @defun
 def evenp(x):         return not (x % 2)
 @defun
@@ -2117,7 +2344,11 @@ def zerop(x):         return x == 0
 def plusp(x):         return x > 0
 @defun
 def minusp(x):        return x < 0
+#+end_src
 
+***** Conses
+
+#+begin_src python +n
 @defun
 def cdr(x):           return x[1:]  if x  else nil
 @defun
@@ -2140,7 +2371,11 @@ def pop(xs):
                 return x
         else:
                 return nil
+#+end_src
 
+***** Functions
+
+#+begin_src python +n
 @defun
 def complement(f):
         return lambda x: not f(x)
@@ -2149,6 +2384,11 @@ def complement(f):
 def constantly (x):
         return lambda *args: x
 
+#+end_src
+
+***** Sequences
+
+#+begin_src python +n
 @defun
 def stable_sort(xs, predicate):
         return sorted(xs, key = _functools.cmp_to_key(predicate))
@@ -2388,7 +2628,11 @@ adjacent elements of XS."""
                         acc.append(x)
                 acc.append(xs[-1])
         return acc
+#+end_src
 
+***** String functions
+
+#+begin_src python +n
 @defun
 def string_equal(xs, ys):            return xs == ys
 @defun
@@ -2411,7 +2655,11 @@ def string_left_trim(cs, s):
 @defun
 def string_trim(cs, s):
         return s.strip("".join(cs))
+#+end_src
 
+***** Sets
+
+#+begin_src python +n
 @defun
 def union(x, y):
         return x | y
@@ -2419,7 +2667,11 @@ def union(x, y):
 @defun
 def intersection(x, y):
         return x & y
+#+end_src
 
+***** Dicts
+
+#+begin_src python +n
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
 def _maphash(f, dict) -> _py.list:
         return [ f(k, v) for k, v in dict.items() ]
@@ -2450,6 +2702,11 @@ def _symbol_python_type(symbol_, if_not_a_type = "error"):
 def _symbol_type_predicate(symbol):
         return symbol.type_predicate if _py.hasattr(the(symbol, symbol_), "type_predicate") else nil
 
+#+end_src
+
+*** Early dynamic scope
+
+#+begin_src python +n
 class _env_cluster(object):
         def __init__(self, cluster):
                 self.cluster = cluster
@@ -2492,6 +2749,12 @@ with progv(foovar = 3.14,
                 return _env_cluster(vars if hash_table_p(vars) else
                                     _coerce_cluster_keys_to_symbol_names(cluster))
 
+#+end_src
+
+* Chapter 2: Better life (+ dynamic scope)
+*** DANGLING CODE
+
+#+begin_src python +n
 __modular_noise__    = _py.frozenset(_load_text_as_module("", "").__dict__)
 
 def _symbol_accessible_in(x, package):
@@ -2504,6 +2767,11 @@ def coerce(type, x):
         return (x if typep(x, type) else
                 _not_implemented("actual coercion"))
 
+#+end_src
+
+*** Lisp packages/symbols vs. python modules/names
+
+#+begin_src python +n
 def _lisp_symbol_python_name(sym):
         return _frost.lisp_symbol_name_python_name(sym.name)
 
@@ -2537,7 +2805,58 @@ def _lisp_symbol_ast(sym, current_package):
                 _ast_index(_ast_attribute(_ast_index(_ast_attribute(_ast_name("sys"), "modules"), _ast_string(packname)),
                                           "__dict__"),
                            _ast_string(symname)))
+#+end_src
 
+*** CL namespaces
+***** Factology
+
+#+begin_src common-lisp :tangle no
+ * (defmacro yay (x) `(a))
+ ; in: DEFMACRO YAY
+ ;     (LET* ((X (CAR (CDR #:WHOLE628))))
+ ;       (BLOCK YAY '(A)))
+ ; 
+ ; caught STYLE-WARNING:
+ ;   The variable X is defined but never used.
+ ; 
+ ; compilation unit finished
+ ;   caught 1 STYLE-WARNING condition
+
+ YAY
+ * (fboundp 'yay)
+
+ T
+ * (symbol-function 'yay)
+
+ #<CLOSURE (LAMBDA (&REST SB-C::ARGS)) {1002CA2269}>
+ * (fdefinition 'yay)
+
+ #<CLOSURE (LAMBDA (&REST SB-C::ARGS)) {1002CA2269}>
+ * (function yay)
+
+ #<CLOSURE (LAMBDA (&REST SB-C::ARGS)) {1002CA2269}>
+
+ * (setf (symbol-function 'yay) (lambda (z) z))
+
+ #<FUNCTION (LAMBDA (Z)) {1002CC0099}>
+ * (symbol-function 'yay)
+
+ #<FUNCTION (LAMBDA (Z)) {1002CC0099}>
+ * (fdefinition 'yay)
+
+ #<FUNCTION (LAMBDA (Z)) {1002CC0099}>
+ * (setf (fdefinition 'yay) (lambda (z) z))
+
+ #<FUNCTION (LAMBDA (Z)) {1002CE8F79}>
+ * (macroexpand-1 '(yay 1))
+
+ (A)
+ T
+#+end_src
+
+***** Functions
+
+#+begin_src python +n
 def _variable_kind(name):
         check_type(name, symbol)
         # (ecase kind
@@ -2762,7 +3081,11 @@ def _set_function_definition(function):
 @defun(intern("_set_macro_definition")[0])
 def _set_macro_definition(function):
         return _do_set_macro_definition(function, intern(function.__name__)[0])
+#+end_src
 
+*** Symbol / python name tools
+
+#+begin_src python +n
 def _read_python_toplevel_name(f):
         symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
         symbol = _intern(symbol_name)[0]
@@ -2773,7 +3096,11 @@ def _coerce_to_symbol(s_or_n, package = None):
 
 # requires that __keyword is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
 def _i(x):                       return _intern(the(string, x).upper(), None)[0]
+#+end_src
 
+*** IMPORT
+
+#+begin_src python +n
 @defun
 def import_(symbols, package = None, populate_module = t):
         p = _coerce_to_package(package)
@@ -2794,7 +3121,11 @@ def import_(symbols, package = None, populate_module = t):
                                 python_name = _frost.lisp_symbol_name_python_name(s.name)
                                 module.__dict__[python_name] = s.value
         return t
+#+end_src
 
+*** Condition system disabling
+
+#+begin_src python +n
 def _without_condition_system(body, reason = ""):
         if _frost.pytracer_enabled_p():
                 try:
@@ -2804,7 +3135,11 @@ def _without_condition_system(body, reason = ""):
                         _frost.enable_pytracer()
         else:
                 return body()
+#+end_src
 
+*** Condition system init
+
+#+begin_src python +n
 def _init_condition_system():
         _frost.enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
 
@@ -2821,10 +3156,19 @@ _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
                                                                 "EXECUTE"])
 
 _init_condition_system()
+#+end_src
 
+* Chapter 3: Still better life (+ condition system)
+*** Rudimentary character type
+
+#+begin_src python +n
 @defclass
 class base_char(): pass
+#+end_src
 
+*** Early-earlified streaming
+
+#+begin_src python +n
 @defun
 def streamp(x):                     return typep(x, stream)
 
@@ -2904,7 +3248,11 @@ at which the file specified by PATHSPEC was last written
 
 def _file_name(x):
         return parse_namestring(the(file_stream, x).name)[0]
+#+end_src
 
+*** DESCRIBE
+
+#+begin_src python +n
 # def _get_info_value(name, type, env_list = None):
 #         def lookup(env_list):
 # def _info(class, type, name, env_list = None):
@@ -3009,7 +3357,11 @@ def describe(object, stream_designator = None):
         stream_designator = _defaulted(stream_designator, _str_symbol_value("*STANDARD-OUTPUT*"))
         with progv({"*PRINT-RIGHT-MARGIN*": 72}):
                 describe_object(object, stream_designator)
+#+end_src
 
+*** Stream types and functions
+
+#+begin_src python +n
 def open_stream_p(x):
         return not the(stream, x).closed
 
@@ -3086,7 +3438,11 @@ def _coerce_to_stream(x):
         return (x                                      if streamp(x) else
                 _str_symbol_value("*STANDARD-OUTPUT*") if x is t else
                 error("%s cannot be coerced to a stream.", x))
+#+end_src
 
+*** Stream output functions and FORMAT
+
+#+begin_src python +n
 def write_char(c, stream = t):
         write_string(c, stream)
         return c
@@ -3143,7 +3499,11 @@ For details on how the CONTROL-STRING is interpreted, see Section 22.3
                 return nil
         else:
                 return string
+#+end_src
 
+*** Condition types and MAKE-CONDITION
+
+#+begin_src python +n
 def _conditionp(x):
         return typep(x, condition)
 
@@ -3209,7 +3569,11 @@ def _warn_not_implemented(x = None):
         warn(_not_implemented_warning,
               x if x is not None else
               _caller_name())
+#+end_src
 
+*** Functions: EQ, EQL, FUNCTION, CONSTANTP
+
+#+begin_src python +n
 @defun
 def function(name):
         """function name => function
@@ -3303,7 +3667,11 @@ declared to be the names of constant variables)."""
         return (typep(form, (or_, integer, float, complex, string)) or
                 keywordp(form) or form in [t, nil, pi]                 or
                 (_tuplep(form) and _py.len(form) == 2 and form[0] is quote_))
+#+end_src
 
+*** %READ-SYMBOL
+
+#+begin_src python +n
 def _read_symbol(x, package = None, case = None):
         # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
         case = _defaulted_to_var(case, "*READ-CASE*")
@@ -3320,7 +3688,17 @@ def _read_symbol(x, package = None, case = None):
                                           if index != -1 else
                                           (x, _coerce_to_package(package)))))
         return _intern(_case_xform(case, name), p)[0]
+#+end_src
 
+*** Rudimentary pathnames
+
+    Relevant sections:
+
+    - 19.2.2.1.2 Case in Pathname Components          :: http://clhs.lisp.se/Body/19_bbab.htm
+    - 19.2.2.1.2.1 Local Case in Pathname Components  :: http://clhs.lisp.se/Body/19_bbaba.htm
+    - 19.2.2.1.2.2 Common Case in Pathname Components :: http://clhs.lisp.se/Body/19_bbabb.htm
+
+#+begin_src python +n
 def _namestring_components(x):
         dirname, basename = _os.path.split(x)
         return _if_let(position(".", basename, from_end = t),
@@ -3489,7 +3867,11 @@ def _init_pathnames():
                                                                     default_pathname = t)[0]) # T is junk, but avoid a bootstrap loop
 
 _init_pathnames()
+#+end_src
 
+***** Sub-standard pathname functions
+
+#+begin_src python +n
 def _cold_merge_pathnames(pathname, default_pathname = None, default_version = None):
         """merge-pathnames pathname &optional default-pathname default-version
 
@@ -3618,7 +4000,11 @@ together."""
         elif not name_supplied_p:
                 pass
         return _os.path.join(x, y)
+#+end_src
 
+*** Earlified streaming
+
+#+begin_src python +n
 @defun
 def stream_external_format(stream): return _keyword(stream.encoding)
 
@@ -3669,12 +4055,20 @@ def _stream_as_string(stream):
 def _file_as_string(filename):
         with _py.open(filename, "r") as f:
                 return _stream_as_string(f)
+#+end_src
 
+*** %COLD-PRIN1-TO-STRING
+
+#+begin_src python +n
 def _cold_prin1_to_string(x):
         return x.__repr__()
 
 prin1_to_string = _cold_prin1_to_string
+#+end_src
 
+*** Condition system
+
+#+begin_src python +n
 def _report_handling_handover(cond, frame, hook):
         format(_sys.stderr, "Handing over handling of %s to frame %s\n",
                prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
@@ -3813,7 +4207,11 @@ def ignore_errors(body):
         return handler_case(body,
                             (Exception,
                              lambda _: None))
+#+end_src
 
+*** Restarts
+
+#+begin_src python +n
 @defclass
 class restart(_servile):
         def __str__(self):
@@ -4048,7 +4446,11 @@ executes the following:
         assert(stringp(restart) or _restartp(restart))
         restart = restart if _restartp(restart) else find_restart(restart)
         return invoke_restart(restart, *restart.interactive_function())
+#+end_src
 
+*** Cold printer
+
+#+begin_src python +n
 def _print_string(x, escape = None, readably = None):
         """The characters of the string are output in order. If printer escaping
 is enabled, a double-quote is output before and after, and all
@@ -4222,7 +4624,11 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
         terpri(stream)
         write(object, stream = stream, escape = t, pretty = t)
         return object
+#+end_src
 
+*** Cold reader
+
+#+begin_src python +n
 _string_set("*READ-CASE*", _keyword("upcase"))
 
 def parse_integer(xs, junk_allowed = nil, radix = 10):
@@ -4490,7 +4896,11 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
         # _here("lastly %s" % (ret,))
         return ret
 read = _cold_read
+#+end_src
 
+*** SEX pretty-printer
+
+#+begin_src python +n
 _string_set("*SEX-JUSTIFICATION*", 0)
 def _sex_justification(): return _str_symbol_value("*SEX-JUSTIFICATION*")
 def _sex_space():         return " " * _sex_justification()
@@ -4566,7 +4976,12 @@ def _pp_sex(sex, initial_depth = None):
         with progv({ "*SEX-JUSTIFICATION*": _defaulted_to_var(initial_depth, "*SEX-JUSTIFICATION*") }):
                 ret = code_interp_rec(code, sex)
                 return ret
+#+end_src
 
+* AST
+*** AST basics
+
+#+begin_src python +n
 def _astp(x):        return typep(x, _ast.AST)
 
 def _coerce_to_ast_type(type):
@@ -4675,6 +5090,11 @@ def _ast_assign(to, value):
 def _ast_return(node):
         return _ast.Return(value = the(_ast.AST, node))
 
+#+end_src
+
+*** A very primitive AST-friendly lambda list mechanism + FunctionDef node creator
+
+#+begin_src python +n
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
 #              arg* kwonlyargs, identifier? kwarg,
 #              expr? kwargannotation, expr* defaults,
@@ -4731,6 +5151,11 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                                                             ([args] if args else []) +
                                                                             ([keys] if keys else [])))))))
 
+#+end_src
+
+*** AST -> SEX
+
+#+begin_src python +n
 def _read_ast(x):
         def rec(x):
                 return (x.n                               if _py.isinstance(x, _ast.Num)   else
@@ -4745,6 +5170,85 @@ def _read_ast(x):
                    ):
                 return rec(x)
 
+#+end_src
+
+*** Rich AST
+***** Free variable calculation thoughts
+
+     - except for special cases, it (the set of FV) is
+       (mapsetn #'_ir_free_vars (ir-walkable-fields o))
+     - walkable fields are:
+       - fields annotated as being of type __ast_walkable_field_types__
+       - fields, for which there is a "walk" declaration
+     - special cases are:
+       - Name:                { self.id }
+       - Lambda:              (+ (free self.args) (- (free self.body) (binds self.args)))
+       - *Comp|GeneratiorExp: It could be as simple as:
+
+                                  (+ (free self.generators) (- (free self.elt) (binds self.generators)))
+
+                              ..however, it's more complex than that: succeeding generators are evaluated
+                              in a lexical environment extended by bindings established by previous generators:
+
+                              (m-v-bind (free bound)
+                                  (labels ((gch-free (xs acc-binds)
+                                             (if xs
+                                                 (m-v-bind (cfree finbound)
+                                                     (gch-free (rest xs) (+ acc-binds (binds (first xs))))
+                                                   (values (+ (- (free (first xs)) acc-binds) cfree)
+                                                           finbound))
+                                                 (values nil acc-binds))))
+                                    (gch-free self.generators ()))
+                                (values free bound))
+
+                              NOTE: it was a neat exercise, and it much helped to shape the thought
+                              process documented below.
+
+       - arguments:     free: (+ (free self.args) (free self.varargannotation) (free self.defaults)
+                                 (free self.kwonlyargs) (free self.kwargannotation) (free self.kwdefaults))
+
+      Intercession: if we decide to go with the upward out-bounded-ness protocol,
+      when do we stop propagation?  The details, so far apparent, are:
+
+         - default to upward propagation
+         - customize at parents "owning" the bindings
+         - must cooperate with free var computation, for proper free cancellation
+           - single, shared pass?
+         - Q: whether all bindings affect free vars the same way?
+           - honest FunctionDef/Lambda/comprehension/With bindings vs. *Assign/For
+             - the owner is calculated much the same way, modulo global/nonlocal
+             - the relevance of the possibility of actual un"bound"ed-ness..
+               ..patchable by the means of _py.locals()? : -D
+             - we're bound (ha) to be overly-optimistic about "bound"ed-ness, as,
+               due to the lack of CFA, we must be.
+
+      ### The thought process stopped here:
+
+       - FunctionDef:         (+ (refs self.decorators) (refs self.args) (refs self.annotations)
+                                (- (free self.body) (binds self.args)))
+       - ClassDef:            (+ (refs self.decorators) (refs self.classargs)
+                                (- (free self.body) (binds self.classargs)))
+       - comprehension:       (+ (refs self.iter) (refs self.ifs) <see below>)
+                             binds are:
+         - outward, not for "self"
+         - only for Names being direct children of target, List, Tuple and Starred;
+                             the rest are deemed refs;
+         - possibly mutating structure.
+                             It is, therefore, concluded, that comprehensions must not be processed
+                             separately, but rather in part of parent *Comp/Generator processing.
+       - *Assign:             Neatly solved by upward out-boundedness protocol. 
+       - Import*:             Same problem as *Assign (almost: can only rebind names, not mutate structure).
+       - Global/Nonlocal:     Related to the same problem as *Assign.
+       - For:                 (+ (refs self.target <see the above complication in comprehension>)
+                                (refs self.iter) (- (+ (free self.body) (free self.orelse))
+                                                    (binds self.target <again, above complication>)))
+                             Same problem as *Assign.
+       - With:                only (trivial) complication is potential None-ness of optional_vars
+       - TryExcept/ExceptHandler:    much the same situation as with *Comp|GeneratiorExp/comprehension,
+                             and much the same solution
+***** Rich AST definition machinery
+
+#+begin_src python +n
 _ast_info = _poor_man_defstruct("_ast_info",
                                 "type",
                                 "fields",     # each field is _py.dict(name, type, walk, [default])
@@ -4786,7 +5290,11 @@ def _ast_info_check_args_type(info, args, atreep = t):
 
 def _ast_ensure_stmt(x):
         return x if typep(x, _ast.stmt) else _ast.Expr(the(_ast.AST, x))
+#+end_src
 
+***** AST/Atree bound/free calculation
+
+#+begin_src python +n
 # (defvar *bound-free-recursor*)
 def _bound_free_recursor():
         return _str_symbol_value("*BOUND-FREE-RECURSOR*")
@@ -4820,7 +5328,11 @@ def _atree_bound_free(atreexs):
 def _atree_bound(atree): return _atree_bound_free(atree)[0]
 def _atree_free(atree):  return _atree_bound_free(atree)[1]
 def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
+#+end_src
 
+***** @DEFAST
+
+#+begin_src python +n
 def defast(fn):
         ### generic tools
         def parse_defbody_ast(names, asts, valid_declarations = make_hash_table()):
@@ -4989,6 +5501,11 @@ def defast(fn):
 _register_astifier_for_type(symbol.python_type, nil, (lambda sym: _ast_funcall("_find_symbol_or_fail",
                                                                                [symbol_name(sym)])))
 
+#+end_src
+
+*** Rich AST definitions
+
+#+begin_src python +n
 # mod = Module(stmt* body)
 #     | Interactive(stmt* body)
 #     | Expression(expr body)
@@ -5052,12 +5569,12 @@ def _ast_FunctionDef(name:            string,
                         free,
                         _py.set())        # these do not escape..
 #       | ClassDef(identifier name,
-#                  expr* bases,
-#                  keyword* keywords,
-#                  expr? starargs,
-#                  expr? kwargs,
-#                  stmt* body,
-#                  expr* decorator_list)
+# 		   expr* bases,
+# 		   keyword* keywords,
+# 		   expr? starargs,
+# 		   expr? kwargs,
+# 		   stmt* body,
+# 		   expr* decorator_list)
 @defast
 def _ast_ClassDef(name:            string,
                   bases:          (pylist, _ast.expr),
@@ -5501,7 +6018,12 @@ def _ast_alias(name:    string,
         def bound_free(): (_py.set([] if _nonep(asname) else [asname]),
                            _py.set(),
                            _py.set())
+#+end_src
 
+* Atrees (low-level IR)
+*** Python value -> Atree
+
+#+begin_src python +n
 def _try_atreeify_list(xs):
         ret = []
         for x in xs:
@@ -5549,7 +6071,11 @@ def _atreeify_constant(x):
         return (atree if successp else
                 error("Cannot atreeify value %s.  Is it a literal?",
                       prin1_to_string(x)))
+#+end_src
 
+*** Atree -> AST
+
+#+begin_src python +n
 def _atree_ast(tree):
         """Flip an atree to its AST geminae.
 
@@ -5598,7 +6124,12 @@ all AST-trees .. except for the case of tuples."""
                 unknown_ast_type_error(tree[0], tree) if tree[0] not in _ast.__dict__  else
                 (astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
         return ret
+#+end_src
 
+* Compiler
+*** Generic pieces
+
+#+begin_src python +n
 def _parse_body(body, doc_string_allowed = t, toplevel = nil):
         doc = nil
         def doc_string_p(x, remaining_forms):
@@ -5623,6 +6154,11 @@ def _parse_body(body, doc_string_allowed = t, toplevel = nil):
 def _process_decls(decls, vars, fvars):
         _warn_not_implemented()
 
+#+end_src
+
+*** Compiler conditions
+
+#+begin_src python +n
 @defclass
 class _compiler_error(error.python_type):
         pass
@@ -5634,7 +6170,11 @@ class _simple_compiler_error(simple_condition.python_type, _compiler_error.pytho
 @defun
 def _compiler_error(control, *args):
         return _simple_compiler_error.python_type(control, *args)
+#+end_src
 
+*** Compilation environment
+
+#+begin_src python +n
 _string_set("*IN-COMPILATION-UNIT*", nil)
 
 def with_compilation_unit(fn, override = nil):
@@ -5736,7 +6276,11 @@ def _compilation_unit_prologue():
                  [])
                 if _top_compilation_unit_p() else
                 [])
+#+end_src
 
+*** Lexical environments
+
+#+begin_src python +n
 class _binding():
         name = None
         def __init__(self, name, value = None, function = None, ):
@@ -5773,7 +6317,11 @@ def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
 ## lexical info kinds
 def _fbindingp(x): return x.function
 def _specialp(x): return _py.getattr(x, "special")
+#+end_src
 
+*** IR definition machinery: @DEFKNOWN
+
+#+begin_src python +n
 _known = _poor_man_defstruct("known",
                              "name",
                              "pp_code",
@@ -5800,7 +6348,15 @@ def defknown(pp_code_or_fn, name = None):
                       _py.repr(pp_code_or_fn)))
 def _find_known(x):
         return _symbol_known(the(symbol, x))
+#+end_src#
 
+*** Tuple intermediate IR
+
+    A tuple of:
+    - prologue
+    - value, can only contain _ast.expr's
+
+#+begin_src python +n
 def _tuplerator(pve):
         for x in pve[0]:
                 if x is not None:
@@ -5812,7 +6368,11 @@ def _tuple_expression_p(pve): return not (pve[0])
 def _tuple_bound(pve):        return _mapsetn(_atree_bound, _tuplerator(the((pytuple, pylist, pytuple), pve)))
 def _tuple_free(pve):         return _mapsetn(_atree_free,  _tuplerator(the((pytuple, pylist, pytuple), pve)))
 def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((pytuple, pylist, pytuple), pve)))
+#+end_src
 
+*** Compiler state and miscellanea
+
+#+begin_src python +n
 ## Should, probably, be bound by the compiler itself.
 _string_set("*COMPILER-TOPLEVEL-P*", t)
 _string_set("*COMPILER-DEF*",        nil)
@@ -5888,7 +6448,11 @@ def not_(x):        return t if x is nil else nil
 def _lower_expr(x, fn):
         pro, val = lower(x)
         return (pro, fn(val))
+#+end_src
 
+*** IR node definitions
+
+#+begin_src python +n
 @defknown(("atom", "\n", "sex", "\n", "atom"))
 def _ir_args():
         pass
@@ -6468,7 +7032,21 @@ def let_(bindings, *body):
 ###
 ### Honest DEFUN, with real keyword arguments, is out of scope for now.
 ###
+#+end_src
 
+*** Macro-expander
+
+    How is it do be determined, that a form must be passed through?
+
+    - directly AST-ifiable (in terms of _astify_constant)
+    - atrees
+
+    ..but what about detecting invalid forms?
+
+    Also: how do we represent fucking tuples?
+    Also: should we track form paths?
+
+#+begin_src python +n
 def macroexpand_1(form, env = nil):
         ## Unregistered Issue COMPLIANCE-MACROEXPAND-MUST-CONSIDER-LEXENV
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
@@ -6490,7 +7068,11 @@ def macroexpand(form, env = nil):
 # Unregistered Issue DEBUG-SCAFFOLDING
 if probe_file("/home/deepfire/.partus-debug-compiler"):
         _debug_compiler()
+#+end_src
 
+*** Engine and drivers: %LOWER, @LISP and COMPILE
+
+#+begin_src python +n
 # Urgent Issue COMPILER-MACRO-SYSTEM
 def _lower(form):
         # - tail position tracking
@@ -6820,7 +7402,11 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                         pro)
         with progv({"*LEXENV*": lexenv}):
                 return with_compilation_unit(_in_compilation_unit)
+#+end_src
 
+*** @LISP tests
+
+#+begin_src python +n
 @lisp
 def cond(*clauses):
         (defmacro, cond, (_rest, clauses),
@@ -6839,12 +7425,20 @@ def fdefinition(name):
         (defun, fdefinition, (name,),
          (symbol_function, (the, symbol, name)))
 describe(fdefinition)
+#+end_src
 
+*** Source info (rudimentary)
+
+#+begin_src python +n
 @defclass
 class _source_info():
         def __init__(self, pathname):
                 self.pathname = pathname
+#+end_src
 
+*** EVAL (incl. %EVAL-TLF)
+
+#+begin_src python +n
 _string_set("*EVAL-SOURCE-CONTEXT*", nil)
 _string_set("*EVAL-TLF-INDEX*", nil)
 _string_set("*EVAL-SOURCE-INFO*", nil)
@@ -6894,7 +7488,11 @@ def _eval_tlf(original_exp, tlf_index, lexenv = None):
 
 def eval(original_exp):
         return _do_eval(original_exp, nil, nil, _make_null_lexenv())
+#+end_src
 
+*** File compiler, as stolen from SBCL (%EVAL-COMPILE-TOPLEVEL / %PROCESS-TOPLEVEL-FORM and COMPILE-FILE)
+
+#+begin_src python +n
 def _compiler_mumble(control, *args):
         _debug_printf(control, *args)
 
@@ -7089,7 +7687,12 @@ def compile_file(input_file, output_file = None,
         return (abort_p,
                 warnings_p,
                 failure_p)
+#+end_src
 
+* LOAD
+*** LOAD (+ stray stream_type_error)
+
+#+begin_src python +n
 _string_set("*LOAD-VERBOSE*", nil)
 _string_set("*LOAD-PRINT*", nil)
 
@@ -7186,10 +7789,21 @@ def load(pathspec, verbose = None, print = None,
 @defclass
 class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
         pass
+#+end_src
 
+* Rest of Lisp
+*** LOAD-able things
+
+    Cold boot complete, now we can LOAD vpcl.lisp.
+
+#+begin_src python +n
 # _debug_compiler()
 load("vpcl.lisp", verbose = t)
+#+end_src
 
+*** REQUIRE
+
+#+begin_src python +n
 _string_set("*MODULE-PROVIDER-FUNCTIONS*", [])
 
 def _module_filename(module):
@@ -7204,6 +7818,11 @@ def require(name, pathnames = None):
         else:
                 error("Don't know how to REQUIRE %s.", namestring.upper())
 
+#+end_src
+
+*** Environment
+
+#+begin_src python +n
 def get_universal_time():
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # time.time() returns microseconds..
@@ -7222,7 +7841,11 @@ def machine_instance():            return _socket.gethostname()
 def machine_type():                return _without_condition_system(lambda: _platform.machine(),
                                                                     reason = "platform.machine")
 def machine_version():             return "Unknown"
+#+end_src
 
+* Rudimentary CLOS imitation
+
+#+begin_src python +n
 # Unregistered Issue C-J-COULD-BE-EXTENDED-TO-FOLLOW-M-J-WITHIN-COMMENTS
 def class_of(x):
         return _py.getattr(x, "__class__")
@@ -7761,15 +8384,15 @@ correspondences are as follows:
 
 Table 2: Initialization arguments and accessors for generic function metaobjects. 
 
-Initialization Argument         Generic Function
+Initialization Argument		Generic Function
 --------------------------------------------------------------------------
-:argument-precedence-order      generic-function-argument-precedence-order
-:declarations                   generic-function-declarations
-:documentation                  documentation
-:lambda-list                    generic-function-lambda-list
-:method-combination             generic-function-method-combination
-:method-class                   generic-function-method-class
-:name                           generic-function-name
+:argument-precedence-order 	generic-function-argument-precedence-order
+:declarations 			generic-function-declarations
+:documentation 			documentation
+:lambda-list 			generic-function-lambda-list
+:method-combination 		generic-function-method-combination
+:method-class 			generic-function-method-class
+:name 				generic-function-name
 
 Methods:
 
@@ -9999,14 +10622,23 @@ def _make_method_specializers(specializers):
                         ## Was: FIXME: Document CLASS-EQ specializers.
                         error("%s is not a valid parameter specializer name.", name))
         return mapcar(parse, specializers)
+#+end_src
 
+* Init
+
+#+begin_src python +n
 _init_package_system_2()
 def _init():
         "Initialise the Common Lisp compatibility layer."
         _init_condition_system()
         _string_set("*DEFAULT-PATHNAME-DEFAULTS*", _os.path.getcwd())
         return t
+#+end_src
 
+* Extra-curricular stuff
+*** Evaluation of Python as Lisp (for Partus)
+
+#+begin_src python +n
 def _make_eval_context():
         val = None
         def set(x):
@@ -10105,7 +10737,11 @@ def _callify(form, package = None, quoted = nil):
 
 def _valid_declaration_p(x):
         return nil
+#+end_src
 
+*** Missing stuff
+
+#+begin_src python +n
 # class _deadline_timeout(condition)
 # def _with_deadline(timeout, body)
 
@@ -10163,7 +10799,12 @@ def setf_symbol_plist(new_value, symbol):
 ## response: sufficiently smart compilers eliminate the efficiency concern,
 ##           so what is left?
 def _intern0(x, package = None): return _intern(the(_py.str, x), package)[0]
+#+end_src
 
+*** The Attic
+***** Thoughts on thunking
+
+#+begin_src python +n
 #
 ##
 ### Thunking is defined as code movement, introduced by the need for
@@ -10193,7 +10834,11 @@ def _intern0(x, package = None): return _intern(the(_py.str, x), package)[0]
 ###  expression.
 ##
 #
+#+end_src
 
+***** *PRINT/READ-<foo>* docstrings
+
+#+begin_src python +n
 """Controls the format in which arrays are printed. If it is false,
 the contents of arrays other than strings are never printed. Instead,
 arrays are printed in a concise form using #< that gives enough
@@ -10356,3 +11001,4 @@ If it is NIL, the right margin is taken to be the maximum line length
 such that output can be displayed without wraparound or truncation. If
 this cannot be determined, an implementation-dependent value is
 used."""
+#+END_SRC
