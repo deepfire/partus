@@ -420,9 +420,9 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                 def pp_compare(x):
                         return rec(x.left) + "".join(" %s %s" % (op_print_map[type(op).__name__], rec(comp)) for op, comp in zip(x.ops, x.comparators))
                 def pp_ifexp(x):
-                        return (rec(x.body) + " if " +
+                        return ("(" + rec(x.body) + " if " +
                                 rec(x.test) + " else " +
-                                rec(x.orelse))
+                                rec(x.orelse) + ")")
                 def pp_args(args):
                         (args, vararg,
                          kwonlyargs, kwarg,
@@ -440,7 +440,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                                          ([("**" + rec(kwarg))] if kwarg else []))
                 def pp_lambda(x):
                         args = rec(x.args)
-                        return "lambda%s: %s" % (" " + args if args else "", rec(x.body))
+                        return "(lambda%s: %s)" % (" " + args if args else "", rec(x.body))
                 ## Linefuls
                 def pp_Expr(x):
                         return indent(x) + rec(x.value)
