@@ -778,6 +778,48 @@ def _gensymname(x = "N"):
 def gensym(x = "G"):
         return make_symbol(_gensymname(x))
 
+class _env_cluster(object):
+        def __init__(self, cluster):
+                self.cluster = cluster
+        def __enter__(self):
+                _dynamic_scope_push(_coerce_cluster_keys_to_symbol_names(self.cluster))
+        def __exit__(self, t, v, tb):
+                _dynamic_scope_pop()
+
+class _dynamic_scope(object):
+        "Courtesy of Jason Orendorff."
+        def let(self, **keys):
+                return _env_cluster(keys)
+        def maybe_let(self, p, **keys):
+                return _env_cluster(keys) if p else None
+        def __getattr__(self, name):
+                return symbol_value(name)
+        def __setattr__(self, name, value):
+                error(AttributeError, "Use SET to set special globals.")
+
+__dynamic_scope__ = _dynamic_scope()
+env = __dynamic_scope__             # shortcut..
+
+@boot_defun
+def progv(vars = None, vals = None, body = None, **cluster):
+        """Two usage modes:
+progv([\"foovar\", \"barvar\"],
+      [3.14, 2.71],
+      lambda: body())
+
+with progv(foovar = 3.14,
+           barvar = 2.71):
+      body()
+
+..with the latter being lighter on the stack frame usage."""
+        if body:
+                with _env_cluster(_map_into_hash(lambda vv: (string(vv[0]).upper(), vv[1]),
+                                                 _py.zip(vars, vals))):
+                        return body()
+        else:
+                return _env_cluster(vars if hash_table_p(vars) else
+                                    _coerce_cluster_keys_to_symbol_names(cluster))
+
 @boot_defun
 def unwind_protect(form, fn):
         "For the times, when statements won't do."
@@ -928,7 +970,6 @@ def invoke_debugger(condition):
         _flush_standard_output_streams()
         return funcall_with_debug_io_syntax(_invoke_debugger, condition)
 
-## basic stuff
 def integerp(o):      return _py.isinstance(o, _py.int)
 def floatp(o):        return _py.isinstance(o, _py.float)
 def complexp(o):      return _py.isinstance(o, _py.complex)
@@ -938,7 +979,6 @@ def _listp(o):        return _py.isinstance(o, _cold_list_type)
 def _boolp(o):        return _py.isinstance(o, _py.bool)
 def sequencep(x):     return _py.getattr(_py.type(x), "__len__", None) is not None
 
-## type names
 def _define_python_type_map(symbol_or_name, type):
         not (stringp(symbol_or_name) or symbolp(symbol_or_name)) and \
             error("In DEFINE-PYTHON-TYPE-MAP: first argument must be either a string or a symbol, was: %s.", _py.repr(symbol_or_name))
@@ -979,7 +1019,6 @@ _define_python_type_map("PYBYTEARRAY", _py.bytearray)
 _define_python_type_map("PYSET",       _py.set)
 _define_python_type_map("PYFROZENSET", _py.frozenset)
 
-## complex type specifier machinery
 def _type_specifier_complex_p(x):
         """Determines, whether a type specifier X constitutes a
 complex type specifier."""
@@ -1017,26 +1056,6 @@ negative boolean value is returned."""
 def typep(x, type):
         return not _type_mismatch(x, type)
 
-def subtypep(sub, super):
-        def coerce_to_python_type(x):
-                return (x             if _py.isinstance(x, _cold_class_type)   else
-                        x.python_type if symbolp(x) else
-                        error("In SUBTYPEP: arguments must be valid type designators, but %s wasn't one.", _py.repr(x)))
-        def do_subclass_check(sub, super):
-                return _py.issubclass(coerce_to_python_type(sub),
-                                      coerce_to_python_type(super))
-        return (do_subclass_check(sub, super)                  if super is not t                            else
-                _not_implemented("complex type relatioships: %s vs. %s.",
-                                 sub, super)                   if _tuplep(sub) or _tuplep(super)            else
-                error("%s is not a valid type specifier", sub) if not (typep(sub, (or_, _py.type, (eql, t))) and
-                                                                       typep(sub, (or_, _py.type, (eql, t)))) else
-                sub is super or super is t)
-
-## complex type specifier definitions
-def _some_type_mismatch(type, xs): # Unregistered Issue NONE-VALUE-SAFETY
-        "Determines, whether some member of XS mismatches TYPE."
-        return some(_type_mismatch, xs, _infinite(type))
-
 @boot_defun
 def deftype(type_name_or_fn):
         def do_deftype(fn, type_name = type_name_or_fn):
@@ -1047,6 +1066,25 @@ def deftype(type_name_or_fn):
                 do_deftype                                                                                             if stringp(type_name_or_fn)   else
                 error("In DEFTYPE: argument must be either a function or a string, was: %s.",
                       _py.repr(symbol_name_or_fn)))
+
+@boot_defun
+def the(type, x):
+        mismatch = _type_mismatch(x, type)
+        return (x if not mismatch else
+                error(simple_type_error, "The value %s is not of type %s%s.",
+                      x, type, ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
+                                (", specifically, the value %s is not of type %s" % (princ_to_string(mismatch[0]), mismatch[1])))))
+
+@boot_defun
+def check_type(x, type):
+        the(type, x)
+
+def _of_type(x):
+        return lambda y: typep(y, x)
+
+def _not_of_type(x):
+        return lambda y: not typep(y, x)
+        return some(_type_mismatch, xs, _infinite(type))
 
 @deftype
 def boolean(x, type):
@@ -1167,26 +1205,22 @@ def lambda_list(x, type):
                          (pylist, string),
                          (maybe,  string)))
 
-## protocol front-end
-@boot_defun
-def the(type, x):
-        mismatch = _type_mismatch(x, type)
-        return (x if not mismatch else
-                error(simple_type_error, "The value %s is not of type %s%s.",
-                      x, type, ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
-                                (", specifically, the value %s is not of type %s" % (princ_to_string(mismatch[0]), mismatch[1])))))
-
-@boot_defun
-def check_type(x, type):
-        the(type, x)
-
-def _of_type(x):
-        return lambda y: typep(y, x)
-
-def _not_of_type(x):
-        return lambda y: not typep(y, x)
-
 _unboot_set("typep")
+
+def subtypep(sub, super):
+        def coerce_to_python_type(x):
+                return (x             if _py.isinstance(x, _cold_class_type)   else
+                        x.python_type if symbolp(x) else
+                        error("In SUBTYPEP: arguments must be valid type designators, but %s wasn't one.", _py.repr(x)))
+        def do_subclass_check(sub, super):
+                return _py.issubclass(coerce_to_python_type(sub),
+                                      coerce_to_python_type(super))
+        return (do_subclass_check(sub, super)                  if super is not t                            else
+                _not_implemented("complex type relatioships: %s vs. %s.",
+                                 sub, super)                   if _tuplep(sub) or _tuplep(super)            else
+                error("%s is not a valid type specifier", sub) if not (typep(sub, (or_, _py.type, (eql, t))) and
+                                                                       typep(sub, (or_, _py.type, (eql, t)))) else
+                sub is super or super is t)
 
 doit = False
 def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
@@ -1499,15 +1533,6 @@ def _cold_probe_file(pathname):
         assert(stringp(pathname))
         return _os.path.exists(the(string, pathname))
 probe_file = _cold_probe_file
-
-def _0arg(*args):
-        return args[0]
-
-def _1arg(*args):
-        return args[1]
-
-def _narg(n, *args):
-        return args[n]
 
 def _load_code_object_as_module(name, co, filename = "", builtins = None, globals = None, locals = None, register = True):
         check_type(co, _py.type(_load_code_object_as_module.__code__))
@@ -2449,48 +2474,6 @@ def _symbol_python_type(symbol_, if_not_a_type = "error"):
                 error("In %%SYMBOL-TYPE: the :IF-NOT-A-TYPE keyword argument must be one of ('error, 'continue')."))
 def _symbol_type_predicate(symbol):
         return symbol.type_predicate if _py.hasattr(the(symbol, symbol_), "type_predicate") else nil
-
-class _env_cluster(object):
-        def __init__(self, cluster):
-                self.cluster = cluster
-        def __enter__(self):
-                _dynamic_scope_push(_coerce_cluster_keys_to_symbol_names(self.cluster))
-        def __exit__(self, t, v, tb):
-                _dynamic_scope_pop()
-
-class _dynamic_scope(object):
-        "Courtesy of Jason Orendorff."
-        def let(self, **keys):
-                return _env_cluster(keys)
-        def maybe_let(self, p, **keys):
-                return _env_cluster(keys) if p else None
-        def __getattr__(self, name):
-                return symbol_value(name)
-        def __setattr__(self, name, value):
-                error(AttributeError, "Use SET to set special globals.")
-
-__dynamic_scope__ = _dynamic_scope()
-env = __dynamic_scope__             # shortcut..
-
-@defun
-def progv(vars = None, vals = None, body = None, **cluster):
-        """Two usage modes:
-progv([\"foovar\", \"barvar\"],
-      [3.14, 2.71],
-      lambda: body())
-
-with progv(foovar = 3.14,
-           barvar = 2.71):
-      body()
-
-..with the latter being lighter on the stack frame usage."""
-        if body:
-                with _env_cluster(_map_into_hash(lambda vv: (string(vv[0]).upper(), vv[1]),
-                                                 _py.zip(vars, vals))):
-                        return body()
-        else:
-                return _env_cluster(vars if hash_table_p(vars) else
-                                    _coerce_cluster_keys_to_symbol_names(cluster))
 
 __modular_noise__    = _py.frozenset(_load_text_as_module("", "").__dict__)
 
