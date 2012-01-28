@@ -5538,6 +5538,7 @@ def _compilation_unit_prologue():
                         # for s in symbols:
                         #         _debug_printf("++++++++++++++++++++++++++++++++++++ emitting init for %s:\n%s\n]]]]]]]]]]]]]]]\n",
                         #                       s, _lower((setq, s, (intern, symbol_name(s), package_name(symbol_package(s))))))
+                        ## So, it becomes evident, that we need multiple values.
                         return mapcan((lambda s: _lower((setq, s, (intern, symbol_name(s), (find_package, package_name(symbol_package(s))))))[0]),
                                       symbols)
         return ((symbol_prologue() +
@@ -6409,8 +6410,8 @@ def _lower(form):
         # - proper quote processing
         if _debugging_compiler():
                 _compiler_track_compiled_form(form)
-                _debug_printf(";;; compiling:\n%s", _pp_sex(form))
-                _compiler_report_context()
+                # _debug_printf(";;; compiling:\n%s", _pp_sex(form))
+                # _compiler_report_context()
         def _rec(x):
                 # NOTE: we are going to splice unquoting processing here, as we must be able
                 # to work in READ-less environment.
@@ -6689,7 +6690,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 assert _py.len(pro) is 1   # The FunctionDef and the symbol Assign
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(final_pv))
                 import more_ast
-                more_ast.assign_meaningful_locations(pro_ast, 0)
+                more_ast.assign_meaningful_locations(pro_ast)
                 if _debugging_compiler():
                         import more_ast
                         _debug_printf("cu_pro: %s\n", cu_pro)
