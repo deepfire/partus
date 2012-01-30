@@ -15,12 +15,20 @@
 #+STYLE: <link rel="stylesheet" type="text/css" href="style.css" />
 #+XSLT:
 #+STARTUP: odd hidestars
-#+PROPERTY:  tangle cl.py
-#+PROPERTY:  no-expand t
+#+PROPERTY: tangle cl.py
+#+PROPERTY: no-expand
+#+PROPERTY: session *VPCL*
+#+PROPERTY: results output silent
+#+PROPERTY: exports code
+#+PROPERTY: noweb no
+#+PROPERTY: cache no
+#+PROPERTY: comments org
 
 
 * Frost boot
+
 *** Builtins management
+
 #+begin_src python +n
 def _python_builtins_dictionary():
         import builtins    as _builtins
@@ -1046,7 +1054,7 @@ def _invoke_debugger(condition):
                         format(_str_symbol_value("*ERROR-OUTPUT*"),
                                "\nA %s was caught when trying to print %s when "
                                "entering the debugger. Printing was aborted and the "
-                               "%s was stored in %s.)\n",
+                               "%s was stored in %s.\n",
                                ndc_type, "*DEBUG-CONDITION*", ndc_type, "*NESTED-DEBUG-CONDITION*")
                         if typep(condition, cell_error):
                                 format(_str_symbol_value("*ERROR-OUTPUT*"),
@@ -1944,6 +1952,8 @@ def _locals_printf(locals, *local_names):
 
 ***** Raw data of frame research 
 
+## Unregistered Issue PAREDIT-MUST-BE-TAUGHT-ABOUT-COMMENTS-WITHIN-BABEL-BLOCKS
+
 #+begin_src python +n
 # >>> dir(f)
 # ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
@@ -1997,7 +2007,7 @@ def _example_frame():
 # == def xceptor
 #   co_argcount: 1
 #   co_cellvars: ()
-#   co_code: b'y\x11\x00t\x00\x00d\x01\x00|\x00\x00\x83\x02\x00\x01Wn,\x00\x04t\x01\x00k\n\x00r?\x00\x01}\x01\x00\x01z\x0c\x00t\x02\x00\x83\x00\x00SWYd\x02\x00d\x02\x00}\x01\x00~\x01\x00Xn\x01\x00Xd\x02\x00S'
+#   co_code: b'y\x11\x00t\x00\x00d\x01\x00|\x00\x00\x83\x02\x00\x01Wn,\x00\x04t\x01\x00k\n\x00r?\x00\x01\x01\x00\x01z\x0c\x00t\x02\x00\x83\x00\x00SWYd\x02\x00d\x02\x00\x01\x00~\x01\x00Xn\x01\x00Xd\x02\x00S'
 #   co_consts: ('names: globals;  varnames: args + otherbind;  locals: _py.len(varnames)', 'This is xceptor talking: %s.', None)
 #   co_filename: cl.py
 #   co_firstlineno: 199
@@ -2019,7 +2029,7 @@ def _example_frame():
 # == def midder
 #   co_argcount: 1
 #   co_cellvars: ()
-#   co_code: b'd\x01\x00}\x01\x00\x88\x00\x00|\x00\x00|\x01\x00\x17\x83\x01\x00S'
+#   co_code: b'd\x01\x00\x01\x00\x88\x00\x00|\x00\x00|\x01\x00\x17\x83\x01\x00S'
 #   co_consts: ('freevars: non-global-free;  varnames: args + otherbind;  locals: ...', 0)
 #   co_filename: cl.py
 #   co_firstlineno: 205
@@ -2041,7 +2051,7 @@ def _example_frame():
 # == def outer
 #   co_argcount: 0
 #   co_cellvars: ()
-#   co_code: b'd\x01\x00}\x00\x00\x88\x00\x00|\x00\x00\x83\x01\x00S'
+#   co_code: b'd\x01\x00\x00\x00\x88\x00\x00|\x00\x00\x83\x01\x00S'
 #   co_consts: ('freevars: non-global-free;  varnames: args + otherbind', 3)
 #   co_filename: cl.py
 #   co_firstlineno: 209
@@ -2063,7 +2073,7 @@ def _example_frame():
 # == def _example_frame
 #   co_argcount: 0
 #   co_cellvars: ('xceptor', 'midder')
-#   co_code: b'd\x01\x00\x84\x00\x00\x89\x00\x00\x87\x00\x00f\x01\x00d\x02\x00\x86\x00\x00\x89\x01\x00\x87\x01\x00f\x01\x00d\x03\x00\x86\x00\x00}\x00\x00|\x00\x00\x83\x00\x00S'
+#   co_code: b'd\x01\x00\x84\x00\x00\x89\x00\x00\x87\x00\x00f\x01\x00d\x02\x00\x86\x00\x00\x89\x01\x00\x87\x01\x00f\x01\x00d\x03\x00\x86\x00\x00\x00\x00|\x00\x00\x83\x00\x00S'
 #   co_consts: ('cellvars: closed over non-globals;  varnames: bound', <code object xceptor at 0x277a4f8, file "cl.py", line 199>, <code object midder at 0x277a580, file "cl.py", line 205>, <code object outer at 0x277a608, file "cl.py", line 209>)
 #   co_filename: cl.py
 #   co_firstlineno: 197
@@ -4805,9 +4815,9 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                 char = read_char(stream)
                 unread_char(char, stream)
                 # _here("> \"%s\", by \"%s\"" % (string[pos:], char))
-                if   char == "(":  obj = read_list()
-                elif char == "\"": obj = read_string()
-                elif char == "'":  obj = read_quote()
+                if   char == _py.chr(40):  obj = read_list() # Org is a bit too picky
+                elif char == "\"":         obj = read_string()
+                elif char == "'":          obj = read_quote()
                 else:
                         # handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
@@ -6263,7 +6273,7 @@ def _compilation_unit_prologue():
                 # _debug_printf("prologue: %s", symbols)
                 with progv({"*SYMBOLS*": _py.set()}):
                         # for s in symbols:
-                        #         _debug_printf("++++++++++++++++++++++++++++++++++++ emitting init for %s:\n%s\n]]]]]]]]]]]]]]]\n",
+                        #         _debug_printf("++++++++++++++++++++++++++++++++++++ emitting init for %s:\n%s\n\n",
                         #                       s, _lower((setq, s, (intern, symbol_name(s), package_name(symbol_package(s))))))
                         ## So, it becomes evident, that we need multiple values.
                         return mapcan((lambda s: _lower((setq, s, (intern, symbol_name(s), (find_package, package_name(symbol_package(s))))))[0]),
@@ -6364,6 +6374,10 @@ def _tuple_expression_p(pve): return not (pve[0])
 def _tuple_bound(pve):        return _mapsetn(_atree_bound, _tuplerator(the((pytuple, pylist, pytuple), pve)))
 def _tuple_free(pve):         return _mapsetn(_atree_free,  _tuplerator(the((pytuple, pylist, pytuple), pve)))
 def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((pytuple, pylist, pytuple), pve)))
+
+def _prepend_prologue(pro, tuple):
+        return (pro + tuple[0],
+                tuple[1])
 #+end_src
 
 *** Compiler state and miscellanea
@@ -6446,16 +6460,18 @@ def _lower_expr(x, fn):
         return (pro, fn(val))
 #+end_src
 
-*** IR node definitions
+*** More IR definition machinery: %IR-ARGS, %IR
 
 #+begin_src python +n
 @defknown(("atom", "\n", "sex", "\n", "atom"))
 def _ir_args():
         pass
+
 def _maybe_ir_args(x):
         return (((t, x[1], x[2]) if _py.len(x) == 3 and _tuplep(x[1]) and _tuplep(x[2]) and evenp(_py.len(x[2])) else
                  error("Malformed IR-ARGS node: %s.", x)) if x and _tuplep(x) and x[0] is _ir_args else
                 (nil, x, _py.tuple()))
+
 def _ir(*ir, **keys):
         "This is meant to be used to pass extended arguments down."
         known = _find_known(the(symbol, ir[0]))
@@ -6464,9 +6480,16 @@ def _ir(*ir, **keys):
                 error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
                       known.name, known.compiler_params, invalid_params)
         return (_ir_args, ir, _alist_plist(_hash_table_alist(keys)))
+
 def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
+#+end_src
 
+*** IR node definitions
+
+***** Symbols
+
+#+begin_src python +n
 @defknown
 def symbol(name):
         # Urgent Issue IR-LEVEL-SYMBOLS
@@ -6489,7 +6512,11 @@ def setq(name, value):
         pro, val = _lower(value)
         return (pro + [("Assign", [_lower_name(name, "Store")], val)],
                 _lower_name(name))
+#+end_src
 
+***** Multiple values
+
+#+begin_src python
 @defknown(("atom", " ", (["atom", " "],), " ", "sex"))
 def setf_values(names, values):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -6498,14 +6525,22 @@ def setf_values(names, values):
         return (pro + [("Assign", [ _lower_name(x, "Store") for x in names ],
                         val)],
                 ("Tuple", mapcar(_lower_name, names), ("Load",)))
+#+end_src
 
+***** RETURN
+
+#+begin_src python
 @defknown
 def return_(x):
         with _tail_position():
                 pro, val = _lower(x)
                 return (pro + [("Return", val)],
                         None)
+#+end_src
 
+***** Quoting
+
+#+begin_src python
 @defknown
 def quote(x):
         # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
@@ -6554,11 +6589,11 @@ def comma(x):
 @defknown
 def splice(x):
         error("Comma not inside a backquote.")
+#+end_src
 
-def _compiler_prepend(pro, tuple):
-        return (pro + tuple[0],
-                tuple[1])
+***** Control flow
 
+#+begin_src python
 @defknown(("atom",
            1, ["sex", "\n"]))
 def progn(*body):
@@ -6571,7 +6606,7 @@ def progn(*body):
                         pro.extend(spro)
                         pro.append(("Expr", val))
         with _maybe_tail_position():
-                return _compiler_prepend(pro,
+                return _prepend_prologue(pro,
                                          _lower(body[-1]))
         ## Not sure the stuff below still makes sense.  Still, am afraid to erase it.
         # lowered_body = mapcan(_lower, body)
@@ -6606,7 +6641,11 @@ def if_(test, consequent, antecedent = nil):
                                     ((funcall, (symbol, name_ante)), ((name_ante, _py.tuple()) + (antecedent,),)))
                 return (flet, cons_fdefn + ante_fdefn,
                          (if_, test, cons, ante))
+#+end_src
 
+***** Lambda lists
+
+#+begin_src python
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (symbol, "None"))
         if not _tuplep(lambda_list_):
@@ -6744,7 +6783,11 @@ def def_(name, lambda_list, *body, decorators = []):
                         xtnls_actual = _tuple_xtnls(result)
                         try_ += 1
                 return result
+#+end_src
 
+***** EVAL-WHEN
+
+#+begin_src python
 @defknown(("atom", " ", (["atom", " "]),
            1, ["sex", "\n"]))
 def eval_when(when, *body):
@@ -6790,7 +6833,11 @@ when EVAL-WHEN appears as a top level form."""
         ## so that they're never seen at this level.)
         return (((progn,) + body) if exec else
                 _lower(nil))
+#+end_src
 
+***** Toplevels: DEFUN and DEFMACRO
+
+#+begin_src python
 @defknown(("atom", " ", "atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))
 def defmacro(name, lambda_list, *body):
@@ -6814,7 +6861,11 @@ def defun(name, lambda_list, *body):
                                                                            globalp = t, macrop = t)
         return ([fundef],
                 _lower((quote, (symbol, string(name))))[1])
+#+end_src
 
+***** Lexical scope
+
+#+begin_src python
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
            1, ["sex", "\n"]))
 def let(bindings, *body):
@@ -6867,21 +6918,6 @@ def let(bindings, *body):
                         _py.tuple((setq, n, v) for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
                         (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
                              dont_delay_defaults = t),))
-
-@defknown(("atom", " ", "sex",
-           1, ["sex", "\n"]))
-def unwind_protect(form, *unwind_body):
-        if not unwind_body:
-                return _lower(form)
-        temp_name = gensym("PROTECTED-FORM-VALUE")
-        pro_form, val_form = _lower((setq, temp_name, form))
-        pro_unwind, val_unwind = _lower((progn,) + unwind_body)
-        return ([("TryFinally",
-                  # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
-                  pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
-                  # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
-                  pro_unwind + [("Expr", val_unwind)])],
-                _lower((symbol, temp_name))[1])
 
 @defknown
 def funcall(func, *args):
@@ -7024,6 +7060,25 @@ def let_(bindings, *body):
         else:
                 return (let, bindings[:1],
                          (let_, bindings[1:]) + body)
+#+end_src
+
+***** Non-local transfer of control
+
+#+begin_src python
+@defknown(("atom", " ", "sex",
+           1, ["sex", "\n"]))
+def unwind_protect(form, *unwind_body):
+        if not unwind_body:
+                return _lower(form)
+        temp_name = gensym("PROTECTED-FORM-VALUE")
+        pro_form, val_form = _lower((setq, temp_name, form))
+        pro_unwind, val_unwind = _lower((progn,) + unwind_body)
+        return ([("TryFinally",
+                  # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
+                  pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
+                  # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
+                  pro_unwind + [("Expr", val_unwind)])],
+                _lower((symbol, temp_name))[1])
 
 ###
 ### Honest DEFUN, with real keyword arguments, is out of scope for now.
@@ -7841,6 +7896,8 @@ def machine_version():             return "Unknown"
 
 * Rudimentary CLOS imitation
 
+*** STANDARD-OBJECT and basic protocols
+
 #+begin_src python +n
 # Unregistered Issue C-J-COULD-BE-EXTENDED-TO-FOLLOW-M-J-WITHIN-COMMENTS
 def class_of(x):
@@ -8013,7 +8070,11 @@ nor evaluated."""
         # Unregistered Issue COMPLIANCE-DEFAULT-INITARGS-NOT-SUPPORTED
         instance.__dict__.update(initargs)
         return instance
+#+end_src
 
+*** Generic functions
+
+#+begin_src python +n
 @defclass
 class method(standard_object.python_type):
         "All methods are of this type."
@@ -8031,9 +8092,11 @@ class generic_function(funcallable_standard_class.python_type):
                 self.__dependents__ = _py.set()
                 _here("args: %s", initargs)
                 super().__init__(**initargs)
+#+end_src
 
-# Dependent Maintenance Protocol
-#
+*** Dependent maintenance protocol
+
+#+begin_src python +n
 # It is convenient for portable metaobjects to be able to memoize
 # information about other metaobjects, portable or otherwise. Because
 # class and generic function metaobjects can be reinitialized, and
@@ -8225,7 +8288,11 @@ code:
 """
         # Unregistered Issue COMPLIANCE-UPDATE-DEPENDENT-DOES-NOT-REALLY-DO-ANYTHING
         pass
+#+end_src
 
+*** Generic function methods
+
+#+begin_src python +n
 @defclass
 class method_combination():
         "All method combinations are of this type."
@@ -8472,7 +8539,11 @@ def _get_generic_fun_info(generic_function):
                       generic_function.lambda_list)
 
 def generic_function_methods(x):                   return x.__methods__.values()
+#+end_src
 
+*** DEFINE-METHOD-COMBINATION
+
+#+begin_src python +n
 __method_combinations__ = make_hash_table()
 
 def define_method_combination(name, method_group_specifiers, body,
@@ -8912,7 +8983,11 @@ executed."""
         method_combination.name                        = the(symbol, name)
         method_combination.__method_group_specifiers__ = method_group_specifiers
         return method_combination
+#+end_src
 
+*** Standard method combination
+
+#+begin_src python +n
 # 7.6.6.2 Standard Method Combination
 #
 # Standard method combination is supported by the class
@@ -9017,7 +9092,11 @@ standard_method_combination = method_combination # Crude XXX
 #         lambda: # "around", "before", "primary" and "after" are bound "magically",
 #                 # to avoid duplication.
 #                 [])
+#+end_src
 
+*** MAKE-METHOD-LAMBDA
+
+#+begin_src python +n
 def make_method_lambda(generic_function, method, lambda_expression, environment):
         """Arguments:
 
@@ -9077,7 +9156,11 @@ call to MAKE-INSTANCE."""
         # (defmacro call-method (method &rest c-m-args)
         #   (apply method.function
         #          gf-arglist (subseq c-m-args 1)))
+#+end_src
 
+*** COMPUTE-EFFECTIVE-METHOD
+
+#+begin_src python +n
 def compute_effective_method(generic_function, combin, applicable_methods):
         """Arguments:
 
@@ -9266,16 +9349,16 @@ def _sort_applicable_methods(precedence, methods, types):
 def _sort_methods(methods, precedence, compare_classes_function):
         def sorter(method1, method2):
                 for index in precedence:
-                        specl1 = nth(index, method_specializers(method1)) # XXX: Was (if (listp method1)
-                        specl2 = nth(index, method_specializers(method2)) # XXX: Was (if (listp method2)
+                        specl1 = nth(index, method_specializers(method1)) # XXX: Was (if (listp method1) ..)
+                        specl2 = nth(index, method_specializers(method2)) # XXX: Was (if (listp method2) ..)
                         order  = _order_specializers(specl1, specl2, index, compare_classes_function)
                         if order:
                                 return order is specl1
         return stable_sort(methods, sorter)
 
 def _order_specializers(specl1, specl2, index, compare_classes_function):
-        type1 = specializer_type(specl1) # Was: (if (eq **boot-state** 'complete)
-        type2 = specializer_type(specl2) # Was: (if (eq **boot-state** 'complete)
+        type1 = specializer_type(specl1) # Was: (if (eq **boot-state** 'complete) ..)
+        type2 = specializer_type(specl2) # Was: (if (eq **boot-state** 'complete) ..)
         return ([]     if specl1 is specl1 else
                 specl2 if atom(type1)      else # is t?
                 specl1 if atom(type2)      else # is t?
@@ -9509,7 +9592,11 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                     ,
                     globals  = env,
                     locals   = env)
+#+end_src
 
+*** ENSURE-GENERIC-FUNCTION
+
+#+begin_src python +n
 def ensure_generic_function_using_class(generic_function, function_name,
                                         argument_precedence_order = None,
                                         declarations = None,
@@ -9971,7 +10058,11 @@ function will mention &key (but no keyword arguments)."""
                   m_keys           or
                   not (_py.set(gf_keyword) - _py.set(m_keyword))) and
                  "but the method does not accept each of the &KEY arguments %s" % _py.tuple([gf_keyword])))
+#+end_src
 
+*** Method addition and removal
+
+#+begin_src python +n
 def add_method(generic_function, method):
         """Arguments:
 
@@ -10074,7 +10165,11 @@ specializer as argument.
 The results are undefined if the SPECIALIZER argument is not one of
 the specializers of the METHOD argument."""
         _not_implemented("maintain a set of backpointers from a SPECIALIZER to the set of methods specialized to it")
+#+end_src
 
+*** METHOD metamethods
+
+#+begin_src python +n
 def _standard_method_shared_initialize(method,
                                        qualifiers = None,
                                        lambda_list = None,
@@ -10269,7 +10364,11 @@ same specializer as argument.
 The results are undefined if the specializer argument is not one of
 the specializers of the method argument."""
         _not_implemented()
+#+end_src
 
+*** DEFMETHOD
+
+#+begin_src python +n
 def defmethod(fn):
         """defmethod function-name {method-qualifier}* specialized-lambda-list [[declaration* | documentation]] form*
 
