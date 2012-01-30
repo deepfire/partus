@@ -111,7 +111,7 @@ def _defaulted(x, value, type = None):
         return x if x is not None else value
 
 def _defaulted_to_var(x, variable, type = None):
-        return x if x is not None else _defaulted(x, _str_symbol_value(variable), type = type)
+        return x if x is not None else _defaulted(x, _symbol_value(variable), type = type)
 
 def _specifiedp(x):
         return x is not None
@@ -176,19 +176,22 @@ def boot_defclass(cls): __boot_defclassed__.add(cls); return cls
 ## 2. tagged switchables
 _namespace.grow("boot", data_constructor = lambda: _collections.defaultdict(_py.set))
 
-def boot(set, boot):
+def boot(set, boot, on_unboot = None):
         def definer(orig):
                 def unboot():
-                        _frost.setf_global(orig, orig.__name__, _py.globals()) 
+                        _frost.setf_global(orig, orig.__name__, _py.globals())
+                        if on_unboot:
+                                on_unboot()
                 def linkage(*args, **keys):
                         return boot(orig, *args, **keys)
                 boot.unboot = unboot
+                boot.name = orig.__name__
                 _namespace["boot"][set].add(boot)
                 return linkage
         return definer
 
 def _unboot_set(set):
-        for x in _namespace["boot"][set]:
+        for x in _py.sorted(_namespace["boot"][set], key = lambda x: x.name):
                 if not _py.hasattr(x, "unboot"):
                         error("In UNBOOT-SET \"%s\": %s has no 'unboot' attribute.", set, x)
                 x.unboot()
@@ -229,7 +232,7 @@ class _storyteller(_collections.UserDict):
 _storyteller = _storyteller()
 story = _storyteller.advance
 
-# *** Cold type names
+# *** Cold types
 
 _cold_class_type       = _py.type
 _cold_condition_type   = _py.BaseException
@@ -241,6 +244,23 @@ _cold_function_type    = _types.FunctionType.__mro__[0]
 _cold_tuple_type       = _py.tuple
 _cold_string_type      = _py.str
 _cold_list_type        = _py.list
+def _cold_simple_error(format, *args): raise _cold_error_type(format % args)
+def _cold_typep(x, type):
+        return _py.isinstance(x, (type             if _py.isinstance(x, _py.type)             else
+                                  type.python_type if _py.isinstance(x, (symbol if _py.isinstance(x, _py.type) else
+                                                                         symbol.python_type)) else
+                                  _cold_simple_error("%s is neither a python type, nor a symbol.",
+                                                     x.__repr__())))
+def _cold_the(type, x):
+        if typep(x, type):
+                return x
+        else:
+                raise _cold_simple_error("%s is not a %s.", x.__repr__(), type)
+def _cold_check_type(x, type):
+        the(type, x)
+typep      = _cold_typep
+the        = _cold_the
+check_type = _cold_check_type
 
 # *** As-of-yet -homeless type predicates..
 
@@ -300,8 +320,7 @@ def gethash(key, dict, default = None):
 
 @boot_defun
 def length(x):
-        return (_py.len(x) if stringp(x) else
-                error("Argument of invalid or unsupported type: %s.", _py.repr(x)))
+        return _py.len(the(string, x))
 
 def _map_into_hash(f, xs,
                    key_test = lambda k: k is not None,
@@ -329,14 +348,6 @@ def _dynamic_scope_push(scope):
 def _dynamic_scope_pop():
         __tls__.dynamic_scope.pop()
 
-def _boundp(name):
-        name = string(name)
-        for scope in reversed(__tls__.dynamic_scope):
-                if name in scope:
-                        return t
-        if name in __global_scope__:
-                return t
-
 def _find_dynamic_frame(name):
         for scope in reversed(__tls__.dynamic_scope):
                 if name in scope:
@@ -344,13 +355,13 @@ def _find_dynamic_frame(name):
         if name in __global_scope__:
                 return __global_scope__
 
-def _find_dynamic_frame_for_set(name, force_toplevel = None):
+def _dynamic_frame_for_set(name, force_toplevel = None):
         return (__global_scope__ if force_toplevel else
                 (_find_dynamic_frame(name) or
                  (__tls__.dynamic_scope[-1] if __tls__.dynamic_scope else
                   __global_scope__)))
 
-def _str_symbol_value(name):
+def _symbol_value(name):
         frame = _find_dynamic_frame(name)
         return (frame[name] if frame else
                 error(AttributeError, "Unbound variable: %s." % name))
@@ -358,20 +369,53 @@ def _str_symbol_value(name):
 def _coerce_cluster_keys_to_symbol_names(dict):
         return { string(var).upper():val for var, val in dict.items() }
 
-def _string_set(name, value, force_toplevel = None):
-        stringp(name) or error("In %STRING-SET: first argument must be a string, was: %s.", _py.repr(name))
-        _find_dynamic_frame_for_set(name, force_toplevel = force_toplevel)[name] = value
+def _do_bind_symbol_pyname(symbol):
+        pyname = _frost.lisp_symbol_name_python_name(symbol_name(symbol))
+        _frost.setf_global(symbol, pyname, _py.globals())
+
+def _bind_symbol_pyname(symbol_):
+        _do_bind_symbol_pyname(_boot_check_type(symbolp, symbol_))
+
+def _intern_and_bind_pynames(*names):
+        for name in names:
+                _bind_symbol_pyname(_intern(name)[0])
+
+def _boot_symbolicate_global_dynamic_scope():
+        def upgrade_scope(xs):
+                kvs = _py.list(xs.items())
+                for k, v in kvs:
+                        del xs[k]
+                        sym = _intern_in_package(k, __cl)[0]
+                        xs[sym] = v
+                        _do_bind_symbol_pyname(sym)
+        assert not __tls__.dynamic_scope
+        upgrade_scope(__global_scope__)
+
+def _do_set(name, value, force_toplevel):
+        _dynamic_frame_for_set(name, force_toplevel = force_toplevel)[name] = value
+
+@boot("symbol",
+      lambda _string_set, name, value, force_toplevel = None:
+      _string_set(name, value, force_toplevel = force_toplevel, symbolicp = False),
+      on_unboot = _boot_symbolicate_global_dynamic_scope)
+def _string_set(symbol_name, value, force_toplevel = None, symbolicp = True):
+        stringp(symbol_name) or error("The first argument to %%STRING-SET must be a string, was: %s.", symbol_name.__repr__())
+        name = _intern(symbol_name)[0] if symbolicp else symbol_name
+        _do_set(name, value, force_toplevel)
+        symbolicp and _bind_symbol_pyname(name)
         return value
 
-@boot_defun
-def boundp(symbol):
-        # Unregistered Issue COMPLIANCE-BOUNDP-ACCEPTS-STRINGS
-        return _boundp(string(symbol))
-
-@boot("typep", lambda _, symbol, value: error("A strong odor of faeces hung in the air.."))
+@boot("typep", lambda _, __, ___: error("A violent faecal odour hung in the air.."))
 @boot_defun
 def set(symbol_, value):
-        return _string_set(the(symbol, symbol_).name, value)
+        _do_set(the(symbol, symbol_), value, nil)
+        return value
+
+@boot("symbol", lambda _, name: _find_dynamic_frame(_boot_check_type(stringp, name)) and t)
+@boot_defun
+def boundp(symbol_):
+        # Unregistered Issue COMPLIANCE-BOUNDP-ACCEPTS-STRINGS
+        return _find_dynamic_frame(the(symbol, symbol_)) and t
 
 # *** Boot conditions: WARN, ERROR
 
@@ -405,7 +449,7 @@ def warn(control, *args, **keys):
         badness = _poor_man_etypecase(condition,
                                       (style_warning, style_warning),
                                       (warning,       warning))
-        format(_str_symbol_value("*ERROR-OUTPUT*"), "%s: %s\n", symbol_name(badness), condition)
+        format(_symbol_value(_error_output_), "%s: %s\n", symbol_name(badness), condition)
         return nil
 
 # @boot(lambda error, datum, *args, **keys: _frost.raise_exception(_coerce_to_condition(datum, *args, **keys)))
@@ -414,6 +458,9 @@ def error(datum, *args, **keys):
         ## Shouldn't we ditch Python compat entirely, doing instead
         ## the typical SIGNAL/INVOKE-DEBUGGER thing?
         raise _coerce_to_condition(datum, *args, **keys)
+
+def _boot_check_type(pred, x):
+        return x if pred(x) else error("A violent faecal odour hung in the air..")
 
 # ***** Package system conditions
 
@@ -516,10 +563,9 @@ class symbol(): # Turned to a symbol, during the package system bootstrap.
                 return _py.str(self)
         def __init__(self, name):
                 (self.name, self.package,
-                 (self.value,
-                  self.function,
+                 (self.function,
                   self.macro_function,
-                  self.known)) = name, None, (None, nil, nil, nil)
+                  self.known)) = name, None, (None, nil, nil)
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __call__(self, *args, **keys):
@@ -548,9 +594,8 @@ def symbol_name(x):            return x.name
 @boot_defun
 def symbol_package(x):         return x.package
 @boot_defun # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
-def symbol_value(symbol):      return (_str_symbol_value(symbol) if stringp(symbol) else
-                                       symbol.value              if symbolp(symbol) else
-                                       error(simple_type_error, "SYMBOL-VALUE accepts either strings or symbols, not '%s'.",
+def symbol_value(symbol):      return (_symbol_value(symbol) if symbolp(symbol) else
+                                       error(simple_type_error, "SYMBOL-VALUE accepts either symbols, not '%s'.",
                                              symbol))
 def _symbol_function(symbol):  return (symbol.known          or
                                        symbol.macro_function or
@@ -606,13 +651,13 @@ def _print_symbol(s, escape = None, gensym = None, case = None, package = None, 
         #
         # Individual methods for PRINT-OBJECT, including user-defined methods,
         # are responsible for implementing these requirements.
-        package  = _defaulted_to_var(package,  "*PACKAGE*")
+        package  = _defaulted_to_var(package,  _package_)
         if not packagep(package):
                 _here("------------------------------------------------------------\npackage is a %s: %s" % (type_of(package), package,))
-        readably = _defaulted_to_var(readably, "*PRINT-READABLY*")
-        escape   = _defaulted_to_var(escape,   "*PRINT-ESCAPE*") if not readably else t
-        case     = _defaulted_to_var(case,     "*PRINT-CASE*")   if not readably else _keyword("UPCASE")
-        gensym   = _defaulted_to_var(gensym,   "*PRINT-GENSYM*") if not readably else t
+        readably = _defaulted_to_var(readably, _print_readably_)
+        escape   = _defaulted_to_var(escape,   _print_escape_) if not readably else t
+        case     = _defaulted_to_var(case,     _print_case_)   if not readably else _keyword("UPCASE")
+        gensym   = _defaulted_to_var(gensym,   _print_gensym_) if not readably else t
         # Because the #: syntax does not intern the following symbol, it is
         # necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
         # the same uninterned symbol appears several times in an expression to
@@ -643,17 +688,15 @@ def _do_intern_symbol(s, p):
         p.accessible[s.name], s.package = s, p
         if p is __keyword: # CLHS 11.1.2.3.1 Interning a Symbol in the KEYWORD Package
                 p.external.add(s)
-                s.value = s
         return s
 
 def _cold_make_nil():
         nil = symbol.__new__(symbol)
         (nil.name,
          nil.package,
-         nil.value,
          nil.function,
          nil.macro_function,
-         nil.known) = "NIL", __cl, nil, nil, nil, nil
+         nil.known) = "NIL", __cl, nil, nil, nil
         return _do_intern_symbol(nil, __cl)
 
 NIL = nil = _cold_make_nil()
@@ -664,7 +707,7 @@ def null(x): return x is nil
 # ***** Package system core
 
 def _intern_in_package(x, p):
-        s, presentp = (error("X must be a symbol: %s.", _py.repr(x)) if not _py.isinstance(x, _py.str) else
+        s, presentp = (error("X must be a string: %s.", _py.repr(x)) if not _py.isinstance(x, _py.str) else
                        (p.accessible.get(x), True)                   if x in p.accessible              else
                        (None,                False))
         if not presentp:
@@ -673,7 +716,7 @@ def _intern_in_package(x, p):
 
 def _coerce_to_package(x, if_null = "current"):
         return (find_package(x)                                              if stringp(x) or symbolp(x) or packagep(x) else
-                (_str_symbol_value("*PACKAGE*") if if_null == "current" else
+                (_symbol_value(_package_) if if_null == "current" else
                  _package_not_found_error(x))                                if (not x)                                 else
                 error(simple_type_error, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
                       x, type_of(x)))
@@ -683,7 +726,7 @@ def _coerce_to_package(x, if_null = "current"):
 def _intern(x, package = None):
         "A version of INTERN, that does not compute the relationship between SYMBOL and designated PACKAGE."
         return _intern_in_package(x, find_package(package) if package else
-                                     _str_symbol_value("*PACKAGE*"))
+                                     _symbol_value(_package_))
 
 def _keyword(s, upcase = True):
         return _intern((s.upper() if upcase else s),
@@ -701,8 +744,6 @@ def _use_package_symbols(dest, src, syms):
                         dest.accessible[name] = sym
                         # if dest.name == "SWANK" and src.name == "INSPECTOR":
                         #         debug_printf("merging %s into %s: test: %s", s, dest, _read_symbol(_print_nonkeyword_symbol(s)))
-                # if dest.module and name not in dest.module.__dict__:
-                #         dest.module.__dict__[name] = sym.value
 
 @story
 @boot_defun
@@ -765,7 +806,6 @@ def _init_package_system_0():
                 ]
         __packages__ = make_hash_table()
         T = t              = _intern("T", __cl)[0]     # Nothing much works without this.
-        t.value, nil.value = t, nil     # Self-evaluation.
         nil.__contains__   = lambda _: False
         nil.__getitem__    = lambda _, __: nil
         nil.__length__     = lambda _: 0
@@ -942,11 +982,11 @@ def _set_condition_handler(fn):
 
 @boot_defun
 def signal(cond):
-        for cluster in reversed(_str_symbol_value("*HANDLER-CLUSTERS*")):
+        for cluster in reversed(_symbol_value(_handler_clusters_)):
                 for type, handler in cluster:
                         if not stringp(type):
                                 if typep(cond, type):
-                                        hook = _str_symbol_value("*PREHANDLER-HOOK*")
+                                        hook = _symbol_value(_prehandler_hook_)
                                         if hook:
                                                 frame = assoc("__frame__", cluster)
                                                 assert(frame)
@@ -971,44 +1011,44 @@ def _funcall_with_debug_io_syntax(function, *args, **keys):
 
 def _invoke_debugger(condition):
         ## SBCL is being careful to not handle STEP-CONDITION here..
-        with progv({"*DEBUG-CONDITION*": condition,
-                    "*DEBUG-RESTARTS*": compute_restarts(condition),
-                    "*NESTED-DEBUG-CONDITION*": nil }):
+        with progv({_debug_condition_: condition,
+                    _debug_restarts_: compute_restarts(condition),
+                    _nested_debug_condition_: nil }):
                 def error_handler_body(condition):
                         _string_set("*NESTED-DEBUG-CONDITION*", condition)
                         ndc_type = type_of(condition)
-                        format(_str_symbol_value("*ERROR-OUTPUT*"),
+                        format(_symbol_value(_error_output_),
                                "\nA %s was caught when trying to print %s when "
                                "entering the debugger. Printing was aborted and the "
                                "%s was stored in %s.\n",
-                               ndc_type, "*DEBUG-CONDITION*", ndc_type, "*NESTED-DEBUG-CONDITION*")
+                               ndc_type, _debug_condition_, ndc_type, _nested_debug_condition_)
                         if typep(condition, cell_error):
-                                format(_str_symbol_value("*ERROR-OUTPUT*"),
+                                format(_symbol_value(_error_output_),
                                        "\n(CELL-ERROR-NAME %s) = %s\n",
-                                       "*NESTED-DEBUG-CONDITION*", cell_error_name(condition))
+                                       _nested_debug_condition_, cell_error_name(condition))
                 handler_case(lambda: _print_debugger_invocation_reason(condition,
-                                                                       _str_symbol_value("*ERROR-OUTPUT*")),
+                                                                       _symbol_value(_error_output_)),
                              (error, error_handler_body))
                 try:
                         pass
                 finally:
-                        with progv({ "*STANDARD-OUTPUT*": _str_symbol_value("*STANDARD-OUTPUT*"),
-                                     "*ERROR-OUTPUT*": _str_symbol_value("*DEBUG-IO*") }):
-                                format(_str_symbol_value("*DEBUG-IO*"), "\nType HELP for debugger help, or (VPCL:QUIT) to exit from VPCL.\n\n")
-                                _show_restarts(_str_symbol_value("*DEBUG-RESTARTS*"), _str_symbol_value("*DEBUG-IO*"))
+                        with progv({ _standard_output_: _symbol_value(_standard_output_),
+                                     _error_output_:    _symbol_value(_debug_io_) }):
+                                format(_symbol_value(_debug_io_), "\nType HELP for debugger help, or (VPCL:QUIT) to exit from VPCL.\n\n")
+                                _show_restarts(_symbol_value(_debug_restarts_), _symbol_value(_debug_io_))
                                 _internal_debug()
 
 @boot_defun
 def invoke_debugger(condition):
         "XXX: non-compliant: doesn't actually invoke the debugger."
-        _run_hook("*INVOKE-DEBUGGER-HOOK*", condition)
-        _run_hook("*DEBUGGER-HOOK*", condition)
-        if not (packagep(_str_symbol_value("*PACKAGE*")) and
-                package_name(_str_symbol_value("*PACKAGE*"))):
+        _run_hook(_invoke_debugger_hook_, condition)
+        _run_hook(_debugger_hook_, condition)
+        if not (packagep(_symbol_value(_package_)) and
+                package_name(_symbol_value(_package_))):
                 _string_set("*PACKAGE*", find_package("CL-USER"))
-                format(_str_symbol_value("*ERROR-OUTPUT*"),
+                format(_symbol_value(_error_output_),
                        "The value of %s was not an undeleted PACKAGE. It has been reset to %s.",
-                       "*PACKAGE*", _str_symbol_value("*PACKAGE*"))
+                       _package_, _symbol_value(_package_))
         _flush_standard_output_streams()
         return funcall_with_debug_io_syntax(_invoke_debugger, condition)
 
@@ -1748,15 +1788,15 @@ def _pp_frame(f, align = None, handle_overflow = None, lineno = None):
                                  fun_name, ", ".join(fun_params)))
 
 def _print_frame(f, stream = None, **keys):
-        write_string(_pp_frame(f, **keys), _defaulted_to_var(stream, "*DEBUG-IO*"))
+        write_string(_pp_frame(f, **keys), _defaulted_to_var(stream, _debug_io_))
 
 def _print_frames(fs, stream = None):
-        mapc(lambda i, f: format(_defaulted_to_var(stream, "*DEBUG-IO*"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
+        mapc(lambda i, f: format(_defaulted_to_var(stream, _debug_io_), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
              *_py.zip(*_py.enumerate(fs)))
 
 def _backtrace(x = -1, stream = None):
         _print_frames(_frames_calling(_this_frame())[1:x],
-                      _defaulted_to_var(stream, "*DEBUG-IO*"))
+                      _defaulted_to_var(stream, _debug_io_))
 
 def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_line = None):
         def _pp_frame_in_chain(f, pretty = None):
@@ -2050,7 +2090,7 @@ def _make_timestamping_cache(map_computer):
         return cache, cache_getter
 
 def _read_case_xformed(x):
-        return _case_xform(_str_symbol_value("*READ-CASE*"), x)
+        return _case_xform(_symbol_value(_read_case_), x)
 
 # ***** Pergamum 0
 
@@ -2894,9 +2934,10 @@ def import_(symbols, package = None, populate_module = t):
                         p.imported.add(s)
                         p.accessible[s.name] = s
                         if module:
+                                _not_implemented("Namespace merging.")
                                 # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
-                                python_name = _frost.lisp_symbol_name_python_name(s.name)
-                                module.__dict__[python_name] = s.value
+                                # python_name = _frost.lisp_symbol_name_python_name(s.name)
+                                # module.__dict__[python_name] = ???
         return t
 
 # *** Condition system disabling
@@ -3120,8 +3161,8 @@ def describe_object(o, stream):
 
 def describe(object, stream_designator = None):
         "Print a description of OBJECT to STREAM-DESIGNATOR."
-        stream_designator = _defaulted(stream_designator, _str_symbol_value("*STANDARD-OUTPUT*"))
-        with progv({"*PRINT-RIGHT-MARGIN*": 72}):
+        stream_designator = _defaulted(stream_designator, _symbol_value(_standard_output_))
+        with progv({_print_right_margin_: 72}):
                 describe_object(object, stream_designator)
 
 # *** Stream types and functions
@@ -3160,8 +3201,8 @@ def make_two_way_stream(input, output):   return two_way_stream.python_type(inpu
 def two_way_stream_input_stream(stream):  return stream.input
 def two_way_stream_output_stream(stream): return stream.output
 
-_string_set("*DEBUG-IO*", make_two_way_stream(_str_symbol_value("*STANDARD-INPUT*"), _str_symbol_value("*STANDARD-OUTPUT*")))
-_string_set("*QUERY-IO*", make_two_way_stream(_str_symbol_value("*STANDARD-INPUT*"), _str_symbol_value("*STANDARD-OUTPUT*")))
+_string_set("*DEBUG-IO*", make_two_way_stream(_symbol_value(_standard_input_), _symbol_value(_standard_output_)))
+_string_set("*QUERY-IO*", make_two_way_stream(_symbol_value(_standard_input_), _symbol_value(_standard_output_)))
 # raise simple_condition.python_type("Boo %s.", 2)
 
 @defclass
@@ -3199,8 +3240,8 @@ def make_synonym_stream(symbol):   return synonym_stream.python_type(symbol)
 def synonym_stream_symbol(stream): return stream.symbol
 
 def _coerce_to_stream(x):
-        return (x                                      if streamp(x) else
-                _str_symbol_value("*STANDARD-OUTPUT*") if x is t else
+        return (x                                if streamp(x) else
+                _symbol_value(_standard_output_) if x is t else
                 error("%s cannot be coerced to a stream.", x))
 
 # *** Stream output functions and FORMAT
@@ -3430,7 +3471,7 @@ declared to be the names of constant variables)."""
 
 def _read_symbol(x, package = None, case = None):
         # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
-        case = _defaulted_to_var(case, "*READ-CASE*")
+        case = _defaulted_to_var(case, _read_case_)
         name, p = ((x[1:], __keyword)
                    if x[0] == ":" else
                    _poor_man_let(x.find(":"),
@@ -3523,7 +3564,7 @@ def make_pathname(*args, host = None, device = None, directory = None, name = No
                   default = None, case = _keyword("LOCAL")):
         assert not args
         default = default or pathname.python_type(**_defaulted_keys(
-                        host = pathname_host(_str_symbol_value("*DEFAULT-PATHNAME-DEFAULTS*")),
+                        host = pathname_host(_symbol_value(_default_pathname_defaults_)),
                         device = nil, directory = nil, name = nil, type = nil, version = nil))
         effective_host = _defaulted(host, default.host)
         supplied_pathname = _py.dict(
@@ -3837,7 +3878,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
                 def wrapped_hook(cond, hook_value):
                         "Let's honor the old hook."
                         _report_condition(cond,
-                                          stream = _str_symbol_value("*DEBUG-IO*"),
+                                          stream = _symbol_value(_debug_io_),
                                           backtrace = backtrace)
                         if old_hook_value:
                                 old_hook_value(cond, old_hook_value)
@@ -3848,6 +3889,8 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
 
 __not_even_conditions__ = _py.frozenset([_py.GeneratorExit, _py.SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
+
+_intern_and_bind_pynames("*STACK-TOP-HINT*")
 
 def __cl_condition_handler__(condspec, frame):
         backtrace_printed = nil
@@ -3871,20 +3914,20 @@ def __cl_condition_handler__(condspec, frame):
                                 _here("Condition Upgrader: %s of-type %s -> %s of-type %s",
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
-                                      callers = 45, frame = _str_symbol_value("*STACK-TOP-HINT*"))
-                        with progv({"*TRACEBACK*": traceback,
-                                    "*SIGNALLING-FRAME*": frame}): # These bindings are the deviation from the CL standard.
-                                presignal_hook = _str_symbol_value("*PRESIGNAL-HOOK*")
+                                      callers = 45, frame = _symbol_value(_stack_top_hint_))
+                        with progv({_traceback_: traceback,
+                                    _signalling_frame_: frame}): # These bindings are the deviation from the CL standard.
+                                presignal_hook = _symbol_value(_presignal_hook_)
                                 if presignal_hook:
-                                        with progv({"*PRESIGNAL-HOOK*": nil}):
+                                        with progv({_presignal_hook_: nil}):
                                                 presignal_hook(cond, presignal_hook)
                                 signal(cond)
-                                debugger_hook = _str_symbol_value("*DEBUGGER-HOOK*")
+                                debugger_hook = _symbol_value(_debugger_hook_)
                                 if debugger_hook:
-                                        with progv({"*DEBUGGER-HOOK*": nil}):
+                                        with progv({_debugger_hook_: nil}):
                                                 debugger_hook(cond, debugger_hook)
                 return cond
-        with progv({"*STACK-TOP-HINT*": _caller_frame(caller_relative = 1)}):
+        with progv({_stack_top_hint_: _caller_frame(caller_relative = 1)}):
                 cond = _sys.call_tracing(continuation, _py.tuple())
         if type_of(cond) not in __not_even_conditions__:
                 is_not_ball = type_of(cond) is not __catcher_throw__
@@ -3922,8 +3965,8 @@ def handler_bind(fn, *handlers, no_error = identity):
         # ..inlined for speed.
         if _frost.pytracer_enabled_p() and _frost.tracer_hook("exception") is __cl_condition_handler__:
                 # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
-                with progv({"*HANDLER-CLUSTERS*": (_str_symbol_value("*HANDLER-CLUSTERS*") +
-                                                   [handlers + (("__frame__", _caller_frame()),)])}):
+                with progv({_handler_clusters_: (_symbol_value(_handler_clusters_) +
+                                                 [handlers + (("__frame__", _caller_frame()),)])}):
                         return no_error(fn())
         else:
                 # old world case..
@@ -4026,7 +4069,7 @@ def _specs_restarts_args(restart_specs):
 # XXX: :TEST-FUNCTION is currently IGNORED!
 ##
 def _restart_bind(body, restarts_args):
-        with progv({"*RESTART-CLUSTERS*": (_str_symbol_value("*RESTART-CLUSTERS*") +
+        with progv({_restart_clusters_: (_symbol_value(_restart_clusters_) +
                                            [_remap_hash_table(lambda _, restart_args: make_instance(restart, **restart_args), restarts_args)])}):
                 return body()
 
@@ -4120,7 +4163,7 @@ returned. Otherwise, NIL is returned.
         if _restartp(identifier):
                 return find_restart(restart_name(identifier)) is identifier
         else:
-                for cluster in reversed(_str_symbol_value("*RESTART-CLUSTERS*")):
+                for cluster in reversed(_symbol_value(_restart_clusters_)):
                         # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                         restart = cluster[identifier] if identifier in cluster else None
                         if restart and restart_condition_association_check(condition, restart):
@@ -4151,7 +4194,7 @@ dynamic environment. The consequences are undefined if the list
 returned by COMPUTE-RESTARTS is every modified.
 """
         restarts = _py.list()
-        for cluster in _py.reversed(_str_symbol_value("*RESTART-CLUSTERS*")):
+        for cluster in _py.reversed(_symbol_value(_restart_clusters_)):
                 # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
                 restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
                                 if condition else
@@ -4533,7 +4576,7 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
                      lambda c: c not in " \t\n" if peek_type is t                                       else
                      lambda c: c == peek_type   if stringp(peek_type) and _py.len(peek_type) == 1 else
                      error("Invalid peek-type: '%s'.", peek_type))
-        stream = _defaulted(input_stream, _str_symbol_value("*STANDARD-INPUT*"))
+        stream = _defaulted(input_stream, _symbol_value(_standard_input_))
         while t:
                 char = read_char(stream, eof_error_p, eof_value, recursive_p)
                 if criterion(char):
@@ -4640,10 +4683,10 @@ read = _cold_read
 # *** SEX pretty-printer
 
 _string_set("*SEX-JUSTIFICATION*", 0)
-def _sex_justification(): return _str_symbol_value("*SEX-JUSTIFICATION*")
+def _sex_justification(): return _symbol_value(_sex_justification_)
 def _sex_space():         return " " * _sex_justification()
 def _sex_deeper(n, body):
-        with progv({"*SEX-JUSTIFICATION*": _str_symbol_value("*SEX-JUSTIFICATION*") + n}):
+        with progv({_sex_justification_: _symbol_value(_sex_justification_) + n}):
                 return body()
 def _compiler_debug_printf(control, *args):
         if _debugging_compiler():
@@ -4664,7 +4707,7 @@ def _pp_sex(sex, initial_depth = None):
                                                   error("Invalid separator specification %s.", _py.repr(x)))
         def code_interp_rec(spec, sex, continue_ = nil):
                 def structure_interp(spec, sex, increment = 1):
-                        with progv({"*SEX-JUSTIFICATION*": _str_symbol_value("*SEX-JUSTIFICATION*") + increment}):
+                        with progv({_sex_justification_: _symbol_value(_sex_justification_) + increment}):
                                 @block
                                 def horz_run(spec, sex):
                                         def horz_rec(acc, spec, sex):
@@ -4711,7 +4754,7 @@ def _pp_sex(sex, initial_depth = None):
                         return _pp_sex(sex)
                 else:
                         error("Invalid spec %s, while pretty-printing %s.", _py.repr(spec), sex)
-        with progv({ "*SEX-JUSTIFICATION*": _defaulted_to_var(initial_depth, "*SEX-JUSTIFICATION*") }):
+        with progv({ _sex_justification_: _defaulted_to_var(initial_depth, _sex_justification_) }):
                 ret = code_interp_rec(code, sex)
                 return ret
 
@@ -4895,7 +4938,7 @@ def _read_ast(x):
                         _py.tuple(rec(e) for e in x.elts) if _py.isinstance(x, _ast.Tuple) else
                         _read_ast(x.value)                if _py.isinstance(x, _ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
-        with progv(# {"*READ-CASE*": _keyword("preserve")}
+        with progv(# {_read_case_: _keyword("preserve")}
                    ):
                 return rec(x)
 
@@ -4947,7 +4990,7 @@ def _ast_ensure_stmt(x):
 
 # (defvar *bound-free-recursor*)
 def _bound_free_recursor():
-        return _str_symbol_value("*BOUND-FREE-RECURSOR*")
+        return _symbol_value(_bound_free_recursor_)
 
 def _ast_bound_free(astxs):
         def ast_rec(astxs):
@@ -4957,7 +5000,7 @@ def _ast_bound_free(astxs):
                         _ast_info_check_args_type(info, args, atreep = nil)
                         return info.bound_free(*args)
                 return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
-        with progv({"*BOUND-FREE-RECURSOR*": ast_rec}):
+        with progv({_bound_free_recursor_: ast_rec}):
                 return ast_rec(the((or_, _ast.AST, (pylist, _ast.AST)),
                                    astxs))
 
@@ -4971,7 +5014,7 @@ def _atree_bound_free(atreexs):
                         _ast_info_check_args_type(info, args, atreep = t)
                         return info.bound_free(*args)
                 return _separate(3, bound_free, remove(None, _ensure_list(atreexs)))
-        with progv({"*BOUND-FREE-RECURSOR*": atree_rec}):
+        with progv({_bound_free_recursor_: atree_rec}):
                 return atree_rec(the((or_, pytuple, (pylist, pytuple)),
                                      atreexs))
 
@@ -5850,27 +5893,27 @@ Examples:
         def summarize_compilation_unit(failurep):
                 _warn_not_implemented()
         succeeded_p = nil
-        if _str_symbol_value("*IN-COMPILATION-UNIT*") and not override:
+        if _symbol_value(_in_compilation_unit_) and not override:
                 try:
-                        with progv({"*TOP-COMPILATION-UNIT-P*": nil}):
+                        with progv({_top_compilation_unit_p_: nil}):
                                 ret = fn()
                         succeeded_p = t
                         return ret
                 finally:
                         if not succeeded_p:
                                 _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                            _str_symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+                                            _symbol_value(_aborted_compilation_unit_count_) + 1)
         else:
-                with progv({"*ABORTED-COMPILATION-UNIT-COUNT*": 0, # What is this for?
-                            "*COMPILER-ERROR-COUNT*": 0,
-                            "*COMPILER-WARNINGS-COUNT*": 0,
-                            "*COMPILER-STYLE-WARNINGS-COUNT*": 0,
-                            "*COMPILER-NOTE-COUNT*": 0,
-                            "*UNDEFINED-WARNINGS*": nil,
-                            "*IN-COMPILATION-UNIT*": t,
+                with progv({_aborted_compilation_unit_count_: 0, # What is this for?
+                            _compiler_error_count_: 0,
+                            _compiler_warnings_count_: 0,
+                            _compiler_style_warnings_count_: 0,
+                            _compiler_note_count_: 0,
+                            _undefined_warnings_: nil,
+                            _in_compilation_unit_: t,
                             ##
-                            "*TOP-COMPILATION-UNIT-P*": t,
-                            "*SYMBOLS*": _py.set(),
+                            _top_compilation_unit_p_: t,
+                            _symbols_: _py.set(),
                             }):
                         try:
                                ret = fn()
@@ -5879,25 +5922,25 @@ Examples:
                         finally:
                                 if not succeeded_p:
                                         _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                                    _str_symbol_value("*ABORTED-COMPILATION-UNIT-COUNT*") + 1)
+                                                    _symbol_value(_aborted_compilation_unit_count_) + 1)
                                 summarize_compilation_unit(not succeeded_p)
 
 def _compilation_note_symbol(x):
-        _str_symbol_value("*SYMBOLS*").add(the(symbol, x))
+        _symbol_value(_symbols_).add(the(symbol, x))
         return t
 
 def _compilation_symbols():
-        return _str_symbol_value("*SYMBOLS*")
+        return _symbol_value(_symbols_)
 
 def _top_compilation_unit_p():
-        return _str_symbol_value("*TOP-COMPILATION-UNIT-P*")
+        return _symbol_value(_top_compilation_unit_p_)
 
 def _compilation_unit_prologue():
         "This computes the prologue.  Supposed to be called once, at the end of all processing."
         def symbol_prologue():
                 symbols = _compilation_symbols()
                 # _debug_printf("prologue: %s", symbols)
-                with progv({"*SYMBOLS*": _py.set()}):
+                with progv({_symbols_: _py.set()}):
                         # for s in symbols:
                         #         _debug_printf("++++++++++++++++++++++++++++++++++++ emitting init for %s:\n%s\n\n",
                         #                       s, _lower((setq, s, (intern, symbol_name(s), package_name(symbol_package(s))))))
@@ -5930,7 +5973,7 @@ class _lexenv(_collections.UserDict):
                         _bindingp(k) or error("Lexenv values must be bindings, found: %s.", v.__repr__())
                 self.scope = (self, (nil                        if null(parent)        else
                                      the(_lexenv, parent).scope if _specifiedp(parent) else
-                                     _str_symbol_value("*LEXENV*").scope))
+                                     _symbol_value(_lexenv_).scope))
         def __bool__(selt): return t
         def find_scope(self, x):
                 scope = self.scope
@@ -6011,7 +6054,7 @@ _string_set("*COMPILER-DEBUG-P*",    nil)
 def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
 def _debugging_compiler():
-        return _str_symbol_value("*COMPILER-DEBUG-P*")
+        return _symbol_value(_compiler_debug_p_)
 
 __compiler_form_record__ = _collections.defaultdict(lambda: 0)
 __compiler_form_record_threshold__ = 5
@@ -6026,13 +6069,13 @@ def _compiler_track_compiled_form(form):
 class _compiler_def(_servile):
         pass
 
-def _compiling_def():     return _str_symbol_value("*COMPILER-DEF*")
-def _tail_position_p():   return _str_symbol_value("*COMPILER-TAILP*")
+def _compiling_def():     return _symbol_value(_compiler_def_)
+def _tail_position_p():   return _symbol_value(_compiler_tailp_)
 
 def _compiler_report_context():
         _here("def %s\n      tailp: %s",
-              *mapcar(_str_symbol_value, ["*COMPILER-DEF*",
-                                          "*COMPILER-TAILP*"]))
+              *mapcar(_symbol_value, [_compiler_def_,
+                                      _compiler_tailp_]))
 
 _tail_position       = _defwith("_tail_position",
                                    lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_TAILP_ = t)),
@@ -6126,6 +6169,14 @@ def setq(name, value):
                 _lower_name(name))
 
 # ***** Multiple values
+
+#       The *MULTIPLE-VALUE-CONTEXT* variable has the following interpretation:
+
+#       - NIL :: no values are used
+#       - an integer :: N'th value is used
+#       - T :: all values are used
+
+_string_set("*MULTIPLE-VALUE-CONTEXT*", 1)
 
 @defknown(("atom", " ", (["atom", " "],), " ", "sex"))
 def setf_values(names, values):
@@ -6342,9 +6393,9 @@ def def_(name, lambda_list, *body, decorators = []):
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
         cdef = _compiler_def(name   = name,
                              parent = _compiling_def())
-        toplevelp = _str_symbol_value("*COMPILER-TOPLEVEL-P*")
-        with progv({"*COMPILER-DEF*":      cdef,
-                    "*COMPILER-TOPLEVEL-P*": nil}):
+        toplevelp = _symbol_value(_compiler_toplevel_p_)
+        with progv({_compiler_def_:      cdef,
+                    _compiler_toplevel_p_: nil}):
                 check_type(name, (and_, symbol, (not_, keyword)))
                 # check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
                 def try_compile():
@@ -6443,7 +6494,7 @@ def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
         fn, warnedp, failedp, [macfundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
                                                                               (lambda_, lambda_list) + body,
-                                                                              _str_symbol_value("*LEXENV*"),
+                                                                              _symbol_value(_lexenv_),
                                                                               globalp = t, macrop = t)
         return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this:
                              # the((varituple, (eql, def_), pytuple), macfundef)
@@ -6455,7 +6506,7 @@ def defun(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
         fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
                                                                            (lambda_, lambda_list) + body,
-                                                                           _str_symbol_value("*LEXENV*"),
+                                                                           _symbol_value(_lexenv_),
                                                                            globalp = t, macrop = t)
         return ([fundef],
                 _lower((quote, (symbol, string(name))))[1])
@@ -6843,14 +6894,14 @@ def _make_compilation_unit():
         unit = _py.dict(conditions = [])
         return unit
 _compilation_unit = _defwith("_compilation_unit",
-                             lambda *_: _dynamic_scope_push({"*COMPILATION-UNIT*": _make_compilation_unit()}
-                                                            if not boundp("*COMPILATION-UNIT*") else
+                             lambda *_: _dynamic_scope_push({_compilation_unit_: _make_compilation_unit()}
+                                                            if not boundp(_compilation_unit_) else
                                                             make_hash_table()),
                              lambda *_: _dynamic_scope_pop())
 def _compilation_unit_set(k, v):
-        _str_symbol_value("*COMPILATION-UNIT*")[k] = v
+        _symbol_value(_compilation_unit_)[k] = v
 def _compilation_unit_get(k):
-        return _str_symbol_value("*COMPILATION-UNIT*")[k]
+        return _symbol_value(_compilation_unit_)[k]
 
 # getsource
 #   getsourcelines
@@ -7041,7 +7092,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                         warnedp,
                         failedp,
                         pro)
-        with progv({"*LEXENV*": lexenv}):
+        with progv({_lexenv_: lexenv}):
                 return with_compilation_unit(_in_compilation_unit)
 
 # *** @LISP tests
@@ -7112,13 +7163,13 @@ def _eval_in_lexenv(exp, lexenv):
         return _simple_eval_in_lexenv(exp, lexenv)
 
 def _do_eval(exp, tlf_index, source_info, lexenv):
-        with progv({"*EVAL-SOURCE-CONTEXT*": exp,
-                    "*EVAL-TLF-INDEX*":      tlf_index,
-                    "*EVAL-SOURCE-INFO*":    source_info}):
+        with progv({_eval_source_context_: exp,
+                    _eval_tlf_index_:      tlf_index,
+                    _eval_source_info_:    source_info}):
                 return _eval_in_lexenv(exp, lexenv)
 
 def _eval_tlf(original_exp, tlf_index, lexenv = None):
-        return _do_eval(original_exp, tlf_index, _str_symbol_value("*SOURCE-INFO*"),
+        return _do_eval(original_exp, tlf_index, _symbol_value(_source_info_),
                         _defaulted(lexenv, _make_null_lexenv()))
 
 def eval(original_exp):
@@ -7184,7 +7235,7 @@ def _preprocessor_macroexpand_1(form):
         ## We only expand one level, so that we retain all the intervening
         ## forms in the source path.
         try:
-                return _macroexpand_1(form, _str_symbol_value("*LEXENV*"))
+                return _macroexpand_1(form, _symbol_value(_lexenv_))
         except error.python_type as condition:
                 _compiler_error("(during macroexpansion of %s)\n%s", format(nil, "%s", form), condition)
 
@@ -7195,7 +7246,7 @@ def _process_toplevel_progn(forms, path, compile_time_too):
 
 def _process_toplevel_locally(body, path, compile_time_too, vars = [], funs = []):
         forms, decls = _parse_body(body, doc_string_allowed = nil, toplevel = t)[:2]
-        with progv({"*LEXENV*": _process_decls(decls, vars, funs)}):
+        with progv({_lexenv_: _process_decls(decls, vars, funs)}):
                 return _process_toplevel_progn(forms, path, compile_time_too)
 
 _eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
@@ -7211,36 +7262,36 @@ def _parse_eval_when_situations(situ_form):
 # process-toplevel-cold-fset name lambda-expression path
 
 def _note_top_level_form(form, finalp = nil):
-        if _str_symbol_value("*COMPILE-PRINT*"):
-                if not _str_symbol_value("*TOP-LEVEL-FORM-NOTED*"):
+        if _symbol_value(_compile_print_):
+                if not _symbol_value(_top_level_form_noted_):
                         _compiler_mumble("; compiling %s\n", _pp_sex(form[:min(2, _py.len(form))]))
                         return form
                 else:
-                        return _str_symbol_value("*TOP-LEVEL-FORM-NOTED*")
+                        return _symbol_value(_top_level_form_noted_)
 
 ## This returns a list of %C-A-M-C retvals, just as PROCESS-* do.
 def _eval_compile_toplevel(body, path):
         ## Handle the evaluation the a :COMPILE-TOPLEVEL body during
         ## compilation. Normally just evaluate in the appropriate
         ## environment, but also compile if outputting a CFASL.
-        eval_tlf((progn,) + body, source_path_tlf_number(path), _str_symbol_value("*LEXENV*"))
-        cto = _str_symbol_value("*COMPILE-TOPLEVEL-OBJECT*")
+        eval_tlf((progn,) + body, source_path_tlf_number(path), _symbol_value(_lexenv_))
+        cto = _symbol_value(_compile_toplevel_object_)
         if cto:
-                with progv({"*COMPILE-OBJECT*": cto}):
+                with progv({_compile_object_: cto}):
                         return [_convert_and_maybe_compile((progn,) + body, path)]
         else:
                 return []
 
 def _process_toplevel_form(form, path, compile_time_too):
         def funcall_in_macrolet_lexenv(bindings, fn):
-                with progv({"*LEXENV*": _not_implemented()}):
+                with progv({_lexenv_: _not_implemented()}):
                         return fn()
         def funcall_in_symbol_macrolet_lexenv(bindings, fn):
-                with progv({"*LEXENV*": _not_implemented()}):
+                with progv({_lexenv_: _not_implemented()}):
                         return fn()
         path = _get_source_path(form) or cons(form, path)
         def default_processor(form):
-                with progv({"*TOPLEVEL-FORM-NOTED*": _note_top_level_form(form)}):
+                with progv({_toplevel_form_noted_: _note_top_level_form(form)}):
                         expanded = _preprocessor_macroexpand_1(form)
                         if expanded is form:
                                 if compile_time_too:
@@ -7349,12 +7400,12 @@ def _load_as_source(stream, verbose = nil, print = nil):
                 def next(): return read(stream, eof_error_p = nil, eof_value = stream)
                 form = next()
                 if pathname:
-                        with progv({ "*SOURCE-INFO*": _source_info.python_type(pathname = pathname) }):
+                        with progv({ _source_info_: _source_info.python_type(pathname = pathname) }):
                                 while form != stream:
                                         eval_form(form, nil)
                                         form = next()
                 else:
-                        with progv({ "*SOURCE-INFO*": nil }):
+                        with progv({ _source_info_: nil }):
                                 while form != stream:
                                         eval_form(form, nil)
                                         form = next()
@@ -7375,10 +7426,10 @@ def load(pathspec, verbose = None, print = None,
                         error("The file pointed at by stream %s does not contain a FASL file.", stream)
                 return nil
         def load_stream(stream, faslp):
-                with progv({ "*READTABLE*":     _str_symbol_value("*READTABLE*"),
-                             "*PACKAGE*":       _str_symbol_value("*PACKAGE*"),
-                             "*LOAD-PATHNAME*": pathname(stream),
-                             "*LOAD-TRUENAME*": handler_case(lambda: truename(stream),
+                with progv({ _readtable_:     _symbol_value(_readtable_),
+                             _package_:       _symbol_value(_package_),
+                             _load_pathname_: pathname(stream),
+                             _load_truename_: handler_case(lambda: truename(stream),
                                                              (error, lambda _: nil)) }):
                         return_from(load, (_load_as_fasl if faslp else
                                            _load_as_source)(stream, verbose = verbose, print = print))
@@ -7391,7 +7442,7 @@ def load(pathspec, verbose = None, print = None,
                 if not stream:
                         return_from(load, nil)
                 real = probe_file(stream)
-                should_be_fasl_p = real and string_equal(pathname_type(real), _str_symbol_value("*FASL-FILE-TYPE*"))
+                should_be_fasl_p = real and string_equal(pathname_type(real), _symbol_value(_fasl_file_type_))
                 if ((should_be_fasl_p or file_length(stream)) and
                     fasl_header_p(stream, errorp = should_be_fasl_p)):
                         return_from(load, load_stream(stream, t))
@@ -10295,7 +10346,7 @@ def _coerce_to_expr(x):
 
 def _eval_python(expr_or_stmt):
         "In AST form, naturally."
-        package = _str_symbol_value("*PACKAGE*")
+        package = _symbol_value(_package_)
         exprp = typep(the(_ast.AST, expr_or_stmt), (or_, _ast.expr, _ast.Expr))
         call = _ast.fix_missing_locations(_ast_module(
                         [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
@@ -10308,7 +10359,7 @@ def _eval_python(expr_or_stmt):
                                      error("EVAL: error while trying to compile <%s>: %s",
                                            more_ast.pp_ast_as_code(expr_or_stmt), cond)))
         if boundp("*SOURCE-FOR-EVAL*"):
-                __eval_source_cache__[code] = _str_symbol_value("*SOURCE-FOR-EVAL*")
+                __eval_source_cache__[code] = _symbol_value(_source_for_eval_)
         # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         _py.exec(code, _find_module(_frost.lisp_symbol_name_python_name(package_name(package))).__dict__)
         values = (__evget__() if exprp else
