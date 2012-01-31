@@ -416,9 +416,6 @@ def _symbol_value(name):
         return (frame[name] if frame else
                 error(AttributeError, "Unbound variable: %s." % name))
 
-def _coerce_cluster_keys_to_symbol_names(dict):
-        return { string(var).upper():val for var, val in dict.items() }
-
 def _do_bind_symbol_pyname(symbol):
         pyname = _frost.lisp_symbol_name_python_name(symbol_name(symbol))
         _frost.setf_global(symbol, pyname, _py.globals())
@@ -924,7 +921,7 @@ class _env_cluster(object):
         def __init__(self, cluster):
                 self.cluster = cluster
         def __enter__(self):
-                _dynamic_scope_push(_coerce_cluster_keys_to_symbol_names(self.cluster))
+                _dynamic_scope_push(self.cluster)
         def __exit__(self, t, v, tb):
                 _dynamic_scope_pop()
 
@@ -955,12 +952,11 @@ with progv(foovar = 3.14,
 
 ..with the latter being lighter on the stack frame usage."""
         if body:
-                with _env_cluster(_map_into_hash(lambda vv: (string(vv[0]).upper(), vv[1]),
-                                                 _py.zip(vars, vals))):
+                with _env_cluster(_py.dict(_py.zip(vars, vals))):
                         return body()
         else:
                 return _env_cluster(vars if hash_table_p(vars) else
-                                    _coerce_cluster_keys_to_symbol_names(cluster))
+                                    cluster)
 
 #+end_src
 
@@ -1004,7 +1000,7 @@ def catch(ball, body):
 def throw(ball, value):
         "Stack this seeks, like mad, like the real one."
         check_type(ball, symbol)
-        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp("*SIGNALLING-FRAME*"))
+        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp(_signalling_frame_))
 
 def __block__(fn):
         "An easy decorator-styled interface for block establishment."
@@ -1041,12 +1037,13 @@ def return_from(nonce, value):
 
 #+begin_src python +n
 ## standard globals:
-_string_set("*DEBUGGER-HOOK*",  nil)
+_string_set("*DEBUGGER-HOOK*",         nil)
+_string_set("*INVOKE-DEBUGGER-HOOK*",  nil)
 
 ## non-standard:
 _string_set("*HANDLER-CLUSTERS*", [])
-_string_set("*PRESIGNAL-HOOK*", nil)
-_string_set("*PREHANDLER-HOOK*", nil)
+_string_set("*PRESIGNAL-HOOK*",   nil)
+_string_set("*PREHANDLER-HOOK*",  nil)
 
 def _set_condition_handler(fn):
         _frost.set_tracer_hook("exception", fn)
@@ -1081,6 +1078,11 @@ def _flush_standard_output_streams():
 def _funcall_with_debug_io_syntax(function, *args, **keys):
         _warn_not_implemented()
         return function(*args, **keys)
+
+_intern_and_bind_pynames("*DEBUG-CONDITION*", "*DEBUG-RESTARTS*", "*NESTED-DEBUG-CONDITION*")
+
+def _show_restarts(restarts, stream):
+        _warn_not_implemented()
 
 def _invoke_debugger(condition):
         ## SBCL is being careful to not handle STEP-CONDITION here..
@@ -1123,7 +1125,7 @@ def invoke_debugger(condition):
                        "The value of %s was not an undeleted PACKAGE. It has been reset to %s.",
                        _package_, _symbol_value(_package_))
         _flush_standard_output_streams()
-        return funcall_with_debug_io_syntax(_invoke_debugger, condition)
+        return _funcall_with_debug_io_syntax(_invoke_debugger, condition)
 #+end_src
 
 *** Type system
@@ -1539,27 +1541,34 @@ def copy_readtable(x):
 __standard_pprint_dispatch__ = make_hash_table() # XXX: this is crap!
 __standard_readtable__       = make_instance(readtable) # XXX: this is crap!
 
-__standard_io_syntax__ = _py.dict({"*PACKAGE*"               : find_package("COMMON-LISP-USER"),
-                                   "*PRINT-ARRAY*"           : t,
-                                   "*PRINT-BASE*"            : 10,
-                                   "*PRINT-CASE*"            : _keyword("upcase"),
-                                   "*PRINT-CIRCLE*"          : nil,
-                                   "*PRINT-ESCAPE*"          : t,
-                                   "*PRINT-GENSYM*"          : t,
-                                   "*PRINT-LENGTH*"          : nil,
-                                   "*PRINT-LEVEL*"           : nil,
-                                   "*PRINT-LINES*"           : nil,
-                                   "*PRINT-MISER-WIDTH*"     : nil,
-                                   "*PRINT-PPRINT-DISPATCH*" : __standard_pprint_dispatch__,
-                                   "*PRINT-PRETTY*"          : t,
-                                   "*PRINT-RADIX*"           : nil,
-                                   "*PRINT-READABLY*"        : nil,
-                                   "*PRINT-RIGHT-MARGIN*"    : nil,
-                                   "*READ-BASE*"                 : 10,
-                                   "*READ-DEFAULT-FLOAT-FORMAT*" : "single-float",
-                                   "*READ-EVAL*"                 : t,
-                                   "*READ-SUPPRESS*"             : nil,
-                                   "*READTABLE*"                 : __standard_readtable__})
+_intern_and_bind_pynames("*PRINT-ARRAY*", "*PRINT-BASE*", "*PRINT-CASE*", "*PRINT-CIRCLE*",
+                         "*PRINT-ESCAPE*", "*PRINT-GENSYM*", "*PRINT-LENGTH*", "*PRINT-LEVEL*",
+                         "*PRINT-LINES*", "*PRINT-MISER-WIDTH*", "*PRINT-PPRINT-DISPATCH*",
+                         "*PRINT-PRETTY*", "*PRINT-RADIX*", "*PRINT-READABLY*", "*PRINT-RIGHT-MARGIN*",
+                         "*READ-BASE*", "*READ-DEFAULT-FLOAT-FORMAT*", "*READ-EVAL*",
+                         "*READ-SUPPRESS*",
+                         "*READTABLE*")
+__standard_io_syntax__ = _py.dict({_package_               : find_package("COMMON-LISP-USER"),
+                                   _print_array_           : t,
+                                   _print_base_            : 10,
+                                   _print_case_            : _keyword("UPCASE"),
+                                   _print_circle_          : nil,
+                                   _print_escape_          : t,
+                                   _print_gensym_          : t,
+                                   _print_length_          : nil,
+                                   _print_level_           : nil,
+                                   _print_lines_           : nil,
+                                   _print_miser_width_     : nil,
+                                   _print_pprint_dispatch_ : __standard_pprint_dispatch__,
+                                   _print_pretty_          : t,
+                                   _print_radix_           : nil,
+                                   _print_readably_        : nil,
+                                   _print_right_margin_    : nil,
+                                   _read_base_                 : 10,
+                                   _read_default_float_format_ : "single-float",
+                                   _read_eval_                 : t,
+                                   _read_suppress_             : nil,
+                                   _readtable_                 : __standard_readtable__})
 
 def with_standard_io_syntax(body):
         """Within the dynamic extent of the BODY of forms, all reader/printer
@@ -1601,26 +1610,26 @@ def _set_settable_standard_globals():
         _string_set("*STANDARD-INPUT*",  _sys.stdin)
         _string_set("*STANDARD-OUTPUT*", _sys.stdout)
         _string_set("*ERROR-OUTPUT*",    _sys.stderr)
-        _string_set("*PRINT-ARRAY*",           __standard_io_syntax__["*PRINT-ARRAY*"])
-        _string_set("*PRINT-BASE*",            __standard_io_syntax__["*PRINT-BASE*"])
-        _string_set("*PRINT-CASE*",            __standard_io_syntax__["*PRINT-CASE*"])
-        _string_set("*PRINT-CIRCLE*",          __standard_io_syntax__["*PRINT-CIRCLE*"])
-        _string_set("*PRINT-GENSYM*",          __standard_io_syntax__["*PRINT-GENSYM*"])
-        _string_set("*PRINT-ESCAPE*",          __standard_io_syntax__["*PRINT-ESCAPE*"])
-        _string_set("*PRINT-LENGTH*",          __standard_io_syntax__["*PRINT-LENGTH*"])
-        _string_set("*PRINT-LEVEL*",           __standard_io_syntax__["*PRINT-LEVEL*"])
-        _string_set("*PRINT-LINES*",           __standard_io_syntax__["*PRINT-LINES*"])
-        _string_set("*PRINT-MISER-WIDTH*",     __standard_io_syntax__["*PRINT-MISER-WIDTH*"])
-        _string_set("*PRINT-PPRINT-DISPATCH*", __standard_io_syntax__["*PRINT-PPRINT-DISPATCH*"])
-        _string_set("*PRINT-PRETTY*",          __standard_io_syntax__["*PRINT-PRETTY*"])
-        _string_set("*PRINT-RADIX*",           __standard_io_syntax__["*PRINT-RADIX*"])
-        _string_set("*PRINT-READABLY*",        __standard_io_syntax__["*PRINT-READABLY*"])
-        _string_set("*PRINT-RIGHT-MARGIN*",    __standard_io_syntax__["*PRINT-RIGHT-MARGIN*"])
-        _string_set("*READ-BASE*",                 __standard_io_syntax__["*READ-BASE*"])
-        _string_set("*READ-DEFAULT-FLOAT-FORMAT*", __standard_io_syntax__["*READ-DEFAULT-FLOAT-FORMAT*"])
-        _string_set("*READ-EVAL*",                 __standard_io_syntax__["*READ-EVAL*"])
-        _string_set("*READ-SUPPRESS*",             __standard_io_syntax__["*READ-SUPPRESS*"])
-        _string_set("*READTABLE*",                 __standard_io_syntax__["*READTABLE*"])
+        _string_set("*PRINT-ARRAY*",           __standard_io_syntax__[_print_array_])
+        _string_set("*PRINT-BASE*",            __standard_io_syntax__[_print_base_])
+        _string_set("*PRINT-CASE*",            __standard_io_syntax__[_print_case_])
+        _string_set("*PRINT-CIRCLE*",          __standard_io_syntax__[_print_circle_])
+        _string_set("*PRINT-GENSYM*",          __standard_io_syntax__[_print_gensym_])
+        _string_set("*PRINT-ESCAPE*",          __standard_io_syntax__[_print_escape_])
+        _string_set("*PRINT-LENGTH*",          __standard_io_syntax__[_print_length_])
+        _string_set("*PRINT-LEVEL*",           __standard_io_syntax__[_print_level_])
+        _string_set("*PRINT-LINES*",           __standard_io_syntax__[_print_lines_])
+        _string_set("*PRINT-MISER-WIDTH*",     __standard_io_syntax__[_print_miser_width_])
+        _string_set("*PRINT-PPRINT-DISPATCH*", __standard_io_syntax__[_print_pprint_dispatch_])
+        _string_set("*PRINT-PRETTY*",          __standard_io_syntax__[_print_pretty_])
+        _string_set("*PRINT-RADIX*",           __standard_io_syntax__[_print_radix_])
+        _string_set("*PRINT-READABLY*",        __standard_io_syntax__[_print_readably_])
+        _string_set("*PRINT-RIGHT-MARGIN*",    __standard_io_syntax__[_print_right_margin_])
+        _string_set("*READ-BASE*",                 __standard_io_syntax__[_read_base_])
+        _string_set("*READ-DEFAULT-FLOAT-FORMAT*", __standard_io_syntax__[_read_default_float_format_])
+        _string_set("*READ-EVAL*",                 __standard_io_syntax__[_read_eval_])
+        _string_set("*READ-SUPPRESS*",             __standard_io_syntax__[_read_suppress_])
+        _string_set("*READTABLE*",                 __standard_io_syntax__[_readtable_])
 
 _set_settable_standard_globals()
 #+end_src
@@ -3796,6 +3805,8 @@ class windows_host(pathname_host.python_type):
 _system_pathname_host = make_instance(windows_host if _platform.system() == 'Windows' else
                                       unix_host)
 
+_intern_and_bind_pynames("*DEFAULT-PATHNAME-DEFAULTS*")
+
 @defclass
 class pathname():
         def __init__(self, *args, host, device, directory, name, type, version):
@@ -3843,7 +3854,7 @@ def parse_namestring(thing, host = nil, default_pathname = None, *args, start = 
         ##     logical pathname namestring containing an explicit
         ##     host, then it is parsed as a logical pathname
         ##     namestring.
-        default_pathname = _defaulted_to_var(default_pathname, "*DEFAULT-PATHNAME-DEFAULTS*")
+        default_pathname = _defaulted_to_var(default_pathname, _default_pathname_defaults_)
         ## NI: If HOST is NIL, DEFAULT-PATHNAME is a logical pathname,
         ##     and THING is a syntactically valid logical pathname
         ##     namestring without an explicit host, then it is parsed
@@ -4121,7 +4132,7 @@ def _report_handling_handover(cond, frame, hook):
 
 __main_thread__ = _threading.current_thread()
 def _report_condition(cond, stream = None, backtrace = None):
-        stream = _defaulted_to_var(stream, "*DEBUG-IO*")
+        stream = _defaulted_to_var(stream, _debug_io_)
         format(stream, "%sondition of type %s: %s\n",
                (("In thread \"%s\": c" % _threading.current_thread().name)
                 if _threading.current_thread() is not __main_thread__ else
@@ -4149,7 +4160,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
 __not_even_conditions__ = _py.frozenset([_py.GeneratorExit, _py.SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
-_intern_and_bind_pynames("*STACK-TOP-HINT*")
+_intern_and_bind_pynames("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")
 
 def __cl_condition_handler__(condspec, frame):
         backtrace_printed = nil
@@ -4167,6 +4178,7 @@ def __cl_condition_handler__(condspec, frame):
                         #                    (str,       lambda: error_(cond)))
                 cond, upgradedp = _maybe_upgrade_condition(raw_cond)
                 if type_of(cond) not in __not_even_conditions__:
+                        # _debug_printf("signalling %s", cond)
                         if upgradedp:
                                 _backtrace()
                                 backtrace_printed = t
@@ -4191,7 +4203,7 @@ def __cl_condition_handler__(condspec, frame):
         if type_of(cond) not in __not_even_conditions__:
                 is_not_ball = type_of(cond) is not __catcher_throw__
                 _here("In thread '%s': unhandled condition : %s%s",
-                      _threading.current_thread().name, prin1_to_string(cond),
+                      _threading.current_thread().name, princ_to_string(cond),
                       ("\n; Disabling CL condition system." if is_not_ball else
                        ""),
                       callers = 15)
@@ -4507,8 +4519,8 @@ printing of strings is not affected by *PRINT-ARRAY*. Only the active
 elements of the string are printed."""
         # XXX: "active elements of the string"
         # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
-        readably = _defaulted_to_var(readably, "*PRINT-READABLY*")
-        escape   = _defaulted_to_var(escape,   "*PRINT-ESCAPE*") if not readably else t
+        readably = _defaulted_to_var(readably, _print_readably_)
+        escape   = _defaulted_to_var(escape,   _print_escape_) if not readably else t
         return (x if not escape else
                 ("\"" + _without_condition_system(
                                 lambda: _re.sub(r"([\"\\])", r"\\\1", x),
@@ -4553,21 +4565,21 @@ def write_to_string(object,
                     readably = None,
                     right_margin = None):
         "XXX: does not conform!"
-        array           = _defaulted_to_var(array,           "*PRINT-ARRAY*")
-        base            = _defaulted_to_var(base,            "*PRINT-BASE*")
-        case            = _defaulted_to_var(case,            "*PRINT-CASE*")
-        circle          = _defaulted_to_var(circle,          "*PRINT-CIRCLE*")
-        escape          = _defaulted_to_var(escape,          "*PRINT-ESCAPE*")
-        gensym          = _defaulted_to_var(gensym,          "*PRINT-GENSYM*")
-        length          = _defaulted_to_var(length,          "*PRINT-LENGTH*")
-        level           = _defaulted_to_var(level,           "*PRINT-LEVEL*")
-        lines           = _defaulted_to_var(lines,           "*PRINT-LINES*")
-        miser_width     = _defaulted_to_var(miser_width,     "*PRINT-MISER-WIDTH*")
-        pprint_dispatch = _defaulted_to_var(pprint_dispatch, "*PRINT-PPRINT-DISPATCH*")
-        pretty          = _defaulted_to_var(pretty,          "*PRINT-PRETTY*")
-        radix           = _defaulted_to_var(radix,           "*PRINT-RADIX*")
-        readably        = _defaulted_to_var(readably,        "*PRINT-READABLY*")
-        right_margin    = _defaulted_to_var(right_margin,    "*PRINT-RIGHT-MARGIN*")
+        array           = _defaulted_to_var(array,           _print_array_)
+        base            = _defaulted_to_var(base,            _print_base_)
+        case            = _defaulted_to_var(case,            _print_case_)
+        circle          = _defaulted_to_var(circle,          _print_circle_)
+        escape          = _defaulted_to_var(escape,          _print_escape_)
+        gensym          = _defaulted_to_var(gensym,          _print_gensym_)
+        length          = _defaulted_to_var(length,          _print_length_)
+        level           = _defaulted_to_var(level,           _print_level_)
+        lines           = _defaulted_to_var(lines,           _print_lines_)
+        miser_width     = _defaulted_to_var(miser_width,     _print_miser_width_)
+        pprint_dispatch = _defaulted_to_var(pprint_dispatch, _print_pprint_dispatch_)
+        pretty          = _defaulted_to_var(pretty,          _print_pretty_)
+        radix           = _defaulted_to_var(radix,           _print_radix_)
+        readably        = _defaulted_to_var(readably,        _print_readably_)
+        right_margin    = _defaulted_to_var(right_margin,    _print_right_margin_)
         # assert(t
         #        and array is t
         #        and base is 10
@@ -4806,13 +4818,13 @@ def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
 read_from_string = _cold_read_from_string
 
 def read_line(stream = None, eof_error_p = t, eof_value = nil):
-        stream = _defaulted_to_var(stream, "*STANDARD-INPUT*")
+        stream = _defaulted_to_var(stream, _standard_input_)
         return handler_case(lambda: stream.readline(),
                             (error,
                              lambda c: error(end_of_file, "end of file on %s" % (stream,))))
 
 def read_char(stream = None, eof_error_p = t, eof_value = nil, recursivep = nil):
-        stream = _defaulted_to_var(stream, "*STANDARD-INPUT*")
+        stream = _defaulted_to_var(stream, _standard_input_)
         ret = the(_global("stream"), stream).read(1)
         return (ret       if ret             else
                 eof_value if not eof_error_p else
@@ -6224,6 +6236,15 @@ def _compiler_error(control, *args):
 
 #+begin_src python +n
 _string_set("*IN-COMPILATION-UNIT*", nil)
+_intern_and_bind_pynames("*ABORTED-COMPILATION-UNIT-COUNT*",
+                         "*COMPILER-ERROR-COUNT*",
+                         "*COMPILER-WARNINGS-COUNT*",
+                         "*COMPILER-STYLE-WARNINGS-COUNT*",
+                         "*COMPILER-NOTE-COUNT*",
+                         "*UNDEFINED-WARNINGS*",
+                         ##
+                         "*TOP-COMPILATION-UNIT-P*",
+                         "*SYMBOLS*")
 
 def with_compilation_unit(fn, override = nil):
         """Affects compilations that take place within its dynamic extent. It is
@@ -6337,6 +6358,8 @@ class _binding():
                 self.name, self.value, self.function = name, value, function
                 self.__dict__.update(attributes)
 def _bindingp(x): return _py.isinstance(x, _binding)
+
+_intern_and_bind_pynames("*LEXENV*")
 
 @defclass
 class _lexenv(_collections.UserDict):
@@ -7768,8 +7791,8 @@ def compile_file(input_file, output_file = None,
                 if not input_file.endswith(".lisp"):
                         error("In COMPILE-FILE %s: must end with .lisp.", _py.repr(input_file))
                 return _defaulted(output_file, input_file[:-2] + "fas")
-        compile_verbose, compile_print = mapcar(lambda x: _defaulted_to_var(compile_verbose, x), ["*COMPILE-VERBOSE*",
-                                                                                                  "*COMPILE-PRINT*"])
+        compile_verbose, compile_print = mapcar(lambda x: _defaulted_to_var(compile_verbose, x), [_compile_verbose_,
+                                                                                                  _compile_print_])
         output_file = _compile_file_default_pathname(input_file, output_file = output_file)
         abort_p, warnings_p, failure_p = nil, nil, nil
         with _py.open(input_file, "r") as input:
@@ -7838,8 +7861,8 @@ _string_set("*FASL-FILE-TYPE*", "vpfas")
 def load(pathspec, verbose = None, print = None,
          if_does_not_exist = t,
          external_format = _keyword("default")):
-        verbose = _defaulted_to_var(verbose, "*LOAD-VERBOSE*")
-        print   = _defaulted_to_var(verbose, "*LOAD-PRINT*")
+        verbose = _defaulted_to_var(verbose, _load_verbose_)
+        print   = _defaulted_to_var(verbose, _load_print_)
         def fasl_header_p(stream, errorp = nil):
                 _warn_not_implemented()
                 if errorp:
@@ -10817,7 +10840,7 @@ def _eval_python(expr_or_stmt):
                              lambda cond:
                                      error("EVAL: error while trying to compile <%s>: %s",
                                            more_ast.pp_ast_as_code(expr_or_stmt), cond)))
-        if boundp("*SOURCE-FOR-EVAL*"):
+        if boundp(_source_for_eval_):
                 __eval_source_cache__[code] = _symbol_value(_source_for_eval_)
         # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         _py.exec(code, _find_module(_frost.lisp_symbol_name_python_name(package_name(package))).__dict__)
@@ -10826,7 +10849,7 @@ def _eval_python(expr_or_stmt):
         return values if _tuplep(values) else (values,)
 
 def _callify(form, package = None, quoted = nil):
-        package = _defaulted_to_var(package, "*PACKAGE*")
+        package = _defaulted_to_var(package, _package_)
         def callify_call(sym, args):
                 func = function(the(symbol, sym))
                 paramspec = _inspect.getfullargspec(func)
