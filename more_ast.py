@@ -332,17 +332,20 @@ def assign_meaningful_locations(node, lineno = 1):
                                  if isinstance(fvv, ast.AST)]
                         return lineno + (1 if isinstance(x, ast.stmt) else 0)
                 return advance(reductios.get(type(x), default_reductio)(x, lineno))
-        return (rec(lineno, (node, advance0))          if isinstance(node, ast.AST)       else
+        return (rec(lineno, (node, advance0))       if isinstance(node, ast.AST)       else
                 reduce(rec, normally(node), lineno) if isinstance(node, (list, tuple)) else
                 error("AST location assigner only accepts singular AST nodes and lists thereof."))
 
-cl._string_set("*AST-PP-DEPTH*", 0, force_toplevel = t)
+cl._intern_and_bind_pynames("*AST-PP-DEPTH*",
+                            globals = globals())
+
+cl.set(_ast_pp_depth_, 0, force_toplevel = t)
 def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
         fmtctl = "%%%dd " % ndigits
         def indent(ast_or_lineno):
                 lineno = (ast_or_lineno.lineno if hasattr(ast_or_lineno, "lineno") else 0)
                 return ((fmtctl % lineno) if line_numbers else
-                        "") + tab * symbol_value("*AST-PP-DEPTH*")
+                        "") + tab * symbol_value(_ast_pp_depth_)
         def iterate(xs):
                 return mapcar(rec, xs)
         def rec(x):
@@ -458,7 +461,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                                           "\n")
                 ## Multilines
                 def pp_subprogn(body):
-                        with progv({"*AST-PP-DEPTH*": symbol_value("*AST-PP-DEPTH*") + 1}):
+                        with progv({_ast_pp_depth_: symbol_value(_ast_pp_depth_) + 1}):
                                 return "\n".join(iterate(body)) + "\n"
                 def pp_module(x):
                         return "\n".join(iterate(x.body))

@@ -366,16 +366,17 @@ def _symbol_value(name):
         return (frame[name] if frame else
                 error(AttributeError, "Unbound variable: %s." % name))
 
-def _do_bind_symbol_pyname(symbol):
+def _do_bind_symbol_pyname(symbol, globals):
         pyname = _frost.lisp_symbol_name_python_name(symbol_name(symbol))
-        _frost.setf_global(symbol, pyname, _py.globals())
+        _frost.setf_global(symbol, pyname, globals)
 
-def _bind_symbol_pyname(symbol_):
-        _do_bind_symbol_pyname(_boot_check_type(symbolp, symbol_))
+def _bind_symbol_pyname(symbol_, globals = None):
+        _do_bind_symbol_pyname(_boot_check_type(symbolp, symbol_), globals = _defaulted(globals, _py.globals()))
 
-def _intern_and_bind_pynames(*names):
+def _intern_and_bind_pynames(*names, globals = None):
+        globals = _defaulted(globals, _py.globals())
         for name in names:
-                _bind_symbol_pyname(_intern(name)[0])
+                _bind_symbol_pyname(_intern(name)[0], globals)
 
 def _boot_symbolicate_global_dynamic_scope():
         def upgrade_scope(xs):
@@ -384,7 +385,7 @@ def _boot_symbolicate_global_dynamic_scope():
                         del xs[k]
                         sym = _intern_in_package(k, __cl)[0]
                         xs[sym] = v
-                        _do_bind_symbol_pyname(sym)
+                        _do_bind_symbol_pyname(sym, _py.globals())
         assert not __tls__.dynamic_scope
         upgrade_scope(__global_scope__)
 
@@ -404,8 +405,8 @@ def _string_set(symbol_name, value, force_toplevel = None, symbolicp = True):
 
 @boot("typep", lambda _, __, ___: error("A violent faecal odour hung in the air.."))
 @boot_defun
-def set(symbol_, value):
-        _do_set(the(symbol, symbol_), value, nil)
+def set(symbol_, value, *_, force_toplevel = False):
+        _do_set(the(symbol, symbol_), value, force_toplevel)
         return value
 
 @boot("symbol", lambda _, name: _find_dynamic_frame(_boot_check_type(stringp, name)) and t)
@@ -591,9 +592,7 @@ def symbol_name(x):            return x.name
 @boot_defun
 def symbol_package(x):         return x.package
 @boot_defun # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
-def symbol_value(symbol):      return (_symbol_value(symbol) if symbolp(symbol) else
-                                       error(simple_type_error, "SYMBOL-VALUE accepts either symbols, not '%s'.",
-                                             symbol))
+def symbol_value(symbol_):     return _symbol_value(the(symbol, symbol_))
 def _symbol_function(symbol):  return (symbol.known          or
                                        symbol.macro_function or
                                        symbol.function       or
@@ -5000,7 +4999,8 @@ def _ast_ensure_stmt(x):
 
 # ***** AST/Atree bound/free calculation
 
-# (defvar *bound-free-recursor*)
+_intern_and_bind_pynames("*BOUND-FREE-RECURSOR*")
+
 def _bound_free_recursor():
         return _symbol_value(_bound_free_recursor_)
 
