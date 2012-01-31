@@ -25,6 +25,11 @@
 #+PROPERTY: comments org
 
 
+* Issues
+*** Meta
+
+    - Issue ORG-ISEARCH-HEADINGS
+
 * Frost boot
 
 *** Builtins management
@@ -1440,8 +1445,8 @@ doit = True
 
 * Chapter 1: Life
 
-    We now have symbols, packages, types, semi-proper DEFUN/DEFCLASS
-    and the top-level part of dynamic scope.
+    We now have symbols, packages, types, semi-proper DEFUN/DEFCLASS and the top-level part of
+    dynamic scope.
 
 *** Delayed class definitions
 
@@ -1484,8 +1489,8 @@ class simple_package_error(simple_error.python_type, package_error.python_type):
 
 *** Rudimentary multiple values
 
-    The implemented version of NTH-VALUES is a soft one, which doesn't
-    fail on values not participating in the M-V frame protocol.
+    The implemented version of NTH-VALUES is a soft one, which doesn't fail on values not
+    participating in the M-V frame protocol.
 
 #+begin_src python +n
 _intern_and_bind_pynames("%MV-MARKER")
@@ -6202,6 +6207,20 @@ all AST-trees .. except for the case of tuples."""
 #+end_src
 
 * Compiler
+*** Thoughts on processing
+***** Phases
+******* Impact of preliminary macroexpansion
+
+        Once we perform macroexpansion, we're supposed to be down to knowns and funcalls, that
+        is a set of primitives with semantics simple enough to allow for exhaustive case
+        analysis with regard to at least some of properties.
+
+        This allows us to do analysis on subforms without paying the cost of full compilation.
+
+***** Dependents
+
+      Instead of being pessimistic in assumptions, act as if doing WPO, while tracking dependents.
+
 *** Generic pieces
 
 #+begin_src python +n
@@ -6601,6 +6620,16 @@ def setq(name, value):
       - NIL :: no values are used
       - an integer :: N'th value is used
       - T :: all values are used
+
+      It's default value is 1, and it is bound by knowns processing forms accepting a
+      non-standard amount of values:
+
+      - MULTIPLE-VALUE-BIND
+      - MULTIPLE-VALUE-LIST
+      - MULTIPLE-VALUE-CALL
+      - NTH-VALUE
+
+      The big question is whether we need known-specific processing of multiple-value contexts.
 
 #+begin_src python
 _string_set("*MULTIPLE-VALUE-CONTEXT*", 1)
