@@ -1390,9 +1390,22 @@ class simple_package_error(simple_error.python_type, package_error.python_type):
 
 # *** Rudimentary multiple values
 
-@defun
-def values(*xs):
-        return xs
+#     The implemented version of NTH-VALUES is a soft one, which doesn't
+#     fail on values not participating in the M-V frame protocol.
+
+_intern_and_bind_pynames("%MV-MARKER")
+
+def _values_frame(*xs):
+        return (_mv_marker,) + xs
+
+def _valuesp(x):
+        return _tuplep(x) and x[0] is _mv_marker
+
+def _nth_value(n, values_form):
+        return ((nil if n > _py.len(values_form) - 2 else
+                 values_form[n + 1])
+                if _valuesp(values_form) else
+                (nil if n else values_form))
 
 # *** Early object system
 
@@ -3064,7 +3077,7 @@ at which the file specified by PATHSPEC was last written
         return _py.int(_os.path.getmtime(f))
 
 def _file_name(x):
-        return parse_namestring(the(file_stream, x).name)[0]
+        return _nth_value(0, parse_namestring(the(file_stream, x).name))
 
 # *** DESCRIBE
 
@@ -3591,7 +3604,7 @@ def parse_namestring(thing, host = nil, default_pathname = None, *args, start = 
         if streamp(thing):
                 thing = pathname(thing)
         if pathnamep(thing):
-                return (values(thing, start) if not (host or thing.host) or host is thing.host else
+                return (_values_frame(thing, start) if not (host or thing.host) or host is thing.host else
                         error("The specified host %s does not match pathname's host %s.", host, thing.host))
         ## It is a string.
         check_type(thing, string)
@@ -3616,8 +3629,8 @@ def parse_namestring(thing, host = nil, default_pathname = None, *args, start = 
         if not effective_host:
                 error("Can't parse the namestring for an unspecified host: either %s or a %s specifying a pathname host must be provided.",
                       _keyword("HOST"), _keyword("DEFAULT-PATHNAME"))
-        return values(effective_host.parse(subseq(thing, start, end) if start or end else thing),
-                      start)
+        return _values_frame(effective_host.parse(subseq(thing, start, end) if start or end else thing),
+                             start)
 
 @defun
 def namestring(x):
@@ -3648,9 +3661,9 @@ a file stream after it is closed as it did when it was open.
 
 If the PATHSPEC designator is a file stream created by opening a
 logical pathname, a logical pathname is returned."""
-        return (x                      if pathnamep(x)          else
-                parse_namestring(x)[0] if stringp(x)            else
-                _file_name(x)          if typep(x, file_stream) else
+        return (x                                  if pathnamep(x)          else
+                _nth_value(0, parse_namestring(x)) if stringp(x)            else
+                _file_name(x)                      if typep(x, file_stream) else
                 error("PATHNAME only accepts pathnames, namestrings and file streams, was given: %s.", x))
 
 @defun
@@ -3667,9 +3680,11 @@ def pathname_name(x): return _namestring_components(x)[1]
 def pathname_type(x): return _namestring_components(x)[2]
 
 def _init_pathnames():
-        _string_set("*DEFAULT-PATHNAME-DEFAULTS*", parse_namestring(_os.getcwd() + "/",
-                                                                    host = _system_pathname_host,
-                                                                    default_pathname = t)[0]) # T is junk, but avoid a bootstrap loop
+        _string_set("*DEFAULT-PATHNAME-DEFAULTS*",
+                    _nth_value(0, parse_namestring(_os.getcwd() + "/",
+                                                   host = _system_pathname_host,
+                                                   default_pathname = t)))
+        # T is a junk marker, but avoid a bootstrap loop
 
 _init_pathnames()
 
@@ -6906,10 +6921,10 @@ valid for use as a name in DEFUN or FUNCTION, for example.  By
 convention, NIL is used to mean that FUNCTION has no name.  Any
 implementation may legitimately return NIL as the name of any
 FUNCTION."""
-        return values(*(gethash(slot, the(function, function_).__dict__, default)[0]
-                        for slot, default in [("lambda_expression", nil),
-                                              ("closure_p",         t),
-                                              ("name",              nil)]))
+        return _values_frame(*(gethash(slot, the(function, function_).__dict__, default)[0]
+                               for slot, default in [("lambda_expression", nil),
+                                                     ("closure_p",         t),
+                                                     ("name",              nil)]))
 
 ##
 ### What is the status of this?
@@ -7035,7 +7050,7 @@ and true otherwise."""
                 lambda_expression = the((partuple, (eql, lambda_), pytuple), definition)
         else:
                 fun = definition or macro_function(name) or fdefinition(name)
-                lambda_expression, _, _ = function_lambda_expression(fun)
+                _, lambda_expression, _, _ = function_lambda_expression(fun)
                 if not definition:
                         # Not much we can do, but return the original function.
                         return fun, nil, nil, nil
@@ -7253,7 +7268,7 @@ def _preprocessor_macroexpand_1(form):
                 #  (sb!xc:macroexpand-1 form env)
                 #  (values form nil))
                 return (macroexpand_1(form, env) if atom(form) or not (symbolp(car(form)) and special_operator_p(car(form)))
-                                                 else values(form, nil))
+                                                 else _values_frame(form, nil))
         ## Macroexpand FORM in the current environment with an error handler.
         ## We only expand one level, so that we retain all the intervening
         ## forms in the source path.
@@ -7315,7 +7330,7 @@ def _process_toplevel_form(form, path, compile_time_too):
         path = _get_source_path(form) or cons(form, path)
         def default_processor(form):
                 with progv({_toplevel_form_noted_: _note_top_level_form(form)}):
-                        expanded = _preprocessor_macroexpand_1(form)
+                        expanded = _nth_value(0, _preprocessor_macroexpand_1(form))
                         if expanded is form:
                                 if compile_time_too:
                                         # Done purely for side-effect.
@@ -8167,11 +8182,11 @@ def _specializerp(x):       return ((x is t)        or
                                     typep(x, (or_, _py.type, (pytuple, (eql, eql), t))))
 
 def _get_generic_fun_info(generic_function):
-        return values(_py.len(generic_function.lambda_list[0]), # nreq
-                      nil,
-                      [],
-                      _py.len(generic_function.lambda_list[3]),
-                      generic_function.lambda_list)
+        return (_py.len(generic_function.lambda_list[0]), # nreq
+                nil,
+                [],
+                _py.len(generic_function.lambda_list[3]),
+                generic_function.lambda_list)
 
 def generic_function_methods(x):                   return x.__methods__.values()
 
@@ -8890,7 +8905,7 @@ def _types_from_args(generic_function, arguments, type_modifier = None):
                         arg = arguments.pop()
                         types_rev.append([type_modifier, arg] if type_modifier else
                                          arg)
-        return values(types_rev, arg_info)
+        return (types_rev, arg_info)
 
 def _arg_info_precedence(arg_info: "lambda list, actually.."):
         return _py.range(_py.len(arg_info[0]))
@@ -8903,8 +8918,8 @@ def _compute_applicable_methods_using_types(generic_function, types_):
                 types = _py.list(types_)
                 possibly_applicable_p, applicable_p = t, t
                 for specl in specls:
-                        _here("specl: %s", specl)
-                        (specl_applicable_p,
+                        (_,
+                         specl_applicable_p,
                          specl_possibly_applicable_p) = specializer_applicable_using_type_p(specl, pop(types))
                         if not specl_applicable_p:
                                 applicable_p = nil
@@ -8917,10 +8932,10 @@ def _compute_applicable_methods_using_types(generic_function, types_):
                 nreq, applyp, metatypes, nkeys, arg_info = _get_generic_fun_info(generic_function)
                 # (declare (ignore nreq applyp metatypes nkeys))
                 precedence = _arg_info_precedence(arg_info)
-                return values(_sort_applicable_methods(precedence,
-                                                       _py.reversed(possibly_applicable_methods),
-                                                       types),
-                              definite_p)
+                return _values_frame(_sort_applicable_methods(precedence,
+                                                              _py.reversed(possibly_applicable_methods),
+                                                              types),
+                                     definite_p)
 
 def _type_from_specializer(specl):
         if specl is t:
@@ -8937,10 +8952,10 @@ def _type_from_specializer(specl):
 def specializer_applicable_using_type_p(specl, type):
         specl = _type_from_specializer(specl)
         if specl is t:
-                return values(t, t)
+                return _values_frame(t, t)
         ## This is used by C-A-M-U-T and GENERATE-DISCRIMINATION-NET-INTERNAL,
         ## and has only what they need.
-        return (values(nil, t) if atom(type) or car(type) is t else
+        return ((nil, t) if atom(type) or car(type) is t else
                 _poor_man_case(car(type),
                                # (and    (saut-and specl type)),
                                # (not    (saut-not specl type)),
@@ -8955,13 +8970,13 @@ def specializer_applicable_using_type_p(specl, type):
 
 def _saut_class_eq(specl, type):
        if car(specl) is eql:
-               return values(nil, type_of(specl[1]) is type[1])
+               return (nil, type_of(specl[1]) is type[1])
        else:
                pred = _poor_man_case(car(specl),
                                      (class_eq, lambda: specl[1] is type[1]),
                                      (class_,   lambda: (specl[1] is type[1] or
                                                          memq(specl[1], cpl_or_nil(type[1])))))
-               return values(pred, pred)
+               return (pred, pred)
 
 def _sort_applicable_methods(precedence, methods, types):
         def sorter(class1, class2, index):
@@ -9045,10 +9060,10 @@ fewer elements than the generic function accepts required arguments.
 The list returned by this generic function will not be mutated by the
 implementation. The results are undefined if a portable program
 mutates the list returned by this generic function."""
-        return _compute_applicable_methods_using_types(generic_function,
-                                                       _types_from_args(generic_function,
-                                                                        arguments,
-                                                                        eql))
+        return _nth_value(0, _compute_applicable_methods_using_types(generic_function,
+                                                                     _types_from_args(generic_function,
+                                                                                      arguments,
+                                                                                      eql)))
 
 def error_need_at_least_n_args(function, n):
         error("The function %s requires at least %d arguments.", function, n)
@@ -9176,8 +9191,8 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                         #     arguments which are instances of the same classes,
                         return applicable
                 _here("gf: %s, ll: %s", generic_function, generic_function.lambda_list)
-                methods, okayp = compute_applicable_methods_using_classes(generic_function,
-                                                                          dispatch_arg_types)
+                _, methods, okayp = compute_applicable_methods_using_classes(generic_function,
+                                                                             dispatch_arg_types)
                 if okayp:
                         applicable_method_cache[applicable_method_cache_key] = methods
                         return methods
