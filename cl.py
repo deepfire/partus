@@ -1390,8 +1390,8 @@ class simple_package_error(simple_error.python_type, package_error.python_type):
 
 # *** Rudimentary multiple values
 
-#     The implemented version of NTH-VALUES is a soft one, which doesn't
-#     fail on values not participating in the M-V frame protocol.
+#     The implemented version of NTH-VALUES is a soft one, which doesn't fail on values not
+#     participating in the M-V frame protocol.
 
 _intern_and_bind_pynames("%MV-MARKER")
 
@@ -6181,7 +6181,7 @@ def _ir(*ir, **keys):
 def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
 
-# ***** Symbols
+# ***** SYMBOL, SETQ
 
 @defknown
 def symbol(name):
@@ -6206,15 +6206,7 @@ def setq(name, value):
         return (pro + [("Assign", [_lower_name(name, "Store")], val)],
                 _lower_name(name))
 
-# ***** Multiple values
-
-#       The *MULTIPLE-VALUE-CONTEXT* variable has the following interpretation:
-
-#       - NIL :: no values are used
-#       - an integer :: N'th value is used
-#       - T :: all values are used
-
-_string_set("*MULTIPLE-VALUE-CONTEXT*", 1)
+# ***** SETF-VALUES
 
 @defknown(("atom", " ", (["atom", " "],), " ", "sex"))
 def setf_values(names, values):
@@ -6234,7 +6226,7 @@ def return_(x):
                 return (pro + [("Return", val)],
                         None)
 
-# ***** Quoting
+# ***** QUOTE, QUAQUOTE, COMMA, SPLICE
 
 @defknown
 def quote(x):
@@ -6285,7 +6277,7 @@ def comma(x):
 def splice(x):
         error("Comma not inside a backquote.")
 
-# ***** Control flow
+# ***** PROGN, IF
 
 @defknown(("atom",
            1, ["sex", "\n"]))
@@ -6335,7 +6327,7 @@ def if_(test, consequent, antecedent = nil):
                 return (flet, cons_fdefn + ante_fdefn,
                          (if_, test, cons, ante))
 
-# ***** Lambda lists
+# ***** %P-L-L-L/L-L-L-L and DEF_
 
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (symbol, "None"))
@@ -6520,10 +6512,11 @@ when EVAL-WHEN appears as a top level form."""
         ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
         ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
         ## so that they're never seen at this level.)
+        _not_implemented()
         return (((progn,) + body) if exec else
                 _lower(nil))
 
-# ***** Toplevels: DEFUN and DEFMACRO
+# ***** DEFMACRO, DEFUN
 
 @defknown(("atom", " ", "atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))
@@ -6549,7 +6542,7 @@ def defun(name, lambda_list, *body):
         return ([fundef],
                 _lower((quote, (symbol, string(name))))[1])
 
-# ***** Lexical scope
+# ***** LET, FLET, LABELS, LET*
 
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
            1, ["sex", "\n"]))
@@ -6604,35 +6597,6 @@ def let(bindings, *body):
                         (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
                              dont_delay_defaults = t),))
 
-@defknown
-def funcall(func, *args):
-        # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
-        if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
-                          # - quote_ compilation in lower_
-                func_pro, func_val = ([],
-                                      ("Name", func, ("Load",)))
-        else:
-                with _no_tail_position():
-                        func_pro, func_val = _lower(func)
-        with _no_tail_position():
-                arg_pves = mapcar(_lower, args)
-        if every(_tuple_expression_p, arg_pves):
-                _compiler_debug_printf(" -- FUNCALL: simple case")
-                return (func_pro,
-                        ("Call", func_val, mapcar(second, arg_pves), []))
-        else:
-                _compiler_debug_printf(" -- FUNCALL: complex LET + FUNCALL")
-                temp_names = _gensyms(n = _py.len(args), x = "FUNCALL-ARG")
-                if _tuple_expression_p((func_pro, func_val)):
-                        func_binding, func_exp = (_py.tuple(),
-                                                  func)
-                else:
-                        func_name = gensym("FUNCALL-FUNCNAME")
-                        func_binding, func_exp = (((func_name, func),),
-                                                  (symbol, func_name))
-                return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
-                         (funcall, func_exp) + _py.tuple())
-
 @defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
                            1, ["sex", "\n"]), "\n"],),
            1, ["sex", "\n"]))
@@ -6650,49 +6614,6 @@ def flet(bindings, *body):
                                                                          (symbol, temp_fname))))
                                 for name, lambda_list, *fbody in bindings)) +
                 body)
-
-@defknown(("atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))
-def lambda_(lambda_list, *body, dont_delay_defaults = nil):
-        # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
-        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-        # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
-        # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
-        preliminary_body_pve = _lower((progn,) + body)
-        body_exprp = _tuple_expression_p(preliminary_body_pve)
-        if body_exprp:
-                total, args, defaults = _prepare_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
-                (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
-                if not (optional or keys):
-                        _compiler_debug_printf(" -- LAMBDA: simple")
-                        return ([],
-                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
-                elif rest or restkey:
-                        _not_implemented("rest/restkey-ful defaulting lambda list")
-                elif dont_delay_defaults:
-                        # duplicate code here, but the checking "issue" is not understood well-enough..
-                        _compiler_debug_printf(" -- LAMBDA: undelayed defaults")
-                        return ([],
-                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
-                else:
-                        ## Delay evaluation of default values.
-                        def defaulting_expr(arg, default):
-                                return (if_, (eq, arg, (symbol, "None")),
-                                             default,
-                                             arg)
-                        _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
-                        return (lambda_, _py.tuple(fixed + [_optional] + optional + keys),
-                                 (let, _py.tuple((arg, defaulting_expr(arg, default))
-                                                 for arg, default in _py.zip(optional + keys,
-                                                                             optdefs + keydefs))) +
-                                   body)
-                                
-        else:
-                _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
-                func_name = _gensymname("LET-BODY-")
-                return (flet, ((func_name, lambda_list) + body,),
-                         (symbol, func_name))
 
 @defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
                            1, ["sex", "\n"]), "\n"],),
@@ -6746,7 +6667,81 @@ def let_(bindings, *body):
                 return (let, bindings[:1],
                          (let_, bindings[1:]) + body)
 
-# ***** Non-local transfer of control
+# ***** FUNCALL, LAMBDA
+
+@defknown
+def funcall(func, *args):
+        # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
+        if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
+                          # - quote_ compilation in lower_
+                func_pro, func_val = ([],
+                                      ("Name", func, ("Load",)))
+        else:
+                with _no_tail_position():
+                        func_pro, func_val = _lower(func)
+        with _no_tail_position():
+                arg_pves = mapcar(_lower, args)
+        if every(_tuple_expression_p, arg_pves):
+                _compiler_debug_printf(" -- FUNCALL: simple case")
+                return (func_pro,
+                        ("Call", func_val, mapcar(second, arg_pves), []))
+        else:
+                _compiler_debug_printf(" -- FUNCALL: complex LET + FUNCALL")
+                temp_names = _gensyms(n = _py.len(args), x = "FUNCALL-ARG")
+                if _tuple_expression_p((func_pro, func_val)):
+                        func_binding, func_exp = (_py.tuple(),
+                                                  func)
+                else:
+                        func_name = gensym("FUNCALL-FUNCNAME")
+                        func_binding, func_exp = (((func_name, func),),
+                                                  (symbol, func_name))
+                return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
+                         (funcall, func_exp) + _py.tuple())
+
+@defknown(("atom", " ", (["sex", " "],),
+           1, ["sex", "\n"]))
+def lambda_(lambda_list, *body, dont_delay_defaults = nil):
+        # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
+        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
+        # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
+        # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
+        preliminary_body_pve = _lower((progn,) + body)
+        body_exprp = _tuple_expression_p(preliminary_body_pve)
+        if body_exprp:
+                total, args, defaults = _prepare_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
+                (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
+                if not (optional or keys):
+                        _compiler_debug_printf(" -- LAMBDA: simple")
+                        return ([],
+                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
+                elif rest or restkey:
+                        _not_implemented("rest/restkey-ful defaulting lambda list")
+                elif dont_delay_defaults:
+                        # duplicate code here, but the checking "issue" is not understood well-enough..
+                        _compiler_debug_printf(" -- LAMBDA: undelayed defaults")
+                        return ([],
+                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
+                else:
+                        ## Delay evaluation of default values.
+                        def defaulting_expr(arg, default):
+                                return (if_, (eq, arg, (symbol, "None")),
+                                             default,
+                                             arg)
+                        _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
+                        return (lambda_, _py.tuple(fixed + [_optional] + optional + keys),
+                                 (let, _py.tuple((arg, defaulting_expr(arg, default))
+                                                 for arg, default in _py.zip(optional + keys,
+                                                                             optdefs + keydefs))) +
+                                   body)
+                                
+        else:
+                _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
+                func_name = _gensymname("LET-BODY-")
+                return (flet, ((func_name, lambda_list) + body,),
+                         (symbol, func_name))
+
+# ***** UNWIND-PROTECT
 
 @defknown(("atom", " ", "sex",
            1, ["sex", "\n"]))
@@ -6762,10 +6757,6 @@ def unwind_protect(form, *unwind_body):
                   # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
                   pro_unwind + [("Expr", val_unwind)])],
                 _lower((symbol, temp_name))[1])
-
-###
-### Honest DEFUN, with real keyword arguments, is out of scope for now.
-###
 
 # *** Macro-expander
 
