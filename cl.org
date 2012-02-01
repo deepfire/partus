@@ -31,6 +31,7 @@
 
     - Issue ORG-ISEARCH-HEADINGS
     - Issue ORG-SRCBLOCK-GUIDED-KEYBINDING-SCOPING
+    - Issue ORG-ISEARCH-ONLY-WORKS-AFTER-FOLD-CYCLING
 
 * Frost boot
 
@@ -4979,7 +4980,55 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
 read = _cold_read
 #+end_src
 
-*** SEX pretty-printer
+*** SEX validator, walker and pretty-printer
+***** MetaSEX
+
+      - atom :: any of the following:
+        - string :: separator specifier, only for pretty-printer
+        - integer :: separator specifier, only for pretty-printer
+        - METASEX:NAME :: a non-keyword symbol
+        - COMMON-LISP:KEYWORD :: a keyword symbol
+        - METASEX:FORM :: arbitrary form;  a walkable
+        - COMMON-LISP:STRING :: a string
+        - any other symbol :: itself, non-walkable
+      - tuple :: complex form
+        - (METASEX:FIXED, ...) :: tuple with a fixed structure
+        - (METASEX:ANY, ...) :: choice
+        - (COMMON-LISP:SOME, ...) :: arbitrary repetition of contained structure
+        - (METASEX:MAYBE-ONCE, ...) :: marker for an element of (COMMON-LISP:SOME, (METASEX:ANY, ...))
+        - (METASEX:ONCE, ...) :: marker for an element of (COMMON-LISP:SOME, (METASEX:ANY, ...))
+      - list :: syntactic sugar for COMMON-LISP:SOME
+      - dictionary :: bindings, available either at toplevel, or at iteration of depth one
+
+      Example code for LET:
+
+      #+begin_example
+      (_fixed, let, " ", ({"bindings": [(_name, " ", _form), "\n"]},),
+       1, [{"body": _form}, "\n"])
+      #+end_example
+
+      Example code for DEFGENERIC:
+
+      #+begin_example
+      (_fixed, defgeneric, " ", (_any, _name, (_fixed, setf, " ", _name)), " ", #<DEFGENERIC-LAMBDA-LIST>,
+        1, (_some_of_any,
+             ## Unregistered Issue METASEX-HOW-TO-CUSTOM-DEFGENERIC-OPTIONS
+             {"methods": (_fixed, _keyword("METHOD"), " ", [_keyword, " "], #<DEFMETHOD-LAMBDA-LIST>,
+                           1, [_form, "\n"]), "\n"},
+             (_maybe_once, (_fixed, _keyword("METHOD-COMBINATION"), " ", {"method_combination": _name}), "\n"),
+             (_maybe_once, (_fixed, _keyword("METHOD-CLASS"), " ", {"method_class": _name})),
+             (_maybe_once, (_fixed, _keyword("DOCUMENTATION"), " ", {"documentation": _string}))))
+      #+end_example
+
+******* Additional requirements
+
+        - choice (lambda list defaults, DEFINE-METHOD-COMBINATION)
+        - specifiers for known types
+          - keyword
+          - non-keyword symbols ("name")
+        - specifiers for atoms from arbitrary sets
+
+***** Code
 
 #+begin_src python +n
 _string_set("*SEX-JUSTIFICATION*", 0)
@@ -6210,6 +6259,21 @@ all AST-trees .. except for the case of tuples."""
 
 * Compiler
 *** Thoughts on processing
+***** Unification of pretty-printing, well-formed-ness checking and, maybe, walking
+******* Abstracting out walking (what a novel concept!)
+
+        - needed for macroexpansion, for determining subforms for further expansion
+        - potentially needed for multiple value processing
+        - could be specified declaratively
+
+********* Early macroexpansion as a separate stage
+
+          Once we perform macroexpansion, we're supposed to be down to knowns and funcalls, that is
+          a set of primitives with semantics simple enough to allow for exhaustive case analysis
+          with regard to at least some of properties.
+
+          This allows us to do analysis on subforms without paying the cost of full compilation.
+
 ***** Splitting off sequencing
 
       There are many knowns which combine their specialty with sequencing, which is an
@@ -6222,20 +6286,6 @@ all AST-trees .. except for the case of tuples."""
 
       This would significantly affect multiple values processing, so it looks like an immediate
       issue.
-
-***** Early macroexpansion as a separate stage
-
-      Once we perform macroexpansion, we're supposed to be down to knowns and funcalls, that is
-      a set of primitives with semantics simple enough to allow for exhaustive case analysis
-      with regard to at least some of properties.
-
-      This allows us to do analysis on subforms without paying the cost of full compilation.
-
-***** Abstracting out walking (what a novel concept!)
-
-      - needed for macroexpansion, for determining subforms for further expansion
-      - potentially needed for multiple value processing
-      - could be specified declaratively
 
 ***** Multiple values
 
@@ -7056,6 +7106,7 @@ def defun(name, lambda_list, *body):
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
            1, ["sex", "\n"]))
 def let(bindings, *body):
+        # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
         if not (_tuplep(bindings) and
                 every(_of_type((or_, symbol, (pytuple, symbol, t))))):
                 error("LET: malformed bindings: %s.", bindings)

@@ -4706,7 +4706,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
         return ret
 read = _cold_read
 
-# *** SEX pretty-printer
+# ***** Code
 
 _string_set("*SEX-JUSTIFICATION*", 0)
 def _sex_justification(): return _symbol_value(_sex_justification_)
@@ -6467,7 +6467,7 @@ def def_(name, lambda_list, *body, decorators = []):
                         try_ += 1
                 return result
 
-# ***** EVAL-WHEN
+# ***** TOIMPL EVAL-WHEN
 
 @defknown(("atom", " ", (["atom", " "]),
            1, ["sex", "\n"]))
@@ -6516,7 +6516,7 @@ when EVAL-WHEN appears as a top level form."""
         return (((progn,) + body) if exec else
                 _lower(nil))
 
-# ***** DEFMACRO, DEFUN
+# ***** K DEFMACRO, DEFUN
 
 @defknown(("atom", " ", "atom", " ", (["sex", " "],),
            1, ["sex", "\n"]))
@@ -6542,17 +6542,12 @@ def defun(name, lambda_list, *body):
         return ([fundef],
                 _lower((quote, (symbol, string(name))))[1])
 
-# ***** LET, FLET, LABELS, LET*
+# ******* Code
 
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
            1, ["sex", "\n"]))
 def let(bindings, *body):
-        # Potential optimisations:
-        #  - better tail position detection: non-local-transfer-of-control-free and ending with RETURN.
-        #  - even when not in the tail position, but the bound names are not:
-        #    - xtnls
-        #    - free in some other local expression
-        #    - falls out, sort of.. (see below)
+        # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
         if not (_tuplep(bindings) and
                 every(_of_type((or_, symbol, (pytuple, symbol, t))))):
                 error("LET: malformed bindings: %s.", bindings)
@@ -6560,28 +6555,6 @@ def let(bindings, *body):
         bindings_thru_defaulting = _py.tuple(_ensure_cons(b, nil) for b in bindings)
         names, values = _recombine((_py.list, _py.list), identity, bindings_thru_defaulting)
         compiled_value_pves = mapcar(_lower, values)
-        ## A great optimisation, but mutation can affect:
-        ##  - scope of called outside functions
-        ##    - cannot optimize if body could jump to local code depending on mutated locals
-        ##  - xtnls
-        ##    - cannot optimize if bindings contain xtnls of the current DEF_
-        ##      - which ones must be, therefore, determined before the DEF_'s body is compiled
-        ## Now, all was implemented, except ATREE bound/free/xtnls queries.
-        ## But possibly, just possibly, I've missed another requirement, so playing it safe for now.
-        ##
-        ## This optimisation is, currently, tactically broken, but for another reason: order of evaluation.
-        # names = _mapset(ensure_car, bindings)
-        # if _tail_position_p() and not ((_mapsetn(_atree_free, body) - _py.set(names)) or
-        #                                 (_compiling_def().xtnls & _py.set(names))):
-        #         with _no_tail_position():
-        #                 # Consciously discarding the values returned by (SETF VALUES)
-        #                 bind_pro, _ = _lower((setf_values,
-        #                                       [ car(x) for x in bindings_thru_defaulting ],
-        #                                       ("tuple",) + _py.tuple(cdr(x) for x in bindings_thru_defaulting)))
-        #         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-        #         body_pro, body_val = _lower((progn,) + body)
-        #         return (bind_pro + body_pro,
-        #                 body_val)
         if every(_tuple_expression_p, compiled_value_pves):
                 _compiler_debug_printf(" -- LET: simple all-expression LAMBDA case")
                 return (funcall, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
@@ -6604,7 +6577,6 @@ def flet(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-        # Ex-Issue SINGLE-NAMESPACE have been thought to affect this, but we do a clear separation here.
         if not every(_of_type((partuple, symbol, pytuple)), bindings):
                 error("FLET: malformed bindings: %s.", bindings)
         # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
@@ -6622,7 +6594,6 @@ def labels(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
         # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-        # Ex-Issue SINGLE-NAMESPACE have been thought to affect this, but we do a clear separation here.
         if not every(_of_type((partuple, symbol, pytuple))):
                 error("LABELS: malformed bindings: %s.", bindings)
         temp_name = gensym("LABELS")
@@ -6633,25 +6604,6 @@ def labels(bindings, *body):
                         body)),
                  (funcall, temp_name))
 
-## Good news: our LET* will be honest:
-# >>> def let0():
-# ...         def val0_body1():
-# ...                 print("val0")
-# ...                 val1()
-# ...         def body0():
-# ...                 def val1():
-# ...                         print("val1")
-# ...                 val0_body1()
-# ...         body0()
-# ...
-# >>> let0()
-# val0
-# Traceback (most recent call last):
-#   File "<stdin>", line 1, in <module>
-#   File "<stdin>", line 9, in let0
-#   File "<stdin>", line 8, in body0
-#   File "<stdin>", line 4, in val0_body1
-# NameError: global name 'val1' is not defined
 @defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
            1, ["sex", "\n"]),
           name = intern("LET*")[0])
@@ -6667,7 +6619,7 @@ def let_(bindings, *body):
                 return (let, bindings[:1],
                          (let_, bindings[1:]) + body)
 
-# ***** FUNCALL, LAMBDA
+# ***** K FUNCALL, LAMBDA
 
 @defknown
 def funcall(func, *args):
@@ -6741,7 +6693,7 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
                 return (flet, ((func_name, lambda_list) + body,),
                          (symbol, func_name))
 
-# ***** UNWIND-PROTECT
+# ***** K UNWIND-PROTECT
 
 @defknown(("atom", " ", "sex",
            1, ["sex", "\n"]))
