@@ -1999,8 +1999,7 @@ def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.
                 return (""           if not note else
                         " - " + note if not args else
                         # Unregistered Issue IDEA-MAPXFORM-IF
-                        _do_format(note, ((_escape_percent(a) if stringp(a) else a)
-                                          for a in args)))
+                        _do_format(note, args))
         return _debug_printf("    (%s)  %s:\n      %s",
                              _threading.current_thread().name.upper(),
                              _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
