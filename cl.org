@@ -693,6 +693,10 @@ def _find_symbol(str, package):
         return ((s, _symbol_relation(s, package)) if s is not None else
                 (None, None))
 
+def _symbol_accessible_in(x, package):
+        return (x.name in package.accessible and
+                package.accessible[x.name] is x)
+
 @boot_defun
 def find_symbol(str, package = None):
         return _find_symbol(str, _coerce_to_package(package))
@@ -852,6 +856,28 @@ def export(symbols, package = None):
                 self.internal.add(sym)
         package.external |= symset
         return True
+
+@boot_defun
+def import_(symbols, package = None, populate_module = True):
+        p = _coerce_to_package(package)
+        symbols = _ensure_list(symbols)
+        module = _find_module(_frost.lisp_symbol_name_python_name(package_name(p)),
+                              if_does_not_exist = "continue")
+        for s in symbols:
+                ps, accessible = gethash(s.name, p.accessible)
+                if ps is s:
+                        continue
+                elif accessible: # conflict
+                        _symbol_conflict_error("IMPORT", s, p, s, ps)
+                else:
+                        p.imported.add(s)
+                        p.accessible[s.name] = s
+                        if module:
+                                _not_implemented("Namespace merging.")
+                                # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
+                                # python_name = _frost.lisp_symbol_name_python_name(s.name)
+                                # module.__dict__[python_name] = ???
+        return t
 #+end_src
 
 ***** Package system init
@@ -1446,7 +1472,7 @@ for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, 
 doit = True
 #+end_src
 
-* Chapter 1: Life
+* Early assorti
 
     We now have symbols, packages, types, semi-proper DEFUN/DEFCLASS and the top-level part of
     dynamic scope.
@@ -2824,25 +2850,7 @@ def _symbol_type_predicate(symbol):
 
 #+end_src
 
-* Chapter 2: Better life
-*** DANGLING CODE
-
-#+begin_src python +n
-__modular_noise__    = _py.frozenset(_load_text_as_module("", "").__dict__)
-
-def _symbol_accessible_in(x, package):
-        return (x.name in package.accessible and
-                package.accessible[x.name] is x)
-
-@defun
-def coerce(type, x):
-        ## Unregistered Issue IMPLEMENTATION-COERCE
-        return (x if typep(x, type) else
-                _not_implemented("actual coercion"))
-
-#+end_src
-
-*** Lisp packages/symbols vs. python modules/names
+* Lisp packages/symbols vs. python modules/names
 
 #+begin_src python +n
 def _lisp_symbol_python_name(sym):
@@ -2880,8 +2888,8 @@ def _lisp_symbol_ast(sym, current_package):
                            _ast_string(symname)))
 #+end_src
 
-*** CL namespaces
-***** Factology
+* Namespaces
+*** Factology
 
 #+begin_src common-lisp :tangle no
  * (defmacro yay (x) `(a))
@@ -2927,7 +2935,7 @@ def _lisp_symbol_ast(sym, current_package):
  T
 #+end_src
 
-***** Functions
+*** Functions
 
 #+begin_src python +n
 def _variable_kind(name):
@@ -3156,47 +3164,7 @@ def _set_macro_definition(function):
         return _do_set_macro_definition(function, intern(function.__name__)[0])
 #+end_src
 
-*** Symbol / python name tools
-
-#+begin_src python +n
-def _read_python_toplevel_name(f):
-        symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
-        symbol = _intern(symbol_name)[0]
-        return symbol, symbol_name, f.__name__
-
-def _coerce_to_symbol(s_or_n, package = None):
-        return intern(s_or_n, _coerce_to_package(package))
-
-# requires that __keyword is set, otherwise _intern will fail with _COERCE_TO_PACKAGE
-def _i(x):                       return _intern(the(string, x).upper(), None)[0]
-#+end_src
-
-*** IMPORT
-
-#+begin_src python +n
-@defun
-def import_(symbols, package = None, populate_module = t):
-        p = _coerce_to_package(package)
-        symbols = _ensure_list(symbols)
-        module = _find_module(_frost.lisp_symbol_name_python_name(package_name(p)),
-                              if_does_not_exist = "continue")
-        for s in symbols:
-                ps, accessible = gethash(s.name, p.accessible)
-                if ps is s:
-                        continue
-                elif accessible: # conflict
-                        _symbol_conflict_error("IMPORT", s, p, s, ps)
-                else:
-                        p.imported.add(s)
-                        p.accessible[s.name] = s
-                        if module:
-                                _not_implemented("Namespace merging.")
-                                # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
-                                # python_name = _frost.lisp_symbol_name_python_name(s.name)
-                                # module.__dict__[python_name] = ???
-        return t
-#+end_src
-
+* Early condition system
 *** Condition system disabling
 
 #+begin_src python +n
@@ -3232,7 +3200,7 @@ _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
 _init_condition_system()
 #+end_src
 
-* Chapter 3: Still better life (+ condition system)
+* Streams
 *** Rudimentary character type
 
 #+begin_src python +n
@@ -3322,115 +3290,6 @@ at which the file specified by PATHSPEC was last written
 
 def _file_name(x):
         return _nth_value(0, parse_namestring(the(file_stream, x).name))
-#+end_src
-
-*** DESCRIBE
-
-#+begin_src python +n
-# def _get_info_value(name, type, env_list = None):
-#         def lookup(env_list):
-# def _info(class, type, name, env_list = None):
-#         info = _type_info_or_lose(class, type)
-#         return _get_info_value(name, _type_info_number(info), env_list)
-def _describe_function(name, function, stream):
-        name = function.__name__ if function else name
-        if not (function or (name and fboundp(name))):
-                format(stream, "%s names an undefined function.\n", name)
-        else:
-                if not function and special_operator_p(name):
-                        fun, what, lambda_list = symbol_value(name), "a special operator", _not_implemented()
-                elif not function and macro_function(name):
-                        fun, what, lambda_list = macro_function(name), "a macro", _not_implemented()
-                else:
-                        fun = function or fdefinition(name)
-                        what = "a function"
-                               # ("a generic function"      if typep(fun, generic_function) else
-                               #  "a compiled function"     if compiled_function_p(fun)     else
-                               #  "an interpreted function")
-                        lambda_list = (fun.lambda_list if _py.hasattr(fun, "lambda_list") else
-                                       None)
-                        methods = (# generic_function_methods(fun) if typep(fun, generic_function) else
-                                   None)
-                        if not function:
-                                format(stream, "\n%s names %s:", name, what)
-                        if _specifiedp(lambda_list):
-                                describe_lambda_list(lambda_list)
-                        # describe_documentation(name, intern("FUNCTION")[0], stream)
-                        if _specifiedp(methods):
-                                format(stream, "\nMethod combination: %s",
-                                       generic_function_method_combination(fun))
-                                if not methods:
-                                        format(stream, "\nNo methods.\n")
-                                else:
-                                        for m in methods:
-                                                format(stream, "\n  %s %s %s",
-                                                       name,
-                                                       method_qualifiers(m),
-                                                       method_specializers(m))
-                                                describe_documentation(m, t, stream, nil)
-                        # describe_function_source(fun, stream)
-                        terpri(stream)
-        if not function:
-                # when (and (legal-fun-name-p name) (compiler-macro-function name))
-                ## ...
-                # when (and (consp name) (eq 'setf (car name)) (not (cddr name)))
-                ## ... setf expansions
-                pass
-        if symbolp(name):
-                ## (describe-function `(setf ,name) nil stream)
-                pass
-
-def _describe_class(name, class_, stream):
-        pass
-
-def _describe_python_object(x, stream):
-        type = _py.type(x)
-        slots = [ x for x in _py.dir(x) if "__" not in x ]
-        maxslotnamelen = _py.max(_py.len(x) for x in slots)
-        def describe_slot(x, slot):
-                value = _py.getattr(x, slot)
-                format(stream, "\n  %%%ds: %%s" % maxslotnamelen, slot, _py.repr(value))
-        format(stream, "Python type: %s", type)
-        for slot in slots:
-                describe_slot(x, slot)
-        terpri(stream)
-
-def describe_object(o, stream):
-        def object_self_string(o):
-                if symbolp(o):
-                        return _print_symbol(o)
-                else:
-                        return "#<python object %s>" % (o.__repr__(),)
-        def object_type_string(o):
-                return _py.type(o).__name__
-        def print_standard_describe_header(o, stream):
-                format(stream, "%s\n  [%s]\n",
-                       object_self_string(o), object_type_string(o))
-        def describe_symbol(o, stream):
-                ### variable of some kind -- see the _variable_kind() stub
-                # var_kind = info(_keyword("variable"), _keyword("kind"), o)
-                # var_kind = _variable_kind(o)
-                _describe_function(o, nil, stream)
-                _describe_class(o, nil, stream)
-                ### type specifier
-                # type_kind = info(_keyword("type"), _keyword("kind"), o)
-                # type_kind = ???
-                ## defined   - expander
-                ## primitive - translator
-                ### optimisation policy
-                ### properties
-                if not (fboundp(o) or _symbol_type_specifier_p(o)):
-                        _describe_python_object(o, stream)
-        print_standard_describe_header(o, stream)
-        if symbolp(o): describe_symbol(o, stream)
-        else:
-                _describe_python_object(o, stream)
-
-def describe(object, stream_designator = None):
-        "Print a description of OBJECT to STREAM-DESIGNATOR."
-        stream_designator = _defaulted(stream_designator, _symbol_value(_standard_output_))
-        with progv({_print_right_margin_: 72}):
-                describe_object(object, stream_designator)
 #+end_src
 
 *** Stream types and functions
@@ -3575,196 +3434,62 @@ For details on how the CONTROL-STRING is interpreted, see Section 22.3
                 return string
 #+end_src
 
-*** Condition types and MAKE-CONDITION
-
-#+begin_src python +n
-def _conditionp(x):
-        return typep(x, condition)
-
-def make_condition(type, *args, **keys):
-        """It's a slightly weird interpretation of MAKE-CONDITION, as
-the latter only accepts symbols as DATUM, while this one doesn't
-accept symbols at all."""
-        check_type(type, symbol)
-        if not (_py.hasattr(type, "python_type") and
-                _conditionp(type.python_type)):
-                error("In MAKE-CONDITION: %s does not designate a condition type.", type)
-        return type.python_type(*args, **keys)
-
-@defclass
-class warning(condition.python_type): pass
-
-@defclass
-class simple_warning(simple_condition.python_type, warning.python_type): pass
-
-@defclass
-class style_warning(warning.python_type): pass
-
-@defclass
-class simple_style_warning(simple_warning.python_type, style_warning.python_type): pass
-
-@defclass
-class type_error(error.python_type):
-        pass
-
-@defclass
-class simple_type_error(simple_error.python_type, type_error.python_type):
-        pass
-
-@defclass
-class undefined_function(error.python_type):
-        def __init__(self, fname):
-                self.name = fname
-        def __str__(self):
-                return "The function %s is undefined." % (self.name,)
-        def __repr__(self):
-                return self.__str__()
-
-@defclass
-class _not_implemented_condition(condition.python_type):
-        def __init__(*args):
-                self, name = args[0], args[1]
-                self.name = name
-        def __str__(self):
-                return "Not implemented: " + self.name.upper()
-        def __repr__(self):
-                return self.__str__()
-@defclass
-class _not_implemented_error(_not_implemented_condition.python_type, error.python_type): pass
-@defclass
-class _not_implemented_warning(_not_implemented_condition.python_type, warning.python_type): pass
-
-def _not_implemented(x = None):
-        error(_not_implemented_error,
-              x if x is not None else
-              _caller_name())
-
-def _warn_not_implemented(x = None):
-        warn(_not_implemented_warning,
-              x if x is not None else
-              _caller_name())
-#+end_src
-
-*** Functions: EQ, EQL, FUNCTION, CONSTANTP
+*** Earlified streaming
 
 #+begin_src python +n
 @defun
-def function(name):
-        """function name => function
-
-Arguments and Values:
-
-NAME---a function name or lambda expression.
-
-FUNCTION---a function object.
-
-Description:
-
-The value of FUNCTION is the functional value of NAME in the current
-lexical environment.
-
-If NAME is a function name, the functional definition of that name is
-that established by the innermost lexically enclosing FLET, LABELS, or
-MACROLET form, if there is one.  Otherwise the global functional
-definition of the function name is returned.
-
-If NAME is a lambda expression, then a lexical closure is returned.
-In situations where a closure over the same set of bindings might be
-produced more than once, the various resulting closures might or might
-not be EQ.
-
-It is an error to use FUNCTION on a function name that does not denote
-a function in the lexical environment in which the FUNCTION form
-appears.  Specifically, it is an error to use FUNCTION on a symbol
-that denotes a macro or special form.  An implementation may choose
-not to signal this error for performance reasons, but implementations
-are forbidden from defining the failure to signal an error as a useful
-behavior."""
-        # Unregistered Issue COMPLIANCE-NAMESPACING-FUNCTIONS
-        if special_operator_p(the(symbol, name)) or macro_function_p(name):
-                error("Runtime Issue SYMBOL-%s-DENOTES-A-MACRO-OR-SPECIAL-FORM", name)
-        maybe_fn = _lisp_symbol_python_value(name)
-        if not maybe_fn or not typep(maybe_fn, function):
-                error("Runtime Issue SYMBOL-%s-DOES-NOT-DENOTE-A-FUNCTION-IN-LEXICAL-ENVIRONMENT", name)
-        return maybe_fn
+def stream_external_format(stream): return _keyword(stream.encoding)
 
 @defun
-def constantp(form, environment = None):
-        """constantp form &optional environment => generalized-boolean
+def make_string_output_stream():
+        return _io.StringIO()
 
-Arguments and Values:
+@defun
+def with_output_to_string(f):
+        x = make_string_output_stream()
+        try:
+                f(x)
+                return get_output_stream_string(x)
+        finally:
+                close(x)
 
-FORM---a form.
+@defun
+def with_input_from_string(s, f):
+        x = make_string_input_stream(s)
+        try:
+                return f(x)
+        finally:
+                close(x)
 
-environment---an environment object. The default is nil.
+@defun
+def get_output_stream_string(x):
+        return x.getvalue()
 
-GENERALIZED-BOOLEAN---a generalized boolean.
+@defun
+def make_string_input_stream(x):
+        return _io.StringIO(x)
 
-Description:
+@defun
+def close(x):
+        x.close()
 
-Returns true if FORM can be determined by the implementation to be a
-constant form in the indicated ENVIRONMENT;  otherwise, it returns
-false indicating either that the form is not a constant form or that
-it cannot be determined whether or not FORM is a constant form.
+@defun
+def file_position(x):
+        return x.seek(0, 1)
 
-The following kinds of forms are considered constant forms:
+@defun
+def setf_file_position(posn, x):
+        return x.seek(posn)
 
- * Self-evaluating objects (such as numbers, characters, and the
-   various kinds of arrays) are always considered constant forms and
-   must be recognized as such by CONSTANTP.
+def _stream_as_string(stream):
+        return stream.read()
 
- * Constant variables, such as keywords, symbols defined by Common Lisp
-   as constant (such as NIL, T, and PI), and symbols declared as
-   constant by the user in the indicated ENVIRONMENT using DEFCONSTANT
-   are always considered constant forms and must be recognized as such
-   by CONSTANTP.
-
- * QUOTE forms are always considered constant forms and must be
-   recognized as such by CONSTANTP.
-
- * An implementation is permitted, but not required, to detect
-   additional constant forms.  If it does, it is also permitted, but
-   not required, to make use of information in the
-   ENVIRONMENT.  Examples of constant forms for which CONSTANTP might or
-   might not return true are: (SQRT PI), (+ 3 2), (LENGTH '(A B C)),
-   and (LET ((X 7)) (ZEROP X)).
-
-If an implementation chooses to make use of the environment
-information, such actions as expanding macros or performing function
-inlining are permitted to be used, but not required; however,
-expanding compiler macros is not permitted.
-
-Affected By:
-
-The state of the global environment (e.g., which symbols have been
-declared to be the names of constant variables)."""
-        return (typep(form, (or_, integer, float, complex, string)) or
-                keywordp(form) or form in [t, nil, pi]                 or
-                (_tuplep(form) and _py.len(form) == 2 and form[0] is quote_))
+def _file_as_string(filename):
+        with _py.open(filename, "r") as f:
+                return _stream_as_string(f)
 #+end_src
 
-*** %READ-SYMBOL
-
-#+begin_src python +n
-def _read_symbol(x, package = None, case = None):
-        # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
-        case = _defaulted_to_var(case, _read_case_)
-        name, p = ((x[1:], __keyword)
-                   if x[0] == ":" else
-                   _poor_man_let(x.find(":"),
-                                 lambda index:
-                                         (_if_let(find_package(x[0:index].upper()),
-                                                  lambda p:
-                                                          (x[index + 1:], p),
-                                                  lambda:
-                                                          error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
-                                                                x[0:index].upper(), x))
-                                          if index != -1 else
-                                          (x, _coerce_to_package(package)))))
-        return _intern(_case_xform(case, name), p)[0]
-#+end_src
-
-*** Rudimentary pathnames
+* Pathnames
 
     Relevant sections:
 
@@ -3947,7 +3672,7 @@ def _init_pathnames():
 _init_pathnames()
 #+end_src
 
-***** Sub-standard pathname functions
+*** Sub-standard pathname functions
 
 #+begin_src python +n
 def _cold_merge_pathnames(pathname, default_pathname = None, default_version = None):
@@ -4080,456 +3805,7 @@ together."""
         return _os.path.join(x, y)
 #+end_src
 
-*** Earlified streaming
-
-#+begin_src python +n
-@defun
-def stream_external_format(stream): return _keyword(stream.encoding)
-
-@defun
-def make_string_output_stream():
-        return _io.StringIO()
-
-@defun
-def with_output_to_string(f):
-        x = make_string_output_stream()
-        try:
-                f(x)
-                return get_output_stream_string(x)
-        finally:
-                close(x)
-
-@defun
-def with_input_from_string(s, f):
-        x = make_string_input_stream(s)
-        try:
-                return f(x)
-        finally:
-                close(x)
-
-@defun
-def get_output_stream_string(x):
-        return x.getvalue()
-
-@defun
-def make_string_input_stream(x):
-        return _io.StringIO(x)
-
-@defun
-def close(x):
-        x.close()
-
-@defun
-def file_position(x):
-        return x.seek(0, 1)
-
-@defun
-def setf_file_position(posn, x):
-        return x.seek(posn)
-
-def _stream_as_string(stream):
-        return stream.read()
-
-def _file_as_string(filename):
-        with _py.open(filename, "r") as f:
-                return _stream_as_string(f)
-#+end_src
-
-*** %COLD-PRIN1-TO-STRING
-
-#+begin_src python +n
-def _cold_prin1_to_string(x):
-        return x.__repr__()
-
-prin1_to_string = _cold_prin1_to_string
-#+end_src
-
-*** Condition system
-
-#+begin_src python +n
-def _report_handling_handover(cond, frame, hook):
-        format(_sys.stderr, "Handing over handling of %s to frame %s\n",
-               prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
-
-__main_thread__ = _threading.current_thread()
-def _report_condition(cond, stream = None, backtrace = None):
-        stream = _defaulted_to_var(stream, _debug_io_)
-        format(stream, "%sondition of type %s: %s\n",
-               (("In thread \"%s\": c" % _threading.current_thread().name)
-                if _threading.current_thread() is not __main_thread__ else
-                "C"),
-               _py.type(cond), cond)
-        if backtrace:
-                _backtrace(-1, stream)
-        return t
-
-def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
-        if p:
-                old_hook_value = symbol_value(hook)
-                def wrapped_hook(cond, hook_value):
-                        "Let's honor the old hook."
-                        _report_condition(cond,
-                                          stream = _symbol_value(_debug_io_),
-                                          backtrace = backtrace)
-                        if old_hook_value:
-                                old_hook_value(cond, old_hook_value)
-                with env.maybe_let(p, **{string(hook): wrapped_hook}):
-                        return body()
-        else:
-                return body()
-
-__not_even_conditions__ = _py.frozenset([_py.GeneratorExit, _py.SystemExit, __catcher_throw__])
-"A set of condition types which are entirely ignored by the condition system."
-
-_intern_and_bind_pynames("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")
-
-def __cl_condition_handler__(condspec, frame):
-        backtrace_printed = nil
-        def continuation():
-                nonlocal backtrace_printed
-                type, raw_cond, traceback = condspec
-                # _print_frames(_frames_calling(frame))
-                def _maybe_upgrade_condition(cond):
-                        "Fix up the shit routinely being passed around."
-                        return ((cond, nil) if typep(cond, condition) else
-                                (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
-                                               cond)), t))
-                        # _poor_man_typecase(cond,
-                        #                    (BaseException, lambda: cond),
-                        #                    (str,       lambda: error_(cond)))
-                cond, upgradedp = _maybe_upgrade_condition(raw_cond)
-                if type_of(cond) not in __not_even_conditions__:
-                        # _debug_printf("signalling %s", cond)
-                        if upgradedp:
-                                _backtrace()
-                                backtrace_printed = t
-                                _here("Condition Upgrader: %s of-type %s -> %s of-type %s",
-                                      prin1_to_string(raw_cond), type_of(raw_cond),
-                                      prin1_to_string(cond), type_of(cond),
-                                      callers = 45, frame = _symbol_value(_stack_top_hint_))
-                        with progv({_traceback_: traceback,
-                                    _signalling_frame_: frame}): # These bindings are the deviation from the CL standard.
-                                presignal_hook = _symbol_value(_presignal_hook_)
-                                if presignal_hook:
-                                        with progv({_presignal_hook_: nil}):
-                                                presignal_hook(cond, presignal_hook)
-                                signal(cond)
-                                debugger_hook = _symbol_value(_debugger_hook_)
-                                if debugger_hook:
-                                        with progv({_debugger_hook_: nil}):
-                                                debugger_hook(cond, debugger_hook)
-                return cond
-        with progv({_stack_top_hint_: _caller_frame(caller_relative = 1)}):
-                cond = _sys.call_tracing(continuation, _py.tuple())
-        if type_of(cond) not in __not_even_conditions__:
-                is_not_ball = type_of(cond) is not __catcher_throw__
-                _here("In thread '%s': unhandled condition : %s%s",
-                      _threading.current_thread().name, princ_to_string(cond),
-                      ("\n; Disabling CL condition system." if is_not_ball else
-                       ""),
-                      callers = 15)
-                if not backtrace_printed:
-                        _backtrace()
-                if is_not_ball:
-                        _frost.disable_pytracer()
-                        try:
-                                invoke_debugger(cond)
-                        except error.python_type as debugger_cond:
-                                _debug_printf("Failed to enter the debugger:\n%s\nHave a nice day!", debugger_cond)
-                                _sys.stderr.flush()
-                                _py.exit()
-        ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
-        # At this point, the Python condition handler kicks in,
-        # and the stack gets unwound for the first time.
-        #
-        # ..too bad, we've already called all HANDLER-BIND-bound
-        # condition handlers.
-        # If we've hit any HANDLER-CASE-bound handlers, then we won't
-        # even reach this point, as the stack is already unwound.
-_set_condition_handler(__cl_condition_handler__)
-
-def handler_bind(fn, *handlers, no_error = identity):
-        "Works like real HANDLER-BIND, when the conditions are right.  Ha."
-        value = None
-
-        # this is:
-        #     _frost.pytracer_enabled_p() and condition_handler_active_p()
-        # ..inlined for speed.
-        if _frost.pytracer_enabled_p() and _frost.tracer_hook("exception") is __cl_condition_handler__:
-                # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
-                with progv({_handler_clusters_: (_symbol_value(_handler_clusters_) +
-                                                 [handlers + (("__frame__", _caller_frame()),)])}):
-                        return no_error(fn())
-        else:
-                # old world case..
-                # format(t, "crap FAIL: pep %s, exhook is cch: %s",
-                #        _frost.pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
-                if _py.len(handlers) > 1:
-                        error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
-                              _py.len(handlers))
-                condition_type_name, handler = handlers[-1]
-                try:
-                        value = fn()
-                except find_class(condition_type_name) as cond:
-                        return handler(cond)
-                finally:
-                        return no_error(value)
-
-def handler_case(body, *handlers, no_error = identity):
-        "Works like real HANDLER-CASE, when the conditions are right.  Ha."
-        nonce            = gensym("HANDLER-CASE")
-        wrapped_handlers = _mapcar_star(lambda type, handler:
-                                                (type, lambda cond: return_from(nonce, handler(cond))),
-                                        handlers)
-        return catch(nonce,
-                     lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
-
-def ignore_errors(body):
-        return handler_case(body,
-                            (Exception,
-                             lambda _: None))
-#+end_src
-
-*** Restarts
-
-#+begin_src python +n
-@defclass
-class restart(_servile):
-        def __str__(self):
-                # XXX: must conform by honoring *PRINT-ESCAPE*:
-                # http://www.lispworks.com/documentation/lw51/CLHS/Body/m_rst_ca.htm#restart-case
-                return (with_output_to_string(lambda stream: self.report_function(stream)) if self.report_function else
-                        self.__repr__())
-        pass
-# RESTART-BIND executes the body of forms in a dynamic environment where
-# restarts with the given names are in effect.
-
-# If a name is nil, it indicates an anonymous restart; if a name is a
-# non-NIL symbol, it indicates a named restart.
-
-# The function, interactive-function, and report-function are
-# unconditionally evaluated in the current lexical and dynamic
-# environment prior to evaluation of the body. Each of these forms must
-# evaluate to a function.
-
-# If INVOKE-RESTART is done on that restart, the function which resulted
-# from evaluating function is called, in the dynamic environment of the
-# INVOKE-RESTART, with the arguments given to INVOKE-RESTART. The
-# function may either perform a non-local transfer of control or may
-# return normally.
-
-
-# If the restart is invoked interactively from the debugger (using
-# invoke-restart-interactively), the arguments are defaulted by calling
-# the function which resulted from evaluating interactive-function. That
-# function may optionally prompt interactively on query I/O, and should
-# return a list of arguments to be used by invoke-restart-interactively
-# when invoking the restart.
-
-# If a restart is invoked interactively but no interactive-function is
-# used, then an argument list of nil is used. In that case, the function
-# must be compatible with an empty argument list.
-
-# If the restart is presented interactively (e.g., by the debugger), the
-# presentation is done by calling the function which resulted from
-# evaluating report-function. This function must be a function of one
-# argument, a stream. It is expected to print a description of the
-# action that the restart takes to that stream. This function is called
-# any time the restart is printed while *print-escape* is nil.
-
-# restart_bind(body,
-#              name = ((lambda *args: 1),
-#                      _py.dict(interactive_function = lambda: compute_invoke_restart_interactively_args(),
-#                               report_function      = lambda stream: print_restart_summary(stream),
-#                               test_function        = lambda cond: visible_p(cond))))
-_string_set("*RESTART-CLUSTERS*", [])
-
-def _restartp(x):
-        return typep(x, restart)
-
-def restart_name(x):
-        return x.name
-
-def _specs_restarts_args(restart_specs):
-        # format (t, "_s_r: %s", restart_specs)
-        restarts_args = make_hash_table()
-        for name, spec in restart_specs.items():
-                function, options = ((spec[0], spec[1]) if _tuplep(spec) else
-                                     (spec, make_hash_table()))
-                restarts_args[name.upper()] = _updated_dict(options, _py.dict(function = function)) # XXX: name mangling!
-        return restarts_args
-
-##
-# XXX: :TEST-FUNCTION is currently IGNORED!
-##
-def _restart_bind(body, restarts_args):
-        with progv({_restart_clusters_: (_symbol_value(_restart_clusters_) +
-                                           [_remap_hash_table(lambda _, restart_args: make_instance(restart, **restart_args), restarts_args)])}):
-                return body()
-
-def restart_bind(body, **restart_specs):
-        return _restart_bind(body, _specs_restarts_args(restart_specs))
-
-__valid_restart_options__ = _py.frozenset(["interactive", "report", "test", "function"])
-def _restart_case(body, **restarts_args):
-        def validate_restart_options(options):
-                unknown = _py.set(options.keys()) - __valid_restart_options__
-                return t if not unknown else error(simple_type_error, "Acceptable restart options are: (%s), not (%s)",
-                                                   " ".join(__valid_restart_options__), " ".join(options.keys()))
-        nonce = gensym("RESTART-CASE")
-        wrapped_restarts_args = {
-                restart_name: _poor_man_let(restart_args["function"],
-                                  restart_args["interactive"] if "interactive" in restart_args else nil,
-                                  restart_args["report"]      if "report"      in restart_args else nil,
-                                  lambda function, interactive, report:
-                                          (validate_restart_options(restart_args) and
-                                           _updated_dict(restart_args,
-                                                         _py.dict(name                 = restart_name,
-                                                                  function             =
-                                                                  lambda *args, **keys:
-                                                                          return_from(nonce, function(*args, **keys)),
-                                                                  interactive_function =
-                                                                  (interactive                  if functionp(interactive) else
-                                                                   lambda: []                   if null(interactive) else
-                                                                   error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
-                                                                  report_function      =
-                                                                  (report                       if functionp(report) else
-                                                                   _curry(write_string, report) if stringp(report) else
-                                                                   nil                          if null(report) else
-                                                                   error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
-                for restart_name, restart_args in restarts_args.items () }
-        return catch(nonce,
-                     lambda: _restart_bind(body, wrapped_restarts_args))
-
-def restart_case(body, **restart_specs):
-        return _restart_case(body, **_specs_restarts_args(restart_specs))
-
-def with_simple_restart(name, format_control_and_arguments, body):
-        """
-WITH-SIMPLE-RESTART establishes a restart.
-
-If the restart designated by NAME is not invoked while executing
-FORMS, all values returned by the last of FORMS are returned. If the
-restart designated by NAME is invoked, control is transferred to
-WITH-SIMPLE-RESTART, which returns two values, NIL and T.
-
-If name is NIL, an anonymous restart is established.
-
-The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
-"""
-        description = (format_control_and_arguments if stringp(format_control_and_arguments) else
-                       format(nil, format_control_and_arguments[0], *format_control_and_arguments[1:]))
-        return restart_case(body, **{ name: (lambda: None,
-                                             _py.dict(report = lambda stream: format(stream, "%s", description))) })
-
-def restart_condition_association_check(cond, restart):
-        """
-When CONDITION is non-NIL, only those restarts are considered that are
-either explicitly associated with that condition, or not associated
-with any condition; that is, the excluded restarts are those that are
-associated with a non-empty set of conditions of which the given
-condition is not an element. If condition is NIL, all restarts are
-considered.
-"""
-        return (not cond or
-                "associated_conditions" not in restart.__dict__ or
-                cond in restart.associated_conditions)
-
-def find_restart(identifier, condition = None):
-        """
-FIND-RESTART searches for a particular restart in the current dynamic
-environment.
-
-When CONDITION is non-NIL, only those restarts are considered that are
-either explicitly associated with that condition, or not associated
-with any condition; that is, the excluded restarts are those that are
-associated with a non-empty set of conditions of which the given
-condition is not an element. If condition is NIL, all restarts are
-considered.
-
-If IDENTIFIER is a symbol, then the innermost (most recently
-established) applicable restart with that name is returned. nil is
-returned if no such restart is found.
-
-If IDENTIFIER is a currently active restart, then it is
-returned. Otherwise, NIL is returned.
-"""
-        if _restartp(identifier):
-                return find_restart(restart_name(identifier)) is identifier
-        else:
-                for cluster in reversed(_symbol_value(_restart_clusters_)):
-                        # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
-                        restart = cluster[identifier] if identifier in cluster else None
-                        if restart and restart_condition_association_check(condition, restart):
-                                return restart
-
-def compute_restarts(condition = None):
-        """
-COMPUTE-RESTARTS uses the dynamic state of the program to compute a
-list of the restarts which are currently active.
-
-The resulting list is ordered so that the innermost (more-recently
-established) restarts are nearer the head of the list.
-
-When CONDITION is non-NIL, only those restarts are considered that are
-either explicitly associated with that condition, or not associated
-with any condition; that is, the excluded restarts are those that are
-associated with a non-empty set of conditions of which the given
-condition is not an element. If condition is NIL, all restarts are
-considered.
-
-COMPUTE-RESTARTS returns all applicable restarts, including anonymous
-ones, even if some of them have the same name as others and would
-therefore not be found by FIND-RESTART when given a symbol argument.
-
-Implementations are permitted, but not required, to return distinct
-lists from repeated calls to COMPUTE-RESTARTS while in the same
-dynamic environment. The consequences are undefined if the list
-returned by COMPUTE-RESTARTS is every modified.
-"""
-        restarts = _py.list()
-        for cluster in _py.reversed(_symbol_value(_restart_clusters_)):
-                # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
-                restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
-                                if condition else
-                                cluster.values())
-        return restarts
-
-def invoke_restart(restart, *args, **keys):
-        """
-Calls the function associated with RESTART, passing arguments to
-it. Restart must be valid in the current dynamic environment.
-"""
-        assert(stringp(restart) or _restartp(restart))
-        restart = restart if _restartp(restart) else find_restart(restart)
-        return restart.function(*args, **keys)
-
-def invoke_restart_interactively(restart):
-        """
-INVOKE-RESTART-INTERACTIVELY calls the function associated with
-RESTART, prompting for any necessary arguments. If RESTART is a name,
-it must be valid in the current dynamic environment.
-
-INVOKE-RESTART-INTERACTIVELY prompts for arguments by executing the
-code provided in the :INTERACTIVE KEYWORD to RESTART-CASE or
-:INTERACTIVE-FUNCTION keyword to RESTART-BIND.
-
-If no such options have been supplied in the corresponding
-RESTART-BIND or RESTART-CASE, then the consequences are undefined if
-the restart takes required arguments. If the arguments are optional,
-an argument list of nil is used.
-
-Once the arguments have been determined, INVOKE-RESTART-INTERACTIVELY
-executes the following:
-
- (apply #'invoke-restart restart arguments)
-"""
-        assert(stringp(restart) or _restartp(restart))
-        restart = restart if _restartp(restart) else find_restart(restart)
-        return invoke_restart(restart, *restart.interactive_function())
-#+end_src
-
-*** Cold printer
+* Cold printer
 
 #+begin_src python +n
 def _print_string(x, escape = None, readably = None):
@@ -4707,7 +3983,7 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
         return object
 #+end_src
 
-*** Cold reader
+* Cold reader
 
 #+begin_src python +n
 _string_set("*READ-CASE*", _keyword("upcase"))
@@ -4726,6 +4002,23 @@ def parse_integer(xs, junk_allowed = nil, radix = 10):
                         else:
                                 error("Junk in string \"%s\".", xs)
         return _int(xform(xs[:(end + 1)]))
+
+def _read_symbol(x, package = None, case = None):
+        # debug_printf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
+        case = _defaulted_to_var(case, _read_case_)
+        name, p = ((x[1:], __keyword)
+                   if x[0] == ":" else
+                   _poor_man_let(x.find(":"),
+                                 lambda index:
+                                         (_if_let(find_package(x[0:index].upper()),
+                                                  lambda p:
+                                                          (x[index + 1:], p),
+                                                  lambda:
+                                                          error("Package \"%s\" doesn't exist, while reading symbol \"%s\".",
+                                                                x[0:index].upper(), x))
+                                          if index != -1 else
+                                          (x, _coerce_to_package(package)))))
+        return _intern(_case_xform(case, name), p)[0]
 
 @__block__
 def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
@@ -4977,6 +4270,457 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
         # _here("lastly %s" % (ret,))
         return ret
 read = _cold_read
+#+end_src
+
+* Condition system
+
+#+begin_src python +n
+def _conditionp(x):
+        return typep(x, condition)
+
+def make_condition(type, *args, **keys):
+        """It's a slightly weird interpretation of MAKE-CONDITION, as
+the latter only accepts symbols as DATUM, while this one doesn't
+accept symbols at all."""
+        check_type(type, symbol)
+        if not (_py.hasattr(type, "python_type") and
+                _conditionp(type.python_type)):
+                error("In MAKE-CONDITION: %s does not designate a condition type.", type)
+        return type.python_type(*args, **keys)
+
+@defclass
+class warning(condition.python_type): pass
+
+@defclass
+class simple_warning(simple_condition.python_type, warning.python_type): pass
+
+@defclass
+class style_warning(warning.python_type): pass
+
+@defclass
+class simple_style_warning(simple_warning.python_type, style_warning.python_type): pass
+
+@defclass
+class type_error(error.python_type):
+        pass
+
+@defclass
+class simple_type_error(simple_error.python_type, type_error.python_type):
+        pass
+
+@defclass
+class undefined_function(error.python_type):
+        def __init__(self, fname):
+                self.name = fname
+        def __str__(self):
+                return "The function %s is undefined." % (self.name,)
+        def __repr__(self):
+                return self.__str__()
+
+@defclass
+class _not_implemented_condition(condition.python_type):
+        def __init__(*args):
+                self, name = args[0], args[1]
+                self.name = name
+        def __str__(self):
+                return "Not implemented: " + self.name.upper()
+        def __repr__(self):
+                return self.__str__()
+@defclass
+class _not_implemented_error(_not_implemented_condition.python_type, error.python_type): pass
+@defclass
+class _not_implemented_warning(_not_implemented_condition.python_type, warning.python_type): pass
+
+def _not_implemented(x = None):
+        error(_not_implemented_error,
+              x if x is not None else
+              _caller_name())
+
+def _warn_not_implemented(x = None):
+        warn(_not_implemented_warning,
+              x if x is not None else
+              _caller_name())
+
+def _report_handling_handover(cond, frame, hook):
+        format(_sys.stderr, "Handing over handling of %s to frame %s\n",
+               prin1_to_string(cond), _pp_chain_of_frame(frame, callers = 25))
+
+__main_thread__ = _threading.current_thread()
+def _report_condition(cond, stream = None, backtrace = None):
+        stream = _defaulted_to_var(stream, _debug_io_)
+        format(stream, "%sondition of type %s: %s\n",
+               (("In thread \"%s\": c" % _threading.current_thread().name)
+                if _threading.current_thread() is not __main_thread__ else
+                "C"),
+               _py.type(cond), cond)
+        if backtrace:
+                _backtrace(-1, stream)
+        return t
+
+def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
+        if p:
+                old_hook_value = symbol_value(hook)
+                def wrapped_hook(cond, hook_value):
+                        "Let's honor the old hook."
+                        _report_condition(cond,
+                                          stream = _symbol_value(_debug_io_),
+                                          backtrace = backtrace)
+                        if old_hook_value:
+                                old_hook_value(cond, old_hook_value)
+                with env.maybe_let(p, **{string(hook): wrapped_hook}):
+                        return body()
+        else:
+                return body()
+
+__not_even_conditions__ = _py.frozenset([_py.GeneratorExit, _py.SystemExit, __catcher_throw__])
+"A set of condition types which are entirely ignored by the condition system."
+
+_intern_and_bind_pynames("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")
+
+def __cl_condition_handler__(condspec, frame):
+        backtrace_printed = nil
+        def continuation():
+                nonlocal backtrace_printed
+                type, raw_cond, traceback = condspec
+                # _print_frames(_frames_calling(frame))
+                def _maybe_upgrade_condition(cond):
+                        "Fix up the shit routinely being passed around."
+                        return ((cond, nil) if typep(cond, condition) else
+                                (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
+                                               cond)), t))
+                        # _poor_man_typecase(cond,
+                        #                    (BaseException, lambda: cond),
+                        #                    (str,       lambda: error_(cond)))
+                cond, upgradedp = _maybe_upgrade_condition(raw_cond)
+                if type_of(cond) not in __not_even_conditions__:
+                        # _debug_printf("signalling %s", cond)
+                        if upgradedp:
+                                _backtrace()
+                                backtrace_printed = t
+                                _here("Condition Upgrader: %s of-type %s -> %s of-type %s",
+                                      prin1_to_string(raw_cond), type_of(raw_cond),
+                                      prin1_to_string(cond), type_of(cond),
+                                      callers = 45, frame = _symbol_value(_stack_top_hint_))
+                        with progv({_traceback_: traceback,
+                                    _signalling_frame_: frame}): # These bindings are the deviation from the CL standard.
+                                presignal_hook = _symbol_value(_presignal_hook_)
+                                if presignal_hook:
+                                        with progv({_presignal_hook_: nil}):
+                                                presignal_hook(cond, presignal_hook)
+                                signal(cond)
+                                debugger_hook = _symbol_value(_debugger_hook_)
+                                if debugger_hook:
+                                        with progv({_debugger_hook_: nil}):
+                                                debugger_hook(cond, debugger_hook)
+                return cond
+        with progv({_stack_top_hint_: _caller_frame(caller_relative = 1)}):
+                cond = _sys.call_tracing(continuation, _py.tuple())
+        if type_of(cond) not in __not_even_conditions__:
+                is_not_ball = type_of(cond) is not __catcher_throw__
+                _here("In thread '%s': unhandled condition : %s%s",
+                      _threading.current_thread().name, princ_to_string(cond),
+                      ("\n; Disabling CL condition system." if is_not_ball else
+                       ""),
+                      callers = 15)
+                if not backtrace_printed:
+                        _backtrace()
+                if is_not_ball:
+                        _frost.disable_pytracer()
+                        try:
+                                invoke_debugger(cond)
+                        except error.python_type as debugger_cond:
+                                _debug_printf("Failed to enter the debugger:\n%s\nHave a nice day!", debugger_cond)
+                                _sys.stderr.flush()
+                                _py.exit()
+        ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
+        # At this point, the Python condition handler kicks in,
+        # and the stack gets unwound for the first time.
+        #
+        # ..too bad, we've already called all HANDLER-BIND-bound
+        # condition handlers.
+        # If we've hit any HANDLER-CASE-bound handlers, then we won't
+        # even reach this point, as the stack is already unwound.
+_set_condition_handler(__cl_condition_handler__)
+
+def handler_bind(fn, *handlers, no_error = identity):
+        "Works like real HANDLER-BIND, when the conditions are right.  Ha."
+        value = None
+
+        # this is:
+        #     _frost.pytracer_enabled_p() and condition_handler_active_p()
+        # ..inlined for speed.
+        if _frost.pytracer_enabled_p() and _frost.tracer_hook("exception") is __cl_condition_handler__:
+                # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
+                with progv({_handler_clusters_: (_symbol_value(_handler_clusters_) +
+                                                 [handlers + (("__frame__", _caller_frame()),)])}):
+                        return no_error(fn())
+        else:
+                # old world case..
+                # format(t, "crap FAIL: pep %s, exhook is cch: %s",
+                #        _frost.pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
+                if _py.len(handlers) > 1:
+                        error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
+                              _py.len(handlers))
+                condition_type_name, handler = handlers[-1]
+                try:
+                        value = fn()
+                except find_class(condition_type_name) as cond:
+                        return handler(cond)
+                finally:
+                        return no_error(value)
+
+def handler_case(body, *handlers, no_error = identity):
+        "Works like real HANDLER-CASE, when the conditions are right.  Ha."
+        nonce            = gensym("HANDLER-CASE")
+        wrapped_handlers = _mapcar_star(lambda type, handler:
+                                                (type, lambda cond: return_from(nonce, handler(cond))),
+                                        handlers)
+        return catch(nonce,
+                     lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
+
+def ignore_errors(body):
+        return handler_case(body,
+                            (Exception,
+                             lambda _: None))
+#+end_src
+
+* Restarts
+
+#+begin_src python +n
+@defclass
+class restart(_servile):
+        def __str__(self):
+                # XXX: must conform by honoring *PRINT-ESCAPE*:
+                # http://www.lispworks.com/documentation/lw51/CLHS/Body/m_rst_ca.htm#restart-case
+                return (with_output_to_string(lambda stream: self.report_function(stream)) if self.report_function else
+                        self.__repr__())
+        pass
+# RESTART-BIND executes the body of forms in a dynamic environment where
+# restarts with the given names are in effect.
+
+# If a name is nil, it indicates an anonymous restart; if a name is a
+# non-NIL symbol, it indicates a named restart.
+
+# The function, interactive-function, and report-function are
+# unconditionally evaluated in the current lexical and dynamic
+# environment prior to evaluation of the body. Each of these forms must
+# evaluate to a function.
+
+# If INVOKE-RESTART is done on that restart, the function which resulted
+# from evaluating function is called, in the dynamic environment of the
+# INVOKE-RESTART, with the arguments given to INVOKE-RESTART. The
+# function may either perform a non-local transfer of control or may
+# return normally.
+
+
+# If the restart is invoked interactively from the debugger (using
+# invoke-restart-interactively), the arguments are defaulted by calling
+# the function which resulted from evaluating interactive-function. That
+# function may optionally prompt interactively on query I/O, and should
+# return a list of arguments to be used by invoke-restart-interactively
+# when invoking the restart.
+
+# If a restart is invoked interactively but no interactive-function is
+# used, then an argument list of nil is used. In that case, the function
+# must be compatible with an empty argument list.
+
+# If the restart is presented interactively (e.g., by the debugger), the
+# presentation is done by calling the function which resulted from
+# evaluating report-function. This function must be a function of one
+# argument, a stream. It is expected to print a description of the
+# action that the restart takes to that stream. This function is called
+# any time the restart is printed while *print-escape* is nil.
+
+# restart_bind(body,
+#              name = ((lambda *args: 1),
+#                      _py.dict(interactive_function = lambda: compute_invoke_restart_interactively_args(),
+#                               report_function      = lambda stream: print_restart_summary(stream),
+#                               test_function        = lambda cond: visible_p(cond))))
+_string_set("*RESTART-CLUSTERS*", [])
+
+def _restartp(x):
+        return typep(x, restart)
+
+def restart_name(x):
+        return x.name
+
+def _specs_restarts_args(restart_specs):
+        # format (t, "_s_r: %s", restart_specs)
+        restarts_args = make_hash_table()
+        for name, spec in restart_specs.items():
+                function, options = ((spec[0], spec[1]) if _tuplep(spec) else
+                                     (spec, make_hash_table()))
+                restarts_args[name.upper()] = _updated_dict(options, _py.dict(function = function)) # XXX: name mangling!
+        return restarts_args
+
+##
+# XXX: :TEST-FUNCTION is currently IGNORED!
+##
+def _restart_bind(body, restarts_args):
+        with progv({_restart_clusters_: (_symbol_value(_restart_clusters_) +
+                                           [_remap_hash_table(lambda _, restart_args: make_instance(restart, **restart_args), restarts_args)])}):
+                return body()
+
+def restart_bind(body, **restart_specs):
+        return _restart_bind(body, _specs_restarts_args(restart_specs))
+
+__valid_restart_options__ = _py.frozenset(["interactive", "report", "test", "function"])
+def _restart_case(body, **restarts_args):
+        def validate_restart_options(options):
+                unknown = _py.set(options.keys()) - __valid_restart_options__
+                return t if not unknown else error(simple_type_error, "Acceptable restart options are: (%s), not (%s)",
+                                                   " ".join(__valid_restart_options__), " ".join(options.keys()))
+        nonce = gensym("RESTART-CASE")
+        wrapped_restarts_args = {
+                restart_name: _poor_man_let(restart_args["function"],
+                                  restart_args["interactive"] if "interactive" in restart_args else nil,
+                                  restart_args["report"]      if "report"      in restart_args else nil,
+                                  lambda function, interactive, report:
+                                          (validate_restart_options(restart_args) and
+                                           _updated_dict(restart_args,
+                                                         _py.dict(name                 = restart_name,
+                                                                  function             =
+                                                                  lambda *args, **keys:
+                                                                          return_from(nonce, function(*args, **keys)),
+                                                                  interactive_function =
+                                                                  (interactive                  if functionp(interactive) else
+                                                                   lambda: []                   if null(interactive) else
+                                                                   error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
+                                                                  report_function      =
+                                                                  (report                       if functionp(report) else
+                                                                   _curry(write_string, report) if stringp(report) else
+                                                                   nil                          if null(report) else
+                                                                   error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
+                for restart_name, restart_args in restarts_args.items () }
+        return catch(nonce,
+                     lambda: _restart_bind(body, wrapped_restarts_args))
+
+def restart_case(body, **restart_specs):
+        return _restart_case(body, **_specs_restarts_args(restart_specs))
+
+def with_simple_restart(name, format_control_and_arguments, body):
+        """
+WITH-SIMPLE-RESTART establishes a restart.
+
+If the restart designated by NAME is not invoked while executing
+FORMS, all values returned by the last of FORMS are returned. If the
+restart designated by NAME is invoked, control is transferred to
+WITH-SIMPLE-RESTART, which returns two values, NIL and T.
+
+If name is NIL, an anonymous restart is established.
+
+The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
+"""
+        description = (format_control_and_arguments if stringp(format_control_and_arguments) else
+                       format(nil, format_control_and_arguments[0], *format_control_and_arguments[1:]))
+        return restart_case(body, **{ name: (lambda: None,
+                                             _py.dict(report = lambda stream: format(stream, "%s", description))) })
+
+def restart_condition_association_check(cond, restart):
+        """
+When CONDITION is non-NIL, only those restarts are considered that are
+either explicitly associated with that condition, or not associated
+with any condition; that is, the excluded restarts are those that are
+associated with a non-empty set of conditions of which the given
+condition is not an element. If condition is NIL, all restarts are
+considered.
+"""
+        return (not cond or
+                "associated_conditions" not in restart.__dict__ or
+                cond in restart.associated_conditions)
+
+def find_restart(identifier, condition = None):
+        """
+FIND-RESTART searches for a particular restart in the current dynamic
+environment.
+
+When CONDITION is non-NIL, only those restarts are considered that are
+either explicitly associated with that condition, or not associated
+with any condition; that is, the excluded restarts are those that are
+associated with a non-empty set of conditions of which the given
+condition is not an element. If condition is NIL, all restarts are
+considered.
+
+If IDENTIFIER is a symbol, then the innermost (most recently
+established) applicable restart with that name is returned. nil is
+returned if no such restart is found.
+
+If IDENTIFIER is a currently active restart, then it is
+returned. Otherwise, NIL is returned.
+"""
+        if _restartp(identifier):
+                return find_restart(restart_name(identifier)) is identifier
+        else:
+                for cluster in reversed(_symbol_value(_restart_clusters_)):
+                        # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
+                        restart = cluster[identifier] if identifier in cluster else None
+                        if restart and restart_condition_association_check(condition, restart):
+                                return restart
+
+def compute_restarts(condition = None):
+        """
+COMPUTE-RESTARTS uses the dynamic state of the program to compute a
+list of the restarts which are currently active.
+
+The resulting list is ordered so that the innermost (more-recently
+established) restarts are nearer the head of the list.
+
+When CONDITION is non-NIL, only those restarts are considered that are
+either explicitly associated with that condition, or not associated
+with any condition; that is, the excluded restarts are those that are
+associated with a non-empty set of conditions of which the given
+condition is not an element. If condition is NIL, all restarts are
+considered.
+
+COMPUTE-RESTARTS returns all applicable restarts, including anonymous
+ones, even if some of them have the same name as others and would
+therefore not be found by FIND-RESTART when given a symbol argument.
+
+Implementations are permitted, but not required, to return distinct
+lists from repeated calls to COMPUTE-RESTARTS while in the same
+dynamic environment. The consequences are undefined if the list
+returned by COMPUTE-RESTARTS is every modified.
+"""
+        restarts = _py.list()
+        for cluster in _py.reversed(_symbol_value(_restart_clusters_)):
+                # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
+                restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
+                                if condition else
+                                cluster.values())
+        return restarts
+
+def invoke_restart(restart, *args, **keys):
+        """
+Calls the function associated with RESTART, passing arguments to
+it. Restart must be valid in the current dynamic environment.
+"""
+        assert(stringp(restart) or _restartp(restart))
+        restart = restart if _restartp(restart) else find_restart(restart)
+        return restart.function(*args, **keys)
+
+def invoke_restart_interactively(restart):
+        """
+INVOKE-RESTART-INTERACTIVELY calls the function associated with
+RESTART, prompting for any necessary arguments. If RESTART is a name,
+it must be valid in the current dynamic environment.
+
+INVOKE-RESTART-INTERACTIVELY prompts for arguments by executing the
+code provided in the :INTERACTIVE KEYWORD to RESTART-CASE or
+:INTERACTIVE-FUNCTION keyword to RESTART-BIND.
+
+If no such options have been supplied in the corresponding
+RESTART-BIND or RESTART-CASE, then the consequences are undefined if
+the restart takes required arguments. If the arguments are optional,
+an argument list of nil is used.
+
+Once the arguments have been determined, INVOKE-RESTART-INTERACTIVELY
+executes the following:
+
+ (apply #'invoke-restart restart arguments)
+"""
+        assert(stringp(restart) or _restartp(restart))
+        restart = restart if _restartp(restart) else find_restart(restart)
+        return invoke_restart(restart, *restart.interactive_function())
 #+end_src
 
 * AST
@@ -7501,11 +7245,16 @@ def _lisp_add_def(name, source):
         total = "\n".join(__def_sources__.values())
         linecache.cache[__def_sources_filename__] = _py.len(total), _py.int(time.time()), total.split("\n"), __def_sources_filename__
 
+
 def lisp(body):
+        def read_python_toplevel_name(f):
+                symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
+                symbol = _intern(symbol_name)[0]
+                return symbol, symbol_name, f.__name__
         ## What should it be like?
         ##  - COMPILE-FILE + LOAD
         ##  - COMPILE-TOPLEVEL-FORM + ?
-        symbol, symbol_name, _ = _read_python_toplevel_name(body)
+        symbol, symbol_name, _ = read_python_toplevel_name(body)
         args_ast, body_ast = _function_ast(body)
         if _py.len(body_ast) > 1:
                 error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
@@ -8111,6 +7860,213 @@ def machine_instance():            return _socket.gethostname()
 def machine_type():                return _without_condition_system(lambda: _platform.machine(),
                                                                     reason = "platform.machine")
 def machine_version():             return "Unknown"
+#+end_src
+
+*** DESCRIBE
+
+#+begin_src python +n
+# def _get_info_value(name, type, env_list = None):
+#         def lookup(env_list):
+# def _info(class, type, name, env_list = None):
+#         info = _type_info_or_lose(class, type)
+#         return _get_info_value(name, _type_info_number(info), env_list)
+def _describe_function(name, function, stream):
+        name = function.__name__ if function else name
+        if not (function or (name and fboundp(name))):
+                format(stream, "%s names an undefined function.\n", name)
+        else:
+                if not function and special_operator_p(name):
+                        fun, what, lambda_list = symbol_value(name), "a special operator", _not_implemented()
+                elif not function and macro_function(name):
+                        fun, what, lambda_list = macro_function(name), "a macro", _not_implemented()
+                else:
+                        fun = function or fdefinition(name)
+                        what = "a function"
+                               # ("a generic function"      if typep(fun, generic_function) else
+                               #  "a compiled function"     if compiled_function_p(fun)     else
+                               #  "an interpreted function")
+                        lambda_list = (fun.lambda_list if _py.hasattr(fun, "lambda_list") else
+                                       None)
+                        methods = (# generic_function_methods(fun) if typep(fun, generic_function) else
+                                   None)
+                        if not function:
+                                format(stream, "\n%s names %s:", name, what)
+                        if _specifiedp(lambda_list):
+                                describe_lambda_list(lambda_list)
+                        # describe_documentation(name, intern("FUNCTION")[0], stream)
+                        if _specifiedp(methods):
+                                format(stream, "\nMethod combination: %s",
+                                       generic_function_method_combination(fun))
+                                if not methods:
+                                        format(stream, "\nNo methods.\n")
+                                else:
+                                        for m in methods:
+                                                format(stream, "\n  %s %s %s",
+                                                       name,
+                                                       method_qualifiers(m),
+                                                       method_specializers(m))
+                                                describe_documentation(m, t, stream, nil)
+                        # describe_function_source(fun, stream)
+                        terpri(stream)
+        if not function:
+                # when (and (legal-fun-name-p name) (compiler-macro-function name))
+                ## ...
+                # when (and (consp name) (eq 'setf (car name)) (not (cddr name)))
+                ## ... setf expansions
+                pass
+        if symbolp(name):
+                ## (describe-function `(setf ,name) nil stream)
+                pass
+
+def _describe_class(name, class_, stream):
+        pass
+
+def _describe_python_object(x, stream):
+        type = _py.type(x)
+        slots = [ x for x in _py.dir(x) if "__" not in x ]
+        maxslotnamelen = _py.max(_py.len(x) for x in slots)
+        def describe_slot(x, slot):
+                value = _py.getattr(x, slot)
+                format(stream, "\n  %%%ds: %%s" % maxslotnamelen, slot, _py.repr(value))
+        format(stream, "Python type: %s", type)
+        for slot in slots:
+                describe_slot(x, slot)
+        terpri(stream)
+
+def describe_object(o, stream):
+        def object_self_string(o):
+                if symbolp(o):
+                        return _print_symbol(o)
+                else:
+                        return "#<python object %s>" % (o.__repr__(),)
+        def object_type_string(o):
+                return _py.type(o).__name__
+        def print_standard_describe_header(o, stream):
+                format(stream, "%s\n  [%s]\n",
+                       object_self_string(o), object_type_string(o))
+        def describe_symbol(o, stream):
+                ### variable of some kind -- see the _variable_kind() stub
+                # var_kind = info(_keyword("variable"), _keyword("kind"), o)
+                # var_kind = _variable_kind(o)
+                _describe_function(o, nil, stream)
+                _describe_class(o, nil, stream)
+                ### type specifier
+                # type_kind = info(_keyword("type"), _keyword("kind"), o)
+                # type_kind = ???
+                ## defined   - expander
+                ## primitive - translator
+                ### optimisation policy
+                ### properties
+                if not (fboundp(o) or _symbol_type_specifier_p(o)):
+                        _describe_python_object(o, stream)
+        print_standard_describe_header(o, stream)
+        if symbolp(o): describe_symbol(o, stream)
+        else:
+                _describe_python_object(o, stream)
+
+def describe(object, stream_designator = None):
+        "Print a description of OBJECT to STREAM-DESIGNATOR."
+        stream_designator = _defaulted(stream_designator, _symbol_value(_standard_output_))
+        with progv({_print_right_margin_: 72}):
+                describe_object(object, stream_designator)
+#+end_src
+
+*** Functions: FUNCTION, CONSTANTP
+
+#+begin_src python +n
+@defun
+def function(name):
+        """function name => function
+
+Arguments and Values:
+
+NAME---a function name or lambda expression.
+
+FUNCTION---a function object.
+
+Description:
+
+The value of FUNCTION is the functional value of NAME in the current
+lexical environment.
+
+If NAME is a function name, the functional definition of that name is
+that established by the innermost lexically enclosing FLET, LABELS, or
+MACROLET form, if there is one.  Otherwise the global functional
+definition of the function name is returned.
+
+If NAME is a lambda expression, then a lexical closure is returned.
+In situations where a closure over the same set of bindings might be
+produced more than once, the various resulting closures might or might
+not be EQ.
+
+It is an error to use FUNCTION on a function name that does not denote
+a function in the lexical environment in which the FUNCTION form
+appears.  Specifically, it is an error to use FUNCTION on a symbol
+that denotes a macro or special form.  An implementation may choose
+not to signal this error for performance reasons, but implementations
+are forbidden from defining the failure to signal an error as a useful
+behavior."""
+        # Unregistered Issue COMPLIANCE-NAMESPACING-FUNCTIONS
+        if special_operator_p(the(symbol, name)) or macro_function_p(name):
+                error("Runtime Issue SYMBOL-%s-DENOTES-A-MACRO-OR-SPECIAL-FORM", name)
+        maybe_fn = _lisp_symbol_python_value(name)
+        if not maybe_fn or not typep(maybe_fn, function):
+                error("Runtime Issue SYMBOL-%s-DOES-NOT-DENOTE-A-FUNCTION-IN-LEXICAL-ENVIRONMENT", name)
+        return maybe_fn
+
+@defun
+def constantp(form, environment = None):
+        """constantp form &optional environment => generalized-boolean
+
+Arguments and Values:
+
+FORM---a form.
+
+environment---an environment object. The default is nil.
+
+GENERALIZED-BOOLEAN---a generalized boolean.
+
+Description:
+
+Returns true if FORM can be determined by the implementation to be a
+constant form in the indicated ENVIRONMENT;  otherwise, it returns
+false indicating either that the form is not a constant form or that
+it cannot be determined whether or not FORM is a constant form.
+
+The following kinds of forms are considered constant forms:
+
+ * Self-evaluating objects (such as numbers, characters, and the
+   various kinds of arrays) are always considered constant forms and
+   must be recognized as such by CONSTANTP.
+
+ * Constant variables, such as keywords, symbols defined by Common Lisp
+   as constant (such as NIL, T, and PI), and symbols declared as
+   constant by the user in the indicated ENVIRONMENT using DEFCONSTANT
+   are always considered constant forms and must be recognized as such
+   by CONSTANTP.
+
+ * QUOTE forms are always considered constant forms and must be
+   recognized as such by CONSTANTP.
+
+ * An implementation is permitted, but not required, to detect
+   additional constant forms.  If it does, it is also permitted, but
+   not required, to make use of information in the
+   ENVIRONMENT.  Examples of constant forms for which CONSTANTP might or
+   might not return true are: (SQRT PI), (+ 3 2), (LENGTH '(A B C)),
+   and (LET ((X 7)) (ZEROP X)).
+
+If an implementation chooses to make use of the environment
+information, such actions as expanding macros or performing function
+inlining are permitted to be used, but not required; however,
+expanding compiler macros is not permitted.
+
+Affected By:
+
+The state of the global environment (e.g., which symbols have been
+declared to be the names of constant variables)."""
+        return (typep(form, (or_, integer, float, complex, string)) or
+                keywordp(form) or form in [t, nil, pi]                 or
+                (_tuplep(form) and _py.len(form) == 2 and form[0] is quote_))
 #+end_src
 
 * Rudimentary CLOS imitation
