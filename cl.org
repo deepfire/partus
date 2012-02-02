@@ -4979,170 +4979,6 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
 read = _cold_read
 #+end_src
 
-*** SEX validator, walker and pretty-printer
-***** MetaSEX
-
-      - set specifier :: any of the following:
-        - symbol :: any of the following:
-          - denoting a binding of a set specifier
-          - denoting a set defined by the named CL type
-        - syntactic set specifier :: any of the following:
-          - a METASEX:SET-MINUS form
-        # - set literal :: the set itself
-      - metasex expression :: any of the following:
-        - atom :: any of the following:
-          - string :: whitespace specifier, only for pretty-printer
-          - integer :: whitespace specifier, only for pretty-printer
-          - COMMON-LISP:STRING :: a string;  non-walkable
-          - METASEX:NAME :: a non-keyword symbol;  non-walkable
-          - COMMON-LISP:KEYWORD :: a keyword symbol;  non-walkable
-          - any other symbol :: itself, non-walkable
-          - METASEX:FORM :: arbitrary form;  walkable
-        - tuple :: complex form
-          - (METASEX:FIXED, ...) :: tuple with a fixed structure
-          - (METASEX:MAYBE, ...) :: an optional fixed substructure part of the containing fixed structure
-          - (COMMON-LISP:SOME, <sub>, <sep>) :: arbitrary repetition of <sub>, with <sep> as
-                                                separator;  <sub> can immediately contain, among others:
-            - (METASEX:MAYBE-ONCE, ...) :: ..within the containing COMMON-LISP:SOME
-            - (METASEX:ONCE, ...) :: ditto
-          - (COMMON-LISP:OR, ...) :: choice
-          - (METASEX:SET-MINUS, <set>, ..elements..) -> <set> ::
-              any element matching the specified set, reduced by the sum of individual elements and denoted sets
-          # - (METASEX:SATISFIES, predicate) :: escape hatch (lambda list keywords)
-        - list :: syntactic sugar for COMMON-LISP:SOME
-        - dictionary, with an exactly one element :: binding, available either at toplevel,
-                                                     or at iteration of depth one
-
-      Example code for LET:
-
-      #+begin_example
-      (_fixed, let, " ", ({"bindings": [(_name, " ", _form), "\n"]},),
-        1, [{"body": _form}, "\n"])
-      #+end_example
-
-      Example code for DEFGENERIC (incl. the lambda lists):
-
-      #+begin_example
-      defglam_keys = {_optional, _rest, _key, _allow_other_keys}
-      ## Let's draw it with repetitions first, and then factor in lexical scope.
-      (let, ((nonkey, (_set_minus, symbol, keyword, defglam_keys)),),
-        (let, ((defgeneric_lambda_list,
-                 (let, ((argspec, nonkey),),
-                   (_fixed, [argspec, " "],
-                            (_maybe, _optional, " ", [argspec, " "]),
-                            (_maybe, _rest, " ", argspec, " ")
-                            (_maybe, _key, " ", [argspec, " "])
-                            (_maybe, _allow_other_keys)))),
-               (ordinary_lambda_list,
-                 ## Make sure the keyword argument renaming part is done properly!
-                 ## Make sure the EQL specialiser part is done properly!
-                 ## The duplication screams for functional abstraction!
-                 ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-SPECIALIZERS
-                 (let, ((argspec, (or, nonkey, (_fixed, nonkey, form, (_maybe, nonkey)))),),
-                   (_fixed, [(or, argspec, (_fixed, argspec, (or, argspec, (_fixed, eql, form)))), " "],
-                            (_maybe, _optional, " ", [argspec, " "]),
-                            (_maybe, _rest, " ", nonkey, " ")
-                            (_maybe, _key, " ", [argspec, " "])
-                            (_maybe, _allow_other_keys)))),),
-          (_fixed, defgeneric, " ", (_or, _name, (_fixed, setf, " ", _name)), " ", defgeneric_lambda_list,
-                    1, [(_or,
-                         ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-DEFGENERIC-OPTIONS
-                         {"methods": (_fixed, _keyword("METHOD"), " ", [_keyword, " "], ordinary_lambda_list,
-                                               1, [_form, "\n"])},
-                         (_maybe_once, (_fixed, _keyword("METHOD-COMBINATION"), " ", {"method_combination": _name})),
-                         (_maybe_once, (_fixed, _keyword("METHOD-CLASS"), " ", {"method_class": _name})),
-                         (_maybe_once, (_fixed, _keyword("DOCUMENTATION"), " ", {"documentation": _string}))),
-                        "\n"])))
-      #+end_example
-
-******* Additional requirements
-
-        - choice (lambda list defaults, DEFINE-METHOD-COMBINATION)
-        - specifiers for known types
-          - keyword
-          - non-keyword symbols ("name")
-        - specifiers for atoms from arbitrary sets
-
-***** Code
-
-#+begin_src python +n
-_string_set("*SEX-JUSTIFICATION*", 0)
-def _sex_justification(): return _symbol_value(_sex_justification_)
-def _sex_space():         return " " * _sex_justification()
-def _sex_deeper(n, body):
-        with progv({_sex_justification_: _symbol_value(_sex_justification_) + n}):
-                return body()
-def _compiler_debug_printf(control, *args):
-        if _debugging_compiler():
-                justification = _sex_space()
-                def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
-                _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
-def _pp_sex(sex, initial_depth = None):
-        code = ("atom"                        if not _tuplep(sex) or not sex                         else
-                _find_known(sex[0]).pp_code   if symbolp(sex[0]) and _find_known(sex[0])             else
-                ("atom", " ", ["sex", " "])   if symbolp(sex[0])                                     else
-                ("sex", "\n", ["sex", " "])   if _tuplep(sex[0]) and sex[0] and sex[0][0] is lambda_ else
-                ["sex", " "])
-        top_sex, top_code = sex, code
-        def separatorp(x, require = nil): return ((x, 1, nil)              if x == " "    else
-                                                  (x + _sex_space(), 0, t) if x == "\n"   else
-                                                  ("", x, t)               if integerp(x) else
-                                                  ("", 0, nil)             if not require else
-                                                  error("Invalid separator specification %s.", _py.repr(x)))
-        def code_interp_rec(spec, sex, continue_ = nil):
-                def structure_interp(spec, sex, increment = 1):
-                        with progv({_sex_justification_: _symbol_value(_sex_justification_) + increment}):
-                                @block
-                                def horz_run(spec, sex):
-                                        def horz_rec(acc, spec, sex):
-                                                if not spec:
-                                                        return acc, 0, nil, nil
-                                                if _listp(spec[0]):
-                                                        return acc + code_interp_rec(spec[0], sex), 0, nil, nil
-                                                sep, inc, reset = separatorp(spec[0])
-                                                if sep and _py.len(sex) == 0:
-                                                        return acc, 0, nil, nil
-                                                if reset:
-                                                        return_from(horz_run, (acc, inc, spec[1:], sex))
-                                                elif sep:
-                                                        return _sex_deeper(inc, lambda: horz_rec(acc + sep, spec[1:], sex))
-                                                if symbolp(sex) or symbolp(spec):
-                                                        warn(simple_warning,
-                                                             "While pretty-printing: encountered an invalid SEX: %s.",
-                                                             top_sex)
-                                                        return acc, 0, nil, nil
-                                                sub = code_interp_rec(spec[0], sex[0])
-                                                return _sex_deeper(_py.len(sub), lambda: horz_rec(acc + sub, spec[1:], sex[1:]))
-                                        return horz_rec("", spec, sex)
-                                acc = ""
-                                while spec:
-                                        sub, inc, spec, sex = horz_run(spec, sex)
-                                        _string_set("*SEX-JUSTIFICATION*", _sex_justification() + inc)
-                                        acc += sub + separatorp("\n" if sex else "")[0]
-                                return acc
-                if spec == "atom":  # primitive
-                        return (_py.repr(sex)                  if symbolp(sex) else
-                                "\"%s\"" % _py.repr(sex)[1:-1] if stringp(sex) else
-                                _py.repr(sex))
-                elif _tuplep(spec): # fixed structure
-                        return "(" + structure_interp(spec, sex, increment = 1) + ")"
-                elif _listp(spec):  # iteration: exactly like a homogenous fixed structure with an interspersed separator
-                        if not _tuplep(sex):
-                                warn(simple_warning,
-                                     "While pretty-printing: encountered an invalid SEX: %s.",
-                                     top_sex)
-                                return "#<INVALID-SEX>"
-                        spec, sepspec = spec
-                        return structure_interp(_py.tuple(_intersperse(sepspec, (spec,) * _py.len(sex))), sex, increment = 0)
-                elif spec == "sex": # recursion
-                        return _pp_sex(sex)
-                else:
-                        error("Invalid spec %s, while pretty-printing %s.", _py.repr(spec), sex)
-        with progv({ _sex_justification_: _defaulted_to_var(initial_depth, _sex_justification_) }):
-                ret = code_interp_rec(code, sex)
-                return ret
-#+end_src
-
 * AST
 *** AST basics
 
@@ -6569,31 +6405,193 @@ def _specialp(x): return _py.getattr(x, "special")
 #+begin_src python +n
 _known = _poor_man_defstruct("known",
                              "name",
-                             "pp_code",
+                             "metasex",
                              "compiler",
                              "compiler_params")
-def defknown(pp_code_or_fn, name = None):
-        def do_defknown(fn, sym, pyname, pp_code):
+def defknown(metasex_or_fn, name = None):
+        def do_defknown(fn, sym, pyname, metasex):
                 fn.__name__ = "_lower_" + pyname
                 _frost.setf_global(sym, pyname, globals = _py.globals())
                 compiler_params = _function_lambda_list(fn)[3]
                 sym.known = _known(name = sym,
-                                   pp_code = pp_code,
+                                   metasex = metasex,
                                    compiler = fn,
                                    compiler_params = _mapset(_indexing(0), compiler_params))
                 return sym # pass through
-        default_pp_code = ("atom", " ", ["sex", " "])
-        def _defknown(fn, pp_code = pp_code_or_fn, name = name):
+        default_metasex = ("atom", " ", ["sex", " "])
+        def _defknown(fn, metasex = metasex_or_fn, name = name):
                 _, sym, pyname = _interpret_toplevel_value(fn, functionp)
                 name = _defaulted(name, sym, symbol)
-                return do_defknown(fn, name, pyname, pp_code)
-        return (_defknown(pp_code_or_fn, pp_code = default_pp_code) if functionp(pp_code_or_fn) else
-                _defknown                                           if _tuplep(pp_code_or_fn)   else
+                return do_defknown(fn, name, pyname, metasex)
+        return (_defknown(metasex_or_fn, metasex = default_metasex) if functionp(metasex_or_fn) else
+                _defknown                                           if _tuplep(metasex_or_fn)   else
                 error("In DEFKNOWN: argument must be either a function or a pretty-printer code tuple, was: %s.",
-                      _py.repr(pp_code_or_fn)))
+                      _py.repr(metasex_or_fn)))
 def _find_known(x):
         return _symbol_known(the(symbol, x))
 #+end_src#
+
+*** SEX validator, walker and pretty-printer
+***** MetaSEX
+
+      - set specifier :: any of the following:
+        - symbol :: any of the following:
+          - denoting a binding of a set specifier
+          - denoting a set defined by the named CL type
+        - syntactic set specifier :: any of the following:
+          - a METASEX:SET-MINUS form
+        # - set literal :: the set itself
+      - metasex expression :: any of the following:
+        - atom :: any of the following:
+          - string :: whitespace specifier, only for pretty-printer
+          - integer :: whitespace specifier, only for pretty-printer
+          - COMMON-LISP:STRING :: a string;  non-walkable
+          - METASEX:NAME :: a non-keyword symbol;  non-walkable
+          - COMMON-LISP:KEYWORD :: a keyword symbol;  non-walkable
+          - any other symbol :: itself, non-walkable
+          - METASEX:FORM :: arbitrary form;  walkable
+        - tuple :: complex form
+          - (METASEX:FIXED, ...) :: tuple with a fixed structure
+          - (METASEX:MAYBE, ...) :: an optional fixed substructure part of the containing fixed structure
+          - (COMMON-LISP:SOME, <sub>, <sep>) :: arbitrary repetition of <sub>, with <sep> as
+                                                separator;  <sub> can immediately contain, among others:
+            - (METASEX:MAYBE-ONCE, ...) :: ..within the containing COMMON-LISP:SOME
+            - (METASEX:ONCE, ...) :: ditto
+          - (COMMON-LISP:OR, ...) :: choice
+          - (METASEX:SET-MINUS, <set>, ..elements..) -> <set> ::
+              any element matching the specified set, reduced by the sum of individual elements and denoted sets
+          # - (COMMON-LISP:SATISFIES, predicate) :: escape hatch (lambda list keywords)
+        - list :: syntactic sugar for COMMON-LISP:SOME
+        - dictionary, with an exactly one element :: binding, available either at toplevel,
+                                                     or at iteration of depth one
+
+******* Examples
+
+        Example code for LET:
+
+        #+begin_example
+        (_fixed, let, " ", ({"bindings": [(_name, " ", _form), "\n"]},),
+          1, [{"body": _form}, "\n"])
+        #+end_example
+
+        Example code for DEFGENERIC (incl. the lambda lists):
+
+        #+begin_example
+        defglam_keys = {_optional, _rest, _key, _allow_other_keys}
+        ## Let's draw it with repetitions first, and then factor in lexical scope.
+        (let, ((nonkey, (_set_minus, symbol, keyword, defglam_keys)),),
+          (let, ((defgeneric_lambda_list,
+                   (let, ((argspec, nonkey),),
+                     (_fixed, [argspec, " "],
+                              (_maybe, _optional, " ", [argspec, " "]),
+                              (_maybe, _rest, " ", argspec, " ")
+                              (_maybe, _key, " ", [argspec, " "])
+                              (_maybe, _allow_other_keys)))),
+                 (ordinary_lambda_list,
+                   ## Make sure the keyword argument renaming part is done properly!
+                   ## Make sure the EQL specialiser part is done properly!
+                   ## The duplication screams for functional abstraction!
+                   ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-SPECIALIZERS
+                   (let, ((argspec, (or, nonkey, (_fixed, nonkey, form, (_maybe, nonkey)))),),
+                     (_fixed, [(or, argspec, (_fixed, argspec, (or, argspec, (_fixed, eql, form)))), " "],
+                              (_maybe, _optional, " ", [argspec, " "]),
+                              (_maybe, _rest, " ", nonkey, " ")
+                              (_maybe, _key, " ", [argspec, " "])
+                              (_maybe, _allow_other_keys)))),),
+            (_fixed, defgeneric, " ", (_or, _name, (_fixed, setf, " ", _name)), " ", defgeneric_lambda_list,
+                      1, [(_or,
+                           ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-DEFGENERIC-OPTIONS
+                           {"methods": (_fixed, _keyword("METHOD"), " ", [_keyword, " "], ordinary_lambda_list,
+                                                 1, [_form, "\n"])},
+                           (_maybe_once, (_fixed, _keyword("METHOD-COMBINATION"), " ", {"method_combination": _name})),
+                           (_maybe_once, (_fixed, _keyword("METHOD-CLASS"), " ", {"method_class": _name})),
+                           (_maybe_once, (_fixed, _keyword("DOCUMENTATION"), " ", {"documentation": _string}))),
+                          "\n"])))
+        #+end_example
+
+***** Code
+
+#+begin_src python +n
+_string_set("*SEX-JUSTIFICATION*", 0)
+def _sex_justification(): return _symbol_value(_sex_justification_)
+def _sex_space():         return " " * _sex_justification()
+def _sex_deeper(n, body):
+        with progv({_sex_justification_: _symbol_value(_sex_justification_) + n}):
+                return body()
+
+_intern_and_bind_pynames("%NAME", "%FORM",
+                         "%FIXED", "%FIXED", "%MAYBE",
+                         "%MAYBE-ONCE", "%ONCE",
+                         "%SET-MINUS")
+
+def _form_metasex(form):
+        return (_name                        if not _tuplep(form) or not _form                         else
+                _find_known(form[0]).metasex if symbolp(form[0]) and _find_known(form[0])              else
+                (_name, " ", [_form, " "])   if symbolp(form[0])                                       else
+                (_form, "\n", [_form, " "])  if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
+                [_form, " "])
+
+def _pp_sex(sex, initial_depth = None):
+        code = _form_metasex(sex)
+        top_sex, top_code = sex, code
+        def separatorp(x, require = nil): return ((x, 1, nil)              if x == " "    else
+                                                  (x + _sex_space(), 0, t) if x == "\n"   else
+                                                  ("", x, t)               if integerp(x) else
+                                                  ("", 0, nil)             if not require else
+                                                  error("Invalid separator specification %s.", _py.repr(x)))
+        def code_interp_rec(spec, sex, continue_ = nil):
+                def structure_interp(spec, sex, increment = 1):
+                        with progv({_sex_justification_: _symbol_value(_sex_justification_) + increment}):
+                                @block
+                                def horz_run(spec, sex):
+                                        def horz_rec(acc, spec, sex):
+                                                if not spec:
+                                                        return acc, 0, nil, nil
+                                                if _listp(spec[0]):
+                                                        return acc + code_interp_rec(spec[0], sex), 0, nil, nil
+                                                sep, inc, reset = separatorp(spec[0])
+                                                if sep and _py.len(sex) == 0:
+                                                        return acc, 0, nil, nil
+                                                if reset:
+                                                        return_from(horz_run, (acc, inc, spec[1:], sex))
+                                                elif sep:
+                                                        return _sex_deeper(inc, lambda: horz_rec(acc + sep, spec[1:], sex))
+                                                if symbolp(sex) or symbolp(spec):
+                                                        warn(simple_warning,
+                                                             "While pretty-printing: encountered an invalid SEX: %s.",
+                                                             top_sex)
+                                                        return acc, 0, nil, nil
+                                                sub = code_interp_rec(spec[0], sex[0])
+                                                return _sex_deeper(_py.len(sub), lambda: horz_rec(acc + sub, spec[1:], sex[1:]))
+                                        return horz_rec("", spec, sex)
+                                acc = ""
+                                while spec:
+                                        sub, inc, spec, sex = horz_run(spec, sex)
+                                        _string_set("*SEX-JUSTIFICATION*", _sex_justification() + inc)
+                                        acc += sub + separatorp("\n" if sex else "")[0]
+                                return acc
+                if spec == "atom":  # primitive
+                        return (_py.repr(sex)                  if symbolp(sex) else
+                                "\"%s\"" % _py.repr(sex)[1:-1] if stringp(sex) else
+                                _py.repr(sex))
+                elif _tuplep(spec): # fixed structure
+                        return "(" + structure_interp(spec, sex, increment = 1) + ")"
+                elif _listp(spec):  # iteration: exactly like a homogenous fixed structure with an interspersed separator
+                        if not _tuplep(sex):
+                                warn(simple_warning,
+                                     "While pretty-printing: encountered an invalid SEX: %s.",
+                                     top_sex)
+                                return "#<INVALID-SEX>"
+                        spec, sepspec = spec
+                        return structure_interp(_py.tuple(_intersperse(sepspec, (spec,) * _py.len(sex))), sex, increment = 0)
+                elif spec == "sex": # recursion
+                        return _pp_sex(sex)
+                else:
+                        error("Invalid spec %s, while pretty-printing %s.", _py.repr(spec), sex)
+        with progv({ _sex_justification_: _defaulted_to_var(initial_depth, _sex_justification_) }):
+                ret = code_interp_rec(code, sex)
+                return ret
+#+end_src
 
 *** Tuple intermediate IR
 
@@ -6633,6 +6631,11 @@ def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
 def _debugging_compiler():
         return _symbol_value(_compiler_debug_p_)
+def _compiler_debug_printf(control, *args):
+        if _debugging_compiler():
+                justification = _sex_space()
+                def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
+                _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
 
 __compiler_form_record__ = _collections.defaultdict(lambda: 0)
 __compiler_form_record_threshold__ = 5
@@ -6956,7 +6959,7 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 #        thunk()
 #    - installation of such named lambdas as global function definitions
 #        emit a decorator? install_fdefinition
-@defknown((_fixed, intern("DEF_")[0], " ", name, " ", (_fixed, [_form, " "]),
+@defknown((_fixed, intern("DEF_")[0], " ", _name, " ", (_fixed, [_form, " "]),
             1, [_form, "\n"]))
 def def_(name, lambda_list, *body, decorators = []):
         ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
@@ -7013,9 +7016,9 @@ def def_(name, lambda_list, *body, decorators = []):
 ***** TOIMPL EVAL-WHEN
 
 #+begin_src python
-@defknown((_fixed, intern("EVAL-WHEN")[0], " ", (_fixed, [(_any, (_maybe_once, _keyword("COMPILE-TOPLEVEL")),
-                                                                 (_maybe_once, _keyword("LOAD-TOPLEVEL")),
-                                                                 (_maybe_once, _keyword("EXECUTE")))]),
+@defknown((_fixed, intern("EVAL-WHEN")[0], " ", (_fixed, [(or_, (_maybe_once, _keyword("COMPILE-TOPLEVEL")),
+                                                                (_maybe_once, _keyword("LOAD-TOPLEVEL")),
+                                                                (_maybe_once, _keyword("EXECUTE")))]),
            1, [_form, "\n"]))
 def eval_when(when, *body):
         """eval-when (situation*) form* => result*
