@@ -6197,7 +6197,7 @@ def _lower_name(name, ctx = "Load"):
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
         return ("Name", _frost.full_symbol_name_python_name(name[1] if _tuplep(name) else name), (ctx,))
 
-@defknown(("atom", " ", "atom", " ", "sex"))
+@defknown((_fixed, intern("SETQ")[0], " ", _name, " ", _form))
 def setq(name, value):
         # Urgent Issue IR-LEVEL-SYMBOLS
         # Urgent Issue SETQ-BROKEN-WRT-SPECIAL-VARIABLES
@@ -6205,17 +6205,6 @@ def setq(name, value):
         pro, val = _lower(value)
         return (pro + [("Assign", [_lower_name(name, "Store")], val)],
                 _lower_name(name))
-
-# ***** SETF-VALUES
-
-@defknown(("atom", " ", (["atom", " "],), " ", "sex"))
-def setf_values(names, values):
-        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
-        check_type(names, pytuple)
-        pro, val = _lower(values)
-        return (pro + [("Assign", [ _lower_name(x, "Store") for x in names ],
-                        val)],
-                ("Tuple", mapcar(_lower_name, names), ("Load",)))
 
 # ***** RETURN
 
@@ -6279,8 +6268,8 @@ def splice(x):
 
 # ***** PROGN, IF
 
-@defknown(("atom",
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("PROGN")[0], 
+            1, [_form, "\n"]))
 def progn(*body):
         if not body:
                 return ([],
@@ -6302,9 +6291,9 @@ def progn(*body):
         # if not (must_thunk or scope_mutation):
         #         return lowered_body
 
-@defknown(("atom", " ", "sex",
-           3, "sex",
-           "\n", "sex"))
+@defknown((_fixed, intern("IF")[0], " ", _form,
+             3, _form, 
+            (_maybe, "\n", _form)))
 def if_(test, consequent, antecedent = nil):
         with _no_tail_position():
                 lo_test = pro_test, val_test = _lower(test)
@@ -6414,8 +6403,8 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 #        thunk()
 #    - installation of such named lambdas as global function definitions
 #        emit a decorator? install_fdefinition
-@defknown(("atom", " ", "atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("DEF_")[0], " ", name, " ", (_fixed, [_form, " "]),
+            1, [_form, "\n"]))
 def def_(name, lambda_list, *body, decorators = []):
         ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
         # This is NOT a Lisp form, but rather an acknowledgement of the
@@ -6469,8 +6458,10 @@ def def_(name, lambda_list, *body, decorators = []):
 
 # ***** TOIMPL EVAL-WHEN
 
-@defknown(("atom", " ", (["atom", " "]),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("EVAL-WHEN")[0], " ", (_fixed, [(_any, (_maybe_once, _keyword("COMPILE-TOPLEVEL")),
+                                                                 (_maybe_once, _keyword("LOAD-TOPLEVEL")),
+                                                                 (_maybe_once, _keyword("EXECUTE")))]),
+           1, [_form, "\n"]))
 def eval_when(when, *body):
         """eval-when (situation*) form* => result*
 
@@ -6518,8 +6509,8 @@ when EVAL-WHEN appears as a top level form."""
 
 # ***** K DEFMACRO, DEFUN
 
-@defknown(("atom", " ", "atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("DEFMACRO")[0], " ", _name, " ", (_fixed, [_name, " "],),
+           1, [_form, "\n"]))
 def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
@@ -6531,8 +6522,8 @@ def defmacro(name, lambda_list, *body):
                              # the((varituple, (eql, def_), pytuple), macfundef)
                 _lower((quote, (symbol, string(name))))[1])
 
-@defknown(("atom", " ", "atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("DEFUN")[0], " ", _name, " ", (_fixed, [_name, " "],),
+           1, [_form, "\n"]))
 def defun(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
         fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
@@ -6544,8 +6535,8 @@ def defun(name, lambda_list, *body):
 
 # ******* Code
 
-@defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("LET")[0], " ", (_fixed, [(_fixed, _name, " ", _form), "\n"],),
+           1, [_form, "\n"]))
 def let(bindings, *body):
         # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
         if not (_tuplep(bindings) and
@@ -6570,9 +6561,9 @@ def let(bindings, *body):
                         (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
                              dont_delay_defaults = t),))
 
-@defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
-                           1, ["sex", "\n"]), "\n"],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("FLET")[0], " ", (_fixed, [(_fixed, _name, " ", (_fixed, [_form, " "]),
+                                                       1, [_form, "\n"]), "\n"],),
+            1, [_form, "\n"]))
 def flet(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -6587,9 +6578,9 @@ def flet(bindings, *body):
                                 for name, lambda_list, *fbody in bindings)) +
                 body)
 
-@defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
-                           1, ["sex", "\n"]), "\n"],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("LABELS")[0], " ", (_fixed, [(_fixed, _name, " ", (_fixed, [_form, " "]),
+                                                         1, [_form, "\n"]), "\n"],),
+            1, [_form, "\n"]))
 def labels(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -6604,8 +6595,8 @@ def labels(bindings, *body):
                         body)),
                  (funcall, temp_name))
 
-@defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
-           1, ["sex", "\n"]),
+@defknown((_fixed, intern("LET*")[0], " ", (_fixed, [(_fixed, _name, " ", _form), "\n"],),
+           1, [_form, "\n"]),
           name = intern("LET*")[0])
 def let_(bindings, *body):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -6650,8 +6641,8 @@ def funcall(func, *args):
                 return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
                          (funcall, func_exp) + _py.tuple())
 
-@defknown(("atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("LAMBDA"), " ", (_fixed, [_form, " "]),
+            1, [_form, "\n"]))
 def lambda_(lambda_list, *body, dont_delay_defaults = nil):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
@@ -6695,8 +6686,8 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
 
 # ***** K UNWIND-PROTECT
 
-@defknown(("atom", " ", "sex",
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("UNWIND-PROTECT")[0], " ", _form,
+           1, [_form, "\n"]))
 def unwind_protect(form, *unwind_body):
         if not unwind_body:
                 return _lower(form)

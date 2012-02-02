@@ -4983,41 +4983,77 @@ read = _cold_read
 *** SEX validator, walker and pretty-printer
 ***** MetaSEX
 
-      - atom :: any of the following:
-        - string :: separator specifier, only for pretty-printer
-        - integer :: separator specifier, only for pretty-printer
-        - METASEX:NAME :: a non-keyword symbol
-        - COMMON-LISP:KEYWORD :: a keyword symbol
-        - METASEX:FORM :: arbitrary form;  a walkable
-        - COMMON-LISP:STRING :: a string
-        - any other symbol :: itself, non-walkable
-      - tuple :: complex form
-        - (METASEX:FIXED, ...) :: tuple with a fixed structure
-        - (METASEX:ANY, ...) :: choice
-        - (COMMON-LISP:SOME, ...) :: arbitrary repetition of contained structure
-        - (METASEX:MAYBE-ONCE, ...) :: marker for an element of (COMMON-LISP:SOME, (METASEX:ANY, ...))
-        - (METASEX:ONCE, ...) :: marker for an element of (COMMON-LISP:SOME, (METASEX:ANY, ...))
-      - list :: syntactic sugar for COMMON-LISP:SOME
-      - dictionary :: bindings, available either at toplevel, or at iteration of depth one
+      - set specifier :: any of the following:
+        - symbol :: any of the following:
+          - denoting a binding of a set specifier
+          - denoting a set defined by the named CL type
+        - syntactic set specifier :: any of the following:
+          - a METASEX:SET-MINUS form
+        # - set literal :: the set itself
+      - metasex expression :: any of the following:
+        - atom :: any of the following:
+          - string :: whitespace specifier, only for pretty-printer
+          - integer :: whitespace specifier, only for pretty-printer
+          - COMMON-LISP:STRING :: a string;  non-walkable
+          - METASEX:NAME :: a non-keyword symbol;  non-walkable
+          - COMMON-LISP:KEYWORD :: a keyword symbol;  non-walkable
+          - any other symbol :: itself, non-walkable
+          - METASEX:FORM :: arbitrary form;  walkable
+        - tuple :: complex form
+          - (METASEX:FIXED, ...) :: tuple with a fixed structure
+          - (METASEX:MAYBE, ...) :: an optional fixed substructure part of the containing fixed structure
+          - (COMMON-LISP:SOME, <sub>, <sep>) :: arbitrary repetition of <sub>, with <sep> as
+                                                separator;  <sub> can immediately contain, among others:
+            - (METASEX:MAYBE-ONCE, ...) :: ..within the containing COMMON-LISP:SOME
+            - (METASEX:ONCE, ...) :: ditto
+          - (COMMON-LISP:OR, ...) :: choice
+          - (METASEX:SET-MINUS, <set>, ..elements..) -> <set> ::
+              any element matching the specified set, reduced by the sum of individual elements and denoted sets
+          # - (METASEX:SATISFIES, predicate) :: escape hatch (lambda list keywords)
+        - list :: syntactic sugar for COMMON-LISP:SOME
+        - dictionary, with an exactly one element :: binding, available either at toplevel,
+                                                     or at iteration of depth one
 
       Example code for LET:
 
       #+begin_example
       (_fixed, let, " ", ({"bindings": [(_name, " ", _form), "\n"]},),
-       1, [{"body": _form}, "\n"])
+        1, [{"body": _form}, "\n"])
       #+end_example
 
-      Example code for DEFGENERIC:
+      Example code for DEFGENERIC (incl. the lambda lists):
 
       #+begin_example
-      (_fixed, defgeneric, " ", (_any, _name, (_fixed, setf, " ", _name)), " ", #<DEFGENERIC-LAMBDA-LIST>,
-        1, (_some_of_any,
-             ## Unregistered Issue METASEX-HOW-TO-CUSTOM-DEFGENERIC-OPTIONS
-             {"methods": (_fixed, _keyword("METHOD"), " ", [_keyword, " "], #<DEFMETHOD-LAMBDA-LIST>,
-                           1, [_form, "\n"]), "\n"},
-             (_maybe_once, (_fixed, _keyword("METHOD-COMBINATION"), " ", {"method_combination": _name}), "\n"),
-             (_maybe_once, (_fixed, _keyword("METHOD-CLASS"), " ", {"method_class": _name})),
-             (_maybe_once, (_fixed, _keyword("DOCUMENTATION"), " ", {"documentation": _string}))))
+      defglam_keys = {_optional, _rest, _key, _allow_other_keys}
+      ## Let's draw it with repetitions first, and then factor in lexical scope.
+      (let, ((nonkey, (_set_minus, symbol, keyword, defglam_keys)),),
+        (let, ((defgeneric_lambda_list,
+                 (let, ((argspec, nonkey),),
+                   (_fixed, [argspec, " "],
+                            (_maybe, _optional, " ", [argspec, " "]),
+                            (_maybe, _rest, " ", argspec, " ")
+                            (_maybe, _key, " ", [argspec, " "])
+                            (_maybe, _allow_other_keys)))),
+               (ordinary_lambda_list,
+                 ## Make sure the keyword argument renaming part is done properly!
+                 ## Make sure the EQL specialiser part is done properly!
+                 ## The duplication screams for functional abstraction!
+                 ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-SPECIALIZERS
+                 (let, ((argspec, (or, nonkey, (_fixed, nonkey, form, (_maybe, nonkey)))),),
+                   (_fixed, [(or, argspec, (_fixed, argspec, (or, argspec, (_fixed, eql, form)))), " "],
+                            (_maybe, _optional, " ", [argspec, " "]),
+                            (_maybe, _rest, " ", nonkey, " ")
+                            (_maybe, _key, " ", [argspec, " "])
+                            (_maybe, _allow_other_keys)))),),
+          (_fixed, defgeneric, " ", (_or, _name, (_fixed, setf, " ", _name)), " ", defgeneric_lambda_list,
+                    1, [(_or,
+                         ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-DEFGENERIC-OPTIONS
+                         {"methods": (_fixed, _keyword("METHOD"), " ", [_keyword, " "], ordinary_lambda_list,
+                                               1, [_form, "\n"])},
+                         (_maybe_once, (_fixed, _keyword("METHOD-COMBINATION"), " ", {"method_combination": _name})),
+                         (_maybe_once, (_fixed, _keyword("METHOD-CLASS"), " ", {"method_class": _name})),
+                         (_maybe_once, (_fixed, _keyword("DOCUMENTATION"), " ", {"documentation": _string}))),
+                        "\n"])))
       #+end_example
 
 ******* Additional requirements
@@ -6707,7 +6743,7 @@ def _lower_name(name, ctx = "Load"):
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
         return ("Name", _frost.full_symbol_name_python_name(name[1] if _tuplep(name) else name), (ctx,))
 
-@defknown(("atom", " ", "atom", " ", "sex"))
+@defknown((_fixed, intern("SETQ")[0], " ", _name, " ", _form))
 def setq(name, value):
         # Urgent Issue IR-LEVEL-SYMBOLS
         # Urgent Issue SETQ-BROKEN-WRT-SPECIAL-VARIABLES
@@ -6715,19 +6751,6 @@ def setq(name, value):
         pro, val = _lower(value)
         return (pro + [("Assign", [_lower_name(name, "Store")], val)],
                 _lower_name(name))
-#+end_src
-
-***** SETF-VALUES
-
-#+begin_src python
-@defknown(("atom", " ", (["atom", " "],), " ", "sex"))
-def setf_values(names, values):
-        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
-        check_type(names, pytuple)
-        pro, val = _lower(values)
-        return (pro + [("Assign", [ _lower_name(x, "Store") for x in names ],
-                        val)],
-                ("Tuple", mapcar(_lower_name, names), ("Load",)))
 #+end_src
 
 ***** RETURN
@@ -6797,8 +6820,8 @@ def splice(x):
 ***** PROGN, IF
 
 #+begin_src python
-@defknown(("atom",
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("PROGN")[0],
+            1, [_form, "\n"]))
 def progn(*body):
         if not body:
                 return ([],
@@ -6820,9 +6843,9 @@ def progn(*body):
         # if not (must_thunk or scope_mutation):
         #         return lowered_body
 
-@defknown(("atom", " ", "sex",
-           3, "sex",
-           "\n", "sex"))
+@defknown((_fixed, intern("IF")[0], " ", _form,
+             3, _form,
+            (_maybe, "\n", _form)))
 def if_(test, consequent, antecedent = nil):
         with _no_tail_position():
                 lo_test = pro_test, val_test = _lower(test)
@@ -6934,8 +6957,8 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 #        thunk()
 #    - installation of such named lambdas as global function definitions
 #        emit a decorator? install_fdefinition
-@defknown(("atom", " ", "atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("DEF_")[0], " ", name, " ", (_fixed, [_form, " "]),
+            1, [_form, "\n"]))
 def def_(name, lambda_list, *body, decorators = []):
         ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
         # This is NOT a Lisp form, but rather an acknowledgement of the
@@ -6991,8 +7014,10 @@ def def_(name, lambda_list, *body, decorators = []):
 ***** TOIMPL EVAL-WHEN
 
 #+begin_src python
-@defknown(("atom", " ", (["atom", " "]),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("EVAL-WHEN")[0], " ", (_fixed, [(_any, (_maybe_once, _keyword("COMPILE-TOPLEVEL")),
+                                                                 (_maybe_once, _keyword("LOAD-TOPLEVEL")),
+                                                                 (_maybe_once, _keyword("EXECUTE")))]),
+           1, [_form, "\n"]))
 def eval_when(when, *body):
         """eval-when (situation*) form* => result*
 
@@ -7042,8 +7067,8 @@ when EVAL-WHEN appears as a top level form."""
 ***** K DEFMACRO, DEFUN
 
 #+begin_src python
-@defknown(("atom", " ", "atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("DEFMACRO")[0], " ", _name, " ", (_fixed, [_name, " "],),
+           1, [_form, "\n"]))
 def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
@@ -7055,8 +7080,8 @@ def defmacro(name, lambda_list, *body):
                              # the((varituple, (eql, def_), pytuple), macfundef)
                 _lower((quote, (symbol, string(name))))[1])
 
-@defknown(("atom", " ", "atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("DEFUN")[0], " ", _name, " ", (_fixed, [_name, " "],),
+           1, [_form, "\n"]))
 def defun(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
         fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
@@ -7103,8 +7128,8 @@ def defun(name, lambda_list, *body):
 ******* Code
 
 #+begin_src python
-@defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("LET")[0], " ", (_fixed, [(_fixed, _name, " ", _form), "\n"],),
+           1, [_form, "\n"]))
 def let(bindings, *body):
         # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
         if not (_tuplep(bindings) and
@@ -7129,9 +7154,9 @@ def let(bindings, *body):
                         (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
                              dont_delay_defaults = t),))
 
-@defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
-                           1, ["sex", "\n"]), "\n"],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("FLET")[0], " ", (_fixed, [(_fixed, _name, " ", (_fixed, [_form, " "]),
+                                                       1, [_form, "\n"]), "\n"],),
+            1, [_form, "\n"]))
 def flet(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -7146,9 +7171,9 @@ def flet(bindings, *body):
                                 for name, lambda_list, *fbody in bindings)) +
                 body)
 
-@defknown(("atom", " ", ([("atom", " ", (["sex", " "],),
-                           1, ["sex", "\n"]), "\n"],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("LABELS")[0], " ", (_fixed, [(_fixed, _name, " ", (_fixed, [_form, " "]),
+                                                         1, [_form, "\n"]), "\n"],),
+            1, [_form, "\n"]))
 def labels(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -7163,8 +7188,8 @@ def labels(bindings, *body):
                         body)),
                  (funcall, temp_name))
 
-@defknown(("atom", " ", ([("atom", " ", "sex"), "\n"],),
-           1, ["sex", "\n"]),
+@defknown((_fixed, intern("LET*")[0], " ", (_fixed, [(_fixed, _name, " ", _form), "\n"],),
+           1, [_form, "\n"]),
           name = intern("LET*")[0])
 def let_(bindings, *body):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -7212,8 +7237,8 @@ def funcall(func, *args):
                 return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
                          (funcall, func_exp) + _py.tuple())
 
-@defknown(("atom", " ", (["sex", " "],),
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("LAMBDA"), " ", (_fixed, [_form, " "]),
+            1, [_form, "\n"]))
 def lambda_(lambda_list, *body, dont_delay_defaults = nil):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
@@ -7259,8 +7284,8 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
 ***** K UNWIND-PROTECT
 
 #+begin_src python
-@defknown(("atom", " ", "sex",
-           1, ["sex", "\n"]))
+@defknown((_fixed, intern("UNWIND-PROTECT")[0], " ", _form,
+           1, [_form, "\n"]))
 def unwind_protect(form, *unwind_body):
         if not unwind_body:
                 return _lower(form)
