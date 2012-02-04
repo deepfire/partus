@@ -2384,6 +2384,21 @@ def _defwith(name, enter, exit, **initargs):
                                  __exit__  = exit))
         return _py.type(name, (object,), initargs)
 
+def _defscope(name, var, **initargs):
+        def make_frame(bindings):
+                return _py.tuple(bindings.items())
+        def push_frame(**bindings):
+                return _dynamic_scope_push({ var: (make_frame(bindings), symbol_value(var)) })
+        def pop_frame(*_): _dynamic_scope_pop()
+        return _defwith(name, push_frame, pop_frame())
+
+def _lookup(name, scope):
+        if not scope: return nil, nil
+        frame, rest = scope
+        for cell_name, value in frame:
+                if cell_name is name:
+                        return value, t
+        return _lookup(name, rest)
 #+end_src
 
 ***** Lesser non-CL tools
@@ -6182,6 +6197,7 @@ def _find_known(x):
         - symbol :: any of the following:
           - denoting a binding of a set specifier
           - denoting a set defined by the named CL type
+          - otherwise, a set of a single element denoting self
         - syntactic set specifier :: any of the following:
           - a METASEX:SET-MINUS form
         # - set literal :: the set itself
@@ -6205,6 +6221,8 @@ def _find_known(x):
           - (COMMON-LISP:OR, ...) :: choice
           - (METASEX:SET-MINUS, <set>, ..elements..) -> <set> ::
               any element matching the specified set, reduced by the sum of individual elements and denoted sets
+          - (COMMON-LISP:LET, <bindings>, ...) :: set specifier and general metacode bindings;
+                                                  seems to require typing
           # - (COMMON-LISP:SATISFIES, predicate) :: escape hatch (lambda list keywords)
         - list :: syntactic sugar for COMMON-LISP:SOME
         - dictionary, with an exactly one element :: binding, available either at toplevel,
@@ -6257,118 +6275,122 @@ def _find_known(x):
 ***** Code
 
 #+begin_src python +n
-_string_set("*SEX-JUSTIFICATION*", 0)
-def _sex_justification(): return _symbol_value(_sex_justification_)
-def _sex_space():         return " " * _sex_justification()
-def _sex_deeper(n, body):
-        with progv({_sex_justification_: _symbol_value(_sex_justification_) + n}):
-                return body()
-
-_intern_and_bind_pynames("%NAME", "%FORM",
-                         "%FIXED", "%FIXED", "%MAYBE",
-                         "%MAYBE-ONCE", "%ONCE",
-                         "%SET-MINUS")
-
-def _form_metasex(form):
-        return (_name                        if not _tuplep(form) or not _form                         else
-                _find_known(form[0]).metasex if symbolp(form[0]) and _find_known(form[0])              else
-                (_name, " ", [_form, " "])   if symbolp(form[0])                                       else
-                (_form, "\n", [_form, " "])  if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
-                [_form, " "])
-
-def _metasex(top_sex, initial_depth = None):
-        top_code = _form_metasex(top_sex)
-        def separatorp(x, require = nil): return ((x, 1, nil)              if x == " "    else
-                                                  (x + _sex_space(), 0, t) if x == "\n"   else
-                                                  ("", x, t)               if integerp(x) else
-                                                  ("", 0, nil)             if not require else
-                                                  error("Invalid separator specification %s.", _py.repr(x)))
-        def err_bad_code(code):
-                error("Invalid MetaSEX code %s%s.", code, ("" if code is top_code else (" within %s" % top_code)))
-        def code_interp_rec(code, sex, continue_ = nil):
-                def structure_interp(code, sex, increment = 1):
-                        with progv({_sex_justification_: _symbol_value(_sex_justification_) + increment}):
-                                @block
-                                def horz_run(code, sex):
-                                        def horz_rec(acc, code, sex):
-                                                if not code:
-                                                        return acc, 0, nil, nil
-                                                if _listp(code[0]):
-                                                        return acc + code_interp_rec(code[0], sex), 0, nil, nil
-                                                sep, inc, reset = separatorp(code[0])
-                                                if sep and _py.len(sex) == 0:
-                                                        return acc, 0, nil, nil
-                                                if reset:
-                                                        return_from(horz_run, (acc, inc, code[1:], sex))
-                                                elif sep:
-                                                        return _sex_deeper(inc, lambda: horz_rec(acc + sep, code[1:], sex))
-                                                if symbolp(sex) or symbolp(code):
-                                                        warn(simple_warning,
-                                                             "While pretty-printing: encountered an invalid SEX: %s.",
-                                                             top_sex)
-                                                        return acc, 0, nil, nil
-                                                sub = code_interp_rec(code[0], sex[0])
-                                                return _sex_deeper(_py.len(sub), lambda: horz_rec(acc + sub, code[1:], sex[1:]))
-                                        return horz_rec("", code, sex)
-                                acc = ""
-                                while code:
-                                        sub, inc, code, sex = horz_run(code, sex)
-                                        _string_set("*SEX-JUSTIFICATION*", _sex_justification() + inc)
-                                        acc += sub + separatorp("\n" if sex else "")[0]
-                                return acc
-                ### code_interp_rec()
-                if _tuplep(code):
-                        def metasex_interp_fixed(sex, code):
-                                return "(" + structure_interp(code, sex, increment = 1) + ")"
-                        def metasex_interp_maybe(sex, code):
-                                return
-                        def metasex_interp_some(sex, code):
-                                # iteration: exactly like a homogenous fixed structure with an interspersed separator
-                                if not _tuplep(sex):
-                                        warn(simple_warning,
-                                             "While pretty-printing: encountered an invalid SEX: %s.",
-                                             top_sex)
-                                        return "#<INVALID-SEX>"
-                                code, sepcode = code
-                                return structure_interp(_py.tuple(_intersperse(sepcode, (code,) * _py.len(sex))), sex, increment = 0)
-                        def metasex_interp_maybe_once(sex, code):
-                                return
-                        def metasex_interp_once(sex, code):
-                                return
-                        def metasex_interp_or(sex, code):
-                                return
-                        def metasex_interp_set_minus(sex, code):
-                                return
-                        metasex_dispatch = { _fixed:      metasex_interp_fixed,
-                                             _maybe:      metasex_interp_maybe,
-                                              some:       metasex_interp_some,
-                                             _maybe_once: metasex_interp_maybe_once,
-                                             _once:       metasex_interp_once,
-                                              or_:        metasex_interp_or,
-                                             _set_minus:  metasex_interp_set_minus }
-                        (not code or code[0] not in metasex_dispatch) and err_bad_code(code)
-                        return metasex_dispatch[code[0]](sex, code)
-                elif _py.isinstance(code, _py.list): return metasex_interp_some(sex, (some,) + _py.tuple(code))
-                elif _py.isinstance(code, _py.dict): return _not_implemented("result binding")
-                elif not symbolp(code):              err_bad_code(code)
-                elif code is _form: # recursion
-                        return _metasex(sex)
-                elif code is _name:  # primitive
-                        return (_py.repr(sex)                  if symbolp(sex) else
-                                "\"%s\"" % _py.repr(sex)[1:-1] if stringp(sex) else
-                                _py.repr(sex))
-                elif code is keyword:
-                        return keywordp(sex)
-                elif code is string:
-                        return stringp(sex)
-                else: # Other symbols:
-                        return code is sex
-        with progv({ _sex_justification_: _defaulted_to_var(initial_depth, _sex_justification_) }):
-                ret = code_interp_rec(top_code, top_sex)
-                return ret
-
-def _pp_sex(sex):
-        return _metasex(sex)
+  _string_set("*SEX-JUSTIFICATION*", 0)
+  def _sex_justification(): return _symbol_value(_sex_justification_)
+  def _sex_space():         return " " * _sex_justification()
+  def _sex_deeper(n, body):
+          with progv({_sex_justification_: _symbol_value(_sex_justification_) + n}):
+                  return body()
+  
+  _intern_and_bind_pynames("%NAME", "%FORM",
+                           "%FIXED", "%FIXED", "%MAYBE",
+                           "%MAYBE-ONCE", "%ONCE",
+                           "%SET-MINUS")
+  
+  def _form_metasex(form):
+          return (_name                        if not _tuplep(form) or not _form                         else
+                  _find_known(form[0]).metasex if symbolp(form[0]) and _find_known(form[0])              else
+                  (_name, " ", [_form, " "])   if symbolp(form[0])                                       else
+                  (_form, "\n", [_form, " "])  if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
+                  [_form, " "])
+  
+  def _metasex(top_sex, initial_depth = None):
+          top_code = _form_metasex(top_sex)
+          def separatorp(x, require = nil): return ((x, 1, nil)              if x == " "    else
+                                                    (x + _sex_space(), 0, t) if x == "\n"   else
+                                                    ("", x, t)               if integerp(x) else
+                                                    ("", 0, nil)             if not require else
+                                                    error("Invalid separator specification %s.", _py.repr(x)))
+          def err_bad_code(code):
+                  error("Invalid MetaSEX code %s%s.", code, ("" if code is top_code else (" within %s" % top_code)))
+          def code_interp_rec(sex, code, continue_ = nil):
+                  def structure_interp(sex, code, increment = 1):
+                          with progv({_sex_justification_: _symbol_value(_sex_justification_) + increment}):
+                                  @block
+                                  def horz_run(code, sex):
+                                          def horz_rec(acc, code, sex):
+                                                  if not code:
+                                                          return acc, 0, nil, nil
+                                                  if _listp(code[0]):
+                                                          return acc + code_interp_rec(sex, code[0]), 0, nil, nil
+                                                  sep, inc, reset = separatorp(code[0])
+                                                  if sep and _py.len(sex) == 0:
+                                                          return acc, 0, nil, nil
+                                                  if reset:
+                                                          return_from(horz_run, (acc, inc, code[1:], sex))
+                                                  elif sep:
+                                                          return _sex_deeper(inc, lambda: horz_rec(acc + sep, code[1:], sex))
+                                                  if symbolp(sex) or symbolp(code):
+                                                          warn(simple_warning,
+                                                               "While pretty-printing: encountered an invalid SEX: %s.",
+                                                               top_sex)
+                                                          return acc, 0, nil, nil
+                                                  sub = code_interp_rec(sex[0], code[0])
+                                                  return _sex_deeper(_py.len(sub), lambda: horz_rec(acc + sub, code[1:], sex[1:]))
+                                          return horz_rec("", code, sex)
+                                  acc = ""
+                                  while code:
+                                          sub, inc, code, sex = horz_run(code, sex)
+                                          _string_set("*SEX-JUSTIFICATION*", _sex_justification() + inc)
+                                          acc += sub + separatorp("\n" if sex else "")[0]
+                                  return acc
+                  def fail():                   return "#<INVALID-SEX>", True
+                  def repr_if_or_fail(pred, x): return (x.__repr__(), None) if pred(x) else fail()
+                  ### code_interp_rec()
+                  if _tuplep(code):
+                          def metasex_interp_fixed(sex, code):
+                                  return "(" + structure_interp(sex, code, increment = 1) + ")"
+                          def metasex_interp_some(sex, code):
+                                  # iteration: exactly like a homogenous fixed structure with an interspersed separator
+                                  def expand_some(code, sepcode, n):
+                                          return _intersperse(sepcode, (code,) * n)
+                                  if _py.len(code) != 2:
+                                          err_bad_code((some,) + code)
+                                  if not _tuplep(sex):
+                                          return fail()
+                                  code, sepcode = code
+                                  return structure_interp(sex, expand_some(code, sepcode, _py.len(sex)), increment = 0)
+                          def metasex_interp_or(sex, code):
+                                  for option in code:
+                                          ret, failurep = code_interp_rec(sex, code)
+                                          if not failurep:
+                                                  return ret, None
+                                  return fail()
+                          def metasex_interp_set_minus(sex, code):
+                                  if not code: err_bad_code((_set_minus,) + code)
+                                  set, *subtractae = code
+                                  def setspec_interp(x):
+                                          # Set specifier bindings not supported just yet.
+                                          ((if hasattr(x, "python_type") else)
+                                           if symbolp(x) else
+                                           ())
+                                  return
+                          metasex_dispatch = { _fixed:      metasex_interp_fixed,
+                                             # _maybe:      metasex_interp_maybe,      # interpreted by fixed structure
+                                                some:       metasex_interp_some,
+                                             # _maybe_once: metasex_interp_maybe_once, # ..ditto
+                                             # _once:       metasex_interp_once,       # ...
+                                                or_:        metasex_interp_or,
+                                               _set_minus:  metasex_interp_set_minus }
+                          (not code or code[0] not in metasex_dispatch) and err_bad_code(code)
+                          return metasex_dispatch[code[0]](sex, code[1:])
+                  elif _py.isinstance(code, _py.list): return metasex_interp_some(sex, _py.tuple(code))
+                  elif _py.isinstance(code, _py.dict): return _not_implemented("result binding")
+                  elif not symbolp(code):              err_bad_code(code)
+                  elif code is _form: # general recursion
+                          return _metasex(sex)
+                  elif code is _name:   return repr_if_or_fail(stringp, sex)
+                  elif code is keyword: return repr_if_or_fail(keywordp, sex)
+                  elif code is string:  return repr_if_or_fail(stringp, sex)
+                  else: #Other symbols:
+                          return repr_if_or_fail(lambda x: x is code, sex)
+          with progv({ _sex_justification_: _defaulted_to_var(initial_depth, _sex_justification_) }):
+                  ret = code_interp_rec(top_sex, top_code)
+                  return ret
+  
+  def _pp_sex(sex):
+          return _metasex(sex)
+  
 #+end_src
 
 *** Tuple intermediate IR
