@@ -6290,17 +6290,20 @@ def _find_known(x):
                            "%SET-MINUS")
   
   def _form_metasex(form):
-          return (_name                        if not _tuplep(form) or not _form                         else
-                  _find_known(form[0]).metasex if symbolp(form[0]) and _find_known(form[0])              else
-                  (_name, " ", [_form, " "])   if symbolp(form[0])                                       else
-                  (_form, "\n", [_form, " "])  if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
+          return (_name                               if not _tuplep(form) or not _form                         else
+                  _find_known(form[0]).metasex        if symbolp(form[0]) and _find_known(form[0])              else
+                  (_fixed, _name, " ", [_form, " "])  if symbolp(form[0])                                       else
+                  (_fixed, _form, "\n", [_form, " "]) if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
                   [_form, " "])
   
   _string_set("*SETSPEC-SCOPE*", nil)
   _setspec = _defscope("_setspec", _setspec_scope_)
   
-  def _metasex(top_sex, initial_depth = None):
+  def _metasex(top_sex, initial_depth = None,
+               if_mismatch : { _keyword("ERROR"), _keyword("CONTINUE") } = _keyword("ERROR"),
+               mismatch_value_fn = lambda sex, code: None):
           top_code = _form_metasex(top_sex)
+          validatep = if_mismatch is _keyword("ERROR")
           def maybe_separator_info(x, require = nil): return ((x, 1, nil)              if x == " "    else
                                                               (x + _sex_space(), 0, t) if x == "\n"   else
                                                               ("", x, t)               if integerp(x) else
@@ -6313,18 +6316,22 @@ def _find_known(x):
                   ##  - on success, it is (retval, None)
                   ##  - on failure, it is (failed_sex, failed_code)
                   ## LEAF and FAIL illustrate this convention, immediately below:
-                  def fail(sex, code): return sex, code
-                  def retn(sex):       return sex.__repr__(), None
+                  def fail_fail(sex, code):     return sex, code
+                  def fail_continue(sex, code): return mismatch_value_fn(sex, code), None
+                  def fail_horz_fail(acc, sex, code):     return None,                                0, code, sex, code
+                  def fail_horz_continue(acc, sex, code): return acc + mismatch_value_fn(sex, code),  0, nil,  nil, code
+                  fail, fail_horz = ((fail_fail,     fail_horz_fail) if validatep else
+                                     (fail_continue, fail_horz_continue))
+                  def end_horz(acc):                      return acc,                                 0, nil,  nil, None
+                  def fail_or_end_horz(ret, badp, sex, code):
+                          return fail_horz(ret, sex, code) if badp else end_horz(ret)
+                  def retn(sex):                return sex.__repr__(), None
                   def fail_or_xform(x, xform):        return (xform(x[0]), None) if x[1] is None else x # propagate failure
                   def fail_or_leaf(code, nofailp, x): return retn(x)             if nofailp(x)   else fail(x, code)
                   def structure_interp(sex, code, increment = 1):
                           with progv({_sex_justification_: _symbol_value(_sex_justification_) + increment}):
                                   @block
                                   def horz_run(sex, code):
-                                          def fail_horz(sex, code): return None, 0, code, sex, code
-                                          def end_horz(acc):        return acc,  0, nil,  nil, None
-                                          def fail_or_end_horz(ret, badp, sex, code):
-                                                  return end_horz(ret) if not badp else fail_horz(sex, code)
                                           def horz_rec(acc, sex, code):
                                                   # _maybe:      metasex_interp_maybe,      # interpreted by fixed structure
                                                   # _maybe_once: metasex_interp_maybe_once, # ..ditto
@@ -6333,7 +6340,7 @@ def _find_known(x):
                                                           return fail_or_end_horz(acc,
                                                                                   sex, sex, code)
                                                   elif symbolp(sex) or symbolp(code):
-                                                          return fail_horz(sex, code)
+                                                          return fail_horz(acc, sex, code)
                                                   elif _tuplep(code[0]):
                                                           def fixed_interp_maybe(sex, code):      pass
                                                           def fixed_interp_maybe_once(sex, code): pass
@@ -6347,6 +6354,11 @@ def _find_known(x):
                                                                   return fixed_interp_dispatch[code[0][0]](sex, code)
                                                           ## Hell on the curve of her lips..
                                                           ret, failp = code_interp_rec(sex, code[0])
+                                                          if failp is not None:
+                                                                  _debug_printf("  ==  sex %s didn't match code %s", 
+                                                                                _pp_sex(sex, validate = nil),
+                                                                                code[0])
+                                                                  return fail_horz(acc, ret, failp)
                                                           ## ..result combination
                                                           return fail_or_end_horz(acc + ret,
                                                                                   failp is not None, sex, code[0])
@@ -6363,7 +6375,7 @@ def _find_known(x):
                                                   return (_sex_deeper(_py.len(ret),
                                                                       lambda: horz_rec(acc + ret, sex[1:], code[1:]))
                                                           if failurep is None else
-                                                          fail_horz(ret, failurep))
+                                                          fail_horz(acc, ret, failurep))
                                           return horz_rec("", sex, code)
                                   acc = ""
                                   code_tail = code
@@ -6445,7 +6457,10 @@ def _find_known(x):
                   elif _py.isinstance(code, _py.list): return trc("list",    metasex_interp_some(sex, _py.tuple(code)))
                   elif _py.isinstance(code, _py.dict): _not_implemented("result binding")
                   elif not symbolp(code):              err_bad_code(code)
-                  elif code is _form:                  return trc("form",    _metasex(sex))
+                  elif code is _form:                  return trc("form",    (_metasex(sex,
+                                                                                       if_mismatch = if_mismatch,
+                                                                                       mismatch_value_fn = mismatch_value_fn),
+                                                                              None))
                   elif code is _name:                  return trc("name",    fail_or_leaf(code, lambda x: (symbolp(x) and
                                                                                                            not keywordp(x)),
                                                                                           sex))
@@ -6461,8 +6476,9 @@ def _find_known(x):
                                 ("Invalid structured expression: %s." % top_sex) if ret is top_sex else
                                 ("Invalid subexpression %s, within structured expression %s." % (ret, top_sex)))
   
-  def _pp_sex(sex):
-          return _metasex(sex)
+  def _pp_sex(sex, validate = t):
+          return _metasex(sex, if_mismatch = _keyword("ERROR" if validate else "CONTINUE"),
+                          mismatch_value_fn = lambda sex, code: "#<BAD-SEX>")
   
 #+end_src
 
