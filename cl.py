@@ -5796,8 +5796,11 @@ def _metasex(top_sex, initial_depth = None,
                 ##  - on success, it is (retval, None)
                 ##  - on failure, it is (failed_sex, failed_code)
                 ## LEAF and FAIL illustrate this convention, immediately below:
-                def fail_fail(sex, code):     return sex, code
-                def fail_continue(sex, code): return mismatch_value_fn(sex, code), None
+                def fail_fail(sex, code):           return sex, code
+                def fail_continue(sex, code):       return mismatch_value_fn(sex, code), None
+                def retn(sex):                      return sex.__repr__(), None
+                def fail_or_xform(x, xform):        return (xform(x[0]), None) if x[1] is None else x # propagate failure
+                def fail_or_leaf(code, nofailp, x): return retn(x)             if nofailp(x)   else fail(x, code)
                 def fail_horz_fail(acc, sex, code):     return None,                                0, code, sex, code
                 def fail_horz_continue(acc, sex, code): return acc + mismatch_value_fn(sex, code),  0, nil,  nil, code
                 fail, fail_horz = ((fail_fail,     fail_horz_fail) if validatep else
@@ -5805,29 +5808,33 @@ def _metasex(top_sex, initial_depth = None,
                 def end_horz(acc):                      return acc,                                 0, nil,  nil, None
                 def fail_or_end_horz(ret, badp, sex, code):
                         return fail_horz(ret, sex, code) if badp else end_horz(ret)
-                def retn(sex):                return sex.__repr__(), None
-                def fail_or_xform(x, xform):        return (xform(x[0]), None) if x[1] is None else x # propagate failure
-                def fail_or_leaf(code, nofailp, x): return retn(x)             if nofailp(x)   else fail(x, code)
                 def structure_interp(sex, code, increment = 1):
                         with progv({_sex_justification_: _symbol_value(_sex_justification_) + increment}):
                                 @block
                                 def horz_run(sex, code):
                                         def horz_rec(acc, sex, code):
                                                 # _maybe:      metasex_interp_maybe,      # interpreted by fixed structure
-                                                # _maybe_once: metasex_interp_maybe_once, # ..ditto
-                                                # _once:       metasex_interp_once,       # ...
                                                 if not code:
                                                         return fail_or_end_horz(acc,
                                                                                 sex, sex, code)
                                                 elif symbolp(sex) or symbolp(code):
                                                         return fail_horz(acc, sex, code)
                                                 elif _tuplep(code[0]):
-                                                        def fixed_interp_maybe(sex, code):      pass
-                                                        def fixed_interp_maybe_once(sex, code): pass
-                                                        def fixed_interp_once(sex, code):       pass
-                                                        fixed_interp_dispatch = { _maybe:      fixed_interp_maybe,
-                                                                                  _maybe_once: fixed_interp_maybe_once,
-                                                                                  _once:       fixed_interp_once }
+                                                        def fixed_interp_maybe(sex, code):
+                                                                # Unregistered Issue METASEX-META-META-VALIDATION
+                                                                (_, *maybe_code), *rest_code = code
+                                                                if _py.len(maybe_code) != 1: err_bad_code(code[0])
+                                                                if not sex:
+                                                                        return end_horz(acc)
+                                                                # The big HOWTO?! question is (maybe (some ...))
+                                                                # .. looks like we're going to go without it.
+                                                                ret, failp = code_interp_rec(sex[0], _py.tuple(maybe_code))
+                                                                ret = "" if failp else ret
+                                                                ## ..result combination
+                                                                return (acc + ret, _py.len(ret),
+                                                                        _py.tuple(rest_code), sex[0 if failp else 1:], failp)
+                                                        fixed_interp_dispatch = { _maybe: fixed_interp_maybe }
+                                                        # Unregistered Issue METASEX-META-META-VALIDATION
                                                         if not (code[0] and symbolp(code[0][0])):
                                                                 err_bad_code(code[0])
                                                         elif code[0][0] in fixed_interp_dispatch:
@@ -5860,10 +5867,7 @@ def _metasex(top_sex, initial_depth = None,
                                 acc = ""
                                 code_tail = code
                                 while code_tail:
-                                        runret = horz_run(sex, code_tail)
-                                        if not _tuplep(runret): # ..this actually happens..
-                                                _debug_printf("!!!! not a tuple: %s", runret)
-                                        ret, inc, code_tail_tail, sex_tail, failp = runret
+                                        ret, inc, code_tail_tail, sex_tail, failp = horz_run(sex, code_tail)
                                         if failp is not None:
                                                 return fail(sex_tail, failp) ## We expect a different meaning of sex_tail here
                                         sex, code_tail = sex_tail, code_tail_tail
@@ -5888,11 +5892,24 @@ def _metasex(top_sex, initial_depth = None,
                         ## dealing with the language/calling convention transition.
                         def expand_some(code, sepcode, n):
                                 return _intersperse(sepcode, (code,) * n)
+                        # Unregistered Issue METASEX-META-META-VALIDATION
                         if _py.len(code) != 2 or code[1] not in [" ", "\n"]:
                                 err_bad_code((some,) + code)
                         if not listp(sex):
                                 return fail(sex, code)
                         code, sepcode = code
+                        if listp(code) and code and code[0] is _fixed:
+                                def some_interp_maybe_once(sex, code): _not_implemented()
+                                def some_interp_once(sex, code):       _not_implemented()
+                                some_interp_dispatch = { _maybe_once: some_interp_maybe_once,
+                                                         _once:       some_interp_once }
+                                _not_implemented("intra-SOME special interpretation")
+                                ## this ought to be looped..
+                                # Unregistered Issue METASEX-META-META-VALIDATION
+                                # if not (code[0] and symbolp(code[0][0])):
+                                #         err_bad_code(code[0])
+                                # elif code[0][0] in some_interp_dispatch:
+                                #         return some_interp_dispatch[code[0][0]](sex, code)
                         return structure_interp(sex, expand_some(code, sepcode, _py.len(sex)), increment = 0)
                 def metasex_interp_or(sex, code):
                         for option in code:
@@ -5901,7 +5918,7 @@ def _metasex(top_sex, initial_depth = None,
                                         return ret, None
                         return fail(sex, code) ## This is as specific as it gets with case analysis.
                 def metasex_interp_set_minus(sex, code):
-                        ## Metametavalidation:
+                        # Unregistered Issue METASEX-META-META-VALIDATION
                         if not code or _py.any(not symbolp(x) for x in code):
                                 err_bad_code((_set_minus,) + code)
                         ## The implementation strategy is rather simplistic here.
@@ -5919,7 +5936,7 @@ def _metasex(top_sex, initial_depth = None,
                                 return setp(x) and notany(lambda f: f(x), notsetp)
                         return fail_or_leaf(code, x_in_set_p, sex)
                 def metasex_interp_let(sex, code):
-                        ## Metametavalidation:
+                        # Unregistered Issue METASEX-META-META-VALIDATION
                         if not (_py.len(code) is 2 and _py.all((_py.len(x) is 2 and symbolp(x[0])) for x in code[0])):
                                 err_bad_code((let,) + code)
                         bindings, body = code
@@ -5935,10 +5952,12 @@ def _metasex(top_sex, initial_depth = None,
                                               or_:        metasex_interp_or,
                                              _set_minus:  metasex_interp_set_minus,
                                              let:         metasex_interp_let }
+                        # Unregistered Issue METASEX-META-META-VALIDATION
                         (not code or code[0] not in metasex_dispatch) and err_bad_code(code)
                         return trc(("complex %s", code[0]), metasex_dispatch[code[0]](sex, code[1:]))
                 elif _py.isinstance(code, _py.list): return trc("list",    metasex_interp_some(sex, _py.tuple(code)))
                 elif _py.isinstance(code, _py.dict): _not_implemented("result binding")
+                # Unregistered Issue METASEX-META-META-VALIDATION
                 elif not symbolp(code):              err_bad_code(code)
                 elif code is _form:                  return trc("form",    (_metasex(sex,
                                                                                      if_mismatch = if_mismatch,
@@ -5955,7 +5974,6 @@ def _metasex(top_sex, initial_depth = None,
                 if failurep is None:
                         return ret
                 else:
-                        assert validatep
                         error(simple_type_error,
                               ("Invalid structured expression: %s." % top_sex) if ret is top_sex else
                               ("Invalid subexpression %s, within structured expression %s." % (ret, top_sex)))
