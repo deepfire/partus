@@ -77,7 +77,7 @@ def _distance_oneself_from_python():
 ## o  _python_builtins_dictionary, _python_builtin_names
 ## o  _python
 
-# *** Imports
+# ***** Imports
 
 ###
 ### Some surfacial Common Lisp compatibility.
@@ -103,7 +103,7 @@ import collections as _collections
 import neutrality  as _neutrality
 import frost       as _frost
 
-# *** Unspecific Wave 0
+# ***** Unspecific Wave 0
 
 def _defaulted(x, value, type = None):
         if x is not None and type is not None:
@@ -124,7 +124,7 @@ def _defaulted_keys(**keys):
         return _py.dict((key, (default if value is None else value))
                         for key, (value, default) in keys.items())
 
-# *** Boot messaging
+# ***** Boot messaging
 
 def _fprintf(stream, format_control, *format_args):
         try:
@@ -139,7 +139,7 @@ def _debug_printf_if(condition, format_control, *format_args):
         if condition:
                 _debug_printf(format_control, *format_args)
 
-# *** First-class namespaces
+# ***** First-class namespaces
 
 class _namespace(_collections.UserDict):
         def __str__(self):
@@ -166,7 +166,7 @@ class _namespace(_collections.UserDict):
 _namespace_type_and_constructor = _namespace
 _namespace = _namespace_type_and_constructor("")
 
-# *** Meta-boot
+# ***** Meta-boot
 
 ## 1. trivial enumeration for later DEFUN/DEFCLASS
 __boot_defunned__, __boot_defclassed__ = _py.set(),  _py.set()
@@ -232,7 +232,7 @@ class _storyteller(_collections.UserDict):
 _storyteller = _storyteller()
 story = _storyteller.advance
 
-# *** Cold types
+# ***** Cold types
 
 _cold_class_type       = _py.type
 _cold_condition_type   = _py.BaseException
@@ -262,7 +262,7 @@ typep      = _cold_typep
 the        = _cold_the
 check_type = _cold_check_type
 
-# *** As-of-yet -homeless type predicates..
+# ***** As-of-yet -homeless type predicates..
 
 @boot_defun
 def stringp(x):        return _py.isinstance(x, _cold_string_type)
@@ -281,7 +281,7 @@ def _python_type_p(x): return _py.isinstance(o, _cold_class_type)
 def type_of(x):
         return _py.type(x)
 
-# *** Boot listery and consery (beware model issues)
+# ***** Boot listery and consery (beware model issues)
 
 def _tuplep(x):
         return _py.isinstance(x, _cold_tuple_type)
@@ -304,7 +304,7 @@ def car(x):         return x[0] if x else nil
 @boot_defun
 def first(x):       return x[0] if x else nil
 
-# *** Unspecific Wave 1
+# ***** Unspecific Wave 1
 
 @boot_defun
 def identity(x):  return x
@@ -332,7 +332,7 @@ def _map_into_hash(f, xs,
                         acc[k] = v
         return acc
 
-# *** Boot dynamic scope
+# ***** Boot dynamic scope
 
 __global_scope__ = make_hash_table()
 
@@ -415,7 +415,7 @@ def boundp(symbol_):
         # Unregistered Issue COMPLIANCE-BOUNDP-ACCEPTS-STRINGS
         return _find_dynamic_frame(the(symbol, symbol_)) and t
 
-# *** Boot conditions: WARN, ERROR
+# ***** Boot conditions: WARN, ERROR
 
 def _conditionp(x):
         return _py.isinstance(x, _cold_condition_type)
@@ -460,7 +460,7 @@ def error(datum, *args, **keys):
 def _boot_check_type(pred, x):
         return x if pred(x) else error("A violent faecal odour hung in the air..")
 
-# ***** Package system conditions
+# ******* Package system conditions
 
 def _package_not_found_error(x):
         error("The name \"%s\" does not designate any package.", x)
@@ -475,7 +475,7 @@ def _symbols_not_accessible_error(package, syms):
         error(simple_package_error, "These symbols are not accessible in the %s package: (%s).",
               package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
 
-# ***** Package system classes
+# ******* Package system classes
 
 _namespace.grow("PACKAGES")
 
@@ -704,7 +704,7 @@ NIL = nil = _cold_make_nil()
 @boot_defun
 def null(x): return x is nil
 
-# ***** Package system core
+# ******* Package system core
 
 def _intern_in_package(x, p):
         s, presentp = (error("X must be a string: %s.", _py.repr(x)) if not _py.isinstance(x, _py.str) else
@@ -811,7 +811,7 @@ def import_(symbols, package = None, populate_module = True):
                                 # module.__dict__[python_name] = ???
         return t
 
-# ***** Package system init
+# ******* Package system init
 
 def _init_package_system_0():
         global __packages__
@@ -860,7 +860,7 @@ _init_package_system_0()
 
 _unboot_set("symbol")
 
-# *** GENSYM
+# ***** GENSYM
 
 __gensym_counter__ = 0
 
@@ -874,7 +874,7 @@ def _gensymname(x = "N"):
 def gensym(x = "G"):
         return make_symbol(_gensymname(x))
 
-# *** Complete dynamic scope
+# ***** Complete dynamic scope
 
 class _env_cluster(object):
         def __init__(self, cluster):
@@ -917,7 +917,7 @@ with progv(foovar = 3.14,
                 return _env_cluster(vars if hash_table_p(vars) else
                                     cluster)
 
-# *** Non-local transfers of control: CATCH, THROW, BLOCK, RETURN-FROM
+# ***** Non-local transfers of control: CATCH, THROW, BLOCK, RETURN-FROM
 
 @boot_defun
 def unwind_protect(form, fn):
@@ -988,7 +988,7 @@ def return_from(nonce, value):
                  error("In RETURN-FROM: nonce must either be a string, or a function designator;  was: %s.", _py.repr(nonce)))
         throw(nonce, value)
 
-# *** Condition system: SIGNAL
+# ***** Condition system: SIGNAL
 
 ## standard globals:
 _string_set("*DEBUGGER-HOOK*",         nil)
@@ -1022,7 +1022,7 @@ def _run_hook(variable, condition):
                 with progv({ variable: nil }):
                         old_hook(condition, old_hook)
 
-# *** Stab at INVOKE-DEBUGGER
+# ***** Stab at INVOKE-DEBUGGER
 
 def _flush_standard_output_streams():
         _warn_not_implemented()
@@ -1079,7 +1079,7 @@ def invoke_debugger(condition):
         _flush_standard_output_streams()
         return _funcall_with_debug_io_syntax(_invoke_debugger, condition)
 
-# ***** Type predicates
+# ******* Type predicates
 
 def integerp(o):      return _py.isinstance(o, _py.int)
 def floatp(o):        return _py.isinstance(o, _py.float)
@@ -1090,7 +1090,7 @@ def _listp(o):        return _py.isinstance(o, _cold_list_type)
 def _boolp(o):        return _py.isinstance(o, _py.bool)
 def sequencep(x):     return _py.getattr(_py.type(x), "__len__", None) is not None
 
-# ***** Types mappable to python
+# ******* Types mappable to python
 
 def _define_python_type_map(symbol_or_name, type):
         not (stringp(symbol_or_name) or symbolp(symbol_or_name)) and \
@@ -1132,7 +1132,7 @@ _define_python_type_map("PYBYTEARRAY", _py.bytearray)
 _define_python_type_map("PYSET",       _py.set)
 _define_python_type_map("PYFROZENSET", _py.frozenset)
 
-# ***** Complex type specifier machinery: %TYPE-MISMATCH, @DEFTYPE, TYPEP
+# ******* Complex type specifier machinery: %TYPE-MISMATCH, @DEFTYPE, TYPEP
 
 def _type_specifier_complex_p(x):
         """Determines, whether a type specifier X constitutes a
@@ -1201,7 +1201,7 @@ def _not_of_type(x):
         return lambda y: not typep(y, x)
         return some(_type_mismatch, xs, _infinite(type))
 
-# ***** Complex type definitions
+# ******* Complex type definitions
 
 @deftype
 def boolean(x, type):
@@ -1324,7 +1324,7 @@ def lambda_list(x, type):
 
 _unboot_set("typep")
 
-# ***** Type relationships, rudimentary
+# ******* Type relationships, rudimentary
 
 def subtypep(sub, super):
         def coerce_to_python_type(x):
@@ -1341,7 +1341,7 @@ def subtypep(sub, super):
                                                                        typep(sub, (or_, _py.type, (eql, t)))) else
                 sub is super or super is t)
 
-# *** Toplevel definitions: @DEFUN and @DEFCLASS
+# ***** Toplevel definitions: @DEFUN and @DEFCLASS
 
 doit = False
 def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
@@ -1377,7 +1377,7 @@ for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  
 for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
 doit = True
 
-# *** Delayed class definitions
+# ***** Delayed class definitions
 
 @defclass
 class nil():
@@ -1414,7 +1414,7 @@ class package_error(error.python_type):
 class simple_package_error(simple_error.python_type, package_error.python_type):
         pass
 
-# *** Rudimentary multiple values
+# ***** Rudimentary multiple values
 
 #     The implemented version of NTH-VALUES is a soft one, which doesn't fail on values not
 #     participating in the M-V frame protocol.
@@ -1433,7 +1433,7 @@ def _nth_value(n, values_form):
                 if _valuesp(values_form) else
                 (nil if n else values_form))
 
-# *** Early object system
+# ***** Early object system
 
 @defun
 def find_class(x, errorp = t):
@@ -1445,7 +1445,7 @@ def make_instance(class_or_name, **initargs):
                 class_or_name.python_type if symbolp(class_or_name)                          else
                 error("In MAKE-INSTANCE %s: first argument must be a class specifier.", class_or_name))(**initargs)
 
-# *** PRINT-UNREADABLE-OBJECT, sort of
+# ***** PRINT-UNREADABLE-OBJECT, sort of
 
 def print_unreadable_object(object, stream, body, identity = None, type = None):
         write_string("#<", stream)
@@ -1456,7 +1456,7 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, " {%x}", _py.id(object))
         write_string(">", stream)
 
-# *** Readtable and WITH-STANDARD-IO-SYNTAX
+# ***** Readtable and WITH-STANDARD-IO-SYNTAX
 
 @defclass
 class readtable(_collections.UserDict):
@@ -1569,7 +1569,7 @@ def _set_settable_standard_globals():
 
 _set_settable_standard_globals()
 
-# *** Derived names:  %NoneType, REDUCE, SORT, %CURRY, STRINGP, %CLASSP, %NONEP etc.
+# ***** Derived names:  %NoneType, REDUCE, SORT, %CURRY, STRINGP, %CLASSP, %NONEP etc.
 
 _NoneType         = _py.type(None)
 
@@ -1586,7 +1586,7 @@ def _frozensetp(o): return _py.isinstance(o, _py.frozenset)
 def _setp(o):       return _py.isinstance(o, (_py.set, _py.frozenset))
 def _nonep(o):      return o is None
 
-# *** Constants
+# ***** Constants
 
 most_positive_fixnum = 67108864
 
@@ -1643,7 +1643,7 @@ def _cold_constantp(form):
                  form.name in ["QUOTE"]))
 constantp = _cold_constantp
 
-# *** Basic string/char functions and %CASE-XFORM
+# ***** Basic string/char functions and %CASE-XFORM
 
 @defun
 def string_upcase(x):     return x.upper()
@@ -1670,7 +1670,7 @@ def _case_xform(type, s):
                 error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", _py.type(type), _print_symbol(type))
         return _case_attribute_map[type.name](s)
 
-# *** Possibly dangling cold boot code
+# ***** Possibly dangling cold boot code
 
 #     I wonder if this boot state infrastructure is a good idea:
 #     - it tangles the flow of things (?)
@@ -1696,7 +1696,7 @@ def _cold_probe_file(pathname):
         return _os.path.exists(the(string, pathname))
 probe_file = _cold_probe_file
 
-# ***** Python module compilation
+# ******* Python module compilation
 
 def _load_code_object_as_module(name, co, filename = "", builtins = None, globals = None, locals = None, register = True):
         check_type(co, _py.type(_load_code_object_as_module.__code__))
@@ -1740,7 +1740,7 @@ def _ast_compiled_name(name, *body, **keys):
         mod, globals, locals = _py_compile_and_load(*body, **keys)
         return locals[name]
 
-# ***** Python frames
+# ******* Python frames
 
 def _all_threads_frames():
         return _sys._current_frames()
@@ -1817,7 +1817,7 @@ def _fun_firstlineno(f): return f.co_firstlineno
 def _fun_bytecode(f):    return f.co_code
 def _fun_constants(f):   return f.co_consts
 
-# ***** Frame pretty-printing
+# ******* Frame pretty-printing
 
 def _print_function_arglist(f):
         argspec = _inspect.getargspec(f)
@@ -1868,7 +1868,7 @@ def _pp_chain_of_frame(x, callers = 5, *args, **keys):
 def _escape_percent(x):
         return x.replace("%", "%%")
 
-# ***** Higher-level debug trace functions
+# ******* Higher-level debug trace functions
 
 def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
         def _do_format(x, args):
@@ -1897,7 +1897,7 @@ def _locals_printf(locals, *local_names):
                                         for x in local_names) + "\n",
                  *((locals[x] if stringp(x) else "\n") for x in local_names))
 
-# ***** Raw data of frame research 
+# ******* Raw data of frame research 
 
 # ## Unregistered Issue PAREDIT-MUST-BE-TAUGHT-ABOUT-COMMENTS-WITHIN-BABEL-BLOCKS
 
@@ -2086,7 +2086,7 @@ def _example_frame():
 # sys.settrace(self.trace_dispatch)
 # self.lastcmd = p.lastcmd
 
-# ***** Alist/plist extensions
+# ******* Alist/plist extensions
 
 def _alist_plist(xs):
         return append(*xs)
@@ -2107,7 +2107,7 @@ def _hash_table_alist(xs):
 def _alist_hash_table(xs):
         return _py.dict(xs)
 
-# ***** %CACHE
+# ******* %CACHE
 
 class _cache(_collections.UserDict):
         def __init__(self, filler):
@@ -2138,7 +2138,7 @@ def _make_timestamping_cache(map_computer):
 def _read_case_xformed(x):
         return _case_xform(_symbol_value(_read_case_), x)
 
-# ***** Pergamum 0
+# ******* Pergamum 0
 
 def _if_let(x, consequent, antecedent = lambda: None):
         return consequent(x) if x else antecedent()
@@ -2247,7 +2247,7 @@ def _defscope(name, varname, **initargs):
         def pop_frame(*_): _dynamic_scope_pop()
         return _defwith(name, push_frame, pop_frame, lookup = _lookup, **initargs)
 
-# ***** Lesser non-CL tools
+# ******* Lesser non-CL tools
 
 class _servile():
         def __repr__(self):
@@ -2265,7 +2265,7 @@ def _gen(n = 1, x = "G", gen = gensym):
 def _gensyms(**initargs):     return _gen(gen = gensym,      **initargs)
 def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
-# ***** Basic functions
+# ******* Basic functions
 
 @defun
 def eq(x, y):
@@ -2332,7 +2332,7 @@ def _xorf(x, y):
 def _nxorf(x, y):
         return (x and y) or not (x or y)
 
-# ***** Predicates
+# ******* Predicates
 
 @defun
 def evenp(x):         return not (x % 2)
@@ -2345,7 +2345,7 @@ def plusp(x):         return x > 0
 @defun
 def minusp(x):        return x < 0
 
-# ***** Conses
+# ******* Conses
 
 @defun
 def cdr(x):           return x[1:]  if x  else nil
@@ -2370,7 +2370,7 @@ def pop(xs):
         else:
                 return nil
 
-# ***** Functions
+# ******* Functions
 
 @defun
 def complement(f):
@@ -2380,7 +2380,7 @@ def complement(f):
 def constantly (x):
         return lambda *args: x
 
-# ***** Sequences
+# ******* Sequences
 
 @defun
 def stable_sort(xs, predicate):
@@ -2622,7 +2622,7 @@ adjacent elements of XS."""
                 acc.append(xs[-1])
         return acc
 
-# ***** String functions
+# ******* String functions
 
 @defun
 def string_equal(xs, ys):            return xs == ys
@@ -2647,7 +2647,7 @@ def string_left_trim(cs, s):
 def string_trim(cs, s):
         return s.strip("".join(cs))
 
-# ***** Sets
+# ******* Sets
 
 @defun
 def union(x, y):
@@ -2657,7 +2657,7 @@ def union(x, y):
 def intersection(x, y):
         return x & y
 
-# ***** Dicts
+# ******* Dicts
 
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
 def _maphash(f, dict) -> _py.list:
@@ -2689,7 +2689,7 @@ def _symbol_python_type(symbol_, if_not_a_type = "error"):
 def _symbol_type_predicate(symbol):
         return symbol.type_predicate if _py.hasattr(the(symbol, symbol_), "type_predicate") else nil
 
-# * Lisp packages/symbols vs. python modules/names
+# *** Lisp packages/symbols vs. python modules/names
 
 def _lisp_symbol_python_name(sym):
         return _frost.lisp_symbol_name_python_name(sym.name)
@@ -2725,7 +2725,7 @@ def _lisp_symbol_ast(sym, current_package):
                                           "__dict__"),
                            _ast_string(symname)))
 
-# *** Functions
+# ***** Functions
 
 def _variable_kind(name):
         check_type(name, symbol)
@@ -2952,7 +2952,7 @@ def _set_function_definition(function):
 def _set_macro_definition(function):
         return _do_set_macro_definition(function, intern(function.__name__)[0])
 
-# *** Condition system disabling
+# ***** Condition system disabling
 
 def _without_condition_system(body, reason = ""):
         if _frost.pytracer_enabled_p():
@@ -2964,7 +2964,7 @@ def _without_condition_system(body, reason = ""):
         else:
                 return body()
 
-# *** Condition system init
+# ***** Condition system init
 
 def _init_condition_system():
         _frost.enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
@@ -2983,12 +2983,12 @@ _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
 
 _init_condition_system()
 
-# *** Rudimentary character type
+# ***** Rudimentary character type
 
 @defclass
 class base_char(): pass
 
-# *** Early-earlified streaming
+# ***** Early-earlified streaming
 
 @defun
 def streamp(x):                     return typep(x, stream)
@@ -3070,7 +3070,7 @@ at which the file specified by PATHSPEC was last written
 def _file_name(x):
         return _nth_value(0, parse_namestring(the(file_stream, x).name))
 
-# *** Stream types and functions
+# ***** Stream types and functions
 
 def open_stream_p(x):
         return not the(stream, x).closed
@@ -3149,7 +3149,7 @@ def _coerce_to_stream(x):
                 _symbol_value(_standard_output_) if x is t else
                 error("%s cannot be coerced to a stream.", x))
 
-# *** Stream output functions and FORMAT
+# ***** Stream output functions and FORMAT
 
 def write_char(c, stream = t):
         write_string(c, stream)
@@ -3208,7 +3208,7 @@ For details on how the CONTROL-STRING is interpreted, see Section 22.3
         else:
                 return string
 
-# *** Earlified streaming
+# ***** Earlified streaming
 
 @defun
 def stream_external_format(stream): return _keyword(stream.encoding)
@@ -3261,7 +3261,7 @@ def _file_as_string(filename):
         with _py.open(filename, "r") as f:
                 return _stream_as_string(f)
 
-# * Pathnames
+# *** Pathnames
 
 #     Relevant sections:
 
@@ -3442,7 +3442,7 @@ def _init_pathnames():
 
 _init_pathnames()
 
-# *** Sub-standard pathname functions
+# ***** Sub-standard pathname functions
 
 def _cold_merge_pathnames(pathname, default_pathname = None, default_version = None):
         """merge-pathnames pathname &optional default-pathname default-version
@@ -3573,7 +3573,7 @@ together."""
                 pass
         return _os.path.join(x, y)
 
-# * Cold printer
+# *** Cold printer
 
 def _print_string(x, escape = None, readably = None):
         """The characters of the string are output in order. If printer escaping
@@ -3749,7 +3749,7 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
         write(object, stream = stream, escape = t, pretty = t)
         return object
 
-# * Cold reader
+# *** Cold reader
 
 _string_set("*READ-CASE*", _keyword("upcase"))
 
@@ -4036,7 +4036,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
         return ret
 read = _cold_read
 
-# * Condition system
+# *** Condition system
 
 def _conditionp(x):
         return typep(x, condition)
@@ -4176,7 +4176,8 @@ def __cl_condition_handler__(condspec, frame):
                                         with progv({_debugger_hook_: nil}):
                                                 debugger_hook(cond, debugger_hook)
                 return cond
-        with progv({_stack_top_hint_: _caller_frame(caller_relative = 1)}):
+        signalling_frame = _caller_frame(caller_relative = 1)
+        with progv({_stack_top_hint_: signalling_frame}):
                 cond = _sys.call_tracing(continuation, _py.tuple())
         if type_of(cond) not in __not_even_conditions__:
                 is_not_ball = type_of(cond) is not __catcher_throw__
@@ -4184,7 +4185,7 @@ def __cl_condition_handler__(condspec, frame):
                       _threading.current_thread().name, princ_to_string(cond),
                       ("\n; Disabling CL condition system." if is_not_ball else
                        ""),
-                      callers = 15)
+                      callers = 15, frame = signalling_frame)
                 if not backtrace_printed:
                         _backtrace()
                 if is_not_ball:
@@ -4246,7 +4247,7 @@ def ignore_errors(body):
                             (Exception,
                              lambda _: None))
 
-# * Restarts
+# *** Restarts
 
 @defclass
 class restart(_servile):
@@ -4483,7 +4484,7 @@ executes the following:
         restart = restart if _restartp(restart) else find_restart(restart)
         return invoke_restart(restart, *restart.interactive_function())
 
-# *** AST basics
+# ***** AST basics
 
 def _astp(x):        return typep(x, _ast.AST)
 
@@ -4593,7 +4594,7 @@ def _ast_assign(to, value):
 def _ast_return(node):
         return _ast.Return(value = the(_ast.AST, node))
 
-# *** A very primitive AST-friendly lambda list mechanism + FunctionDef node creator
+# ***** A very primitive AST-friendly lambda list mechanism + FunctionDef node creator
 
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
 #              arg* kwonlyargs, identifier? kwarg,
@@ -4651,7 +4652,7 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                                                             ([args] if args else []) +
                                                                             ([keys] if keys else [])))))))
 
-# *** AST -> SEX
+# ***** AST -> SEX
 
 def _read_ast(x):
         def rec(x):
@@ -4667,7 +4668,7 @@ def _read_ast(x):
                    ):
                 return rec(x)
 
-# ***** Rich AST definition machinery
+# ******* Rich AST definition machinery
 
 _ast_info = _poor_man_defstruct("_ast_info",
                                 "type",
@@ -4711,7 +4712,7 @@ def _ast_info_check_args_type(info, args, atreep = t):
 def _ast_ensure_stmt(x):
         return x if typep(x, _ast.stmt) else _ast.Expr(the(_ast.AST, x))
 
-# ***** AST/Atree bound/free calculation
+# ******* AST/Atree bound/free calculation
 
 _intern_and_bind_pynames("*BOUND-FREE-RECURSOR*")
 
@@ -4748,7 +4749,7 @@ def _atree_bound(atree): return _atree_bound_free(atree)[0]
 def _atree_free(atree):  return _atree_bound_free(atree)[1]
 def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
 
-# ***** @DEFAST
+# ******* @DEFAST
 
 def defast(fn):
         ### generic tools
@@ -4918,7 +4919,7 @@ def defast(fn):
 _register_astifier_for_type(symbol.python_type, nil, (lambda sym: _ast_funcall("_find_symbol_or_fail",
                                                                                [symbol_name(sym)])))
 
-# *** Rich AST definitions
+# ***** Rich AST definitions
 
 # mod = Module(stmt* body)
 #     | Interactive(stmt* body)
@@ -5433,7 +5434,7 @@ def _ast_alias(name:    string,
                            _py.set(),
                            _py.set())
 
-# *** Python value -> Atree
+# ***** Python value -> Atree
 
 def _try_atreeify_list(xs):
         ret = []
@@ -5483,7 +5484,7 @@ def _atreeify_constant(x):
                 error("Cannot atreeify value %s.  Is it a literal?",
                       prin1_to_string(x)))
 
-# *** Atree -> AST
+# ***** Atree -> AST
 
 def _atree_ast(tree):
         """Flip an atree to its AST geminae.
@@ -5534,7 +5535,7 @@ all AST-trees .. except for the case of tuples."""
                 (astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
         return ret
 
-# *** Generic pieces
+# ***** Generic pieces
 
 def _parse_body(body, doc_string_allowed = t, toplevel = nil):
         doc = nil
@@ -5560,7 +5561,7 @@ def _parse_body(body, doc_string_allowed = t, toplevel = nil):
 def _process_decls(decls, vars, fvars):
         _warn_not_implemented()
 
-# *** Compiler conditions
+# ***** Compiler conditions
 
 @defclass
 class _compiler_error(error.python_type):
@@ -5574,7 +5575,7 @@ class _simple_compiler_error(simple_condition.python_type, _compiler_error.pytho
 def _compiler_error(control, *args):
         return _simple_compiler_error.python_type(control, *args)
 
-# *** Compilation environment
+# ***** Compilation environment
 
 _string_set("*IN-COMPILATION-UNIT*", nil)
 _intern_and_bind_pynames("*ABORTED-COMPILATION-UNIT-COUNT*",
@@ -5687,7 +5688,7 @@ def _compilation_unit_prologue():
                 if _top_compilation_unit_p() else
                 [])
 
-# *** Lexical environments
+# ***** Lexical environments
 
 class _binding():
         name = None
@@ -5728,7 +5729,7 @@ def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
 def _fbindingp(x): return x.function
 def _specialp(x): return _py.getattr(x, "special")
 
-# *** IR definition machinery: @DEFKNOWN
+# ***** IR definition machinery: @DEFKNOWN
 
 _known = _poor_man_defstruct("known",
                              "name",
@@ -5757,7 +5758,7 @@ def defknown(metasex_or_fn, name = None):
 def _find_known(x):
         return _symbol_known(the(symbol, x))
 
-# ***** Code
+# ******* Code
 
 _string_set("*SEX-JUSTIFICATION*", 0)
 def _sex_justification(): return _symbol_value(_sex_justification_)
@@ -5796,9 +5797,9 @@ def _metasex(top_sex, initial_depth = None):
                 ##  - on failure, it is (failed_sex, failed_code)
                 ## LEAF and FAIL illustrate this convention, immediately below:
                 def fail(sex, code): return sex, code
-                def leaf(sex, code): return sex.__repr__(), None
+                def retn(sex):       return sex.__repr__(), None
                 def fail_or_xform(x, xform):        return (xform(x[0]), None) if x[1] is None else x # propagate failure
-                def fail_or_leaf(code, nofailp, x): return leaf(x, code)       if nofailp(x)   else x # ditto
+                def fail_or_leaf(code, nofailp, x): return retn(x)             if nofailp(x)   else fail(x, code)
                 def structure_interp(sex, code, increment = 1):
                         with progv({_sex_justification_: _symbol_value(_sex_justification_) + increment}):
                                 @block
@@ -5841,11 +5842,11 @@ def _metasex(top_sex, initial_depth = None):
                                                         if not stringp(sep):
                                                                 _debug_printf("sep: %s", _py.repr(sep))
                                                         return _sex_deeper(inc, lambda: horz_rec(acc + sep, sex, code[1:]))
-                                                sub, failurep = code_interp_rec(sex[0], code[0])
-                                                return (_sex_deeper(_py.len(sub),
-                                                                    lambda: horz_rec(acc + sub, sex[1:], code[1:]))
+                                                ret, failurep = code_interp_rec(sex[0], code[0])
+                                                return (_sex_deeper(_py.len(ret),
+                                                                    lambda: horz_rec(acc + ret, sex[1:], code[1:]))
                                                         if failurep is None else
-                                                        fail(ret, failurep))
+                                                        fail_horz(ret, failurep))
                                         return horz_rec("", sex, code)
                                 acc = ""
                                 code_tail = code
@@ -5855,61 +5856,65 @@ def _metasex(top_sex, initial_depth = None):
                                                 return fail(sex_tail, failp) ## We expect a different meaning of sex_tail here
                                         sex, code_tail = sex_tail, code_tail_tail
                                         set(_sex_justification_, _sex_justification() + inc)
-                                        acc += ret + separatorp("\n" if sex else "")[0]
+                                        acc += ret + maybe_separator_info("\n" if sex else "")[0]
                                 return acc, None ## :: ret, failp
                 ## Girls are sucking up energy and focus, generally.  It's fairly tragic.
                 ## Are there any exceptions?
+                def trc(x, y):
+                        ctl, *args = (x if _tuplep(x) else (x,))
+                        _debug_printf(ctl + ": %s", *(_py.tuple(args) + (y,)))
+                        return y
+                def metasex_interp_fixed(sex, code):
+                        return (fail(sex, code) if not listp(sex) else
+                                fail_or_xform(structure_interp(sex, code, increment = 1),
+                                              lambda x: "(" + x + ")"))
+                def metasex_interp_some(sex, code):
+                        ## iteration: exactly like a homogenous fixed structure with an
+                        ## interspersed separator ...and this interpretation is exactly
+                        ## out of date, due to general pattern matching going on here.
+                        ## ..but this is new functionality, and we're currently only
+                        ## dealing with the language/calling convention transition.
+                        def expand_some(code, sepcode, n):
+                                return _intersperse(sepcode, (code,) * n)
+                        if _py.len(code) != 2 or code[1] not in [" ", "\n"]:
+                                err_bad_code((some,) + code)
+                        if not listp(sex):
+                                return fail(sex, code)
+                        code, sepcode = code
+                        return structure_interp(sex, expand_some(code, sepcode, _py.len(sex)), increment = 0)
+                def metasex_interp_or(sex, code):
+                        for option in code:
+                                ret, failurep = code_interp_rec(sex, code)
+                                if not failurep:
+                                        return ret, None
+                        return fail(sex, code) ## This is as specific as it gets with case analysis.
+                def metasex_interp_set_minus(sex, code):
+                        ## Metametavalidation:
+                        if not code or _py.any(not symbolp(x) for x in code):
+                                err_bad_code((_set_minus,) + code)
+                        ## The implementation strategy is rather simplistic here.
+                        def setspec_interp(x):
+                                def setspec_symbol_interp(x):
+                                        binding, boundp = _lookup(x, _symbol_value(_setspec_scope_))
+                                        return (keywordp if x is keyword else
+                                                symbolp  if x is symbol  else
+                                                listp    if x is list    else
+                                                binding  if boundp       else
+                                                lambda y: x is y)
+                                return setspec_symbol_interp(the(symbol, x))
+                        def x_in_set_p(x):
+                                setp, *notsetp = [setspec_interp(x) for x in code]
+                                return setp(x) and notany(lambda f: f(x), notsetp)
+                        return fail_or_leaf(code, x_in_set_p, sex)
+                def metasex_interp_let(sex, code):
+                        ## Metametavalidation:
+                        if not (_py.len(code) is 2 and _py.all((_py.len(x) is 2 and symbolp(x[0])) for x in code[0])):
+                                err_bad_code((let,) + code)
+                        bindings, body = code
+                        with _setspec(_py.dict(bindings)):
+                                return code_interp_rec(sex, body)
                 ### code_interp_rec()
                 if _tuplep(code):
-                        def metasex_interp_fixed(sex, code):
-                                return (fail(sex, code) if not listp(sex) else
-                                        fail_or_xform(structure_interp(sex, code, increment = 1),
-                                                      lambda x: "(" + x + ")"))
-                        def metasex_interp_some(sex, code):
-                                ## iteration: exactly like a homogenous fixed structure with an
-                                ## interspersed separator ...and this interpretation is exactly
-                                ## out of date, due to general pattern matching going on here.
-                                ## ..but this is new functionality, and we're currently only
-                                ## dealing with the language/calling convention transition.
-                                def expand_some(code, sepcode, n):
-                                        return _intersperse(sepcode, (code,) * n)
-                                if _py.len(code) != 2 or code[1] not in [" ", "\n"]:
-                                        err_bad_code((some,) + code)
-                                if not listp(sex):
-                                        return fail(sex, code)
-                                code, sepcode = code
-                                return structure_interp(sex, expand_some(code, sepcode, _py.len(sex)), increment = 0)
-                        def metasex_interp_or(sex, code):
-                                for option in code:
-                                        ret, failurep = code_interp_rec(sex, code)
-                                        if not failurep:
-                                                return ret, None
-                                return fail(sex, code) ## This is as specific as it gets with case analysis.
-                        def metasex_interp_set_minus(sex, code):
-                                ## Metametavalidation:
-                                if not code or _py.any(not symbolp(x) for x in code):
-                                        err_bad_code((_set_minus,) + code)
-                                ## The implementation strategy is rather simplistic here.
-                                def setspec_interp(x):
-                                        def setspec_symbol_interp(x):
-                                                binding, boundp = _lookup(x, _symbol_value(_setspec_scope_))
-                                                return (keywordp if x is keyword else
-                                                        symbolp  if x is symbol  else
-                                                        listp    if x is list    else
-                                                        binding  if boundp       else
-                                                        lambda y: x is y)
-                                        return setspec_symbol_interp(the(symbol, x))
-                                def x_in_set_p(x):
-                                        setp, *notsetp = [setspec_interp(x) for x in code]
-                                        return setp(x) and notany(lambda f: f(x), notsetp)
-                                return fail_or_leaf(code, x_in_set_p, sex)
-                        def metasex_interp_let(sex, code):
-                                ## Metametavalidation:
-                                if not (_py.len(code) is 2 and _py.all((_py.len(x) is 2 and symbolp(x[0])) for x in code[0])):
-                                        err_bad_code((let,) + code)
-                                bindings, body = code
-                                with _setspec(_py.dict(bindings)):
-                                        return code_interp_rec(sex, body)
                         metasex_dispatch = { _fixed:      metasex_interp_fixed,
                                            # _maybe:      metasex_interp_maybe,      # interpreted by fixed structure
                                               some:       metasex_interp_some,
@@ -5919,25 +5924,30 @@ def _metasex(top_sex, initial_depth = None):
                                              _set_minus:  metasex_interp_set_minus,
                                              let:         metasex_interp_let }
                         (not code or code[0] not in metasex_dispatch) and err_bad_code(code)
-                        return metasex_dispatch[code[0]](sex, code[1:])
-                elif _py.isinstance(code, _py.list): return metasex_interp_some(sex, _py.tuple(code))
-                elif _py.isinstance(code, _py.dict): return _not_implemented("result binding")
+                        return trc(("complex %s", code[0]), metasex_dispatch[code[0]](sex, code[1:]))
+                elif _py.isinstance(code, _py.list): return trc("list",    metasex_interp_some(sex, _py.tuple(code)))
+                elif _py.isinstance(code, _py.dict): _not_implemented("result binding")
                 elif not symbolp(code):              err_bad_code(code)
-                elif code is _form: # general recursion
-                        return _metasex(sex)
-                elif code is _name:   return fail_or_leaf(code, stringp, sex)
-                elif code is keyword: return fail_or_leaf(code, keywordp, sex)
-                elif code is string:  return fail_or_leaf(code, stringp, sex)
-                else: # Other symbols:
-                        return fail_or_leaf(code, lambda x: x is code, sex)
+                elif code is _form:                  return trc("form",    _metasex(sex))
+                elif code is _name:                  return trc("name",    fail_or_leaf(code, lambda x: (symbolp(x) and
+                                                                                                         not keywordp(x)),
+                                                                                        sex))
+                elif code is keyword:                return trc("keyword", fail_or_leaf(code, keywordp, sex))
+                elif code is string:                 return trc("string",  fail_or_leaf(code, stringp, sex))
+                else:                                return trc(("is %s", code), fail_or_leaf(code, lambda x: x is code, sex))
         with progv({ _sex_justification_: _defaulted_to_var(initial_depth, _sex_justification_) }):
-                ret = code_interp_rec(top_sex, top_code)
-                return ret
+                ret, failurep = code_interp_rec(top_sex, top_code)
+                if failurep is None:
+                        return ret
+                else:
+                        error(simple_type_error,
+                              ("Invalid structured expression: %s." % top_sex) if ret is top_sex else
+                              ("Invalid subexpression %s, within structured expression %s." % (ret, top_sex)))
 
 def _pp_sex(sex):
         return _metasex(sex)
 
-# *** Tuple intermediate IR
+# ***** Tuple intermediate IR
 
 #     A tuple of:
 #     - prologue
@@ -5959,7 +5969,7 @@ def _prepend_prologue(pro, tuple):
         return (pro + tuple[0],
                 tuple[1])
 
-# *** Compiler state and miscellanea
+# ***** Compiler state and miscellanea
 
 ## Should, probably, be bound by the compiler itself.
 _string_set("*COMPILER-TOPLEVEL-P*", t)
@@ -6042,7 +6052,7 @@ def _lower_expr(x, fn):
         pro, val = lower(x)
         return (pro, fn(val))
 
-# *** More IR definition machinery: %IR-ARGS, %IR
+# ***** More IR definition machinery: %IR-ARGS, %IR
 
 @defknown(("atom", "\n", "sex", "\n", "atom"))
 def _ir_args():
@@ -6065,7 +6075,7 @@ def _ir(*ir, **keys):
 def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
 
-# ***** SYMBOL, SETQ
+# ******* SYMBOL, SETQ
 
 @defknown
 def symbol(name):
@@ -6090,7 +6100,7 @@ def setq(name, value):
         return (pro + [("Assign", [_lower_name(name, "Store")], val)],
                 _lower_name(name))
 
-# ***** RETURN
+# ******* RETURN
 
 @defknown
 def return_(x):
@@ -6099,7 +6109,7 @@ def return_(x):
                 return (pro + [("Return", val)],
                         None)
 
-# ***** QUOTE, QUAQUOTE, COMMA, SPLICE
+# ******* QUOTE, QUAQUOTE, COMMA, SPLICE
 
 @defknown
 def quote(x):
@@ -6150,7 +6160,7 @@ def comma(x):
 def splice(x):
         error("Comma not inside a backquote.")
 
-# ***** PROGN, IF
+# ******* PROGN, IF
 
 @defknown((_fixed, intern("PROGN")[0],
             1, [_form, "\n"]))
@@ -6200,7 +6210,7 @@ def if_(test, consequent, antecedent = nil):
                 return (flet, cons_fdefn + ante_fdefn,
                          (if_, test, cons, ante))
 
-# ***** %P-L-L-L/L-L-L-L and DEF_
+# ******* %P-L-L-L/L-L-L-L and DEF_
 
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (symbol, "None"))
@@ -6340,7 +6350,7 @@ def def_(name, lambda_list, *body, decorators = []):
                         try_ += 1
                 return result
 
-# ***** TOIMPL EVAL-WHEN
+# ******* TOIMPL EVAL-WHEN
 
 @defknown((_fixed, intern("EVAL-WHEN")[0], " ", (_fixed, [(or_, (_maybe_once, _keyword("COMPILE-TOPLEVEL")),
                                                                 (_maybe_once, _keyword("LOAD-TOPLEVEL")),
@@ -6391,7 +6401,7 @@ when EVAL-WHEN appears as a top level form."""
         return (((progn,) + body) if exec else
                 _lower(nil))
 
-# ***** K DEFMACRO, DEFUN
+# ******* K DEFMACRO, DEFUN
 
 @defknown((_fixed, intern("DEFMACRO")[0], " ", _name, " ", (_fixed, [_name, " "],),
            1, [_form, "\n"]))
@@ -6417,7 +6427,7 @@ def defun(name, lambda_list, *body):
         return ([fundef],
                 _lower((quote, (symbol, string(name))))[1])
 
-# ******* Code
+# ********* Code
 
 @defknown((_fixed, intern("LET")[0], " ", (_fixed, [(_fixed, _name, " ", _form), "\n"],),
            1, [_form, "\n"]))
@@ -6494,7 +6504,7 @@ def let_(bindings, *body):
                 return (let, bindings[:1],
                          (let_, bindings[1:]) + body)
 
-# ***** K FUNCALL, LAMBDA
+# ******* K FUNCALL, LAMBDA
 
 @defknown
 def funcall(func, *args):
@@ -6568,7 +6578,7 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
                 return (flet, ((func_name, lambda_list) + body,),
                          (symbol, func_name))
 
-# ***** K UNWIND-PROTECT
+# ******* K UNWIND-PROTECT
 
 @defknown((_fixed, intern("UNWIND-PROTECT")[0], " ", _form,
            1, [_form, "\n"]))
@@ -6585,7 +6595,7 @@ def unwind_protect(form, *unwind_body):
                   pro_unwind + [("Expr", val_unwind)])],
                 _lower((symbol, temp_name))[1])
 
-# *** Macro-expander
+# ***** Macro-expander
 
 #     How is it do be determined, that a form must be passed through?
 
@@ -6619,7 +6629,7 @@ def macroexpand(form, env = nil):
 if probe_file("/home/deepfire/.partus-debug-compiler"):
         _debug_compiler()
 
-# *** Engine and drivers: %LOWER, @LISP and COMPILE
+# ***** Engine and drivers: %LOWER, @LISP and COMPILE
 
 # Urgent Issue COMPILER-MACRO-SYSTEM
 def _lower(form):
@@ -6956,7 +6966,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
         with progv({_lexenv_: lexenv}):
                 return with_compilation_unit(_in_compilation_unit)
 
-# *** @LISP tests
+# ***** @LISP tests
 
 @lisp
 def cond(*clauses):
@@ -6977,14 +6987,14 @@ def fdefinition(name):
          (symbol_function, (the, symbol, name)))
 describe(fdefinition)
 
-# *** Source info (rudimentary)
+# ***** Source info (rudimentary)
 
 @defclass
 class _source_info():
         def __init__(self, pathname):
                 self.pathname = pathname
 
-# *** EVAL (incl. %EVAL-TLF)
+# ***** EVAL (incl. %EVAL-TLF)
 
 _string_set("*EVAL-SOURCE-CONTEXT*", nil)
 _string_set("*EVAL-TLF-INDEX*", nil)
@@ -7036,7 +7046,7 @@ def _eval_tlf(original_exp, tlf_index, lexenv = None):
 def eval(original_exp):
         return _do_eval(original_exp, nil, nil, _make_null_lexenv())
 
-# *** File compiler, as stolen from SBCL (%EVAL-COMPILE-TOPLEVEL / %PROCESS-TOPLEVEL-FORM and COMPILE-FILE)
+# ***** File compiler, as stolen from SBCL (%EVAL-COMPILE-TOPLEVEL / %PROCESS-TOPLEVEL-FORM and COMPILE-FILE)
 
 def _compiler_mumble(control, *args):
         _debug_printf(control, *args)
@@ -7579,7 +7589,7 @@ declared to be the names of constant variables)."""
                 keywordp(form) or form in [t, nil, pi]                 or
                 (_tuplep(form) and _py.len(form) == 2 and form[0] is quote_))
 
-# *** STANDARD-OBJECT and basic protocols
+# ***** STANDARD-OBJECT and basic protocols
 
 # Unregistered Issue C-J-COULD-BE-EXTENDED-TO-FOLLOW-M-J-WITHIN-COMMENTS
 def class_of(x):
@@ -7753,7 +7763,7 @@ nor evaluated."""
         instance.__dict__.update(initargs)
         return instance
 
-# *** Generic functions
+# ***** Generic functions
 
 @defclass
 class method(standard_object.python_type):
@@ -7773,7 +7783,7 @@ class generic_function(funcallable_standard_class.python_type):
                 _here("args: %s", initargs)
                 super().__init__(**initargs)
 
-# *** Dependent maintenance protocol
+# ***** Dependent maintenance protocol
 
 # It is convenient for portable metaobjects to be able to memoize
 # information about other metaobjects, portable or otherwise. Because
@@ -7967,7 +7977,7 @@ code:
         # Unregistered Issue COMPLIANCE-UPDATE-DEPENDENT-DOES-NOT-REALLY-DO-ANYTHING
         pass
 
-# *** Generic function methods
+# ***** Generic function methods
 
 @defclass
 class method_combination():
@@ -8216,7 +8226,7 @@ def _get_generic_fun_info(generic_function):
 
 def generic_function_methods(x):                   return x.__methods__.values()
 
-# *** DEFINE-METHOD-COMBINATION
+# ***** DEFINE-METHOD-COMBINATION
 
 __method_combinations__ = make_hash_table()
 
@@ -8658,7 +8668,7 @@ executed."""
         method_combination.__method_group_specifiers__ = method_group_specifiers
         return method_combination
 
-# *** Standard method combination
+# ***** Standard method combination
 
 # 7.6.6.2 Standard Method Combination
 #
@@ -8765,7 +8775,7 @@ standard_method_combination = method_combination # Crude XXX
 #                 # to avoid duplication.
 #                 [])
 
-# *** MAKE-METHOD-LAMBDA
+# ***** MAKE-METHOD-LAMBDA
 
 def make_method_lambda(generic_function, method, lambda_expression, environment):
         """Arguments:
@@ -8827,7 +8837,7 @@ call to MAKE-INSTANCE."""
         #   (apply method.function
         #          gf-arglist (subseq c-m-args 1)))
 
-# *** COMPUTE-EFFECTIVE-METHOD
+# ***** COMPUTE-EFFECTIVE-METHOD
 
 def compute_effective_method(generic_function, combin, applicable_methods):
         """Arguments:
@@ -9261,7 +9271,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                     globals  = env,
                     locals   = env)
 
-# *** ENSURE-GENERIC-FUNCTION
+# ***** ENSURE-GENERIC-FUNCTION
 
 def ensure_generic_function_using_class(generic_function, function_name,
                                         argument_precedence_order = None,
@@ -9725,7 +9735,7 @@ function will mention &key (but no keyword arguments)."""
                   not (_py.set(gf_keyword) - _py.set(m_keyword))) and
                  "but the method does not accept each of the &KEY arguments %s" % _py.tuple([gf_keyword])))
 
-# *** Method addition and removal
+# ***** Method addition and removal
 
 def add_method(generic_function, method):
         """Arguments:
@@ -9830,7 +9840,7 @@ The results are undefined if the SPECIALIZER argument is not one of
 the specializers of the METHOD argument."""
         _not_implemented("maintain a set of backpointers from a SPECIALIZER to the set of methods specialized to it")
 
-# *** METHOD metamethods
+# ***** METHOD metamethods
 
 def _standard_method_shared_initialize(method,
                                        qualifiers = None,
@@ -10027,7 +10037,7 @@ The results are undefined if the specializer argument is not one of
 the specializers of the method argument."""
         _not_implemented()
 
-# *** DEFMETHOD
+# ***** DEFMETHOD
 
 def defmethod(fn):
         """defmethod function-name {method-qualifier}* specialized-lambda-list [[declaration* | documentation]] form*
