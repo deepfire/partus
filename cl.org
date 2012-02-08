@@ -4297,9 +4297,6 @@ def _conditionp(x):
         return typep(x, condition)
 
 def make_condition(type, *args, **keys):
-        """It's a slightly weird interpretation of MAKE-CONDITION, as
-the latter only accepts symbols as DATUM, while this one doesn't
-accept symbols at all."""
         check_type(type, symbol)
         if not (_py.hasattr(type, "python_type") and
                 _conditionp(type.python_type)):
