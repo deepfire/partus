@@ -4431,7 +4431,8 @@ def __cl_condition_handler__(condspec, frame):
                                         with progv({_debugger_hook_: nil}):
                                                 debugger_hook(cond, debugger_hook)
                 return cond
-        with progv({_stack_top_hint_: _caller_frame(caller_relative = 1)}):
+        signalling_frame = _caller_frame(caller_relative = 1)
+        with progv({_stack_top_hint_: signalling_frame}):
                 cond = _sys.call_tracing(continuation, _py.tuple())
         if type_of(cond) not in __not_even_conditions__:
                 is_not_ball = type_of(cond) is not __catcher_throw__
@@ -4439,7 +4440,7 @@ def __cl_condition_handler__(condspec, frame):
                       _threading.current_thread().name, princ_to_string(cond),
                       ("\n; Disabling CL condition system." if is_not_ball else
                        ""),
-                      callers = 15)
+                      callers = 15, frame = signalling_frame)
                 if not backtrace_printed:
                         _backtrace()
                 if is_not_ball:
