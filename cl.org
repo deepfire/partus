@@ -6195,89 +6195,89 @@ def _find_known(x):
         return _symbol_known(the(symbol, x))
 #+end_src#
 
-*** MetaSEX
-***** Specification
+***** MetaSEX
+******* Specification
 
-      - set specifier :: any of the following, within approprite context:
-        - symbol :: any of the following (in order of precedence):
-          - when SYMBOL, KEYWORD or LIST -- a corresponding set defined by the named CL type
-          - a binding of a set specifier
-          - a set of a single element denoting self
-        - syntactic set specifier :: any of the following:
-          - a METASEX:SET-MINUS form
-        # - set literal :: the set itself
-      - separator specifier :: any of the following, within appropriate context:
-        - string :: whitespace specifier
-        - integer :: whitespace specifier
-      - metasex expression :: any of the following:
-        - atom :: any of the following:
-          - COMMON-LISP:STRING :: a string;  non-walkable
-          - METASEX:NAME :: a non-keyword symbol;  non-walkable
-          - COMMON-LISP:KEYWORD :: a keyword symbol;  non-walkable
-          - METASEX:FORM :: arbitrary form;  walkable
-          - any other symbol :: itself, non-walkable
-        - tuple :: complex form
-          - (METASEX:FIXED, ...) :: tuple with a fixed structure
-          - (METASEX:MAYBE, ...) :: an optional fixed substructure part of the containing fixed structure
-          - (COMMON-LISP:SOME, <sub>, <sep>) :: arbitrary repetition of <sub>, with <sep> as
-                                                separator;  <sub> can immediately contain, among others:
-            - (METASEX:MAYBE-ONCE, ...) :: ..within the containing COMMON-LISP:SOME
-            - (METASEX:ONCE, ...) :: ditto
-          - (COMMON-LISP:OR, ...) :: choice
-          - (METASEX:SET-MINUS, <set>, ..elements..) -> <set> ::
-              any element matching the specified set, reduced by the sum of individual elements and denoted sets
-          - (COMMON-LISP:LET, <bindings>, ...) :: set specifier and general metacode bindings;
-                                                  seems to require typing
-          # - (COMMON-LISP:SATISFIES, predicate) :: escape hatch (lambda list keywords)
-        - list :: syntactic sugar for COMMON-LISP:SOME
-        - dictionary, with an exactly one element :: binding, available either at toplevel,
-                                                     or at iteration of depth one
+        - set specifier :: any of the following, within approprite context:
+          - symbol :: any of the following (in order of precedence):
+            - when SYMBOL, KEYWORD or LIST -- a corresponding set defined by the named CL type
+            - a binding of a set specifier
+            - a set of a single element denoting self
+          - syntactic set specifier :: any of the following:
+            - a METASEX:SET-MINUS form
+          # - set literal :: the set itself
+        - separator specifier :: any of the following, within appropriate context:
+          - string :: whitespace specifier
+          - integer :: whitespace specifier
+        - metasex expression :: any of the following:
+          - atom :: any of the following:
+            - COMMON-LISP:STRING :: a string;  non-walkable
+            - METASEX:NAME :: a non-keyword symbol;  non-walkable
+            - COMMON-LISP:KEYWORD :: a keyword symbol;  non-walkable
+            - METASEX:FORM :: arbitrary form;  walkable
+            - any other symbol :: itself, non-walkable
+          - tuple :: complex form
+            - (METASEX:FIXED, ...) :: tuple with a fixed structure
+            - (METASEX:MAYBE, ...) :: an optional fixed substructure part of the containing fixed structure
+            - (COMMON-LISP:SOME, <sub>, <sep>) :: arbitrary repetition of <sub>, with <sep> as
+                                                  separator;  <sub> can immediately contain, among others:
+              - (METASEX:MAYBE-ONCE, ...) :: ..within the containing COMMON-LISP:SOME
+              - (METASEX:ONCE, ...) :: ditto
+            - (COMMON-LISP:OR, ...) :: choice
+            - (METASEX:SET-MINUS, <set>, ..elements..) -> <set> ::
+                any element matching the specified set, reduced by the sum of individual elements and denoted sets
+            - (COMMON-LISP:LET, <bindings>, ...) :: set specifier and general metacode bindings;
+                                                    seems to require typing
+            # - (COMMON-LISP:SATISFIES, predicate) :: escape hatch (lambda list keywords)
+          - list :: syntactic sugar for COMMON-LISP:SOME
+          - dictionary, with an exactly one element :: binding, available either at toplevel,
+                                                       or at iteration of depth one
 
-******* Examples
+********* Examples
 
-        Example code for LET:
+          Example code for LET:
 
-        #+begin_example
-        (_fixed, let, " ", ({"bindings": [(_name, " ", _form), "\n"]},),
-          1, [{"body": _form}, "\n"])
-        #+end_example
+          #+begin_example
+          (_fixed, let, " ", ({"bindings": [(_name, " ", _form), "\n"]},),
+            1, [{"body": _form}, "\n"])
+          #+end_example
 
-        Example code for DEFGENERIC (incl. the lambda lists):
+          Example code for DEFGENERIC (incl. the lambda lists):
 
-        #+begin_example
-        defglam_keys = {_optional, _rest, _key, _allow_other_keys}
-        ## Let's draw it with repetitions first, and then factor in lexical scope.
-        (let, ((nonkey, (_set_minus, symbol, keyword, defglam_keys)),),
-          (let, ((defgeneric_lambda_list,
-                   (let, ((argspec, nonkey),),
-                     (_fixed, [argspec, " "],
-                              (_maybe, _optional, " ", [argspec, " "]),
-                              (_maybe, _rest, " ", argspec, " ")
-                              (_maybe, _key, " ", [argspec, " "])
-                              (_maybe, _allow_other_keys)))),
-                 (ordinary_lambda_list,
-                   ## Make sure the keyword argument renaming part is done properly!
-                   ## Make sure the EQL specialiser part is done properly!
-                   ## The duplication screams for functional abstraction!
-                   ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-SPECIALIZERS
-                   (let, ((argspec, (or, nonkey, (_fixed, nonkey, form, (_maybe, nonkey)))),),
-                     (_fixed, [(or, argspec, (_fixed, argspec, (or, argspec, (_fixed, eql, form)))), " "],
-                              (_maybe, _optional, " ", [argspec, " "]),
-                              (_maybe, _rest, " ", nonkey, " ")
-                              (_maybe, _key, " ", [argspec, " "])
-                              (_maybe, _allow_other_keys)))),),
-            (_fixed, defgeneric, " ", (_or, _name, (_fixed, setf, " ", _name)), " ", defgeneric_lambda_list,
-                      1, [(_or,
-                           ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-DEFGENERIC-OPTIONS
-                           {"methods": (_fixed, _keyword("METHOD"), " ", [_keyword, " "], ordinary_lambda_list,
-                                                 1, [_form, "\n"])},
-                           (_maybe_once, (_fixed, _keyword("METHOD-COMBINATION"), " ", {"method_combination": _name})),
-                           (_maybe_once, (_fixed, _keyword("METHOD-CLASS"), " ", {"method_class": _name})),
-                           (_maybe_once, (_fixed, _keyword("DOCUMENTATION"), " ", {"documentation": _string}))),
-                          "\n"])))
-        #+end_example
+          #+begin_example
+          defglam_keys = {_optional, _rest, _key, _allow_other_keys}
+          ## Let's draw it with repetitions first, and then factor in lexical scope.
+          (let, ((nonkey, (_set_minus, symbol, keyword, defglam_keys)),),
+            (let, ((defgeneric_lambda_list,
+                     (let, ((argspec, nonkey),),
+                       (_fixed, [argspec, " "],
+                                (_maybe, _optional, " ", [argspec, " "]),
+                                (_maybe, _rest, " ", argspec, " ")
+                                (_maybe, _key, " ", [argspec, " "])
+                                (_maybe, _allow_other_keys)))),
+                   (ordinary_lambda_list,
+                     ## Make sure the keyword argument renaming part is done properly!
+                     ## Make sure the EQL specialiser part is done properly!
+                     ## The duplication screams for functional abstraction!
+                     ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-SPECIALIZERS
+                     (let, ((argspec, (or, nonkey, (_fixed, nonkey, form, (_maybe, nonkey)))),),
+                       (_fixed, [(or, argspec, (_fixed, argspec, (or, argspec, (_fixed, eql, form)))), " "],
+                                (_maybe, _optional, " ", [argspec, " "]),
+                                (_maybe, _rest, " ", nonkey, " ")
+                                (_maybe, _key, " ", [argspec, " "])
+                                (_maybe, _allow_other_keys)))),),
+              (_fixed, defgeneric, " ", (_or, _name, (_fixed, setf, " ", _name)), " ", defgeneric_lambda_list,
+                        1, [(_or,
+                             ## Unregistered Issue METASEX-HOW-TO-FACILITATE-CUSTOM-DEFGENERIC-OPTIONS
+                             {"methods": (_fixed, _keyword("METHOD"), " ", [_keyword, " "], ordinary_lambda_list,
+                                                   1, [_form, "\n"])},
+                             (_maybe_once, (_fixed, _keyword("METHOD-COMBINATION"), " ", {"method_combination": _name})),
+                             (_maybe_once, (_fixed, _keyword("METHOD-CLASS"), " ", {"method_class": _name})),
+                             (_maybe_once, (_fixed, _keyword("DOCUMENTATION"), " ", {"documentation": _string}))),
+                            "\n"])))
+          #+end_example
 
-***** Code
+******* Code
 
 #+begin_src python +n
   _string_set("*SEX-JUSTIFICATION*", 0)
@@ -6317,9 +6317,9 @@ def _find_known(x):
                   ##  - on failure, it is (failed_sex, failed_code)
                   ## LEAF and FAIL illustrate this convention, immediately below:
                   def fail(sex, code): return sex, code
-                  def leaf(sex, code): return sex.__repr__(), None
+                  def retn(sex):       return sex.__repr__(), None
                   def fail_or_xform(x, xform):        return (xform(x[0]), None) if x[1] is None else x # propagate failure
-                  def fail_or_leaf(code, nofailp, x): return leaf(x, code)       if nofailp(x)   else x # ditto
+                  def fail_or_leaf(code, nofailp, x): return retn(x)             if nofailp(x)   else fail(x, code)
                   def structure_interp(sex, code, increment = 1):
                           with progv({_sex_justification_: _symbol_value(_sex_justification_) + increment}):
                                   @block
@@ -6362,11 +6362,11 @@ def _find_known(x):
                                                           if not stringp(sep):
                                                                   _debug_printf("sep: %s", _py.repr(sep))
                                                           return _sex_deeper(inc, lambda: horz_rec(acc + sep, sex, code[1:]))
-                                                  sub, failurep = code_interp_rec(sex[0], code[0])
-                                                  return (_sex_deeper(_py.len(sub),
-                                                                      lambda: horz_rec(acc + sub, sex[1:], code[1:]))
+                                                  ret, failurep = code_interp_rec(sex[0], code[0])
+                                                  return (_sex_deeper(_py.len(ret),
+                                                                      lambda: horz_rec(acc + ret, sex[1:], code[1:]))
                                                           if failurep is None else
-                                                          fail(ret, failurep))
+                                                          fail_horz(ret, failurep))
                                           return horz_rec("", sex, code)
                                   acc = ""
                                   code_tail = code
@@ -6376,61 +6376,65 @@ def _find_known(x):
                                                   return fail(sex_tail, failp) ## We expect a different meaning of sex_tail here
                                           sex, code_tail = sex_tail, code_tail_tail
                                           set(_sex_justification_, _sex_justification() + inc)
-                                          acc += ret + separatorp("\n" if sex else "")[0]
+                                          acc += ret + maybe_separator_info("\n" if sex else "")[0]
                                   return acc, None ## :: ret, failp
                   ## Girls are sucking up energy and focus, generally.  It's fairly tragic.
                   ## Are there any exceptions?
+                  def trc(x, y):
+                          ctl, *args = (x if _tuplep(x) else (x,))
+                          _debug_printf(ctl + ": %s", *(_py.tuple(args) + (y,)))
+                          return y
+                  def metasex_interp_fixed(sex, code):
+                          return (fail(sex, code) if not listp(sex) else
+                                  fail_or_xform(structure_interp(sex, code, increment = 1),
+                                                lambda x: "(" + x + ")"))
+                  def metasex_interp_some(sex, code):
+                          ## iteration: exactly like a homogenous fixed structure with an
+                          ## interspersed separator ...and this interpretation is exactly
+                          ## out of date, due to general pattern matching going on here.
+                          ## ..but this is new functionality, and we're currently only
+                          ## dealing with the language/calling convention transition.
+                          def expand_some(code, sepcode, n):
+                                  return _intersperse(sepcode, (code,) * n)
+                          if _py.len(code) != 2 or code[1] not in [" ", "\n"]:
+                                  err_bad_code((some,) + code)
+                          if not listp(sex):
+                                  return fail(sex, code)
+                          code, sepcode = code
+                          return structure_interp(sex, expand_some(code, sepcode, _py.len(sex)), increment = 0)
+                  def metasex_interp_or(sex, code):
+                          for option in code:
+                                  ret, failurep = code_interp_rec(sex, code)
+                                  if not failurep:
+                                          return ret, None
+                          return fail(sex, code) ## This is as specific as it gets with case analysis.
+                  def metasex_interp_set_minus(sex, code):
+                          ## Metametavalidation:
+                          if not code or _py.any(not symbolp(x) for x in code):
+                                  err_bad_code((_set_minus,) + code)
+                          ## The implementation strategy is rather simplistic here.
+                          def setspec_interp(x):
+                                  def setspec_symbol_interp(x):
+                                          binding, boundp = _lookup(x, _symbol_value(_setspec_scope_))
+                                          return (keywordp if x is keyword else
+                                                  symbolp  if x is symbol  else
+                                                  listp    if x is list    else
+                                                  binding  if boundp       else
+                                                  lambda y: x is y)
+                                  return setspec_symbol_interp(the(symbol, x))
+                          def x_in_set_p(x):
+                                  setp, *notsetp = [setspec_interp(x) for x in code]
+                                  return setp(x) and notany(lambda f: f(x), notsetp)
+                          return fail_or_leaf(code, x_in_set_p, sex)
+                  def metasex_interp_let(sex, code):
+                          ## Metametavalidation:
+                          if not (_py.len(code) is 2 and _py.all((_py.len(x) is 2 and symbolp(x[0])) for x in code[0])):
+                                  err_bad_code((let,) + code)
+                          bindings, body = code
+                          with _setspec(_py.dict(bindings)):
+                                  return code_interp_rec(sex, body)
                   ### code_interp_rec()
                   if _tuplep(code):
-                          def metasex_interp_fixed(sex, code):
-                                  return (fail(sex, code) if not listp(sex) else
-                                          fail_or_xform(structure_interp(sex, code, increment = 1),
-                                                        lambda x: "(" + x + ")"))
-                          def metasex_interp_some(sex, code):
-                                  ## iteration: exactly like a homogenous fixed structure with an
-                                  ## interspersed separator ...and this interpretation is exactly
-                                  ## out of date, due to general pattern matching going on here.
-                                  ## ..but this is new functionality, and we're currently only
-                                  ## dealing with the language/calling convention transition.
-                                  def expand_some(code, sepcode, n):
-                                          return _intersperse(sepcode, (code,) * n)
-                                  if _py.len(code) != 2 or code[1] not in [" ", "\n"]:
-                                          err_bad_code((some,) + code)
-                                  if not listp(sex):
-                                          return fail(sex, code)
-                                  code, sepcode = code
-                                  return structure_interp(sex, expand_some(code, sepcode, _py.len(sex)), increment = 0)
-                          def metasex_interp_or(sex, code):
-                                  for option in code:
-                                          ret, failurep = code_interp_rec(sex, code)
-                                          if not failurep:
-                                                  return ret, None
-                                  return fail(sex, code) ## This is as specific as it gets with case analysis.
-                          def metasex_interp_set_minus(sex, code):
-                                  ## Metametavalidation:
-                                  if not code or _py.any(not symbolp(x) for x in code):
-                                          err_bad_code((_set_minus,) + code)
-                                  ## The implementation strategy is rather simplistic here.
-                                  def setspec_interp(x):
-                                          def setspec_symbol_interp(x):
-                                                  binding, boundp = _lookup(x, _symbol_value(_setspec_scope_))
-                                                  return (keywordp if x is keyword else
-                                                          symbolp  if x is symbol  else
-                                                          listp    if x is list    else
-                                                          binding  if boundp       else
-                                                          lambda y: x is y)
-                                          return setspec_symbol_interp(the(symbol, x))
-                                  def x_in_set_p(x):
-                                          setp, *notsetp = [setspec_interp(x) for x in code]
-                                          return setp(x) and notany(lambda f: f(x), notsetp)
-                                  return fail_or_leaf(code, x_in_set_p, sex)
-                          def metasex_interp_let(sex, code):
-                                  ## Metametavalidation:
-                                  if not (_py.len(code) is 2 and _py.all((_py.len(x) is 2 and symbolp(x[0])) for x in code[0])):
-                                          err_bad_code((let,) + code)
-                                  bindings, body = code
-                                  with _setspec(_py.dict(bindings)):
-                                          return code_interp_rec(sex, body)
                           metasex_dispatch = { _fixed:      metasex_interp_fixed,
                                              # _maybe:      metasex_interp_maybe,      # interpreted by fixed structure
                                                 some:       metasex_interp_some,
@@ -6440,27 +6444,32 @@ def _find_known(x):
                                                _set_minus:  metasex_interp_set_minus,
                                                let:         metasex_interp_let }
                           (not code or code[0] not in metasex_dispatch) and err_bad_code(code)
-                          return metasex_dispatch[code[0]](sex, code[1:])
-                  elif _py.isinstance(code, _py.list): return metasex_interp_some(sex, _py.tuple(code))
-                  elif _py.isinstance(code, _py.dict): return _not_implemented("result binding")
+                          return trc(("complex %s", code[0]), metasex_dispatch[code[0]](sex, code[1:]))
+                  elif _py.isinstance(code, _py.list): return trc("list",    metasex_interp_some(sex, _py.tuple(code)))
+                  elif _py.isinstance(code, _py.dict): _not_implemented("result binding")
                   elif not symbolp(code):              err_bad_code(code)
-                  elif code is _form: # general recursion
-                          return _metasex(sex)
-                  elif code is _name:   return fail_or_leaf(code, stringp, sex)
-                  elif code is keyword: return fail_or_leaf(code, keywordp, sex)
-                  elif code is string:  return fail_or_leaf(code, stringp, sex)
-                  else: # Other symbols:
-                          return fail_or_leaf(code, lambda x: x is code, sex)
+                  elif code is _form:                  return trc("form",    _metasex(sex))
+                  elif code is _name:                  return trc("name",    fail_or_leaf(code, lambda x: (symbolp(x) and
+                                                                                                           not keywordp(x)),
+                                                                                          sex))
+                  elif code is keyword:                return trc("keyword", fail_or_leaf(code, keywordp, sex))
+                  elif code is string:                 return trc("string",  fail_or_leaf(code, stringp, sex))
+                  else:                                return trc(("is %s", code), fail_or_leaf(code, lambda x: x is code, sex))
           with progv({ _sex_justification_: _defaulted_to_var(initial_depth, _sex_justification_) }):
-                  ret = code_interp_rec(top_sex, top_code)
-                  return ret
+                  ret, failurep = code_interp_rec(top_sex, top_code)
+                  if failurep is None:
+                          return ret
+                  else:
+                          error(simple_type_error,
+                                ("Invalid structured expression: %s." % top_sex) if ret is top_sex else
+                                ("Invalid subexpression %s, within structured expression %s." % (ret, top_sex)))
   
   def _pp_sex(sex):
           return _metasex(sex)
   
 #+end_src
 
-*** Tuple intermediate IR
+***** Tuple intermediate IR
 
     A tuple of:
     - prologue
