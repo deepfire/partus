@@ -5757,6 +5757,8 @@ def _find_known(x):
 
 # ******* Code
 
+#         MetaSEX presents us with an excellent lesson.  Let's try to understand.
+
 _string_set("*SEX-JUSTIFICATION*", 0)
 def _sex_justification(): return _symbol_value(_sex_justification_)
 def _sex_space():         return " " * _sex_justification()
