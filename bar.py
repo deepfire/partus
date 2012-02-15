@@ -54,14 +54,12 @@ def dprint(ctl, *args):
 def succ(bound:dict, res:"result"):              return bound, res, None
 def fail(bound:dict, exp:"expr", pat:"pattern"): return bound, exp, pat
 def fcomb(fcomb:"marker", x:"expr", y:"expr"):   return fcomb, x, y
-def test(desc, test:bool, binds:dict, res:"result", exp:"expr", pat:"pattern", if_exists:{_error, _replace} = _error):
-        dprint("test(%s, name = %s): %s", desc, binds[1], test,)
+def test(test:bool, binds:dict, res:"result", exp:"expr", pat:"pattern", if_exists:{_error, _replace} = _error):
         return (succ(bind(exp, *binds, if_exists = if_exists), res) if test else
                 fail(binds[0], exp, pat))
 def equo(name:str, exp:"expr", x:("bound", "result/failexp", "fail")) -> ("bound", "result/failexp", "fail"):
         "Apply result binding, if any."
         b, r, f = x
-        dprint("equo(%s, %s, (%s, %s, %s))", name, exp, *x)
         return ((bind(exp, b, name), r, f) if f is None else
                 x) # propagate failure as-is
 def coor(l0ret:("bound", "result/failexp", "fail"), lR:"() -> (b, r, f)"):
@@ -78,7 +76,6 @@ def crec(l0res:("bound", "result/failexp", "fail"), lR:"() -> (b, r, f)"):
         return succ(lRb, comb(l0r, lRr))
 
 def segment_match(binds, exp, pat, end = None, seg_patex = None):
-        dprint("????? segment_match(%s, %s, %s, end = %s, seg_patex = %s)", binds, exp, pat, end, seg_patex)
         def constant_pat_p(pat):
                 def nonconstant_pat_p(x): return atomvarp(x) or isinstance(x, (list, tuple))
                 return not nonconstant_pat_p(dict01(pat) if isinstance(pat, dict) else
@@ -89,42 +86,28 @@ def segment_match(binds, exp, pat, end = None, seg_patex = None):
         end = (end                        if end is not None                          else
                position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                0)
-        if rest_pat: dprint("##### end %s for rest_pat[0]: %s", end, rest_pat[0])
         if ((end and end > len(exp)) or ## no boundary variant fitted
             end is None):               ## a constant pattern was missing
-                dprint("-%s- segment_match(%s, %s, %s, end = %s, seg_patex = %s)",
-                       ("fow" if end else "noc"), binds, exp, pat, end, seg_patex)
                 return fail(bound, exp, pat)
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
         if not seg_exp:
-                dprint("+nos+ segment_match(%s, %s, %s, end = %s, seg_patex = %s)", binds, exp, pat, end, seg_patex)
                 b, r, f =  crec(succ(bind((), *binds), ## this binding is actualised by outer invocations, if any
                                      prod(seg_exp)),   ## ..same goes for the result.
                                 lambda seg_bound:
-                                        deeper(lambda: match(rest_exp, rest_pat, seg_bound)))
+                                        match(rest_exp, rest_pat, seg_bound))
                 if f is None:
                         return b, r, f
         seg_patex = (tuple(seg_pat) + (list(seg_pat),)) if seg_patex is None else seg_patex # We'll MATCH against this
-        if not seg_patex:
-                dprint("===")
-        dprint("trys **%s**   %s |%s| %s   <<%s>>  %s | %s   ex %s",
-               exp, seg_exp, end, rest_exp, pat, seg_pat, rest_pat, seg_patex)
-        b,r,f = coor(
-                ((None, None, "phail")
-                 ),
-                lambda: coor(crec((lambda seg_b, seg_r, seg_f:
-                                           test("seg_f is None",
-                                                seg_f is None, (seg_b, name), seg_r, seg_exp, seg_f,
-                                                if_exists = _replace))
-                                  (*deeper(lambda: match(       seg_exp, seg_patex, bound,
-                                                                seg_patex = seg_patex))), # Reuse cache!
-                                  lambda seg_bound:
-                                          deeper(lambda: match(rest_exp, rest_pat,  seg_bound))),
-                             lambda: deeper(lambda: segment_match(binds, exp, pat, end = (end or 0) + 1,
-                                                                  seg_patex = seg_patex)))) # Reuse cache!
-        dprint("%s segment_match(%s, %s, %s, end = %s, seg_patex = %s)", ("+gen+" if f is None else "-gen-"), binds, exp, pat, end, seg_patex)
-        return b,r,f
+        return coor(crec((lambda seg_b, seg_r, seg_f:
+                                  test(seg_f is None, (seg_b, name), seg_r, seg_exp, seg_f,
+                                       if_exists = _replace))
+                         (*match(       seg_exp, seg_patex, bound,
+                                        seg_patex = seg_patex)), # Reuse cache!
+                         lambda seg_bound:
+                                 match(rest_exp, rest_pat,  seg_bound)),
+                    lambda: segment_match(binds, exp, pat, end = (end or 0) + 1,
+                                          seg_patex = seg_patex)) # Reuse cache!
 
 ## About the vzy33c0's idea:
 ## type-driven variable naming is not good enough, because:
@@ -137,28 +120,26 @@ def match(exp, pat, bound = None, seg_patex = None):
                                             ((len(pat) == 1 and tuple(pat.items())[0]) or
                                              error_bad_pattern(pat)))
         name, pat = getname(pat)
-        dprint("?? match(%s, %s, seg_patex = %s)", exp, pat, seg_patex)
-        b,r,f = \
+        return \
             (error_bad_pattern(pat)                               if isinstance(pat, list)  else
-             test("namep(exp)",
-                  namep(exp), (bound, name), prod(exp), exp, pat) if atom(pat)              else # pat tuple, exp t
+             test(namep(exp), (bound, name), prod(exp), exp, pat) if atom(pat)              else # pat tuple, exp t
              ##################### Shouldn't ^v be only evaluated upon success?  Yeah, later.
-             test("exp == ()",
-                  exp == (),  (bound, name), prod(exp), exp, pat) if pat == ()              else # pat tupleful, exp t
+             test(exp == (),  (bound, name), prod(exp), exp, pat) if pat == ()              else # pat tupleful, exp t
              fail(bound, exp, pat)                                if atom(exp)              else # exp tuple, pat tupleful
              (lambda pat0name, pat0:
                       (equo(name, exp,                                                   # pat   leadsed tupleful, exp tuple
-                            deeper(lambda: segment_match((bound, pat0name), exp, (pat0,) + pat[1:],
-                                                         seg_patex))) # pass cache through
+                            segment_match((bound, pat0name), exp, (pat0,) + pat[1:],
+                                          seg_patex)) # pass cache through
                                                           if isinstance(pat0, list) else # pat noleadseg tupleful, exp tuple
                        fail(bound, exp, pat)              if exp == ()              else # pat and exp are tuplefuls
                        equo(name, exp,
-                            crec(              deeper(lambda: match(exp[0],  pat[0],  bound)),
-                                 lambda b0und: deeper(lambda: match(exp[1:], pat[1:], b0und))))))
+                            crec(              match(exp[0],  pat[0],  bound),
+                                 lambda b0und: match(exp[1:], pat[1:], b0und)))))
              (*getname(pat[0])))
-        dprint("%s match(%s, %s, seg_patex = %s)", ("++" if f is None else "--"), exp, pat, seg_patex)
-        return b,r,f
 
+###
+### testing
+###
 def test_mid_complex():
         pat = ({"headname":name},
                   {"headtupname":(name,)},
