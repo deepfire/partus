@@ -1,19 +1,43 @@
 name = "name"
 
-def namep(x):    return isinstance(x, int)
-def atom(x):     return not isinstance(x, tuple)
-def atomvarp(x): return x == "name"
-def cut(n, xs):  return xs[0:n], xs[len(xs) if n is None else n:]
+## attic?
+def merg(d1:dict, d2:dict):
+        cross = set(d1.keys()) & set(d2.keys())
+        if cross: raise Exception("Binding conflict on names %s." % cross)
+        r = dict(d1)
+        r.update(d2)
+        return r
+
+## debug
+depth = 0
+def deeper(f):
+        global depth
+        try:
+                depth += 1
+                return f()
+        finally:
+                depth -= 1
+def dprint(ctl, *args):
+        print(" " * (depth * 2) + (ctl % args))
+
+## utility part
+def namep(x):       return isinstance(x, int)
+def atom(x):        return not isinstance(x, tuple)
+def atomvarp(x):    return x == "name"
+def cut(n, xs):     return xs[0:n], xs[len(xs) if n is None else n:]
 def position(x, xs):
         for i, ix in enumerate(xs):
                 if x == ix: return i
-
-def dict01(xs): return tuple(xs.items())[0][1]
+def undict_val(xs): return tuple(xs.items())[0][1]
 
 ## app-specific part
 def prod(x : "expr") -> "result":                 return str(x)
 def comb(x : "result", y : "result") -> "result": return prod(x) + prod(y)
 
+## A large part of work is development of a calling convention.
+## Multiple values, as a concept, is an important, but basic step
+## in the general direction.
+                
 ## generic part
 _error   = "error"
 _replace = "replace"
@@ -29,28 +53,6 @@ def bind(value:"t", bound:dict, name:str, if_exists:{_error, _replace} = _error)
                 bound.update({name:value}); return bound
         elif if_exists is _error:     error_bound(bound[name])
         else:                         error_keyword("if_exists", if_exists, { _error, _replace })
-def merg(d1:dict, d2:dict):
-        cross = set(d1.keys()) & set(d2.keys())
-        if cross: raise Exception("Binding conflict on names %s." % cross)
-        r = dict(d1)
-        r.update(d2)
-        return r
-
-## A large part of work is development of a calling convention.
-## Multiple values, as a concept, is an important, but basic step
-## in the general direction.
-
-depth = 0
-def deeper(f):
-        global depth
-        try:
-                depth += 1
-                return f()
-        finally:
-                depth -= 1
-def dprint(ctl, *args):
-        print(" " * (depth * 2) + (ctl % args))
-                
 def succ(bound:dict, res:"result"):              return bound, res, None
 def fail(bound:dict, exp:"expr", pat:"pattern"): return bound, exp, pat
 def fcomb(fcomb:"marker", x:"expr", y:"expr"):   return fcomb, x, y
@@ -78,7 +80,7 @@ def crec(l0res:("bound", "result/failexp", "fail"), lR:"() -> (b, r, f)"):
 def segment_match(binds, exp, pat, end = None, seg_patex = None):
         def constant_pat_p(pat):
                 def nonconstant_pat_p(x): return atomvarp(x) or isinstance(x, (list, tuple))
-                return not nonconstant_pat_p(dict01(pat) if isinstance(pat, dict) else
+                return not nonconstant_pat_p(undict_val(pat) if isinstance(pat, dict) else
                                              pat)
         bound, name = binds
         [*seg_pat], *rest_pat = pat # ensure that it destructures well
@@ -157,7 +159,7 @@ def test_mid_complex():
                       'nameseq': (1, 1),
                       'tailname': 1 })
 
-print("\ncompiled")
+print("\n; compiled and loaded.")
 assert(test_mid_complex())
 
 
