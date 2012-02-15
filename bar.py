@@ -31,9 +31,13 @@ def position(x, xs):
 def undict_val(xs): return tuple(xs.items())[0][1]
 
 ## app-specific part
-def prod(x : "expr") -> "result":                 return str(x)
-def comb(x : "result", y : "result") -> "result": return prod(x) + prod(y)
-
+def prod(x:"expr") -> "result":
+        return str(x) if x else ""
+def comb(x:"result", y:"result", leader:bool) -> "result":
+        bs, be = ("(", ")") if leader else ("", "")
+        return bs + prod(x) + " " + prod(y) + be
+def match_atom(exp, pat):
+        return namep(exp)
 ## A large part of work is development of a calling convention.
 ## Multiple values, as a concept, is an important, but basic step
 ## in the general direction.
@@ -70,12 +74,12 @@ def coor(l0ret:("bound", "result/failexp", "fail"), lR:"() -> (b, r, f)"):
         lRb, lRr, lRf = lR()
         if lRf is None: return succ(lRb, lRr)
         return fail(l0b, lRr, fcomb("<OR>", l0f, "<other segment variants>"))
-def crec(l0res:("bound", "result/failexp", "fail"), lR:"() -> (b, r, f)"):
+def crec(l0res:("bound", "result/failexp", "fail"), lR:"() -> (b, r, f)", leader:bool = False):
         l0b, l0r, l0f = l0res
         if l0f is not None: return fail(*l0res)
         lRres = lRb, lRr, lRf = lR(l0b)
         if lRf is not None: return fail(*lRres)
-        return succ(lRb, comb(l0r, lRr))
+        return succ(lRb, comb(l0r, lRr, leader))
 
 def segment_match(binds, exp, pat, end = None, seg_patex = None):
         def constant_pat_p(pat):
@@ -97,7 +101,7 @@ def segment_match(binds, exp, pat, end = None, seg_patex = None):
                 b, r, f =  crec(succ(bind((), *binds), ## this binding is actualised by outer invocations, if any
                                      prod(seg_exp)),   ## ..same goes for the result.
                                 lambda seg_bound:
-                                        match(rest_exp, rest_pat, seg_bound))
+                                        match(rest_exp, rest_pat, seg_bound, leader = False))
                 if f is None:
                         return b, r, f
         seg_patex = (tuple(seg_pat) + (list(seg_pat),)) if seg_patex is None else seg_patex # We'll MATCH against this
@@ -105,9 +109,10 @@ def segment_match(binds, exp, pat, end = None, seg_patex = None):
                                   test(seg_f is None, (seg_b, name), lambda: seg_r, seg_exp, seg_f,
                                        if_exists = _replace))
                          (*match(       seg_exp, seg_patex, bound,
-                                        seg_patex = seg_patex)), # Reuse cache!
+                                        seg_patex = seg_patex,    # Reuse cache!
+                                        leader = False)),
                          lambda seg_bound:
-                                 match(rest_exp, rest_pat,  seg_bound)),
+                                 match(rest_exp, rest_pat,  seg_bound, leader = False)),
                     lambda: segment_match(binds, exp, pat, end = (end or 0) + 1,
                                           seg_patex = seg_patex)) # Reuse cache!
 
@@ -115,7 +120,7 @@ def segment_match(binds, exp, pat, end = None, seg_patex = None):
 ## type-driven variable naming is not good enough, because:
 ## 1. type narrows down the case analysis chain (of which there is a lot)
 ## 2. expressions also need typing..
-def match(exp, pat, bound = None, seg_patex = None):
+def match(exp, pat, bound = None, seg_patex = None, leader = True):
         bound = dict() if bound is None else bound
         def error_bad_pattern(pat): raise Exception("Bad pattern: %s." % (pat,))
         def getname(pat):           return ((None, pat) if not isinstance(pat, dict) else
@@ -124,10 +129,10 @@ def match(exp, pat, bound = None, seg_patex = None):
         name, pat = getname(pat)
         binds = (bound, name)
         return \
-            (error_bad_pattern(pat)                               if isinstance(pat, list)  else
-             test(namep(exp), binds, lambda: prod(exp), exp, pat) if atom(pat)              else # pat tuple, exp t
-             test(exp == (),  binds, lambda: prod(exp), exp, pat) if pat == ()              else # pat tupleful, exp t
-             fail(bound, exp, pat)                                if atom(exp)              else # exp tuple, pat tupleful
+            (error_bad_pattern(pat)                                         if isinstance(pat, list) else
+             test(match_atom(exp, pat), binds, lambda: prod(exp), exp, pat) if atom(pat) else # pat tuple,    exp t
+             fail(bound, exp, pat)                                          if atom(exp) else # pat tuple,    exp tuple
+             test(exp == (),            binds, lambda: prod(exp), exp, pat) if pat == () else # pat tupleful, exp tuple
              (lambda pat0name, pat0:
                       (equo(name, exp,                                                   # pat   leadsed tupleful, exp tuple
                             segment_match((bound, pat0name), exp, (pat0,) + pat[1:],
@@ -136,13 +141,18 @@ def match(exp, pat, bound = None, seg_patex = None):
                        fail(bound, exp, pat)              if exp == ()              else # pat and exp are tuplefuls
                        equo(name, exp,
                             crec(              match(exp[0],  pat[0],  bound),
-                                 lambda b0und: match(exp[1:], pat[1:], b0und)))))
+                                 (lambda b0und: match(exp[1:], pat[1:], b0und, leader = False)), 
+                                 leader = leader))))
              (*getname(pat[0])))
+print("\n; compiled and loaded.")
+###
+### app
+###
 
 ###
 ### testing
 ###
-def test_mid_complex():
+def run_mid_complex():
         pat = ({"headname":name},
                   {"headtupname":(name,)},
                            {"varitupseq":[(name, [name])]},
@@ -150,7 +160,9 @@ def test_mid_complex():
                                                                            {"nameseq":[name]},
                                                                                 {"tailname":name})
         exp =             (1,    (1,),   (1,), (1, 1), (1, 1, 1), (1,), (1,), (1,),   1, 1, 1)
-        b, r, f = match(exp, pat)
+        return match(exp, pat)
+def test_mid_complex():
+        b, r, f = run_mid_complex()
         return (f is None and
                 b == {'headname': 1,
                       'headtupname': (1,),
@@ -159,7 +171,5 @@ def test_mid_complex():
                       'nameseq': (1, 1),
                       'tailname': 1 })
 
-print("\n; compiled and loaded.")
-assert(test_mid_complex())
-
-
+assert(run_mid_complex())
+print("; MID-COMPLEX: passed")
