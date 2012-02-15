@@ -54,8 +54,8 @@ def dprint(ctl, *args):
 def succ(bound:dict, res:"result"):              return bound, res, None
 def fail(bound:dict, exp:"expr", pat:"pattern"): return bound, exp, pat
 def fcomb(fcomb:"marker", x:"expr", y:"expr"):   return fcomb, x, y
-def test(test:bool, binds:dict, res:"result", exp:"expr", pat:"pattern", if_exists:{_error, _replace} = _error):
-        return (succ(bind(exp, *binds, if_exists = if_exists), res) if test else
+def test(test:bool, binds:dict, resf:"() -> result", exp:"expr", pat:"pattern", if_exists:{_error, _replace} = _error):
+        return (succ(bind(exp, *binds, if_exists = if_exists), resf()) if test else
                 fail(binds[0], exp, pat))
 def equo(name:str, exp:"expr", x:("bound", "result/failexp", "fail")) -> ("bound", "result/failexp", "fail"):
         "Apply result binding, if any."
@@ -100,7 +100,7 @@ def segment_match(binds, exp, pat, end = None, seg_patex = None):
                         return b, r, f
         seg_patex = (tuple(seg_pat) + (list(seg_pat),)) if seg_patex is None else seg_patex # We'll MATCH against this
         return coor(crec((lambda seg_b, seg_r, seg_f:
-                                  test(seg_f is None, (seg_b, name), seg_r, seg_exp, seg_f,
+                                  test(seg_f is None, (seg_b, name), lambda: seg_r, seg_exp, seg_f,
                                        if_exists = _replace))
                          (*match(       seg_exp, seg_patex, bound,
                                         seg_patex = seg_patex)), # Reuse cache!
@@ -120,11 +120,11 @@ def match(exp, pat, bound = None, seg_patex = None):
                                             ((len(pat) == 1 and tuple(pat.items())[0]) or
                                              error_bad_pattern(pat)))
         name, pat = getname(pat)
+        binds = (bound, name)
         return \
             (error_bad_pattern(pat)                               if isinstance(pat, list)  else
-             test(namep(exp), (bound, name), prod(exp), exp, pat) if atom(pat)              else # pat tuple, exp t
-             ##################### Shouldn't ^v be only evaluated upon success?  Yeah, later.
-             test(exp == (),  (bound, name), prod(exp), exp, pat) if pat == ()              else # pat tupleful, exp t
+             test(namep(exp), binds, lambda: prod(exp), exp, pat) if atom(pat)              else # pat tuple, exp t
+             test(exp == (),  binds, lambda: prod(exp), exp, pat) if pat == ()              else # pat tupleful, exp t
              fail(bound, exp, pat)                                if atom(exp)              else # exp tuple, pat tupleful
              (lambda pat0name, pat0:
                       (equo(name, exp,                                                   # pat   leadsed tupleful, exp tuple
