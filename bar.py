@@ -22,6 +22,7 @@ def dprint(ctl, *args):
 
 ## utility part
 def identity(x):    return x
+def integerp(x):    return isinstance(x, int)
 def listp(x):       return isinstance(x, tuple)
 def atom(x):        return not isinstance(x, tuple)
 def cut(n, xs):     return xs[0:n], xs[len(xs) if n is None else n:]
@@ -59,7 +60,6 @@ def maybe_destructure_binding(pat):
 def succ(bound, res):      return bound, res, None
 def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
 def fail(bound, exp, pat): return bound, exp, pat
-def fcomb(fcomb, x, y):    return fcomb, x, y
 def test(test, bound, name, resf:"() -> result", exp, fail_pat, if_exists:{_error, _replace} = _error):
         return (succ(bind(exp, bound, name, if_exists = if_exists), resf()) if test else
                 fail(bound, exp, fail_pat))
@@ -68,12 +68,12 @@ def equo(name, exp, x):
         b, r, f = x
         return ((bind(exp, b, name), r, f) if f is None else
                 x) # propagate failure as-is
-def coor(l0ret, lR):
+def coor(l0ret, lR, leader = False):
         l0b, l0r, l0f = l0ret
         if l0f is None: return succ(l0b, l0r)
         lRb, lRr, lRf = lR()
         if lRf is None: return succ(lRb, lRr)
-        return fail(l0b, lRr, fcomb("<OR>", l0f, "<other segment variants>"))
+        return fail(l0b, lRr, forc(l0f, lRf, leader))
 def crec(l0res, lR, leader = False):
         l0b, l0r, l0f = l0res
         if l0f is not None: return fail(*l0res)
@@ -88,6 +88,8 @@ def complex_pat_p(x):
         return x and isinstance(x[0], str) and x[0] in __complex_patterns__
 def match_complex(bound, name, exp, pat, leader, aux):
         return __complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux)
+def matcher_not_implemented(bound, name, exp, pat, leader, aux):
+        raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
 
 def segment_match(bound, name, exp, pat, leader, aux, end = None):
         def constant_pat_p(pat):
@@ -113,7 +115,8 @@ def segment_match(bound, name, exp, pat, leader, aux, end = None):
                          lambda seg_bound:
                                  _match(seg_bound, None, rest_exp,  rest_pat,  False, None),
                          leader = leader),
-                    lambda: segment_match(  bound, name,      exp,       pat, leader,  aux, end = (end or 0) + 1))
+                    lambda: segment_match(  bound, name,      exp,       pat, leader,  aux, end = (end or 0) + 1),
+                    leader = leader)
 
 register_complex_matcher(some, segment_match)
 
@@ -155,12 +158,16 @@ print("\n; compiled and loaded.")
 ### app
 ###
 newline = "newline"
+indent  = "indent"
+form    = "form"
 def prod(x, leader):
         return str(x) if x or leader else ""
 def comb(x, y, leader):
         bs, be = ("(", ")") if leader else ("", "")
         py = prod(y, False)
         return bs + prod(x, False) + ((" " + py) if py else "") + be
+def forc(x, y, leader):
+        return (("OR",) if leader else ()) + (x,) + y
 def preprocess(pat):
         "Expand syntactic sugar."
         def prep_binding(b):
@@ -168,12 +175,37 @@ def preprocess(pat):
                 return {k: preprocess(v)}
         return (((some,) + preprocess(tuple(pat))) if isinstance(pat, list)                else
                 prep_binding(pat)                  if isinstance(pat, dict)                else
+                (form,)                            if pat == form                          else
+                (newline, 0)                       if pat == "\n"                          else
+                (newline, pat)                     if integerp(pat)                        else
+                (indent, 1)                        if pat == " "                           else
                 pat                                if not (pat and isinstance(pat, tuple)) else
                 (preprocess(pat[0]),) + preprocess(pat[1:]))
 def nonliteral_atom_p(x):
         return x == "name"
 def match_atom(exp, pat):
         return isinstance(exp, int)
+pp_depth = 0
+def process_newline(bound, name, exp, pat, leader, aux):
+       n, tail = pat[0], pat[1:]
+       try:
+               pp_depth += n
+               return post(_match(bind(pp_depth, bound, name), None, exp, tail, leader, aux),
+                           lambda r: "\n" + (" " * pp_depth) + r)
+       finally:
+               pp_depth -= n
+def process_indent(bound, name, exp, pat, leader, aux):
+       n, tail = pat[0], pat[1:]
+       try:
+               pp_depth += n
+               return post(_match(bind(pp_depth, bound, name), None, exp, tail, leader, aux),
+                           lambda r: (" " * n) + r)
+       finally:
+               pp_depth -= n
+
+register_complex_matcher(newline, process_newline)
+register_complex_matcher(indent,  process_indent)
+register_complex_matcher(form,    matcher_not_implemented)
 
 ###
 ### testing
