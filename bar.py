@@ -76,12 +76,12 @@ def crec(l0res, lR, leader = False):
 
 def complex_pat_p(x):
         return x and isinstance(x[0], str) and x[0] in { "some" }
-def match_complex(binds, exp, pat, aux = None):
+def match_complex(binds, exp, pat, aux = None, leader = False):
         complex = pat[0]
         if complex[0] == "some":
-                return segment_match(binds, exp, pat, aux)
+                return segment_match(binds, exp, pat, aux, leader = leader)
 
-def segment_match(binds, exp, pat, aux, end = None):
+def segment_match(binds, exp, pat, aux, end = None, leader = False):
         def constant_pat_p(pat):
                 def nonconstant_pat_p(x): return atomvarp(x) or isinstance(x, (list, tuple))
                 return not nonconstant_pat_p(undict_val(pat) if isinstance(pat, dict) else
@@ -98,10 +98,11 @@ def segment_match(binds, exp, pat, aux, end = None):
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
         if not seg_exp:
-                b, r, f =  crec(succ(bind((), *binds), ## this binding is actualised by outer invocations, if any
-                                     prod(seg_exp)),   ## ..same goes for the result.
+                b, r, f =  crec(succ(bind((), *binds),      ## this binding is actualised by outer invocations, if any
+                                     prod(seg_exp, False)), ## ..same goes for the result.
                                 lambda seg_bound:
-                                        _match(rest_exp, rest_pat, seg_bound, None, False))
+                                        _match(rest_exp, rest_pat, seg_bound, None, False),
+                                leader = leader)
                 if f is None:
                         return b, r, f
         aux = (seg_pat + (("some",) + seg_pat,)) if aux is None else aux # We'll MATCH against this
@@ -110,8 +111,9 @@ def segment_match(binds, exp, pat, aux, end = None):
                                        if_exists = _replace))
                          (*_match(       seg_exp, aux, bound, aux, False)),
                          lambda seg_bound:
-                                 _match(rest_exp, rest_pat,  seg_bound, None, False)),
-                    lambda: segment_match(binds, exp, pat, aux, end = (end or 0) + 1))
+                                 _match(rest_exp, rest_pat,  seg_bound, None, False),
+                         leader = leader),
+                    lambda: segment_match(binds, exp, pat, aux, end = (end or 0) + 1, leader = leader))
 
 ## About the vzy33c0's idea:
 ## type-driven variable naming is not good enough, because:
@@ -135,10 +137,10 @@ def _match(exp, pat, bound, aux, leader):
         return \
             (test((match_atom(exp, pat) if atomp else
                    exp == ()),
-                  (bound, name), lambda: prod(exp), exp, pat) if atomp or null else
+                  (bound, name), lambda: prod(exp, leader), exp, pat) if atomp or null else
              (lambda pat0name, pat0, patR, clean_pat:
                       (equo(name, exp,
-                            match_complex((bound, pat0name), exp, clean_pat, aux))
+                            match_complex((bound, pat0name), exp, clean_pat, aux, leader = leader))
                                                           if complex_pat_p(pat0)    else
                        fail(bound, exp, pat)              if atom(exp) or exp == () else      # pat tupleful, exp tupleful
                        equo(name, exp,
@@ -155,12 +157,12 @@ print("\n; compiled and loaded.")
 ###
 ### app
 ###
-def prod(x):
-        return str(x) if x else ""
+def prod(x, leader):
+        return str(x) if x or leader else ""
 def comb(x, y, leader):
         bs, be = ("(", ")") if leader else ("", "")
-        py = prod(y)
-        return bs + prod(x) + ((" " + py) if py else "") + be
+        py = prod(y, False)
+        return bs + prod(x, False) + ((" " + py) if py else "") + be
 def preprocess(pat):
         "Expand syntactic sugar."
         def prep_binding(b):
