@@ -99,7 +99,7 @@ def match_complex(binds, exp, pat, aux = None):
         if complex[0] == "some":
                 raise Exception("Not implemented.")
 
-def segment_match(binds, exp, pat, end = None, seg_patex = None):
+def segment_match(binds, exp, pat, end = None, aux = None):
         def constant_pat_p(pat):
                 def nonconstant_pat_p(x): return atomvarp(x) or isinstance(x, (list, tuple))
                 return not nonconstant_pat_p(undict_val(pat) if isinstance(pat, dict) else
@@ -122,23 +122,23 @@ def segment_match(binds, exp, pat, end = None, seg_patex = None):
                                         match(rest_exp, rest_pat, seg_bound, leader = False))
                 if f is None:
                         return b, r, f
-        seg_patex = (tuple(seg_pat) + (list(seg_pat),)) if seg_patex is None else seg_patex # We'll MATCH against this
+        aux = (tuple(seg_pat) + (list(seg_pat),)) if aux is None else aux # We'll MATCH against this
         return coor(crec((lambda seg_b, seg_r, seg_f:
                                   test(seg_f is None, (seg_b, name), lambda: seg_r, seg_exp, seg_f,
                                        if_exists = _replace))
-                         (*match(       seg_exp, seg_patex, bound,
-                                        seg_patex = seg_patex,    # Reuse cache!
+                         (*match(       seg_exp, aux, bound,
+                                        aux = aux,    # Reuse cache!
                                         leader = False)),
                          lambda seg_bound:
                                  match(rest_exp, rest_pat,  seg_bound, leader = False)),
                     lambda: segment_match(binds, exp, pat, end = (end or 0) + 1,
-                                          seg_patex = seg_patex)) # Reuse cache!
+                                          aux = aux)) # Reuse cache!
 
 ## About the vzy33c0's idea:
 ## type-driven variable naming is not good enough, because:
 ## 1. type narrows down the case analysis chain (of which there is a lot)
 ## 2. expressions also need typing..
-def match(exp, pat, bound = None, seg_patex = None, leader = True):
+def match(exp, pat, bound = None, aux = None, leader = True):
         bound = dict() if bound is None else bound
         def error_bad_pattern(pat): raise Exception("Bad pattern: %s." % (pat,))
         def getname(pat):           return ((None, pat) if not isinstance(pat, dict) else
@@ -154,7 +154,7 @@ def match(exp, pat, bound = None, seg_patex = None, leader = True):
              (lambda pat0name, pat0:
                       (equo(name, exp,                                                   # pat   leadsed tupleful, exp tuple
                             segment_match((bound, pat0name), exp, (pat0,) + pat[1:],
-                                          seg_patex)) # pass cache through
+                                          aux)) # pass cache through
                                                           if isinstance(pat0, list) else # pat noleadseg tupleful, exp tuple
                        fail(bound, exp, pat)              if exp == ()              else # pat and exp are tuplefuls
                        equo(name, exp,
