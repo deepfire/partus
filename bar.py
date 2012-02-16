@@ -21,6 +21,7 @@ def dprint(ctl, *args):
         print(" " * (depth * 2) + (ctl % args))
 
 ## utility part
+def identity(x):    return x
 def namep(x):       return isinstance(x, int)
 def atom(x):        return not isinstance(x, tuple)
 def atomvarp(x):    return x == "name"
@@ -37,6 +38,15 @@ def comb(x, y, leader):
         bs, be = ("(", ")") if leader else ("", "")
         py = prod(y)
         return bs + prod(x) + ((" " + py) if py else "") + be
+def preprocess(pat):
+        "Expand syntactic sugar."
+        def prep_binding(b):
+                k, v = tuple(b.items())[0]
+                return {k: preprocess(v)}
+        return ((("some",) + preprocess(tuple(pat))) if isinstance(pat, list)                else
+                prep_binding(pat)                    if isinstance(pat, dict)                else
+                pat                                  if not (pat and isinstance(pat, tuple)) else
+                (preprocess(pat[0]),) + preprocess(pat[1:]))
 def match_atom(exp, pat):
         return namep(exp)
 ## A large part of work is development of a calling convention.
@@ -81,6 +91,13 @@ def crec(l0res, lR, leader = False):
         lRres = lRb, lRr, lRf = lR(l0b)
         if lRf is not None: return fail(*lRres)
         return succ(lRb, comb(l0r, lRr, leader))
+
+def complex_pat_p(x):
+        return x and isinstance(x[0], str) and x[0] in { "some" }
+def match_complex(binds, exp, pat, aux = None):
+        complex, *rest = pat
+        if complex[0] == "some":
+                raise Exception("Not implemented.")
 
 def segment_match(binds, exp, pat, end = None, seg_patex = None):
         def constant_pat_p(pat):
