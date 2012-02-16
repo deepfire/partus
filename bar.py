@@ -31,24 +31,6 @@ def position(x, xs):
                 if x == ix: return i
 def undict_val(xs): return tuple(xs.items())[0][1]
 
-## app-specific part
-def prod(x):
-        return str(x) if x else ""
-def comb(x, y, leader):
-        bs, be = ("(", ")") if leader else ("", "")
-        py = prod(y)
-        return bs + prod(x) + ((" " + py) if py else "") + be
-def preprocess(pat):
-        "Expand syntactic sugar."
-        def prep_binding(b):
-                k, v = tuple(b.items())[0]
-                return {k: preprocess(v)}
-        return ((("some",) + preprocess(tuple(pat))) if isinstance(pat, list)                else
-                prep_binding(pat)                    if isinstance(pat, dict)                else
-                pat                                  if not (pat and isinstance(pat, tuple)) else
-                (preprocess(pat[0]),) + preprocess(pat[1:]))
-def match_atom(exp, pat):
-        return namep(exp)
 ## A large part of work is development of a calling convention.
 ## Multiple values, as a concept, is an important, but basic step
 ## in the general direction.
@@ -97,15 +79,15 @@ def complex_pat_p(x):
 def match_complex(binds, exp, pat, aux = None):
         complex, *rest = pat
         if complex[0] == "some":
-                raise Exception("Not implemented.")
+                return segment_match(binds, exp, pat, aux)
 
-def segment_match(binds, exp, pat, end = None, aux = None):
+def segment_match(binds, exp, pat, aux, end = None):
         def constant_pat_p(pat):
                 def nonconstant_pat_p(x): return atomvarp(x) or isinstance(x, (list, tuple))
                 return not nonconstant_pat_p(undict_val(pat) if isinstance(pat, dict) else
                                              pat)
         bound, name = binds
-        [*seg_pat], *rest_pat = pat # ensure that it destructures well
+        (_, *seg_pat), *rest_pat = pat # ensure that it destructures well
         seg_pat, rest_pat = tuple(seg_pat), tuple(rest_pat)
         end = (end                        if end is not None                          else
                position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
@@ -122,15 +104,14 @@ def segment_match(binds, exp, pat, end = None, aux = None):
                                         _match(rest_exp, rest_pat, seg_bound, None, False))
                 if f is None:
                         return b, r, f
-        aux = (tuple(seg_pat) + (list(seg_pat),)) if aux is None else aux # We'll MATCH against this
+        aux = (seg_pat + (("some",) + seg_pat,)) if aux is None else aux # We'll MATCH against this
         return coor(crec((lambda seg_b, seg_r, seg_f:
                                   test(seg_f is None, (seg_b, name), lambda: seg_r, seg_exp, seg_f,
                                        if_exists = _replace))
                          (*_match(       seg_exp, aux, bound, aux, False)),
                          lambda seg_bound:
                                  _match(rest_exp, rest_pat,  seg_bound, None, False)),
-                    lambda: segment_match(binds, exp, pat, end = (end or 0) + 1,
-                                          aux = aux)) # Reuse cache!
+                    lambda: segment_match(binds, exp, pat, aux, end = (end or 0) + 1))
 
 ## About the vzy33c0's idea:
 ## type-driven variable naming is not good enough, because:
@@ -141,41 +122,56 @@ def _match(exp, pat, bound, aux, leader):
         def maybe_getname(pat):     return ((None, pat)           if not isinstance(pat, dict) else
                                             tuple(pat.items())[0] if len(pat) == 1             else
                                             error_bad_pattern(pat))
-        def maybe_get0name(pat):
-                name, value = maybe_getname(pat[0])
-                return name, value, (((value,) + pat[1:]) if name is not None else
-                                     pat) ## Attempt to avoid consing..
-        name, pat = maybe_getname(pat)
-        binds = (bound, name)
+        def maybe_get0Rname(pat):
+                pat0, *patR = pat
+                name, pat0 = maybe_getname(pat0)
+                return name, pat0, tuple(patR), (((pat0,) + tuple(patR)) if name is not None else
+                                                 pat) ## Attempt to avoid consing..
         ## I just caught myself feeling so comfortable thinking about life matters,
         ## while staring at a screenful of code.  In "real" life I'd be pressed by
         ## the acute sense of time being wasted..
+        name, pat = maybe_getname(pat)
+        atomp, null = atom(pat), pat == ()
         return \
-            (error_bad_pattern(pat)                                         if isinstance(pat, list) else
-             test(match_atom(exp, pat), binds, lambda: prod(exp), exp, pat) if atom(pat) else # pat tuple,    exp t
-             fail(bound, exp, pat)                                          if atom(exp) else # pat tuple,    exp tuple
-             test(exp == (),            binds, lambda: prod(exp), exp, pat) if pat == () else # pat tupleful, exp tuple
-             (lambda pat0name, pat0, clean_pat:
-                      (equo(name, exp,                                                   # pat   leadseg tupleful, exp tuple
-                            segment_match((bound, pat0name), exp, clean_pat, aux))
-                                                          if isinstance(pat0, list) else # pat noleadseg tupleful, exp tuple
-                       # equo(name, exp,
-                       #      match_complex((bound, pat0name), exp, pat, aux))
-                       #                                    if complex_pat_p(pat)     else
-                       fail(bound, exp, pat)              if exp == ()              else # pat and exp are tuplefuls
+            (test((match_atom(exp, pat) if atomp else
+                   exp == ()),
+                  (bound, name), lambda: prod(exp), exp, pat) if atomp or null else
+             (lambda pat0name, pat0, patR, clean_pat:
+                      (equo(name, exp,
+                            match_complex((bound, pat0name), exp, clean_pat, aux))
+                                                          if complex_pat_p(pat0)    else
+                       fail(bound, exp, pat)              if atom(exp) or exp == () else      # pat tupleful, exp tupleful
                        equo(name, exp,
-                            crec(               _match(exp[0],  pat[0],  bound, None, True),
-                                 (lambda b0und: _match(exp[1:], pat[1:], b0und, None, False)), 
+                            crec(               _match(exp[0],  pat[0], bound, None, True),
+                                 (lambda b0und: _match(exp[1:], patR,   b0und, None, False)),
                                  leader = leader))))
-             (*maybe_get0name(pat)))
+             (*maybe_get0Rname(pat)))
 
 def match(exp, pat):
-        return _match(exp, identity(pat), dict(), None, True)
+        prepped = preprocess(pat)
+        return _match(exp, prepped, dict(), None, True)
 
 print("\n; compiled and loaded.")
 ###
 ### app
 ###
+def prod(x):
+        return str(x) if x else ""
+def comb(x, y, leader):
+        bs, be = ("(", ")") if leader else ("", "")
+        py = prod(y)
+        return bs + prod(x) + ((" " + py) if py else "") + be
+def preprocess(pat):
+        "Expand syntactic sugar."
+        def prep_binding(b):
+                k, v = tuple(b.items())[0]
+                return {k: preprocess(v)}
+        return ((("some",) + preprocess(tuple(pat))) if isinstance(pat, list)                else
+                prep_binding(pat)                    if isinstance(pat, dict)                else
+                pat                                  if not (pat and isinstance(pat, tuple)) else
+                (preprocess(pat[0]),) + preprocess(pat[1:]))
+def match_atom(exp, pat):
+        return namep(exp)
 
 ###
 ### testing
