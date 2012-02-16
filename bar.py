@@ -119,18 +119,16 @@ def segment_match(binds, exp, pat, end = None, aux = None):
                 b, r, f =  crec(succ(bind((), *binds), ## this binding is actualised by outer invocations, if any
                                      prod(seg_exp)),   ## ..same goes for the result.
                                 lambda seg_bound:
-                                        match(rest_exp, rest_pat, seg_bound, leader = False))
+                                        _match(rest_exp, rest_pat, seg_bound, None, False))
                 if f is None:
                         return b, r, f
         aux = (tuple(seg_pat) + (list(seg_pat),)) if aux is None else aux # We'll MATCH against this
         return coor(crec((lambda seg_b, seg_r, seg_f:
                                   test(seg_f is None, (seg_b, name), lambda: seg_r, seg_exp, seg_f,
                                        if_exists = _replace))
-                         (*match(       seg_exp, aux, bound,
-                                        aux = aux,    # Reuse cache!
-                                        leader = False)),
+                         (*_match(       seg_exp, aux, bound, aux, False)),
                          lambda seg_bound:
-                                 match(rest_exp, rest_pat,  seg_bound, leader = False)),
+                                 _match(rest_exp, rest_pat,  seg_bound, None, False)),
                     lambda: segment_match(binds, exp, pat, end = (end or 0) + 1,
                                           aux = aux)) # Reuse cache!
 
@@ -138,7 +136,7 @@ def segment_match(binds, exp, pat, end = None, aux = None):
 ## type-driven variable naming is not good enough, because:
 ## 1. type narrows down the case analysis chain (of which there is a lot)
 ## 2. expressions also need typing..
-def match(exp, pat, bound = None, aux = None, leader = True):
+def _match(exp, pat, bound, aux, leader):
         bound = dict() if bound is None else bound
         def error_bad_pattern(pat): raise Exception("Bad pattern: %s." % (pat,))
         def getname(pat):           return ((None, pat) if not isinstance(pat, dict) else
@@ -146,6 +144,9 @@ def match(exp, pat, bound = None, aux = None, leader = True):
                                              error_bad_pattern(pat)))
         name, pat = getname(pat)
         binds = (bound, name)
+        ## I just caught myself feeling so comfortable thinking about life matters,
+        ## while staring at a screenful of code.  In "real" life I'd be pressed by
+        ## the acute sense of time being wasted..
         return \
             (error_bad_pattern(pat)                                         if isinstance(pat, list) else
              test(match_atom(exp, pat), binds, lambda: prod(exp), exp, pat) if atom(pat) else # pat tuple,    exp t
@@ -158,10 +159,13 @@ def match(exp, pat, bound = None, aux = None, leader = True):
                                                           if isinstance(pat0, list) else # pat noleadseg tupleful, exp tuple
                        fail(bound, exp, pat)              if exp == ()              else # pat and exp are tuplefuls
                        equo(name, exp,
-                            crec(              match(exp[0],  pat[0],  bound),
-                                 (lambda b0und: match(exp[1:], pat[1:], b0und, leader = False)), 
+                            crec(               _match(exp[0],  pat[0],  bound, None, True),
+                                 (lambda b0und: _match(exp[1:], pat[1:], b0und, None, False)), 
                                  leader = leader))))
              (*getname(pat[0])))
+def match(exp, pat):
+        return _match(exp, identity(pat), {}, None, True)
+
 print("\n; compiled and loaded.")
 ###
 ### app
