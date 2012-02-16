@@ -35,6 +35,7 @@ def undict_val(xs): return tuple(xs.items())[0][1]
 ## in the general direction.
                 
 ## generic part
+some     = "some"
 _error   = "error"
 _replace = "replace"
 def bind(value, bound, name, if_exists:{_error, _replace} = _error) -> dict:
@@ -97,7 +98,7 @@ def segment_match(binds, exp, pat, leader, aux, end = None):
                 return fail(bound, exp, pat)
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
-        aux = (seg_pat + (("some",) + seg_pat,)) if aux is None else aux # We'll MATCH against this
+        aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
         return coor(crec((lambda seg_b, seg_r, seg_f:
                                   test(seg_f is None, (seg_b, name), (lambda: seg_r), seg_exp, seg_f,
                                        if_exists = _replace))
@@ -108,7 +109,7 @@ def segment_match(binds, exp, pat, leader, aux, end = None):
                          leader = leader),
                     lambda: segment_match(binds, exp, pat, leader, aux, end = (end or 0) + 1))
 
-register_complex_matcher("some", segment_match)
+register_complex_matcher(some, segment_match)
 
 ## About the vzy33c0's idea:
 ## type-driven variable naming is not good enough, because:
@@ -163,9 +164,9 @@ def preprocess(pat):
         def prep_binding(b):
                 k, v = tuple(b.items())[0]
                 return {k: preprocess(v)}
-        return ((("some",) + preprocess(tuple(pat))) if isinstance(pat, list)                else
-                prep_binding(pat)                    if isinstance(pat, dict)                else
-                pat                                  if not (pat and isinstance(pat, tuple)) else
+        return (((some,) + preprocess(tuple(pat))) if isinstance(pat, list)                else
+                prep_binding(pat)                  if isinstance(pat, dict)                else
+                pat                                if not (pat and isinstance(pat, tuple)) else
                 (preprocess(pat[0]),) + preprocess(pat[1:]))
 def nonliteral_atom_p(x):
         return x == "name"
