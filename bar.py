@@ -164,13 +164,15 @@ def run_mid_complex():
         return match(exp, pat)
 def test_mid_complex():
         b, r, f = run_mid_complex()
-        return (f is None and
-                b == {'headname': 1,
-                      'headtupname': (1,),
-                      'varitupseq': ((1,), (1, 1), (1, 1, 1)),
-                      'fix1tupseq': ((1,), (1,), (1,)),
-                      'nameseq': (1, 1),
-                      'tailname': 1 })
+        return (f is None,
+                b == { 'headname': 1,
+                       'headtupname': (1,),
+                       'varitupseq': ((1,), (1, 1), (1, 1, 1)),
+                       'fix1tupseq': ((1,), (1,), (1,)),
+                       'nameseq': (1, 1),
+                       'tailname': 1 })
 
-assert(run_mid_complex())
+nofail, bound_good = test_mid_complex()
+assert(nofail)
+assert(bound_good)
 print("; MID-COMPLEX: passed")
