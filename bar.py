@@ -137,7 +137,6 @@ def segment_match(binds, exp, pat, end = None, aux = None):
 ## 1. type narrows down the case analysis chain (of which there is a lot)
 ## 2. expressions also need typing..
 def _match(exp, pat, bound, aux, leader):
-        bound = dict() if bound is None else bound
         def error_bad_pattern(pat): raise Exception("Bad pattern: %s." % (pat,))
         def getname(pat):           return ((None, pat) if not isinstance(pat, dict) else
                                             ((len(pat) == 1 and tuple(pat.items())[0]) or
@@ -157,6 +156,9 @@ def _match(exp, pat, bound, aux, leader):
                             segment_match((bound, pat0name), exp, (pat0,) + pat[1:],
                                           aux)) # pass cache through
                                                           if isinstance(pat0, list) else # pat noleadseg tupleful, exp tuple
+                       # equo(name, exp,
+                       #      match_complex((bound, pat0name), exp, pat, aux))
+                       #                                    if complex_pat_p(pat)     else
                        fail(bound, exp, pat)              if exp == ()              else # pat and exp are tuplefuls
                        equo(name, exp,
                             crec(               _match(exp[0],  pat[0],  bound, None, True),
@@ -164,7 +166,7 @@ def _match(exp, pat, bound, aux, leader):
                                  leader = leader))))
              (*getname(pat[0])))
 def match(exp, pat):
-        return _match(exp, identity(pat), {}, None, True)
+        return _match(exp, identity(pat), dict(), None, True)
 
 print("\n; compiled and loaded.")
 ###
