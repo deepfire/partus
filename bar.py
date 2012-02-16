@@ -74,12 +74,20 @@ def coor(l0ret, lR, leader = False):
         lRb, lRr, lRf = lR()
         if lRf is None: return succ(lRb, lRr)
         return fail(l0b, lRr, forc(l0f, lRf, leader))
-def crec(l0res, lR, leader = False):
-        l0b, l0r, l0f = l0res
-        if l0f is not None: return fail(*l0res)
-        lRres = lRb, lRr, lRf = lR(l0b)
-        if lRf is not None: return fail(*lRres)
-        return succ(lRb, comb(l0r, lRr, leader))
+def crec(l0, lR, leader = False):
+        ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
+        failpat, failex, bound0, boundR = None, None, None, None
+        def try_produce_0():
+                nonlocal bound0, failex, failpat
+                bound0, failex, failpat = l0()
+                if failpat is None: return failex
+        def try_produce_R():
+                nonlocal boundR, failex, failpat
+                boundR, failex, failpat = lR(bound0)
+                if failpat is None: return failex
+        result = comb(try_produce_0, try_produce_R, leader)
+        return (succ(boundR, result) if failpat is None else
+                fail(boundR or bound0, failex, failpat))
 
 __complex_patterns__ = dict()
 def register_complex_matcher(name, matcher):
@@ -107,11 +115,12 @@ def segment_match(bound, name, exp, pat, leader, aux, end = None):
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
         aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-        return coor(crec((lambda seg_bound, seg_r, seg_fail_pat:
-                                  test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
-                                       if_exists = _replace))
-                         (*(succ(bind((), bound, name), prod((), False)) if seg_exp == () else
-                            _match(         bound, name,  seg_exp,       aux,  False,  aux))),
+        return coor(crec(lambda:
+                                 ((lambda seg_bound, seg_r, seg_fail_pat:
+                                           test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
+                                                if_exists = _replace))
+                                  (*(succ(bind((), bound, name), prod((), False)) if seg_exp == () else
+                                     _match(bound, name,  seg_exp,       aux,  False,  aux)))),
                          lambda seg_bound:
                                  _match(seg_bound, None, rest_exp,  rest_pat,  False, None),
                          leader = leader),
@@ -144,7 +153,7 @@ def _match(bound, name, exp, pat, leader, aux):
                                                  if complex_pat_p(pat0)    else
                        fail(bound, exp, pat)     if atom(exp) or exp == () else      # pat tupleful, exp tupleful
                        equo(name, exp,
-                            crec(               _match(bound, pat0name, exp[0],  pat0, True,  None),
+                            crec(lambda:        _match(bound, pat0name, exp[0],  pat0, True,  None),
                                  (lambda b0und: _match(b0und, None,     exp[1:], patR, False, None)),
                                  leader = leader))))
              (*maybe_get0Rname(pat)))
@@ -160,12 +169,6 @@ print("\n; compiled and loaded.")
 newline = "newline"
 indent  = "indent"
 form    = "form"
-def prod(x, leader):
-        return str(x) if x or leader else ""
-def comb(x, y, leader):
-        bs, be = ("(", ")") if leader else ("", "")
-        py = prod(y, False)
-        return bs + prod(x, False) + ((" " + py) if py else "") + be
 def forc(x, y, leader):
         return (("OR",) if leader else ()) + (x,) + y
 def preprocess(pat):
@@ -185,23 +188,50 @@ def nonliteral_atom_p(x):
         return x == "name"
 def match_atom(exp, pat):
         return isinstance(exp, int)
+pp_base_depth = 0
 pp_depth = 0
+def prod(x, leader):
+        return str(x) if x or leader else ""
+def comb(f0, fR, leader):
+        global pp_base_depth, pp_depth
+        acc = "(" if leader else ""
+        base_depth_save = pp_base_depth
+        try:
+                if leader:
+                        pp_base_depth = pp_base_depth + pp_depth + 1
+                res0 = f0()
+                if res0 is None: return
+                acc += res0
+                try:
+                        pp_depth += len(res0)
+                        resR = fR()
+                        if resR is None: return
+                        acc += resR
+                        acc += ")" if leader else ""
+                finally:
+                        pp_depth -= len(res0)
+        finally:
+                pp_base_depth = base_depth_save
+        return acc
 def process_newline(bound, name, exp, pat, leader, aux):
-       n, tail = pat[0], pat[1:]
-       try:
-               pp_depth += n
-               return post(_match(bind(pp_depth, bound, name), None, exp, tail, leader, aux),
-                           lambda r: "\n" + (" " * pp_depth) + r)
-       finally:
-               pp_depth -= n
+        global pp_base_depth, pp_depth
+        n, tail = pat[0], pat[1:]
+        try:
+                pp_base_depth += n
+                pp_depth = 0
+                return post(_match(bind(pp_base_depth, bound, name), None, exp, tail, leader, aux),
+                            lambda r: "\n" + (" " * pp_base_depth) + r)
+        finally:
+                pp_base_depth -= n
 def process_indent(bound, name, exp, pat, leader, aux):
-       n, tail = pat[0], pat[1:]
-       try:
-               pp_depth += n
-               return post(_match(bind(pp_depth, bound, name), None, exp, tail, leader, aux),
-                           lambda r: (" " * n) + r)
-       finally:
-               pp_depth -= n
+        global pp_base_depth, pp_depth
+        n, tail = pat[0], pat[1:]
+        try:
+                pp_depth += n
+                return post(_match(bind(pp_depth, bound, name), None, exp, tail, leader, aux),
+                            lambda r: (" " * n) + r)
+        finally:
+                pp_depth -= n
 
 register_complex_matcher(newline, process_newline)
 register_complex_matcher(indent,  process_indent)
