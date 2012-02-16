@@ -138,10 +138,14 @@ def segment_match(binds, exp, pat, end = None, aux = None):
 ## 2. expressions also need typing..
 def _match(exp, pat, bound, aux, leader):
         def error_bad_pattern(pat): raise Exception("Bad pattern: %s." % (pat,))
-        def getname(pat):           return ((None, pat) if not isinstance(pat, dict) else
-                                            ((len(pat) == 1 and tuple(pat.items())[0]) or
-                                             error_bad_pattern(pat)))
-        name, pat = getname(pat)
+        def maybe_getname(pat):     return ((None, pat)           if not isinstance(pat, dict) else
+                                            tuple(pat.items())[0] if len(pat) == 1             else
+                                            error_bad_pattern(pat))
+        def maybe_get0name(pat):
+                name, value = maybe_getname(pat[0])
+                return name, value, ((value,) + pat[1:] if name is not None else
+                                     pat) ## Attempt to avoid consing..
+        name, pat = maybe_getname(pat)
         binds = (bound, name)
         ## I just caught myself feeling so comfortable thinking about life matters,
         ## while staring at a screenful of code.  In "real" life I'd be pressed by
@@ -151,10 +155,9 @@ def _match(exp, pat, bound, aux, leader):
              test(match_atom(exp, pat), binds, lambda: prod(exp), exp, pat) if atom(pat) else # pat tuple,    exp t
              fail(bound, exp, pat)                                          if atom(exp) else # pat tuple,    exp tuple
              test(exp == (),            binds, lambda: prod(exp), exp, pat) if pat == () else # pat tupleful, exp tuple
-             (lambda pat0name, pat0:
-                      (equo(name, exp,                                                   # pat   leadsed tupleful, exp tuple
-                            segment_match((bound, pat0name), exp, (pat0,) + pat[1:],
-                                          aux)) # pass cache through
+             (lambda pat0name, pat0, pat:
+                      (equo(name, exp,                                                   # pat   leadseg tupleful, exp tuple
+                            segment_match((bound, pat0name), exp, pat, aux))
                                                           if isinstance(pat0, list) else # pat noleadseg tupleful, exp tuple
                        # equo(name, exp,
                        #      match_complex((bound, pat0name), exp, pat, aux))
@@ -164,7 +167,8 @@ def _match(exp, pat, bound, aux, leader):
                             crec(               _match(exp[0],  pat[0],  bound, None, True),
                                  (lambda b0und: _match(exp[1:], pat[1:], b0und, None, False)), 
                                  leader = leader))))
-             (*getname(pat[0])))
+             (*maybe_get0name(pat)))
+
 def match(exp, pat):
         return _match(exp, identity(pat), dict(), None, True)
 
