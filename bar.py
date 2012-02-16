@@ -98,18 +98,11 @@ def segment_match(binds, exp, pat, aux, end = None, leader = False):
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
         aux = (seg_pat + (("some",) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-        if seg_exp == ():
-                b, r, f =  crec(succ(bind((), *binds),      ## this binding is actualised by outer invocations, if any
-                                     prod(seg_exp, False)), ## ..same goes for the result.
-                                lambda seg_bound:
-                                        _match(rest_exp, rest_pat, seg_bound, None, False),
-                                leader = leader)
-                if f is None:
-                        return b, r, f
         return coor(crec((lambda seg_b, seg_r, seg_f:
-                                  test(seg_f is None, (seg_b, name), lambda: seg_r, seg_exp, seg_f,
+                                  test(seg_f is None, (seg_b, name), (lambda: seg_r), seg_exp, seg_f,
                                        if_exists = _replace))
-                         (*_match(       seg_exp,      aux,      bound,  aux, False)),
+                         (*(succ(bind((), *binds), prod(seg_exp, False)) if not seg_exp else
+                            _match(      seg_exp,      aux,      bound,  aux, False))),
                          lambda seg_bound:
                                  _match(rest_exp, rest_pat,  seg_bound, None, False),
                          leader = leader),
