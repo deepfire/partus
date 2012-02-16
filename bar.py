@@ -31,9 +31,9 @@ def position(x, xs):
 def undict_val(xs): return tuple(xs.items())[0][1]
 
 ## app-specific part
-def prod(x:"expr") -> "result":
+def prod(x):
         return str(x) if x else ""
-def comb(x:"result", y:"result", leader:bool) -> "result":
+def comb(x, y, leader):
         bs, be = ("(", ")") if leader else ("", "")
         return bs + prod(x) + " " + prod(y) + be
 def match_atom(exp, pat):
@@ -45,7 +45,7 @@ def match_atom(exp, pat):
 ## generic part
 _error   = "error"
 _replace = "replace"
-def bind(value:"t", bound:dict, name:str, if_exists:{_error, _replace} = _error) -> dict:
+def bind(value, bound, name, if_exists:{_error, _replace} = _error) -> dict:
         def error_bound(x):
                 raise Exception("Rebinding %s from %s to %s." % (repr(name), repr(x), repr(value)))
         def error_keyword(name, bad, allowed):
@@ -57,24 +57,24 @@ def bind(value:"t", bound:dict, name:str, if_exists:{_error, _replace} = _error)
                 bound.update({name:value}); return bound
         elif if_exists is _error:     error_bound(bound[name])
         else:                         error_keyword("if_exists", if_exists, { _error, _replace })
-def succ(bound:dict, res:"result"):              return bound, res, None
-def fail(bound:dict, exp:"expr", pat:"pattern"): return bound, exp, pat
-def fcomb(fcomb:"marker", x:"expr", y:"expr"):   return fcomb, x, y
-def test(test:bool, binds:dict, resf:"() -> result", exp:"expr", pat:"pattern", if_exists:{_error, _replace} = _error):
+def succ(bound, res):              return bound, res, None
+def fail(bound, exp, pat): return bound, exp, pat
+def fcomb(fcomb, x, y):    return fcomb, x, y
+def test(test, binds, resf:"() -> result", exp, pat, if_exists:{_error, _replace} = _error):
         return (succ(bind(exp, *binds, if_exists = if_exists), resf()) if test else
                 fail(binds[0], exp, pat))
-def equo(name:str, exp:"expr", x:("bound", "result/failexp", "fail")) -> ("bound", "result/failexp", "fail"):
+def equo(name, exp, x):
         "Apply result binding, if any."
         b, r, f = x
         return ((bind(exp, b, name), r, f) if f is None else
                 x) # propagate failure as-is
-def coor(l0ret:("bound", "result/failexp", "fail"), lR:"() -> (b, r, f)"):
+def coor(l0ret, lR):
         l0b, l0r, l0f = l0ret
         if l0f is None: return succ(l0b, l0r)
         lRb, lRr, lRf = lR()
         if lRf is None: return succ(lRb, lRr)
         return fail(l0b, lRr, fcomb("<OR>", l0f, "<other segment variants>"))
-def crec(l0res:("bound", "result/failexp", "fail"), lR:"() -> (b, r, f)", leader:bool = False):
+def crec(l0res, lR, leader = False):
         l0b, l0r, l0f = l0res
         if l0f is not None: return fail(*l0res)
         lRres = lRb, lRr, lRf = lR(l0b)
