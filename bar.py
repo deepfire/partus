@@ -143,7 +143,7 @@ def _match(exp, pat, bound, aux, leader):
                                             error_bad_pattern(pat))
         def maybe_get0name(pat):
                 name, value = maybe_getname(pat[0])
-                return name, value, ((value,) + pat[1:] if name is not None else
+                return name, value, (((value,) + pat[1:]) if name is not None else
                                      pat) ## Attempt to avoid consing..
         name, pat = maybe_getname(pat)
         binds = (bound, name)
@@ -155,9 +155,9 @@ def _match(exp, pat, bound, aux, leader):
              test(match_atom(exp, pat), binds, lambda: prod(exp), exp, pat) if atom(pat) else # pat tuple,    exp t
              fail(bound, exp, pat)                                          if atom(exp) else # pat tuple,    exp tuple
              test(exp == (),            binds, lambda: prod(exp), exp, pat) if pat == () else # pat tupleful, exp tuple
-             (lambda pat0name, pat0, pat:
+             (lambda pat0name, pat0, clean_pat:
                       (equo(name, exp,                                                   # pat   leadseg tupleful, exp tuple
-                            segment_match((bound, pat0name), exp, pat, aux))
+                            segment_match((bound, pat0name), exp, clean_pat, aux))
                                                           if isinstance(pat0, list) else # pat noleadseg tupleful, exp tuple
                        # equo(name, exp,
                        #      match_complex((bound, pat0name), exp, pat, aux))
