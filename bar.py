@@ -22,9 +22,8 @@ def dprint(ctl, *args):
 
 ## utility part
 def identity(x):    return x
-def namep(x):       return isinstance(x, int)
+def listp(x):       return isinstance(x, tuple)
 def atom(x):        return not isinstance(x, tuple)
-def atomvarp(x):    return x == "name"
 def cut(n, xs):     return xs[0:n], xs[len(xs) if n is None else n:]
 def position(x, xs):
         for i, ix in enumerate(xs):
@@ -74,16 +73,17 @@ def crec(l0res, lR, leader = False):
         if lRf is not None: return fail(*lRres)
         return succ(lRb, comb(l0r, lRr, leader))
 
+__complex_patterns__ = dict()
+def register_complex_matcher(name, matcher):
+        __complex_patterns__[name] = matcher
 def complex_pat_p(x):
-        return x and isinstance(x[0], str) and x[0] in { "some" }
-def match_complex(binds, exp, pat, aux = None, leader = False):
-        complex = pat[0]
-        if complex[0] == "some":
-                return segment_match(binds, exp, pat, aux, leader = leader)
+        return x and isinstance(x[0], str) and x[0] in __complex_patterns__
+def match_complex(binds, exp, pat, leader, aux):
+        return __complex_patterns__[pat[0][0]](binds, exp, pat, leader, aux)
 
-def segment_match(binds, exp, pat, aux, end = None, leader = False):
+def segment_match(binds, exp, pat, leader, aux, end = None):
         def constant_pat_p(pat):
-                def nonconstant_pat_p(x): return atomvarp(x) or isinstance(x, (list, tuple))
+                def nonconstant_pat_p(x): return listp(x) or nonliteral_atom_p(x)
                 return not nonconstant_pat_p(undict_val(pat) if isinstance(pat, dict) else
                                              pat)
         bound, name = binds
@@ -106,7 +106,9 @@ def segment_match(binds, exp, pat, aux, end = None, leader = False):
                          lambda seg_bound:
                                  _match(rest_exp, rest_pat,  seg_bound, None, False),
                          leader = leader),
-                    lambda: segment_match(binds, exp, pat, aux, end = (end or 0) + 1, leader = leader))
+                    lambda: segment_match(binds, exp, pat, leader, aux, end = (end or 0) + 1))
+
+register_complex_matcher("some", segment_match)
 
 ## About the vzy33c0's idea:
 ## type-driven variable naming is not good enough, because:
@@ -133,7 +135,7 @@ def _match(exp, pat, bound, aux, leader):
                   (bound, name), lambda: prod(exp, leader), exp, pat) if atomp or null else
              (lambda pat0name, pat0, patR, clean_pat:
                       (equo(name, exp,
-                            match_complex((bound, pat0name), exp, clean_pat, aux, leader = leader))
+                            match_complex((bound, pat0name), exp, clean_pat, leader, aux))
                                                           if complex_pat_p(pat0)    else
                        fail(bound, exp, pat)              if atom(exp) or exp == () else      # pat tupleful, exp tupleful
                        equo(name, exp,
@@ -165,8 +167,10 @@ def preprocess(pat):
                 prep_binding(pat)                    if isinstance(pat, dict)                else
                 pat                                  if not (pat and isinstance(pat, tuple)) else
                 (preprocess(pat[0]),) + preprocess(pat[1:]))
+def nonliteral_atom_p(x):
+        return x == "name"
 def match_atom(exp, pat):
-        return namep(exp)
+        return isinstance(exp, int)
 
 ###
 ### testing
