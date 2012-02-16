@@ -77,7 +77,7 @@ def crec(l0res, lR, leader = False):
 def complex_pat_p(x):
         return x and isinstance(x[0], str) and x[0] in { "some" }
 def match_complex(binds, exp, pat, aux = None):
-        complex, *rest = pat
+        complex = pat[0]
         if complex[0] == "some":
                 return segment_match(binds, exp, pat, aux)
 
@@ -87,8 +87,8 @@ def segment_match(binds, exp, pat, aux, end = None):
                 return not nonconstant_pat_p(undict_val(pat) if isinstance(pat, dict) else
                                              pat)
         bound, name = binds
-        (_, *seg_pat), *rest_pat = pat # ensure that it destructures well
-        seg_pat, rest_pat = tuple(seg_pat), tuple(rest_pat)
+        ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
+        seg_pat, rest_pat = pat[0][1:], pat[1:]
         end = (end                        if end is not None                          else
                position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                0)
@@ -123,9 +123,9 @@ def _match(exp, pat, bound, aux, leader):
                                             tuple(pat.items())[0] if len(pat) == 1             else
                                             error_bad_pattern(pat))
         def maybe_get0Rname(pat):
-                pat0, *patR = pat
-                name, pat0 = maybe_getname(pat0)
-                return name, pat0, tuple(patR), (((pat0,) + tuple(patR)) if name is not None else
+                ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
+                (name, pat0), patR = maybe_getname(pat[0]), pat[1:]
+                return name, pat0, patR, (((pat0,) + patR) if name is not None else
                                                  pat) ## Attempt to avoid consing..
         ## I just caught myself feeling so comfortable thinking about life matters,
         ## while staring at a screenful of code.  In "real" life I'd be pressed by
