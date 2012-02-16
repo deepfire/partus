@@ -35,7 +35,8 @@ def prod(x):
         return str(x) if x else ""
 def comb(x, y, leader):
         bs, be = ("(", ")") if leader else ("", "")
-        return bs + prod(x) + " " + prod(y) + be
+        py = prod(y)
+        return bs + prod(x) + ((" " + py) if py else "") + be
 def match_atom(exp, pat):
         return namep(exp)
 ## A large part of work is development of a calling convention.
