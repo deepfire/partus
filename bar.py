@@ -177,11 +177,17 @@ def match_atom(exp, pat):
 ###
 ### testing
 ###
-def runtest(f, bindings, result):
-        b, r, f = f()
+_results = []
+def runtest(fun, bindings, result):
+        b, r, f = fun()
+        _results.append((fun, b, r, f))
         return (b == bindings,
                 r == result,
                 f is None)
+def results():
+        for fun, b, r, f in _results:
+                dprint("%15s bound: %s", fun.__name__, b)
+                dprint("%15s res: %s", fun.__name__, r)
 def empty():
         return match((), {"whole":()})
 bound_good, result_good, nofail = runtest(empty,
