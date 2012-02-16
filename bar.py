@@ -99,15 +99,15 @@ def segment_match(binds, exp, pat, leader, aux, end = None):
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
         aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-        return coor(crec((lambda seg_b, seg_r, seg_f:
-                                  test(seg_f is None, (seg_b, name), (lambda: seg_r), seg_exp, seg_f,
+        return coor(crec((lambda seg_bound, seg_r, seg_f:
+                                  test(seg_f is None, (seg_bound, name), (lambda: seg_r), seg_exp, seg_f,
                                        if_exists = _replace))
                          (*(succ(bind((), *binds), prod(seg_exp, False)) if not seg_exp else
-                            _match(      seg_exp,      aux,      bound,  aux, False))),
+                            _match(         bound,  seg_exp,       aux,  False,  aux))),
                          lambda seg_bound:
-                                 _match(rest_exp, rest_pat,  seg_bound, None, False),
+                                 _match(seg_bound, rest_exp,  rest_pat,  False, None),
                          leader = leader),
-                    lambda: segment_match(binds, exp, pat, leader, aux, end = (end or 0) + 1))
+                    lambda: segment_match(  binds,      exp,       pat, leader,  aux, end = (end or 0) + 1))
 
 register_complex_matcher(some, segment_match)
 
@@ -115,7 +115,7 @@ register_complex_matcher(some, segment_match)
 ## type-driven variable naming is not good enough, because:
 ## 1. type narrows down the case analysis chain (of which there is a lot)
 ## 2. expressions also need typing..
-def _match(exp, pat, bound, aux, leader):
+def _match(bound, exp, pat, leader, aux):
         def error_bad_pattern(pat): raise Exception("Bad pattern: %s." % (pat,))
         def maybe_getname(pat):     return ((None, pat)           if not isinstance(pat, dict) else
                                             tuple(pat.items())[0] if len(pat) == 1             else
@@ -140,19 +140,20 @@ def _match(exp, pat, bound, aux, leader):
                                                           if complex_pat_p(pat0)    else
                        fail(bound, exp, pat)              if atom(exp) or exp == () else      # pat tupleful, exp tupleful
                        equo(name, exp,
-                            crec(               _match(exp[0],  pat[0], bound, None, True),
-                                 (lambda b0und: _match(exp[1:], patR,   b0und, None, False)),
+                            crec(               _match(bound, exp[0],  pat[0], True,  None),
+                                 (lambda b0und: _match(b0und, exp[1:], patR,   False, None)),
                                  leader = leader))))
              (*maybe_get0Rname(pat)))
 
 def match(exp, pat):
         prepped = preprocess(pat)
-        return _match(exp, prepped, dict(), None, True)
+        return _match(dict(), exp, prepped, True, None)
 
 print("\n; compiled and loaded.")
 ###
 ### app
 ###
+newline = "newline"
 def prod(x, leader):
         return str(x) if x or leader else ""
 def comb(x, y, leader):
