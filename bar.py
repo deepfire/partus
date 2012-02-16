@@ -98,7 +98,7 @@ def segment_match(binds, exp, pat, aux, end = None, leader = False):
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
         aux = (seg_pat + (("some",) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-        if not seg_exp:
+        if seg_exp == ():
                 b, r, f =  crec(succ(bind((), *binds),      ## this binding is actualised by outer invocations, if any
                                      prod(seg_exp, False)), ## ..same goes for the result.
                                 lambda seg_bound:
@@ -178,7 +178,32 @@ def match_atom(exp, pat):
 ###
 ### testing
 ###
-def run_mid_complex():
+def runtest(f, bindings, result):
+        b, r, f = f()
+        return (b == bindings,
+                r == result,
+                f is None)
+def empty():
+        return match((), {"whole":()})
+bound_good, result_good, nofail = runtest(empty,
+                                          { 'whole': () },
+                                          "()")
+assert(nofail)
+assert(bound_good)
+assert(result_good)
+print("; RUN-EMPTY: passed")
+
+def empty_cross():
+        return match((), ({"a":[name]}, {"b":[(name,)]},))
+bound_good, result_good, nofail = runtest(empty_cross,
+                                          { 'a': (), 'b': () },
+                                          "()")
+assert(nofail)
+assert(bound_good)
+assert(result_good)
+print("; RUN-EMPTY-CROSS: passed")
+
+def mid_complex():
         pat = ({"headname":name},
                   {"headtupname":(name,)},
                            {"varitupseq":[(name, [name])]},
@@ -187,17 +212,15 @@ def run_mid_complex():
                                                                                 {"tailname":name})
         exp =             (1,    (1,),   (1,), (1, 1), (1, 1, 1), (1,), (1,), (1,),   1, 1, 1)
         return match(exp, pat)
-def test_mid_complex():
-        b, r, f = run_mid_complex()
-        return (f is None,
-                b == { 'headname': 1,
-                       'headtupname': (1,),
-                       'varitupseq': ((1,), (1, 1), (1, 1, 1)),
-                       'fix1tupseq': ((1,), (1,), (1,)),
-                       'nameseq': (1, 1),
-                       'tailname': 1 })
-
-nofail, bound_good = test_mid_complex()
+bound_good, result_good, nofail = runtest(mid_complex,
+                                          { 'headname': 1,
+                                            'headtupname': (1,),
+                                            'varitupseq': ((1,), (1, 1), (1, 1, 1)),
+                                            'fix1tupseq': ((1,), (1,), (1,)),
+                                            'nameseq': (1, 1),
+                                            'tailname': 1 },
+                                          "(1 (1) (1) (1 1) (1 1 1) (1) (1) (1) 1 1 1)")
 assert(nofail)
 assert(bound_good)
+assert(result_good)
 print("; MID-COMPLEX: passed")
