@@ -50,12 +50,19 @@ def bind(value, bound, name, if_exists:{_error, _replace} = _error) -> dict:
                 bound.update({name:value}); return bound
         elif if_exists is _error:     error_bound(bound[name])
         else:                         error_keyword("if_exists", if_exists, { _error, _replace })
-def succ(bound, res):              return bound, res, None
+def error_bad_pattern(pat):
+        raise Exception("Bad pattern: %s." % (pat,))
+def maybe_destructure_binding(pat):
+        return ((None, pat)           if not isinstance(pat, dict) else
+                tuple(pat.items())[0] if len(pat) == 1             else
+                error_bad_pattern(pat))
+def succ(bound, res):      return bound, res, None
+def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
 def fail(bound, exp, pat): return bound, exp, pat
 def fcomb(fcomb, x, y):    return fcomb, x, y
-def test(test, binds, resf:"() -> result", exp, pat, if_exists:{_error, _replace} = _error):
-        return (succ(bind(exp, *binds, if_exists = if_exists), resf()) if test else
-                fail(binds[0], exp, pat))
+def test(test, bound, name, resf:"() -> result", exp, fail_pat, if_exists:{_error, _replace} = _error):
+        return (succ(bind(exp, bound, name, if_exists = if_exists), resf()) if test else
+                fail(bound, exp, fail_pat))
 def equo(name, exp, x):
         "Apply result binding, if any."
         b, r, f = x
@@ -79,15 +86,14 @@ def register_complex_matcher(name, matcher):
         __complex_patterns__[name] = matcher
 def complex_pat_p(x):
         return x and isinstance(x[0], str) and x[0] in __complex_patterns__
-def match_complex(binds, exp, pat, leader, aux):
-        return __complex_patterns__[pat[0][0]](binds, exp, pat, leader, aux)
+def match_complex(bound, name, exp, pat, leader, aux):
+        return __complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux)
 
-def segment_match(binds, exp, pat, leader, aux, end = None):
+def segment_match(bound, name, exp, pat, leader, aux, end = None):
         def constant_pat_p(pat):
                 def nonconstant_pat_p(x): return listp(x) or nonliteral_atom_p(x)
                 return not nonconstant_pat_p(undict_val(pat) if isinstance(pat, dict) else
                                              pat)
-        bound, name = binds
         ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
         seg_pat, rest_pat = pat[0][1:], pat[1:]
         end = (end                        if end is not None                          else
@@ -99,15 +105,15 @@ def segment_match(binds, exp, pat, leader, aux, end = None):
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
         aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-        return coor(crec((lambda seg_bound, seg_r, seg_f:
-                                  test(seg_f is None, (seg_bound, name), (lambda: seg_r), seg_exp, seg_f,
+        return coor(crec((lambda seg_bound, seg_r, seg_fail_pat:
+                                  test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
                                        if_exists = _replace))
-                         (*(succ(bind((), *binds), prod(seg_exp, False)) if not seg_exp else
-                            _match(         bound,  seg_exp,       aux,  False,  aux))),
+                         (*(succ(bind((), bound, name), prod((), False)) if seg_exp == () else
+                            _match(         bound, name,  seg_exp,       aux,  False,  aux))),
                          lambda seg_bound:
-                                 _match(seg_bound, rest_exp,  rest_pat,  False, None),
+                                 _match(seg_bound, None, rest_exp,  rest_pat,  False, None),
                          leader = leader),
-                    lambda: segment_match(  binds,      exp,       pat, leader,  aux, end = (end or 0) + 1))
+                    lambda: segment_match(  bound, name,      exp,       pat, leader,  aux, end = (end or 0) + 1))
 
 register_complex_matcher(some, segment_match)
 
@@ -115,39 +121,34 @@ register_complex_matcher(some, segment_match)
 ## type-driven variable naming is not good enough, because:
 ## 1. type narrows down the case analysis chain (of which there is a lot)
 ## 2. expressions also need typing..
-def _match(bound, exp, pat, leader, aux):
-        def error_bad_pattern(pat): raise Exception("Bad pattern: %s." % (pat,))
-        def maybe_getname(pat):     return ((None, pat)           if not isinstance(pat, dict) else
-                                            tuple(pat.items())[0] if len(pat) == 1             else
-                                            error_bad_pattern(pat))
+def _match(bound, name, exp, pat, leader, aux):
         def maybe_get0Rname(pat):
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
-                (name, pat0), patR = maybe_getname(pat[0]), pat[1:]
+                (name, pat0), patR = maybe_destructure_binding(pat[0]), pat[1:]
                 return name, pat0, patR, (((pat0,) + patR) if name is not None else
                                                  pat) ## Attempt to avoid consing..
         ## I just caught myself feeling so comfortable thinking about life matters,
         ## while staring at a screenful of code.  In "real" life I'd be pressed by
         ## the acute sense of time being wasted..
-        name, pat = maybe_getname(pat)
         atomp, null = atom(pat), pat == ()
         return \
             (test((match_atom(exp, pat) if atomp else
                    exp == ()),
-                  (bound, name), lambda: prod(exp, leader), exp, pat) if atomp or null else
+                  bound, name, lambda: prod(exp, leader), exp, pat) if atomp or null else
              (lambda pat0name, pat0, patR, clean_pat:
                       (equo(name, exp,
-                            match_complex((bound, pat0name), exp, clean_pat, leader, aux))
-                                                          if complex_pat_p(pat0)    else
-                       fail(bound, exp, pat)              if atom(exp) or exp == () else      # pat tupleful, exp tupleful
+                            match_complex(bound, pat0name, exp, clean_pat, leader, aux))
+                                                 if complex_pat_p(pat0)    else
+                       fail(bound, exp, pat)     if atom(exp) or exp == () else      # pat tupleful, exp tupleful
                        equo(name, exp,
-                            crec(               _match(bound, exp[0],  pat[0], True,  None),
-                                 (lambda b0und: _match(b0und, exp[1:], patR,   False, None)),
+                            crec(               _match(bound, pat0name, exp[0],  pat0, True,  None),
+                                 (lambda b0und: _match(b0und, None,     exp[1:], patR, False, None)),
                                  leader = leader))))
              (*maybe_get0Rname(pat)))
 
 def match(exp, pat):
-        prepped = preprocess(pat)
-        return _match(dict(), exp, prepped, True, None)
+        name, prepped = maybe_destructure_binding(preprocess(pat))
+        return _match(dict(), name, exp, prepped, True, None)
 
 print("\n; compiled and loaded.")
 ###
