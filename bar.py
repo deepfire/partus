@@ -96,6 +96,7 @@ def register_complex_matcher(name, matcher):
 def complex_pat_p(x):
         return x and isinstance(x[0], str) and x[0] in __complex_patterns__
 def match_complex(bound, name, exp, pat, leader, aux, limit):
+        # dprint("match_complex  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
         return __complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux, limit)
 def matcher_not_implemented(bound, name, exp, pat, leader, aux):
         raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
@@ -108,6 +109,7 @@ def segment_match(bound, name, exp, pat, leader, aux, limit, end = None):
                 def nonconstant_pat_p(x): return listp(x) or nonliteral_atom_p(x)
                 return not nonconstant_pat_p(undict_val(pat) if isinstance(pat, dict) else
                                              pat)
+        # dprint("segment_match  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
         ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
         seg_pat, rest_pat = pat[0][1:], pat[1:]
         end = (end                        if end is not None                          else
@@ -119,26 +121,26 @@ def segment_match(bound, name, exp, pat, leader, aux, limit, end = None):
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
         aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-        limitp = integerp(limit)
-        newlimit = (limit - 1 if limitp else None)
         return coor(crec(lambda:
                                  ((lambda seg_bound, seg_r, seg_fail_pat:
                                            test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
                                                 if_exists = _replace))
-                                  (*(succ(bind((), bound, name), prod((), False)) if seg_exp == () else
-                                     fail(bound, exp, pat)                        if limit == 0    else
-                                     _match(bound, name,  seg_exp,       aux,  False,  aux, limit)))),
+                                  (*(  succ(bind((), bound, name), prod((), False)) if seg_exp == () else
+                                       fail(bound, exp, pat)                        if limit == 0    else
+                                       ## Try biting one more iteration off seg_exp:
+                                     _match(bound, name,  seg_exp,      aux,  False,  aux, (limit - 1 if integerp(limit) else
+                                                                                            None))))),
                          lambda seg_bound:
-                                 _match(seg_bound, None, rest_exp,  rest_pat,  False, None, None),
+                                 _match(seg_bound, None, rest_exp, rest_pat,  False, None, None),
                          leader = leader),
-                    lambda: segment_match(  bound, name,      exp,       pat, leader,  aux, limit,
+                    lambda: segment_match(  bound, name,      exp,      pat, leader,  aux, limit,
                                             end + 1),
                     leader = leader)
 
 register_complex_matcher(some, segment_match)
 
 def match_maybe(bound, name, exp, pat, leader, aux, limit):
-        return segment_match(bound, name, exp, ((None,) + pat[0][1:],) + pat[1:], leader, aux, 1)
+        return segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], leader, aux, 1)
 
 register_complex_matcher(maybe, match_maybe)
 
@@ -156,6 +158,7 @@ def _match(bound, name, exp, pat, leader, aux, limit):
         ## while staring at a screenful of code.  In "real" life I'd be pressed by
         ## the acute sense of time being wasted..
         atomp, null = atom(pat), pat == ()
+        # dprint("       _match  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
         return \
             (test((match_atom(exp, pat) if atomp else
                    exp == ()),
@@ -167,7 +170,7 @@ def _match(bound, name, exp, pat, leader, aux, limit):
                        fail(bound, exp, pat)     if atom(exp) or exp == () else      # pat tupleful, exp tupleful
                        equo(name, exp,
                             crec(lambda:        _match(bound, pat0name, exp[0],  pat0, True,  None, None),
-                                 (lambda b0und: _match(b0und, None,     exp[1:], patR, False, None, None)),
+                                 (lambda b0und: _match(b0und, None,     exp[1:], patR, False, None, limit)),
                                  leader = leader))))
              (*maybe_get0Rname(pat)))
 
@@ -312,10 +315,10 @@ assert(result_good)
 print("; MID-COMPLEX: passed")
 
 def simple_maybe():
-        return match((1, 2), ({"a":(maybe, name)}, {"b":(maybe, name)},))
+        return match((1, 2, 3), ({"a":(maybe, name)}, {"b":name}, (maybe, {"c":name})))
 bound_good, result_good, nofail = runtest(simple_maybe,
-                                          { 'a': 1, 'b': 2 },
-                                          "(12)")
+                                          { 'a': (1,), 'b': 2, 'c': 3, },
+                                          "(123)")
 assert(nofail)
 assert(bound_good)
 assert(result_good)
