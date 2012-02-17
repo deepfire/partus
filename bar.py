@@ -37,6 +37,7 @@ def undict_val(xs): return tuple(xs.items())[0][1]
                 
 ## generic part
 some     = "some"
+maybe    = "maybe"
 _error   = "error"
 _replace = "replace"
 def bind(value, bound, name, if_exists:{_error, _replace} = _error) -> dict:
@@ -94,12 +95,15 @@ def register_complex_matcher(name, matcher):
         __complex_patterns__[name] = matcher
 def complex_pat_p(x):
         return x and isinstance(x[0], str) and x[0] in __complex_patterns__
-def match_complex(bound, name, exp, pat, leader, aux):
-        return __complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux)
+def match_complex(bound, name, exp, pat, leader, aux, limit):
+        return __complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux, limit)
 def matcher_not_implemented(bound, name, exp, pat, leader, aux):
         raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
+def identity_matcher(bound, name, exp, pat, leader, aux, limit):
+        ## This should dispatch over simplicity.
+        return match_complex(bound, name, exp, pat[0][1:] + pat[1:], leader, aux, limit)
 
-def segment_match(bound, name, exp, pat, leader, aux, end = None):
+def segment_match(bound, name, exp, pat, leader, aux, limit, end = None):
         def constant_pat_p(pat):
                 def nonconstant_pat_p(x): return listp(x) or nonliteral_atom_p(x)
                 return not nonconstant_pat_p(undict_val(pat) if isinstance(pat, dict) else
@@ -115,25 +119,34 @@ def segment_match(bound, name, exp, pat, leader, aux, end = None):
         seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                              (exp, ()))
         aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
+        limitp = integerp(limit)
+        newlimit = (limit - 1 if limitp else None)
         return coor(crec(lambda:
                                  ((lambda seg_bound, seg_r, seg_fail_pat:
                                            test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
                                                 if_exists = _replace))
                                   (*(succ(bind((), bound, name), prod((), False)) if seg_exp == () else
-                                     _match(bound, name,  seg_exp,       aux,  False,  aux)))),
+                                     fail(bound, exp, pat)                        if limit == 0    else
+                                     _match(bound, name,  seg_exp,       aux,  False,  aux, limit)))),
                          lambda seg_bound:
-                                 _match(seg_bound, None, rest_exp,  rest_pat,  False, None),
+                                 _match(seg_bound, None, rest_exp,  rest_pat,  False, None, None),
                          leader = leader),
-                    lambda: segment_match(  bound, name,      exp,       pat, leader,  aux, end = (end or 0) + 1),
+                    lambda: segment_match(  bound, name,      exp,       pat, leader,  aux, limit,
+                                            end + 1),
                     leader = leader)
 
 register_complex_matcher(some, segment_match)
+
+def match_maybe(bound, name, exp, pat, leader, aux, limit):
+        return segment_match(bound, name, exp, ((None,) + pat[0][1:],) + pat[1:], leader, aux, 1)
+
+register_complex_matcher(maybe, match_maybe)
 
 ## About the vzy33c0's idea:
 ## type-driven variable naming is not good enough, because:
 ## 1. type narrows down the case analysis chain (of which there is a lot)
 ## 2. expressions also need typing..
-def _match(bound, name, exp, pat, leader, aux):
+def _match(bound, name, exp, pat, leader, aux, limit):
         def maybe_get0Rname(pat):
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                 (name, pat0), patR = maybe_destructure_binding(pat[0]), pat[1:]
@@ -149,26 +162,27 @@ def _match(bound, name, exp, pat, leader, aux):
                   bound, name, lambda: prod(exp, leader), exp, pat) if atomp or null else
              (lambda pat0name, pat0, patR, clean_pat:
                       (equo(name, exp,
-                            match_complex(bound, pat0name, exp, clean_pat, leader, aux))
+                            match_complex(bound, pat0name, exp, clean_pat, leader, aux, limit))
                                                  if complex_pat_p(pat0)    else
                        fail(bound, exp, pat)     if atom(exp) or exp == () else      # pat tupleful, exp tupleful
                        equo(name, exp,
-                            crec(lambda:        _match(bound, pat0name, exp[0],  pat0, True,  None),
-                                 (lambda b0und: _match(b0und, None,     exp[1:], patR, False, None)),
+                            crec(lambda:        _match(bound, pat0name, exp[0],  pat0, True,  None, None),
+                                 (lambda b0und: _match(b0und, None,     exp[1:], patR, False, None, None)),
                                  leader = leader))))
              (*maybe_get0Rname(pat)))
 
 def match(exp, pat):
         name, prepped = maybe_destructure_binding(preprocess(pat))
-        return _match(dict(), name, exp, prepped, True, None)
+        return _match(dict(), name, exp, prepped, True, None, None)
 
 print("\n; compiled and loaded.")
 ###
 ### app
 ###
-newline = "newline"
-indent  = "indent"
-form    = "form"
+newline        = "newline"
+indent         = "indent"
+form           = "form"
+count_scope    = "count_scope"
 def forc(x, y, leader):
         return (("OR",) if leader else ()) + (x,) + y
 def preprocess(pat):
@@ -176,7 +190,8 @@ def preprocess(pat):
         def prep_binding(b):
                 k, v = tuple(b.items())[0]
                 return {k: preprocess(v)}
-        return (((some,) + preprocess(tuple(pat))) if isinstance(pat, list)                else
+        return ((count_scope, (some,) +
+                 preprocess(tuple(pat)))           if isinstance(pat, list)                else
                 prep_binding(pat)                  if isinstance(pat, dict)                else
                 (form,)                            if pat == form                          else
                 (newline, 0)                       if pat == "\n"                          else
@@ -215,27 +230,28 @@ def comb(f0, fR, leader):
         return acc
 def process_newline(bound, name, exp, pat, leader, aux):
         global pp_base_depth, pp_depth
-        n, tail = pat[0], pat[1:]
+        n, tail = pat[0][1], pat[1:]
         try:
                 pp_base_depth += n
                 pp_depth = 0
-                return post(_match(bind(pp_base_depth, bound, name), None, exp, tail, leader, aux),
+                return post(_match(bind(pp_base_depth, bound, name), None, exp, tail, leader, aux, None),
                             lambda r: "\n" + (" " * pp_base_depth) + r)
         finally:
                 pp_base_depth -= n
 def process_indent(bound, name, exp, pat, leader, aux):
         global pp_base_depth, pp_depth
-        n, tail = pat[0], pat[1:]
+        n, tail = pat[0][1], pat[1:]
         try:
                 pp_depth += n
-                return post(_match(bind(pp_depth, bound, name), None, exp, tail, leader, aux),
+                return post(_match(bind(pp_depth, bound, name), None, exp, tail, leader, aux, None),
                             lambda r: (" " * n) + r)
         finally:
                 pp_depth -= n
 
-register_complex_matcher(newline, process_newline)
-register_complex_matcher(indent,  process_indent)
-register_complex_matcher(form,    matcher_not_implemented)
+register_complex_matcher(newline,     process_newline)
+register_complex_matcher(indent,      process_indent)
+register_complex_matcher(form,        matcher_not_implemented)
+register_complex_matcher(count_scope, identity_matcher)
 
 ###
 ### testing
@@ -259,7 +275,7 @@ bound_good, result_good, nofail = runtest(empty,
 assert(nofail)
 assert(bound_good)
 assert(result_good)
-print("; RUN-EMPTY: passed")
+print("; EMPTY: passed")
 
 def empty_cross():
         return match((), ({"a":[name]}, {"b":[(name,)]},))
@@ -269,7 +285,7 @@ bound_good, result_good, nofail = runtest(empty_cross,
 assert(nofail)
 assert(bound_good)
 assert(result_good)
-print("; RUN-EMPTY-CROSS: passed")
+print("; EMPTY-CROSS: passed")
 
 def mid_complex():
         pat = ({"headname":name},
@@ -287,8 +303,20 @@ bound_good, result_good, nofail = runtest(mid_complex,
                                             'fix1tupseq': ((1,), (1,), (1,)),
                                             'nameseq': (1, 1),
                                             'tailname': 1 },
-                                          "(1 (1) (1) (1 1) (1 1 1) (1) (1) (1) 1 1 1)")
+                                          "(1(1)(1)(11)(111)(1)(1)(1)111)"
+                                          # "(1 (1) (1) (1 1) (1 1 1) (1) (1) (1) 1 1 1)"
+                                          )
 assert(nofail)
 assert(bound_good)
 assert(result_good)
 print("; MID-COMPLEX: passed")
+
+def simple_maybe():
+        return match((1, 2), ({"a":(maybe, name)}, {"b":(maybe, name)},))
+bound_good, result_good, nofail = runtest(simple_maybe,
+                                          { 'a': 1, 'b': 2 },
+                                          "(12)")
+assert(nofail)
+assert(bound_good)
+assert(result_good)
+print("; SIMPLE-MAYBE: passed")
