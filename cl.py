@@ -5760,6 +5760,8 @@ def _find_known(x):
 #       A large part of work is development of a calling convention.  Multiple values, as a
 #       concept, is an important, but basic step in the general direction.
 
+_intern_and_bind_pynames("%NAME", "%MAYBE")
+
 def _maybe_destructure_binding(pat):
         return ((None, pat)               if not typep(pat, _py.dict) else
                 _py.tuple(pat.items())[0] if _py.len(pat) == 1        else
@@ -5821,7 +5823,7 @@ class _matcher():
         def register_complex_matcher(m, name, matcher):
                 m.__complex_patterns__[name] = matcher
         def complex_pat_p(m, x):
-                return _tuplep(x) and x and stringp(x[0]) and x[0] in m.__complex_patterns__
+                return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def match_complex(m, bound, name, exp, pat, leader, aux, limit):
                 # _debug_printf("match_complex  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
                 return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux, limit)
@@ -5910,6 +5912,11 @@ def _match(matcher, exp, pat):
 # ******* Code
 
 #         MetaSEX presents us with an excellent lesson.  Let's try to understand.
+
+_intern_and_bind_pynames("%NAME", "%MAYBE",
+                         "%NEWLINE", "%INDENT", "%FORM", "%COUNT-SCOPE",
+                         "%MAYBE-ONCE", "%ONCE",
+                         "%SET-MINUS")
 
 ## This is brutally non-thread-safe.  Horrors.  (Yeah, famous last words..)
 _pp_base_depth = 0
