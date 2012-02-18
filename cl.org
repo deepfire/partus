@@ -6521,74 +6521,73 @@ def _find_known(x):
   
   _metasex = _metasex_matcher()
   
-  print("\n; compiled and loaded.")
   ###
   ### testing
   ###
-  _results = []
-  def runtest(fun, bindings, result):
-          b, r, f = fun()
-          _results.append((fun, b, r, f))
-          return (b == bindings,
-                  r == result,
-                  f is None)
-  def results():
-          for fun, b, r, f in _results:
-                  _debug_printf("%15s bound: %s", fun.__name__, b)
-                  _debug_printf("%15s res: %s", fun.__name__, r)
-  def empty():
-          return _match(_metasex, (), {"whole":()})
-  bound_good, result_good, nofail = runtest(empty,
-                                            { 'whole': () },
-                                            "()")
-  assert(nofail)
-  assert(bound_good)
-  assert(result_good)
-  print("; EMPTY: passed")
+  # _results = []
+  # def runtest(fun, bindings, result):
+  #         b, r, f = fun()
+  #         _results.append((fun, b, r, f))
+  #         return (b == bindings,
+  #                 r == result,
+  #                 f is None)
+  # def results():
+  #         for fun, b, r, f in _results:
+  #                 _debug_printf("%15s bound: %s", fun.__name__, b)
+  #                 _debug_printf("%15s res: %s", fun.__name__, r)
+  # def empty():
+  #         return _match(_metasex, (), {"whole":()})
+  # bound_good, result_good, nofail = runtest(empty,
+  #                                           { 'whole': () },
+  #                                           "()")
+  # assert(nofail)
+  # assert(bound_good)
+  # assert(result_good)
+  # print("; EMPTY: passed")
   
-  def empty_cross():
-          return _match(_metasex, (), ({"a":[_name]}, {"b":[(_name,)]},))
-  bound_good, result_good, nofail = runtest(empty_cross,
-                                            { 'a': (), 'b': () },
-                                            "()")
-  assert(nofail)
-  assert(bound_good)
-  assert(result_good)
-  print("; EMPTY-CROSS: passed")
+  # def empty_cross():
+  #         return _match(_metasex, (), ({"a":[_name]}, {"b":[(_name,)]},))
+  # bound_good, result_good, nofail = runtest(empty_cross,
+  #                                           { 'a': (), 'b': () },
+  #                                           "()")
+  # assert(nofail)
+  # assert(bound_good)
+  # assert(result_good)
+  # print("; EMPTY-CROSS: passed")
   
-  def mid_complex():
-          pat = ({"headname":_name},
-                    {"headtupname":(_name,)},
-                             {"varitupseq":[(_name, [_name])]},
-                                                      {"fix1tupseq":[(_name,)]},
-                                                                             {"nameseq":[_name]},
-                                                                                  {"tailname":_name})
-          exp =              (1,   (1,),   (1,), (1, 1), (1, 1, 1), (1,), (1,), (1,),   1, 1, 1)
-          return _match(_metasex, exp, pat)
-  bound_good, result_good, nofail = runtest(mid_complex,
-                                            { 'headname': 1,
-                                              'headtupname': (1,),
-                                              'varitupseq': ((1,), (1, 1), (1, 1, 1)),
-                                              'fix1tupseq': ((1,), (1,), (1,)),
-                                              'nameseq': (1, 1),
-                                              'tailname': 1 },
-                                            "(1(1)(1)(11)(111)(1)(1)(1)111)"
-                                            # "(1 (1) (1) (1 1) (1 1 1) (1) (1) (1) 1 1 1)"
-                                            )
-  assert(nofail)
-  assert(bound_good)
-  assert(result_good)
-  print("; MID-COMPLEX: passed")
+  # def mid_complex():
+  #         pat = ({"headname":_name},
+  #                   {"headtupname":(_name,)},
+  #                            {"varitupseq":[(_name, [_name])]},
+  #                                                     {"fix1tupseq":[(_name,)]},
+  #                                                                            {"nameseq":[_name]},
+  #                                                                                 {"tailname":_name})
+  #         exp =              (1,   (1,),   (1,), (1, 1), (1, 1, 1), (1,), (1,), (1,),   1, 1, 1)
+  #         return _match(_metasex, exp, pat)
+  # bound_good, result_good, nofail = runtest(mid_complex,
+  #                                           { 'headname': 1,
+  #                                             'headtupname': (1,),
+  #                                             'varitupseq': ((1,), (1, 1), (1, 1, 1)),
+  #                                             'fix1tupseq': ((1,), (1,), (1,)),
+  #                                             'nameseq': (1, 1),
+  #                                             'tailname': 1 },
+  #                                           "(1(1)(1)(11)(111)(1)(1)(1)111)"
+  #                                           # "(1 (1) (1) (1 1) (1 1 1) (1) (1) (1) 1 1 1)"
+  #                                           )
+  # assert(nofail)
+  # assert(bound_good)
+  # assert(result_good)
+  # print("; MID-COMPLEX: passed")
   
-  def simple_maybe():
-          return _match(_metasex, (1, 2, 3), ({"a":(_maybe, _name)}, {"b":_name}, (_maybe, {"c":_name})))
-  bound_good, result_good, nofail = runtest(simple_maybe,
-                                            { 'a': (1,), 'b': 2, 'c': 3, },
-                                            "(123)")
-  assert(nofail)
-  assert(bound_good)
-  assert(result_good)
-  print("; SIMPLE-MAYBE: passed")
+  # def simple_maybe():
+  #         return _match(_metasex, (1, 2, 3), ({"a":(_maybe, _name)}, {"b":_name}, (_maybe, {"c":_name})))
+  # bound_good, result_good, nofail = runtest(simple_maybe,
+  #                                           { 'a': (1,), 'b': 2, 'c': 3, },
+  #                                           "(123)")
+  # assert(nofail)
+  # assert(bound_good)
+  # assert(result_good)
+  # print("; SIMPLE-MAYBE: passed")
 
   _string_set("*SEX-JUSTIFICATION*", 0)
   def _sex_justification(): return _symbol_value(_sex_justification_)
