@@ -4,17 +4,9 @@ def _debug_printf(format_control, *format_args):
         print((format_control % format_args + "\n"), file = _sys.stderr)
 
 ## utility part
-def identity(x):    return x
 def integerp(x):    return isinstance(x, int)
 def stringp(x):     return isinstance(x, str)
-def listp(x):       return isinstance(x, tuple)
-def atom(x):        return not isinstance(x, tuple)
-def position(x, xs):
-        for i, ix in enumerate(xs):
-                if x == ix: return i
 def typep(x, type): return isinstance(x, type)
-def length(x):      return len(x)
-
 def _tuplep(x):     return isinstance(x, tuple)
 
 def _python_builtins_dictionary():
@@ -46,8 +38,8 @@ _name     = "name"
 _maybe    = "maybe"
 
 def _maybe_destructure_binding(pat):
-        return ((None, pat)           if not typep(pat, _py.dict) else
-                tuple(pat.items())[0] if _py.len(pat) == 1        else
+        return ((None, pat)               if not typep(pat, _py.dict) else
+                _py.tuple(pat.items())[0] if _py.len(pat) == 1        else
                 error_bad_pattern(pat))
 
 def _error_bad_pattern(pat):
@@ -55,7 +47,7 @@ def _error_bad_pattern(pat):
 
 class _matcher():
         @staticmethod
-        def bind(value, bound, name, if_exists:{error, replace} = error) -> dict:
+        def bind(value, bound, name, if_exists:{error, replace} = error):
                 def error_bound(x):
                         raise Exception("Rebinding %s from %s to %s." % (_py.repr(name), _py.repr(x), _py.repr(value)))
                 def error_keyword(name, bad, allowed):
@@ -106,7 +98,7 @@ class _matcher():
         def register_complex_matcher(m, name, matcher):
                 m.__complex_patterns__[name] = matcher
         def complex_pat_p(m, x):
-                return x and stringp(x[0]) and x[0] in m.__complex_patterns__
+                return _tuplep(x) and x and stringp(x[0]) and x[0] in m.__complex_patterns__
         def match_complex(m, bound, name, exp, pat, leader, aux, limit):
                 # _debug_printf("match_complex  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
                 return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux, limit)
@@ -171,7 +163,7 @@ class _matcher():
                 ## I just caught myself feeling so comfortable thinking about life matters,
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
                 ## the acute sense of time being wasted..
-                atomp, null = atom(pat), pat == ()
+                atomp, null = not _tuplep(pat), pat == ()
                 # _debug_printf("       _match  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
                 return \
                     (m.test((m.match_atom(exp, pat) if atomp else
@@ -180,8 +172,8 @@ class _matcher():
                      (lambda pat0name, pat0, patR, clean_pat:
                               (m.equo(name, exp,
                                       m.match_complex(bound, pat0name, exp, clean_pat, leader, aux, limit))
-                                                         if m.complex_pat_p(pat0)  else
-                               m.fail(bound, exp, pat)   if atom(exp) or exp == () else      # pat tupleful, exp tupleful
+                                                         if m.complex_pat_p(pat0)         else
+                               m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
                                m.equo(name, exp,
                                       m.crec(lambda:        m.match(bound, pat0name, exp[0],  pat0, True,  None, None),
                                              (lambda b0und: m.match(b0und, None,     exp[1:], patR, False, None, limit)),
@@ -243,13 +235,13 @@ class _metasex_matcher(_matcher):
                         if res0 is None: return
                         acc += res0
                         try:
-                                _pp_depth += length(res0)
+                                _pp_depth += _py.len(res0)
                                 resR = fR()
                                 if resR is None: return
                                 acc += resR
                                 acc += ")" if leader else ""
                         finally:
-                                _pp_depth -= length(res0)
+                                _pp_depth -= _py.len(res0)
                 finally:
                         _pp_base_depth = base_depth_save
                 return acc
