@@ -47,7 +47,7 @@ _maybe    = "maybe"
 
 def _maybe_destructure_binding(pat):
         return ((None, pat)           if not typep(pat, _py.dict) else
-                tuple(pat.items())[0] if length(pat) == 1         else
+                tuple(pat.items())[0] if _py.len(pat) == 1        else
                 error_bad_pattern(pat))
 
 def _error_bad_pattern(pat):
@@ -122,8 +122,11 @@ class _matcher():
         ###
         def segment_match(m, bound, name, exp, pat, leader, aux, limit, end = None):
                 def cut(n, xs):     return xs[0:n], xs[len(xs) if n is None else n:]
+                def position(x, xs):
+                        for i, ix in enumerate(xs):
+                                if x == ix: return i
                 def constant_pat_p(pat):
-                        def nonconstant_pat_p(x): return listp(x) or m.nonliteral_atom_p(x)
+                        def nonconstant_pat_p(x): return _tuplep(x) or m.nonliteral_atom_p(x)
                         return not nonconstant_pat_p(_py.tuple(pat.items())[0][1] if typep(pat, _py.dict) else
                                                      pat)
                 # _debug_printf("segment_match  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
@@ -132,8 +135,8 @@ class _matcher():
                 end = (end                        if end is not None                          else
                        position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                        0)
-                if ((end and end > length(exp)) or ## no boundary variant fitted
-                    end is None):                  ## a constant pattern was missing
+                if ((end and end > _py.len(exp)) or ## no boundary variant fitted
+                    end is None):                   ## a constant pattern was missing
                         return m.fail(bound, exp, pat)
                 seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                                      (exp, ()))
