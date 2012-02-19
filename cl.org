@@ -1257,6 +1257,7 @@ negative boolean value is returned."""
                                                           _py.hasattr(type[0], "type_predicate")) else
                 _invalid_type_specifier_error(type))
 
+@boot_defun
 def typep(x, type):
         return not _type_mismatch(x, type)
 
@@ -6179,7 +6180,7 @@ def defknown(metasex_or_fn, name = None):
                                    compiler = fn,
                                    compiler_params = _mapset(_indexing(0), compiler_params))
                 return sym # pass through
-        default_metasex = ("atom", " ", ["sex", " "])
+        default_metasex = (_name, " ", [_form, " "])
         def _defknown(fn, metasex = metasex_or_fn, name = name):
                 _, sym, pyname = _interpret_toplevel_value(fn, functionp)
                 name = _defaulted(name, sym, symbol)
@@ -6263,7 +6264,7 @@ def _find_known(x):
           def complex_pat_p(m, x):
                   return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
           def match_complex(m, bound, name, exp, pat, leader, aux, limit):
-                  # _debug_printf("match_complex  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
+                  # _debug_printf("match_complex  %10s  %20s\n -[ %s\n -( %s\n -< %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
                   return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux, limit)
           def __init__(m):
                   m.__complex_patterns__ = _py.dict()
@@ -6284,7 +6285,7 @@ def _find_known(x):
                           def nonconstant_pat_p(x): return _tuplep(x) or m.nonliteral_atom_p(x)
                           return not nonconstant_pat_p(_py.tuple(pat.items())[0][1] if typep(pat, _py.dict) else
                                                        pat)
-                  # _debug_printf("segment_match  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
+                  # _debug_printf("segment_match  %10s  %20s\n -[ %s\n -( %s\n -< %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
                   ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                   seg_pat, rest_pat = pat[0][1:], pat[1:]
                   end = (end                        if end is not None                          else
@@ -6327,7 +6328,7 @@ def _find_known(x):
                   ## while staring at a screenful of code.  In "real" life I'd be pressed by
                   ## the acute sense of time being wasted..
                   atomp, null = not _tuplep(pat), pat == ()
-                  # _debug_printf("       _match  %20s  %10s  %s  %s  %s  %s  %s", bound, name, exp, pat, leader, aux, limit)
+                  # _debug_printf("       _match  %10s  %20s\n -[ %s\n -( %s\n -< %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
                   return \
                       (m.test((m.match_atom(exp, pat) if atomp else
                                exp == ()),
@@ -6452,6 +6453,7 @@ def _find_known(x):
                   m.register_complex_matcher(_form,        m.match_form)
                   m.register_complex_matcher(symbol,       m.match_symbol)
                   m.register_complex_matcher(_count_scope, m.identity_matcher)
+                  m.register_complex_matcher(typep,        m.typep_matcher)
           def preprocess(m, pat):
                   "Expand syntactic sugar."
                   def prep_binding(b):
@@ -6527,13 +6529,20 @@ def _find_known(x):
                           (_form, "\n", [_form, " "])  if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
                           [_form, " "])
           def match_form(m, bound, name, exp, pat, leader, aux, limit):
-                  form = exp[0][1] ## XXX: missing type checking!
-                  return m.crec(lambda: m.match(bound, name, form, m.form_metasex(form), leader, aux, limit),
+                  form = exp[0] ## XXX: missing type checking!
+                  prepped = m.preprocess(m.form_metasex(form))
+                  return m.crec(lambda: m.match(bound, name, form, prepped, leader, aux, limit),
                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], False, None, None),
                                 leader = leader)
           def match_symbol(m, bound, name, exp, pat, leader, aux, limit):
                   symbol = pat[0][1] ## XXX: missing type checking!
-                  return m.crec(lambda: m.test(exp[0] is symbol, bound, name, lambda: prod(exp[0]),
+                  return m.crec(lambda: m.test(exp[0] is symbol, bound, name, lambda: m.prod(exp[0], leader),
+                                               exp[0], pat[0]),
+                                lambda bound: m.match(bound, None, exp[1:], pat[1:], False, None, None),
+                                leader = leader)
+          def typep_matcher(m, bound, name, exp, pat, leader, aux, limit):
+                  type = pat[0][1] ## XXX: missing type checking!
+                  return m.crec(lambda: m.test(typep(exp[0], type), bound, name, lambda: m.prod(exp[0], leader),
                                                exp[0], pat[0]),
                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], False, None, None),
                                 leader = leader)
@@ -6621,7 +6630,7 @@ def _find_known(x):
   def _pp_sex(sex, validate = t):
           _, r, f = _match(_metasex, sex, _metasex.form_metasex(sex))
           if f is not None:
-                  error("Failed to process %s, failed pattern: %s, didn't match: %s.", sex, f, r)
+                  error("=== fail: %s\n=== failpat: %s\n=== exp: %s", sex, f, r)
           return r
   
 #+end_src
@@ -6659,6 +6668,9 @@ _string_set("*COMPILER-DEF*",        nil)
 _string_set("*COMPILER-TAILP*",      nil)
 
 _string_set("*COMPILER-DEBUG-P*",    nil)
+
+def _sex_space():
+        return " " * _pp_depth
 
 def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
@@ -6738,7 +6750,7 @@ def _lower_expr(x, fn):
 ***** More IR definition machinery: %IR-ARGS, %IR
 
 #+begin_src python +n
-@defknown(("atom", "\n", "sex", "\n", "atom"))
+@defknown((_name, "\n", _form, "\n", ([(typep, _py.str), (typep, t)],)))
 def _ir_args():
         pass
 
@@ -6993,7 +7005,8 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 #    - installation of such named lambdas as global function definitions
 #        emit a decorator? install_fdefinition
 @defknown((intern("DEF_")[0], " ", _name, " ", ([_form, " "]),
-            1, [_form, "\n"]))
+            1, [_form, "\n"]),
+          name = intern("DEF_")[0])
 def def_(name, lambda_list, *body, decorators = []):
         ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
         # This is NOT a Lisp form, but rather an acknowledgement of the
