@@ -6199,7 +6199,7 @@ def _find_known(x):
 
 #+begin_src python
   _intern_and_bind_pynames("%NAME", "%MAYBE")
-
+  
   def _maybe_destructure_binding(pat):
           return ((None, pat)               if not typep(pat, _py.dict) else
                   _py.tuple(pat.items())[0] if _py.len(pat) == 1        else
@@ -6269,7 +6269,7 @@ def _find_known(x):
                   m.__complex_patterns__ = _py.dict()
                   m.register_complex_matcher(some, m.segment_match)
                   m.register_complex_matcher(_maybe, m.match_maybe)
-          def matcher_not_implemented(m, bound, name, exp, pat, leader, aux):
+          def matcher_not_implemented(m, bound, name, exp, pat, leader, aux, limit):
                   raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
           def identity_matcher(m, bound, name, exp, pat, leader, aux, limit):
                   ## This should dispatch over simplicity.
@@ -6439,7 +6439,7 @@ def _find_known(x):
                            "%NEWLINE", "%INDENT", "%FORM", "%COUNT-SCOPE",
                            "%MAYBE-ONCE", "%ONCE",
                            "%SET-MINUS")
-
+  
   ## This is brutally non-thread-safe.  Horrors.  (Yeah, famous last words..)
   _pp_base_depth = 0
   _pp_depth = 0
@@ -6496,7 +6496,7 @@ def _find_known(x):
                   finally:
                           _pp_base_depth = base_depth_save
                   return acc
-          def process_newline(m, bound, name, exp, pat, leader, aux):
+          def process_newline(m, bound, name, exp, pat, leader, aux, limit):
                   global _pp_base_depth, _pp_depth
                   n, tail = pat[0][1], pat[1:]
                   try:
@@ -6506,7 +6506,7 @@ def _find_known(x):
                                         lambda r: "\n" + (" " * _pp_base_depth) + r)
                   finally:
                           _pp_base_depth -= n
-          def process_indent(m, bound, name, exp, pat, leader, aux):
+          def process_indent(m, bound, name, exp, pat, leader, aux, limit):
                   global _pp_base_depth, _pp_depth
                   n, tail = pat[0][1], pat[1:]
                   try:

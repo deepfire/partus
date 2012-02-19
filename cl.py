@@ -5831,7 +5831,7 @@ class _matcher():
                 m.__complex_patterns__ = _py.dict()
                 m.register_complex_matcher(some, m.segment_match)
                 m.register_complex_matcher(_maybe, m.match_maybe)
-        def matcher_not_implemented(m, bound, name, exp, pat, leader, aux):
+        def matcher_not_implemented(m, bound, name, exp, pat, leader, aux, limit):
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
         def identity_matcher(m, bound, name, exp, pat, leader, aux, limit):
                 ## This should dispatch over simplicity.
@@ -5974,7 +5974,7 @@ class _metasex_matcher(_matcher):
                 finally:
                         _pp_base_depth = base_depth_save
                 return acc
-        def process_newline(m, bound, name, exp, pat, leader, aux):
+        def process_newline(m, bound, name, exp, pat, leader, aux, limit):
                 global _pp_base_depth, _pp_depth
                 n, tail = pat[0][1], pat[1:]
                 try:
@@ -5984,7 +5984,7 @@ class _metasex_matcher(_matcher):
                                       lambda r: "\n" + (" " * _pp_base_depth) + r)
                 finally:
                         _pp_base_depth -= n
-        def process_indent(m, bound, name, exp, pat, leader, aux):
+        def process_indent(m, bound, name, exp, pat, leader, aux, limit):
                 global _pp_base_depth, _pp_depth
                 n, tail = pat[0][1], pat[1:]
                 try:
