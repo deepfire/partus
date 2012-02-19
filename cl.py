@@ -637,20 +637,21 @@ def find_symbol(str, package = None):
 
 @boot("print", lambda _, s, **__:
               (("#"            if not s.package          else
-                ""             if s.package is __keyword else
-                s.package.name) + (":" if (not s.package or s.name in s.package.external or s.package is __keyword) else
+                ""             if s.package is __keyword or s.package is __cl  else
+                s.package.name) + (""  if s.package is __cl                                                         else
+                                   ":" if (not s.package or s.name in s.package.external or s.package is __keyword) else
                                    "::") + s.name))
 def _print_symbol(s, escape = None, gensym = None, case = None, package = None, readably = None):
-        # Specifically, if *PRINT-READABLY* is true, printing proceeds as if
-        # *PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
-        # as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
-        #
-        # If *PRINT-READABLY* is false, the normal rules for printing and the
-        # normal interpretations of other printer control variables are in
-        # effect.
-        #
-        # Individual methods for PRINT-OBJECT, including user-defined methods,
-        # are responsible for implementing these requirements.
+        ## Specifically, if *PRINT-READABLY* is true, printing proceeds as if
+        ## *PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
+        ## as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
+        ##
+        ## If *PRINT-READABLY* is false, the normal rules for printing and the
+        ## normal interpretations of other printer control variables are in
+        ## effect.
+        ##
+        ## Individual methods for PRINT-OBJECT, including user-defined methods,
+        ## are responsible for implementing these requirements.
         package  = _defaulted_to_var(package,  _package_)
         if not packagep(package):
                 _here("------------------------------------------------------------\npackage is a %s: %s" % (type_of(package), package,))
@@ -658,15 +659,15 @@ def _print_symbol(s, escape = None, gensym = None, case = None, package = None, 
         escape   = _defaulted_to_var(escape,   _print_escape_) if not readably else t
         case     = _defaulted_to_var(case,     _print_case_)   if not readably else _keyword("UPCASE")
         gensym   = _defaulted_to_var(gensym,   _print_gensym_) if not readably else t
-        # Because the #: syntax does not intern the following symbol, it is
-        # necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
-        # the same uninterned symbol appears several times in an expression to
-        # be printed. For example, the result of
-        #
-        # (let ((x (make-symbol "FOO"))) (list x x))
-        #
-        # would be printed as (#:FOO #:FOO) if *PRINT-CIRCLE* were
-        # false, but as (#1=#:FOO #1#) if *PRINT-CIRCLE* were true.
+        ## Because the #: syntax does not intern the following symbol, it is
+        ## necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
+        ## the same uninterned symbol appears several times in an expression to
+        ## be printed. For example, the result of
+        ##
+        ## (let ((x (make-symbol "FOO"))) (list x x))
+        ##
+        ## would be printed as (#:FOO #:FOO) if *PRINT-CIRCLE* were
+        ## false, but as (#1=#:FOO #1#) if *PRINT-CIRCLE* were true.
         return ((""                       if not escape                        else
                  ":"                      if s.package is __keyword            else
                  ""                       if _symbol_accessible_in(s, package) else
@@ -859,6 +860,7 @@ def _init_package_system_0():
 _init_package_system_0()
 
 _unboot_set("symbol")
+# _unboot_set("print") # This can turn 4.8s of debug printing into 30+s
 
 # ***** GENSYM
 
@@ -5826,7 +5828,7 @@ class _matcher():
         def complex_pat_p(m, x):
                 return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def match_complex(m, bound, name, exp, pat, leader, aux, limit):
-                # _debug_printf("match_complex  %10s  %20s\n -[ %s\n -( %s\n -< %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
+                _debug_printf("match_complex  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
                 return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux, limit)
         def __init__(m):
                 m.__complex_patterns__ = _py.dict()
@@ -5847,7 +5849,7 @@ class _matcher():
                         def nonconstant_pat_p(x): return _tuplep(x) or m.nonliteral_atom_p(x)
                         return not nonconstant_pat_p(_py.tuple(pat.items())[0][1] if typep(pat, _py.dict) else
                                                      pat)
-                # _debug_printf("segment_match  %10s  %20s\n -[ %s\n -( %s\n -< %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
+                _debug_printf("segment_match  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                 seg_pat, rest_pat = pat[0][1:], pat[1:]
                 end = (end                        if end is not None                          else
@@ -5890,7 +5892,8 @@ class _matcher():
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
                 ## the acute sense of time being wasted..
                 atomp, null = not _tuplep(pat), pat == ()
-                # _debug_printf("       _match  %10s  %20s\n -[ %s\n -( %s\n -< %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
+                ################# Critical Issue COMPLEX-PATTERNS-SHOULD-BE-ABLE-TO-MATCH-WHOLESOMELY
+                _debug_printf("       _match  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s", name, bound, exp, pat, leader, aux, limit, atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
                 return \
                     (m.test((m.match_atom(exp, pat) if atomp else
                              exp == ()),
@@ -5952,11 +5955,6 @@ class _metasex_matcher(_matcher):
                 ## Currently only depended upon by the segment matcher.
                 return x == _name
         @staticmethod
-        def match_atom(exp, pat):
-                return ((symbolp(exp) and not keywordp(exp)) if pat is _name else
-                        exp is pat                           if symbolp(pat) else
-                        exp == pat)
-        @staticmethod
         def prod(x, leader):
                 return _py.str(x) if x or leader else ""
         @staticmethod
@@ -6001,15 +5999,28 @@ class _metasex_matcher(_matcher):
                 finally:
                         _pp_depth -= n
         @staticmethod
+        def match_atom(exp, pat):
+                _debug_printf("%%%%%% match_atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
+                              exp, pat, ((symbolp(exp) and not keywordp(exp)) if pat is _name else
+                                         exp is pat                           if symbolp(pat) else
+                                         exp == pat),
+                              pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp))
+                return ((symbolp(exp) and not keywordp(exp)) if pat is _name else
+                        exp is pat                           if symbolp(pat) else
+                        exp == pat)
+        @staticmethod
         def form_metasex(form):
-                return (_name                        if not _tuplep(form) or not _form                         else
+                ####### Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
+                return ((typep, t)                   if not _tuplep(form)                                      else
+                        ()                           if not form                                               else
                         _find_known(form[0]).metasex if symbolp(form[0]) and _find_known(form[0])              else
                         (_name, " ", [_form, " "])   if symbolp(form[0])                                       else
                         (_form, "\n", [_form, " "])  if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
-                        [_form, " "])
+                        ([_form, " "],))
         def match_form(m, bound, name, exp, pat, leader, aux, limit):
                 form = exp[0] ## XXX: missing type checking!
                 prepped = m.preprocess(m.form_metasex(form))
+                _debug_printf("=== form for %s:\n=== %s", _py.repr(form), prepped)
                 return m.crec(lambda: m.match(bound, name, form, prepped, leader, aux, limit),
                               lambda bound: m.match(bound, None, exp[1:], pat[1:], False, None, None),
                               leader = leader)
@@ -6145,6 +6156,13 @@ _string_set("*COMPILER-DEBUG-P*",    nil)
 
 def _sex_space():
         return " " * _pp_depth
+def _sex_deeper(n, body):
+        global _pp_depth
+        try:
+                _pp_depth += n
+                return body()
+        finally:
+                _pp_depth -= n
 
 def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
@@ -6465,7 +6483,7 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 #        thunk()
 #    - installation of such named lambdas as global function definitions
 #        emit a decorator? install_fdefinition
-@defknown((intern("DEF_")[0], " ", _name, " ", ([_form, " "]),
+@defknown((intern("DEF_")[0], " ", _name, " ", ([_form, " "],),
             1, [_form, "\n"]),
           name = intern("DEF_")[0])
 def def_(name, lambda_list, *body, decorators = []):
@@ -6624,7 +6642,7 @@ def let(bindings, *body):
                         (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
                              dont_delay_defaults = t),))
 
-@defknown((intern("FLET")[0], " ", ([(_name, " ", ([_form, " "]),
+@defknown((intern("FLET")[0], " ", ([(_name, " ", ([_form, " "],),
                                        1, [_form, "\n"]), "\n"],),
             1, [_form, "\n"]))
 def flet(bindings, *body):
@@ -6641,7 +6659,7 @@ def flet(bindings, *body):
                                 for name, lambda_list, *fbody in bindings)) +
                 body)
 
-@defknown((intern("LABELS")[0], " ", ([(_name, " ", ([_form, " "]),
+@defknown((intern("LABELS")[0], " ", ([(_name, " ", ([_form, " "],),
                                          1, [_form, "\n"]), "\n"],),
             1, [_form, "\n"]))
 def labels(bindings, *body):
@@ -6704,7 +6722,7 @@ def funcall(func, *args):
                 return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
                          (funcall, func_exp) + _py.tuple())
 
-@defknown((intern("LAMBDA"), " ", ([_form, " "]),
+@defknown((intern("LAMBDA")[0], " ", ([_form, " "],),
             1, [_form, "\n"]))
 def lambda_(lambda_list, *body, dont_delay_defaults = nil):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
