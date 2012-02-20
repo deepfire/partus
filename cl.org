@@ -6330,14 +6330,14 @@ def _find_known(x):
                   ## while staring at a screenful of code.  In "real" life I'd be pressed by
                   ## the acute sense of time being wasted..
                   atomp, null = not _tuplep(pat), pat == ()
-                  ################# Critical Issue COMPLEX-PATTERNS-SHOULD-BE-ABLE-TO-MATCH-WHOLESOMELY
                   # _debug_printf("       _match  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s",
                   #               name, bound, exp, pat, leader, aux, limit,
                   #               atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
                   return \
                       (m.test((m.match_atom(exp, pat) if atomp else
                                exp == ()),
-                              bound, name, lambda: m.prod(exp, leader), exp, pat) if atomp or null else
+                               bound, name, lambda: m.prod(exp, leader), exp, pat)      if atomp or null        else
+                       m.match_complex(bound, name, (exp,), (pat,), leader, aux, limit) if m.complex_pat_p(pat) else
                        (lambda pat0name, pat0, patR, clean_pat:
                                 (m.equo(name, exp,
                                         m.match_complex(bound, pat0name, exp, clean_pat, leader, aux, limit))

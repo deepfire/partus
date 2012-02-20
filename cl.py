@@ -636,22 +636,22 @@ def find_symbol(str, package = None):
         return _find_symbol(str, _coerce_to_package(package))
 
 @boot("print", lambda _, s, **__:
-              (("#"            if not s.package          else
-                ""             if s.package is __keyword or s.package is __cl  else
+              (("#"            if not s.package                               else
+                ""             if s.package is __keyword or s.package is __cl else
                 s.package.name) + (""  if s.package is __cl                                                         else
                                    ":" if (not s.package or s.name in s.package.external or s.package is __keyword) else
                                    "::") + s.name))
 def _print_symbol(s, escape = None, gensym = None, case = None, package = None, readably = None):
-        ## Specifically, if *PRINT-READABLY* is true, printing proceeds as if
-        ## *PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
-        ## as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
-        ##
-        ## If *PRINT-READABLY* is false, the normal rules for printing and the
-        ## normal interpretations of other printer control variables are in
-        ## effect.
-        ##
-        ## Individual methods for PRINT-OBJECT, including user-defined methods,
-        ## are responsible for implementing these requirements.
+        # Specifically, if *PRINT-READABLY* is true, printing proceeds as if
+        # *PRINT-ESCAPE*, *PRINT-ARRAY*, and *PRINT-GENSYM* were also true, and
+        # as if *PRINT-LENGTH*, *PRINT-LEVEL*, AND *PRINT-LINES* were false.
+        #
+        # If *PRINT-READABLY* is false, the normal rules for printing and the
+        # normal interpretations of other printer control variables are in
+        # effect.
+        #
+        # Individual methods for PRINT-OBJECT, including user-defined methods,
+        # are responsible for implementing these requirements.
         package  = _defaulted_to_var(package,  _package_)
         if not packagep(package):
                 _here("------------------------------------------------------------\npackage is a %s: %s" % (type_of(package), package,))
@@ -659,15 +659,15 @@ def _print_symbol(s, escape = None, gensym = None, case = None, package = None, 
         escape   = _defaulted_to_var(escape,   _print_escape_) if not readably else t
         case     = _defaulted_to_var(case,     _print_case_)   if not readably else _keyword("UPCASE")
         gensym   = _defaulted_to_var(gensym,   _print_gensym_) if not readably else t
-        ## Because the #: syntax does not intern the following symbol, it is
-        ## necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
-        ## the same uninterned symbol appears several times in an expression to
-        ## be printed. For example, the result of
-        ##
-        ## (let ((x (make-symbol "FOO"))) (list x x))
-        ##
-        ## would be printed as (#:FOO #:FOO) if *PRINT-CIRCLE* were
-        ## false, but as (#1=#:FOO #1#) if *PRINT-CIRCLE* were true.
+        # Because the #: syntax does not intern the following symbol, it is
+        # necessary to use circular-list syntax if *PRINT-CIRCLE* is true and
+        # the same uninterned symbol appears several times in an expression to
+        # be printed. For example, the result of
+        #
+        # (let ((x (make-symbol "FOO"))) (list x x))
+        #
+        # would be printed as (#:FOO #:FOO) if *PRINT-CIRCLE* were
+        # false, but as (#1=#:FOO #1#) if *PRINT-CIRCLE* were true.
         return ((""                       if not escape                        else
                  ":"                      if s.package is __keyword            else
                  ""                       if _symbol_accessible_in(s, package) else
@@ -5828,7 +5828,7 @@ class _matcher():
         def complex_pat_p(m, x):
                 return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def match_complex(m, bound, name, exp, pat, leader, aux, limit):
-                _debug_printf("match_complex  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
+                # _debug_printf("match_complex  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
                 return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux, limit)
         def __init__(m):
                 m.__complex_patterns__ = _py.dict()
@@ -5849,7 +5849,7 @@ class _matcher():
                         def nonconstant_pat_p(x): return _tuplep(x) or m.nonliteral_atom_p(x)
                         return not nonconstant_pat_p(_py.tuple(pat.items())[0][1] if typep(pat, _py.dict) else
                                                      pat)
-                _debug_printf("segment_match  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
+                # _debug_printf("segment_match  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                 seg_pat, rest_pat = pat[0][1:], pat[1:]
                 end = (end                        if end is not None                          else
@@ -5892,12 +5892,14 @@ class _matcher():
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
                 ## the acute sense of time being wasted..
                 atomp, null = not _tuplep(pat), pat == ()
-                ################# Critical Issue COMPLEX-PATTERNS-SHOULD-BE-ABLE-TO-MATCH-WHOLESOMELY
-                _debug_printf("       _match  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s", name, bound, exp, pat, leader, aux, limit, atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
+                # _debug_printf("       _match  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s",
+                #               name, bound, exp, pat, leader, aux, limit,
+                #               atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
                 return \
                     (m.test((m.match_atom(exp, pat) if atomp else
                              exp == ()),
-                            bound, name, lambda: m.prod(exp, leader), exp, pat) if atomp or null else
+                             bound, name, lambda: m.prod(exp, leader), exp, pat)      if atomp or null        else
+                     m.match_complex(bound, name, (exp,), (pat,), leader, aux, limit) if m.complex_pat_p(pat) else
                      (lambda pat0name, pat0, patR, clean_pat:
                               (m.equo(name, exp,
                                       m.match_complex(bound, pat0name, exp, clean_pat, leader, aux, limit))
@@ -5911,7 +5913,6 @@ class _matcher():
 
 def _match(matcher, exp, pat):
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
-        _debug_printf("MATCHER orig: %s\n        prep: %s", pat, prepped)
         return matcher.match(_py.dict(), name, exp, prepped, True, None, None)
 
 # ******* Code
@@ -6000,11 +6001,11 @@ class _metasex_matcher(_matcher):
                         _pp_depth -= n
         @staticmethod
         def match_atom(exp, pat):
-                _debug_printf("%%%%%% match_atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
-                              exp, pat, ((symbolp(exp) and not keywordp(exp)) if pat is _name else
-                                         exp is pat                           if symbolp(pat) else
-                                         exp == pat),
-                              pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp))
+                # _debug_printf("%%%%%% match_atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
+                #               exp, pat, ((symbolp(exp) and not keywordp(exp)) if pat is _name else
+                #                          exp is pat                           if symbolp(pat) else
+                #                          exp == pat),
+                #               pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp))
                 return ((symbolp(exp) and not keywordp(exp)) if pat is _name else
                         exp is pat                           if symbolp(pat) else
                         exp == pat)
@@ -6020,7 +6021,7 @@ class _metasex_matcher(_matcher):
         def match_form(m, bound, name, exp, pat, leader, aux, limit):
                 form = exp[0] ## XXX: missing type checking!
                 prepped = m.preprocess(m.form_metasex(form))
-                _debug_printf("=== form for %s:\n=== %s", _py.repr(form), prepped)
+                # _debug_printf("=== form for %s:\n=== %s", _py.repr(form), prepped)
                 return m.crec(lambda: m.match(bound, name, form, prepped, leader, aux, limit),
                               lambda bound: m.match(bound, None, exp[1:], pat[1:], False, None, None),
                               leader = leader)
