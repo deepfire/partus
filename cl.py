@@ -5828,7 +5828,8 @@ class _matcher():
         def complex_pat_p(m, x):
                 return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def match_complex(m, bound, name, exp, pat, leader, aux, limit):
-                # _debug_printf("match_complex  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
+                # _debug_printf("match_complex  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
+                #               id(exp) ^ id(pat), name, bound, exp, pat, leader, aux, limit)
                 return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, leader, aux, limit)
         def __init__(m):
                 m.__complex_patterns__ = _py.dict()
@@ -5849,7 +5850,8 @@ class _matcher():
                         def nonconstant_pat_p(x): return _tuplep(x) or m.nonliteral_atom_p(x)
                         return not nonconstant_pat_p(_py.tuple(pat.items())[0][1] if typep(pat, _py.dict) else
                                                      pat)
-                # _debug_printf("segment_match  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s", name, bound, exp, pat, leader, aux, limit)
+                # _debug_printf("segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
+                #               id(exp) ^ id(pat), name, bound, exp, pat, leader, aux, limit)
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                 seg_pat, rest_pat = pat[0][1:], pat[1:]
                 end = (end                        if end is not None                          else
@@ -5865,16 +5867,16 @@ class _matcher():
                                              ((lambda seg_bound, seg_r, seg_fail_pat:
                                                        m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
                                                               if_exists = replace))
-                                              (*(m.succ(m.bind((), bound, name), m.prod((), False)) if seg_exp == () else
-                                                 m.fail(bound, exp, pat)                            if limit == 0    else
+                                              (*(m.succ(m.bind((), bound, name), m.prod((), leader)) if seg_exp == () else
+                                                 m.fail(bound, exp, pat)                             if limit == 0    else
                                                  ## Try biting one more iteration off seg_exp:
-                                                 m.match(bound, name,  seg_exp,      aux,  False,  aux, (limit - 1 if integerp(limit) else
+                                                 m.match(bound, name,  seg_exp,     aux,  leader, aux,  (limit - 1 if integerp(limit) else
                                                                                                          None))))),
                                      lambda seg_bound:
                                              m.match(seg_bound, None, rest_exp, rest_pat,  False, None, None),
                                      leader = leader),
-                              lambda: m.segment_match(  bound, name,      exp,      pat, leader,  aux, limit,
-                                                        end + 1),
+                              lambda: m.segment_match(   bound, name,      exp,      pat, leader,  aux, limit,
+                                                         end + 1),
                               leader = leader)
         def match_maybe(m, bound, name, exp, pat, leader, aux, limit):
                 return m.segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], leader, aux, 1)
@@ -5892,8 +5894,8 @@ class _matcher():
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
                 ## the acute sense of time being wasted..
                 atomp, null = not _tuplep(pat), pat == ()
-                # _debug_printf("       _match  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s",
-                #               name, bound, exp, pat, leader, aux, limit,
+                # _debug_printf("       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s",
+                #               id(exp) ^ id(pat), name, bound, exp, pat, leader, aux, limit,
                 #               atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
                 return \
                     (m.test((m.match_atom(exp, pat) if atomp else
@@ -5906,8 +5908,8 @@ class _matcher():
                                                          if m.complex_pat_p(pat0)         else
                                m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
                                m.equo(name, exp,
-                                      m.crec(lambda:        m.match(bound, pat0name, exp[0],  pat0, True,  None, None),
-                                             (lambda b0und: m.match(b0und, None,     exp[1:], patR, False, None, limit)),
+                                      m.crec(lambda:        m.match(bound, pat0name, exp[0],  pat0, leader, None, None),
+                                             (lambda b0und: m.match(b0und, None,     exp[1:], patR, False,  None, limit)),
                                              leader = leader))))
                      (*maybe_get0Rname(pat)))
 
@@ -5919,7 +5921,7 @@ def _match(matcher, exp, pat):
 
 #         MetaSEX presents us with an excellent lesson.  Let's try to understand.
 
-_intern_and_bind_pynames("%NAME", "%MAYBE",
+_intern_and_bind_pynames("%NAME", "%MAYBE", "%NOTLEAD",
                          "%NEWLINE", "%INDENT", "%FORM", "%COUNT-SCOPE",
                          "%MAYBE-ONCE", "%ONCE",
                          "%SET-MINUS")
@@ -5933,6 +5935,7 @@ class _metasex_matcher(_matcher):
                 _matcher.__init__(m)
                 m.register_complex_matcher(_newline,     m.process_newline)
                 m.register_complex_matcher(_indent,      m.process_indent)
+                m.register_complex_matcher(_notlead,     m.process_notlead)
                 m.register_complex_matcher(_form,        m.match_form)
                 m.register_complex_matcher(symbol,       m.match_symbol)
                 m.register_complex_matcher(_count_scope, m.identity_matcher)
@@ -5962,43 +5965,46 @@ class _metasex_matcher(_matcher):
         def comb(f0, fR, leader):
                 global _pp_base_depth, _pp_depth
                 acc = "(" if leader else ""
-                base_depth_save = _pp_base_depth
+                old_base, new_base = _pp_base_depth, (_pp_base_depth + _pp_depth + 1 if leader else
+                                                      _pp_base_depth)
                 try:
-                        if leader:
-                                _pp_base_depth = _pp_base_depth + _pp_depth + 1
+                        _pp_base_depth = new_base
                         res0 = f0()
                         if res0 is None: return
                         acc += res0
+                        old_depth, new_depth = _pp_depth, _pp_depth + _py.len(res0)
                         try:
-                                _pp_depth += _py.len(res0)
+                                _pp_depth = new_depth
                                 resR = fR()
                                 if resR is None: return
                                 acc += resR
                                 acc += ")" if leader else ""
                         finally:
-                                _pp_depth -= _py.len(res0)
+                                _pp_depth = old_depth
                 finally:
-                        _pp_base_depth = base_depth_save
+                        _pp_base_depth = old_base
                 return acc
         def process_newline(m, bound, name, exp, pat, leader, aux, limit):
                 global _pp_base_depth, _pp_depth
                 n, tail = pat[0][1], pat[1:]
+                old_base, new_base = _pp_base_depth, _pp_base_depth + n
                 try:
-                        _pp_base_depth += n
+                        _pp_base_depth = new_base
                         _pp_depth = 0
                         return m.post(m.match(m.bind(_pp_base_depth, bound, name), None, exp, tail, leader, aux, None),
                                       lambda r: "\n" + (" " * _pp_base_depth) + r)
                 finally:
-                        _pp_base_depth -= n
+                        _pp_base_depth = old_base
         def process_indent(m, bound, name, exp, pat, leader, aux, limit):
                 global _pp_base_depth, _pp_depth
                 n, tail = pat[0][1], pat[1:]
+                old_depth, new_depth = _pp_depth, _pp_depth + n
                 try:
-                        _pp_depth += n
+                        _pp_depth = new_depth
                         return m.post(m.match(m.bind(_pp_depth, bound, name), None, exp, tail, leader, aux, None),
                                       lambda r: (" " * n) + r)
                 finally:
-                        _pp_depth -= n
+                        _pp_depth = old_depth
         @staticmethod
         def match_atom(exp, pat):
                 # _debug_printf("%%%%%% match_atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
@@ -6012,12 +6018,18 @@ class _metasex_matcher(_matcher):
         @staticmethod
         def form_metasex(form):
                 ####### Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
-                return ((typep, t)                   if not _tuplep(form)                                      else
-                        ()                           if not form                                               else
-                        _find_known(form[0]).metasex if symbolp(form[0]) and _find_known(form[0])              else
-                        (_name, " ", [_form, " "])   if symbolp(form[0])                                       else
-                        (_form, "\n", [_form, " "])  if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
-                        ([_form, " "],))
+                return ((typep, t)                              if not _tuplep(form)                                      else
+                        ()                                      if not form                                               else
+                        _find_known(form[0]).metasex            if symbolp(form[0]) and _find_known(form[0])              else
+                        (_name, [" ", _form])                   if symbolp(form[0])                                       else
+                        (_form, "\n", [(_notlead, " "), _form]) if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
+                        ([(_notlead, " "), _form],))
+        def process_notlead(m, bound, name, exp, pat, leader, aux, limit):
+                maybe_pat = pat[0][1]
+                if leader:
+                        return m.match(bound, None, exp, pat[1:], True, None, None)
+                _debug_printf("process_notlead: %s %s", leader, pat)
+                return m.match(bound, name, exp, pat[0][1:] + pat[1:], leader, aux, limit)
         def match_form(m, bound, name, exp, pat, leader, aux, limit):
                 form = exp[0] ## XXX: missing type checking!
                 prepped = m.preprocess(m.form_metasex(form))
@@ -6158,12 +6170,13 @@ _string_set("*COMPILER-DEBUG-P*",    nil)
 def _sex_space():
         return " " * _pp_depth
 def _sex_deeper(n, body):
-        global _pp_depth
+        global _pp_base_depth
+        old_base, new_base = _pp_base_depth, _pp_base_depth + n
         try:
-                _pp_depth += n
+                _pp_base_depth = new_base
                 return body()
         finally:
-                _pp_depth -= n
+                _pp_base_depth = old_base
 
 def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
@@ -6350,7 +6363,7 @@ def splice(x):
 # ******* PROGN, IF
 
 @defknown((intern("PROGN")[0],
-            1, [_form, "\n"]))
+            1, [(_notlead, "\n"), _form]))
 def progn(*body):
         if not body:
                 return ([],
@@ -6484,8 +6497,8 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 #        thunk()
 #    - installation of such named lambdas as global function definitions
 #        emit a decorator? install_fdefinition
-@defknown((intern("DEF_")[0], " ", _name, " ", ([_form, " "],),
-            1, [_form, "\n"]),
+@defknown((intern("DEF_")[0], " ", _name, " ", ([(_notlead, " "), _form],),
+            1, [(_notlead, "\n"), _form]),
           name = intern("DEF_")[0])
 def def_(name, lambda_list, *body, decorators = []):
         ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
@@ -6543,7 +6556,7 @@ def def_(name, lambda_list, *body, decorators = []):
 @defknown((intern("EVAL-WHEN")[0], " ", ([(or_, (_maybe_once, _keyword("COMPILE-TOPLEVEL")),
                                                 (_maybe_once, _keyword("LOAD-TOPLEVEL")),
                                                 (_maybe_once, _keyword("EXECUTE")))]),
-            1, [_form, "\n"]))
+            1, [(_notlead, "\n"), _form]))
 def eval_when(when, *body):
         """eval-when (situation*) form* => result*
 
@@ -6591,8 +6604,8 @@ when EVAL-WHEN appears as a top level form."""
 
 # ******* K DEFMACRO, DEFUN
 
-@defknown((intern("DEFMACRO")[0], " ", _name, " ", ([_name, " "],),
-            1, [_form, "\n"]))
+@defknown((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
+            1, [(_notlead, "\n"), _form]))
 def defmacro(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
         ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
@@ -6604,8 +6617,8 @@ def defmacro(name, lambda_list, *body):
                              # the((varituple, (eql, def_), pytuple), macfundef)
                 _lower((quote, (symbol, string(name))))[1])
 
-@defknown((intern("DEFUN")[0], " ", _name, " ", ([_name, " "],),
-            1, [_form, "\n"]))
+@defknown((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
+            1, [(_notlead, "\n"), _form]))
 def defun(name, lambda_list, *body):
         ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
         fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
@@ -6617,8 +6630,8 @@ def defun(name, lambda_list, *body):
 
 # ********* Code
 
-@defknown((intern("LET")[0], " ", ([(_name, " ", _form), "\n"],),
-            1, [_form, "\n"]))
+@defknown((intern("LET")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
+            1, [(_notlead, "\n"), _form]))
 def let(bindings, *body):
         # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
         if not (_tuplep(bindings) and
@@ -6643,9 +6656,9 @@ def let(bindings, *body):
                         (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
                              dont_delay_defaults = t),))
 
-@defknown((intern("FLET")[0], " ", ([(_name, " ", ([_form, " "],),
-                                       1, [_form, "\n"]), "\n"],),
-            1, [_form, "\n"]))
+@defknown((intern("FLET")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), _form],),
+                                                         1, [(_notlead, "\n"), _form])],),
+            1, [(_notlead, "\n"), _form]))
 def flet(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -6660,9 +6673,9 @@ def flet(bindings, *body):
                                 for name, lambda_list, *fbody in bindings)) +
                 body)
 
-@defknown((intern("LABELS")[0], " ", ([(_name, " ", ([_form, " "],),
-                                         1, [_form, "\n"]), "\n"],),
-            1, [_form, "\n"]))
+@defknown((intern("LABELS")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), _form],),
+                                                           1, [(_notlead, "\n"), _form])],),
+            1, [(_notlead, "\n"), _form]))
 def labels(bindings, *body):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -6677,8 +6690,8 @@ def labels(bindings, *body):
                         body)),
                  (funcall, temp_name))
 
-@defknown((intern("LET*")[0], " ", ([(_name, " ", _form), "\n"],),
-            1, [_form, "\n"]),
+@defknown((intern("LET*")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
+            1, [(_notlead, "\n"), _form]),
           name = intern("LET*")[0])
 def let_(bindings, *body):
         # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -6723,8 +6736,8 @@ def funcall(func, *args):
                 return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
                          (funcall, func_exp) + _py.tuple())
 
-@defknown((intern("LAMBDA")[0], " ", ([_form, " "],),
-            1, [_form, "\n"]))
+@defknown((intern("LAMBDA")[0], " ", ([(_notlead, " "), _form],),
+            1, [(_notlead, "\n"), _form]))
 def lambda_(lambda_list, *body, dont_delay_defaults = nil):
         # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
         # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
@@ -6769,7 +6782,7 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
 # ******* K UNWIND-PROTECT
 
 @defknown((intern("UNWIND-PROTECT")[0], " ", _form,
-            1, [_form, "\n"]))
+            1, [(_notlead, "\n"), _form]))
 def unwind_protect(form, *unwind_body):
         if not unwind_body:
                 return _lower(form)
