@@ -5862,6 +5862,7 @@ class _matcher():
                         return m.fail(bound, exp, pat)
                 seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                                      (exp, ()))
+                firstp = aux is None
                 aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
                 return m.coor(m.crec(lambda:
                                              ((lambda seg_bound, seg_r, seg_fail_pat:
@@ -5870,8 +5871,9 @@ class _matcher():
                                               (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
                                                  m.fail(bound, exp, pat)                                if limit == 0    else
                                                  ## Try biting one more iteration off seg_exp:
-                                                 m.match(bound, name,  seg_exp,     aux,  orifst, aux,  (limit - 1 if integerp(limit) else
-                                                                                                         None))))),
+                                                 m.match(bound, name,  seg_exp,     aux,  (orifst[0],
+                                                                                           firstp), aux, (limit - 1 if integerp(limit) else
+                                                                                                          None))))),
                                      lambda seg_bound:
                                              m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None)),
                               lambda: m.segment_match(   bound, name,      exp,      pat, orifst,   aux, limit,
