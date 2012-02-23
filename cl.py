@@ -6027,7 +6027,7 @@ class _metasex_matcher(_matcher):
                         ([(_notlead, " "), _form],))
         def process_notlead(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1]
-                if orifst[0]:
+                if orifst[1]:
                         return m.match(bound, None, exp, pat[1:], (True, orifst[1]), None, None)
                 _debug_printf("process_notlead: %s %s", orifst[0], pat)
                 return m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
