@@ -5828,8 +5828,8 @@ class _matcher():
         def complex_pat_p(m, x):
                 return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def complex_match(m, bound, name, exp, pat, orifst, aux, limit):
-                # _debug_printf("complex_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
-                #               id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit)
+                _debug_printf("complex_match  %s %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
+                              pat[0][0], id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit)
                 return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit)
         def __init__(m):
                 m.__complex_patterns__ = _py.dict()
@@ -5850,10 +5850,12 @@ class _matcher():
                         def nonconstant_pat_p(x): return _tuplep(x) or m.nonliteral_atom_p(x)
                         return not nonconstant_pat_p(_py.tuple(pat.items())[0][1] if typep(pat, _py.dict) else
                                                      pat)
-                # _debug_printf("segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
-                #               id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit)
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                 seg_pat, rest_pat = pat[0][1:], pat[1:]
+                firstp = aux is None
+                aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
+                _debug_printf("segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  newaux:%s  %s",
+                              id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit)
                 end = (end                        if end is not None                          else
                        position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                        0)
@@ -5862,8 +5864,6 @@ class _matcher():
                         return m.fail(bound, exp, pat)
                 seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                                      (exp, ()))
-                firstp = aux is None
-                aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
                 return m.coor(m.crec(lambda:
                                              ((lambda seg_bound, seg_r, seg_fail_pat:
                                                        m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
@@ -5875,7 +5875,7 @@ class _matcher():
                                                                                            firstp), aux, (limit - 1 if integerp(limit) else
                                                                                                           None))))),
                                      lambda seg_bound:
-                                             m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None)),
+                                             m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), aux, None)),
                               lambda: m.segment_match(   bound, name,      exp,      pat, orifst,   aux, limit,
                                                          end + 1))
         def match_maybe(m, bound, name, exp, pat, orifst, aux, limit):
@@ -5894,9 +5894,9 @@ class _matcher():
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
                 ## the acute sense of time being wasted..
                 atomp, null = not _tuplep(pat), pat == ()
-                # _debug_printf("       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s",
-                #               id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
-                #               atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
+                _debug_printf("       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s",
+                              id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
+                              atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
                 return \
                     (m.test((m.match_atom(exp, pat) if atomp else
                              exp == ()),
@@ -5910,7 +5910,7 @@ class _matcher():
                                m.equo(name, exp,
                                       m.crec(lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
                                                                                                      orifst[1]), None,   None),
-                                             (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), None, limit)),
+                                             (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), aux, limit)),
                                              orig_tuple_p = orifst[0]))))
                      (*maybe_get0Rname(pat)))
 
@@ -6028,9 +6028,10 @@ class _metasex_matcher(_matcher):
         def process_notlead(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1]
                 if orifst[1]:
-                        return m.match(bound, None, exp, pat[1:], (True, orifst[1]), None, None)
+                        return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
                 _debug_printf("process_notlead: %s %s", orifst[0], pat)
-                return m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+                ############## act as identity
+                return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
         def match_form(m, bound, name, exp, pat, orifst, aux, limit):
                 form = exp[0] ## XXX: missing type checking!
                 prepped = m.preprocess(m.form_metasex(form))
