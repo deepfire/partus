@@ -6240,13 +6240,13 @@ def _find_known(x):
                   b, r, f = x
                   return ((m.bind(exp, b, name), r, f) if f is None else
                           x) # propagate failure as-is
-          def coor(m, l0ret, lR, leader = False):
+          def coor(m, l0ret, lR, orig_tuple_p = False):
                   l0b, l0r, l0f = l0ret
                   if l0f is None: return m.succ(l0b, l0r)
                   lRb, lRr, lRf = lR()
                   if lRf is None: return m.succ(lRb, lRr)
-                  return m.fail(l0b, lRr, m.forc(l0f, lRf, leader))
-          def crec(m, l0, lR, leader = False):
+                  return m.fail(l0b, lRr, m.forc(l0f, lRf, orig_tuple_p))
+          def crec(m, l0, lR, orig_tuple_p = False):
                   ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                   failpat, failex, bound0, boundR = None, None, None, None
                   def try_produce_0():
@@ -6257,7 +6257,7 @@ def _find_known(x):
                           nonlocal boundR, failex, failpat
                           boundR, failex, failpat = lR(bound0)
                           if failpat is None: return failex
-                  result = m.comb(try_produce_0, try_produce_R, leader)
+                  result = m.comb(try_produce_0, try_produce_R, orig_tuple_p)
                   return (m.succ(boundR, result) if failpat is None else
                           m.fail(boundR or bound0, failex, failpat))
           ###
@@ -6311,11 +6311,9 @@ def _find_known(x):
                                                    m.match(bound, name,  seg_exp,     aux,  leader, aux,  (limit - 1 if integerp(limit) else
                                                                                                            None))))),
                                        lambda seg_bound:
-                                               m.match(seg_bound, None, rest_exp, rest_pat,  False, None, None),
-                                       leader = leader),
+                                               m.match(seg_bound, None, rest_exp, rest_pat,  False, None, None),),
                                 lambda: m.segment_match(   bound, name,      exp,      pat, leader,  aux, limit,
-                                                           end + 1),
-                                leader = leader)
+                                                           end + 1))
           def match_maybe(m, bound, name, exp, pat, leader, aux, limit):
                   return m.segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], leader, aux, 1)
           ## About the vzy33c0's idea:
@@ -6348,13 +6346,25 @@ def _find_known(x):
                                  m.equo(name, exp,
                                         m.crec(lambda:        m.match(bound, pat0name, exp[0],  pat0, leader, None, None),
                                                (lambda b0und: m.match(b0und, None,     exp[1:], patR, False,  None, limit)),
-                                               leader = leader))))
+                                               orig_tuple_p = leader))))
                        (*maybe_get0Rname(pat)))
   
   def _match(matcher, exp, pat):
           name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
           return matcher.match(_py.dict(), name, exp, prepped, True, None, None)
 #+end_src
+
+******* Notes about computation of ()-ness
+
+        - enacted by matcher.crec(*, orig_tuple_p = True)
+        - ()-ness desirability
+          - we want ()
+            - any tuple, which is completely contained in the SEX
+          - () no want
+            - any other case
+        - ()-ness knowledge
+          - top level
+          - pat0?
 
 ***** MetaSEX
 ******* Specification
@@ -6481,13 +6491,13 @@ def _find_known(x):
                   ## Currently only depended upon by the segment matcher.
                   return x == _name
           @staticmethod
-          def prod(x, leader):
-                  return _py.str(x) if x or leader else ""
+          def prod(x, orig_tuple_p):
+                  return _py.str(x) if x or orig_tuple_p else ""
           @staticmethod
-          def comb(f0, fR, leader):
+          def comb(f0, fR, orig_tuple_p):
                   global _pp_base_depth, _pp_depth
-                  acc = "(" if leader else ""
-                  old_base, new_base = _pp_base_depth, (_pp_base_depth + _pp_depth + 1 if leader else
+                  acc = "(" if orig_tuple_p else ""
+                  old_base, new_base = _pp_base_depth, (_pp_base_depth + _pp_depth + 1 if orig_tuple_p else
                                                         _pp_base_depth)
                   try:
                           _pp_base_depth = new_base
@@ -6500,7 +6510,7 @@ def _find_known(x):
                                   resR = fR()
                                   if resR is None: return
                                   acc += resR
-                                  acc += ")" if leader else ""
+                                  acc += ")" if orig_tuple_p else ""
                           finally:
                                   _pp_depth = old_depth
                   finally:
@@ -6558,22 +6568,22 @@ def _find_known(x):
                   # _debug_printf("=== form for %s:\n=== %s", _py.repr(form), prepped)
                   return m.crec(lambda: m.match(bound, name, form, prepped, leader, aux, limit),
                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], False, None, None),
-                                leader = leader)
+                                orig_tuple_p = leader)
           def match_symbol(m, bound, name, exp, pat, leader, aux, limit):
                   symbol = pat[0][1] ## XXX: missing type checking!
                   return m.crec(lambda: m.test(exp[0] is symbol, bound, name, lambda: m.prod(exp[0], leader),
                                                exp[0], pat[0]),
                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], False, None, None),
-                                leader = leader)
+                                orig_tuple_p = leader)
           def typep_matcher(m, bound, name, exp, pat, leader, aux, limit):
                   type = pat[0][1] ## XXX: missing type checking!
                   return m.crec(lambda: m.test(typep(exp[0], type), bound, name, lambda: m.prod(exp[0], leader),
                                                exp[0], pat[0]),
                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], False, None, None),
-                                leader = leader)
+                                orig_tuple_p = leader)
           @staticmethod
-          def forc(x, y, leader):
-                  return (("OR",) if leader else ()) + (x,) + y
+          def forc(x, y, orig_tuple_p):
+                  return (("OR",) if orig_tuple_p else ()) + (x,) + y
   
   _metasex = _metasex_matcher()
   
