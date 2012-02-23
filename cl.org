@@ -6211,6 +6211,15 @@ def _find_known(x):
   def _error_bad_pattern(pat):
           raise Exception("Bad pattern: %s." % (pat,))
   
+  _matcher_trace_all      =                            False
+  _matcher_trace_matchers = _matcher_trace_all      or False
+  _matcher_trace_complex  = _matcher_trace_matchers or False
+  _matcher_trace_segment  = _matcher_trace_matchers or False
+  _matcher_trace_match    = _matcher_trace_matchers or False
+  _matcher_trace_yield    =                            False
+  _matcher_trace_notlead  =                            False
+  _matcher_trace_form     =                            False
+
   class _matcher():
           @staticmethod
           def bind(value, bound, name, if_exists:{error, replace} = error):
@@ -6246,7 +6255,7 @@ def _find_known(x):
                   lRb, lRr, lRf = lR()
                   if lRf is None: return m.succ(lRb, lRr)
                   return m.fail(l0b, lRr, m.forc(l0f, lRf, orig_tuple_p))
-          def crec(m, l0, lR, orig_tuple_p = False):
+          def crec(m, exp, l0, lR, orig_tuple_p = False):
                   ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                   failpat, failex, bound0, boundR = None, None, None, None
                   def try_produce_0():
@@ -6258,6 +6267,8 @@ def _find_known(x):
                           boundR, failex, failpat = lR(bound0)
                           if failpat is None: return failex
                   result = m.comb(try_produce_0, try_produce_R, orig_tuple_p)
+                  if _matcher_trace_yield:
+                          _debug_printf("+++ YIELD for %s:\n%s", exp, result)
                   return (m.succ(boundR, result) if failpat is None else
                           m.fail(boundR or bound0, failex, failpat))
           ###
@@ -6266,8 +6277,9 @@ def _find_known(x):
           def complex_pat_p(m, x):
                   return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
           def complex_match(m, bound, name, exp, pat, orifst, aux, limit):
-                  # _debug_printf("complex_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
-                  #               id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit)
+                  if _matcher_trace_complex:
+                          _debug_printf("complex_match  %s %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
+                                        pat[0][0], id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit)
                   return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit)
           def __init__(m):
                   m.__complex_patterns__ = _py.dict()
@@ -6292,8 +6304,9 @@ def _find_known(x):
                   seg_pat, rest_pat = pat[0][1:], pat[1:]
                   firstp = aux is None
                   aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-                  # _debug_printf("segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  newaux:%s  %s",
-                  #               id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit)
+                  if _matcher_trace_segment:
+                          _debug_printf("segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  newaux:%s  %s",
+                                        id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit)
                   end = (end                        if end is not None                          else
                          position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                          0)
@@ -6302,7 +6315,8 @@ def _find_known(x):
                           return m.fail(bound, exp, pat)
                   seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                                        (exp, ()))
-                  return m.coor(m.crec(lambda:
+                  return m.coor(m.crec(exp,
+                                       lambda:
                                                ((lambda seg_bound, seg_r, seg_fail_pat:
                                                          m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
                                                                 if_exists = replace))
@@ -6332,9 +6346,10 @@ def _find_known(x):
                   ## while staring at a screenful of code.  In "real" life I'd be pressed by
                   ## the acute sense of time being wasted..
                   atomp, null = not _tuplep(pat), pat == ()
-                  # _debug_printf("       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s",
-                  #               id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
-                  #               atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
+                  if _matcher_trace_match:
+                          _debug_printf("       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s",
+                                        id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
+                                        atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
                   return \
                       (m.test((m.match_atom(exp, pat) if atomp else
                                exp == ()),
@@ -6346,7 +6361,8 @@ def _find_known(x):
                                                            if m.complex_pat_p(pat0)         else
                                  m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
                                  m.equo(name, exp,
-                                        m.crec(lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
+                                        m.crec(exp,
+                                               lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
                                                                                                        orifst[1]), None,   None),
                                                (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), aux, limit)),
                                                orig_tuple_p = orifst[0]))))
@@ -6561,27 +6577,33 @@ def _find_known(x):
                           ([(_notlead, " "), _form],))
           def process_notlead(m, bound, name, exp, pat, orifst, aux, limit):
                   maybe_pat = pat[0][1]
+                  if _matcher_trace_notlead:
+                          _debug_printf("process_notlead: %s %s", orifst[1], pat)
                   if orifst[1]:
                           return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
-                  _debug_printf("process_notlead: %s %s", orifst[0], pat)
                   ############## act as identity
                   return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
           def match_form(m, bound, name, exp, pat, orifst, aux, limit):
                   form = exp[0] ## XXX: missing type checking!
                   prepped = m.preprocess(m.form_metasex(form))
-                  # _debug_printf("=== form for %s:\n=== %s", _py.repr(form), prepped)
-                  return m.crec(lambda: m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), aux, limit),
+                  if _matcher_trace_form:
+                          _debug_printf("=== form for %s:\n=== %s", _py.repr(form), prepped)
+                  ## We seem to have aux-poisoning here..
+                  return m.crec(exp,
+                                lambda: m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), aux, limit),
                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), None, None),
                                 orig_tuple_p = orifst[0])
           def match_symbol(m, bound, name, exp, pat, orifst, aux, limit):
                   symbol = pat[0][1] ## XXX: missing type checking!
-                  return m.crec(lambda: m.test(exp[0] is symbol, bound, name, lambda: m.prod(exp[0], orifst),
+                  return m.crec(exp,
+                                lambda: m.test(exp[0] is symbol, bound, name, lambda: m.prod(exp[0], orifst),
                                                exp[0], pat[0]),
                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), None, None),
                                 orig_tuple_p = orifst[0])
           def typep_matcher(m, bound, name, exp, pat, orifst, aux, limit):
                   type = pat[0][1] ## XXX: missing type checking!
-                  return m.crec(lambda: m.test(typep(exp[0], type), bound, name, lambda: m.prod(exp[0], orifst),
+                  return m.crec(exp,
+                                lambda: m.test(typep(exp[0], type), bound, name, lambda: m.prod(exp[0], orifst),
                                                exp[0], pat[0]),
                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), None, None),
                                 orig_tuple_p = orifst[0])
