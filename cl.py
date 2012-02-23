@@ -5868,16 +5868,16 @@ class _matcher():
                                                        m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
                                                               if_exists = replace))
                                               (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
-                                                 m.fail(bound, exp, pat)                             if limit == 0    else
+                                                 m.fail(bound, exp, pat)                                if limit == 0    else
                                                  ## Try biting one more iteration off seg_exp:
                                                  m.match(bound, name,  seg_exp,     aux,  orifst, aux,  (limit - 1 if integerp(limit) else
                                                                                                          None))))),
                                      lambda seg_bound:
                                              m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None)),
-                              lambda: m.segment_match(   bound, name,      exp,      pat, orifst,  aux, limit,
+                              lambda: m.segment_match(   bound, name,      exp,      pat, orifst,   aux, limit,
                                                          end + 1))
         def match_maybe(m, bound, name, exp, pat, orifst, aux, limit):
-                return m.segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], (False, False), aux, 1)
+                return m.segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], (False, orifst[1]), aux, 1)
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
         ## 1. type narrows down the case analysis chain (of which there is a lot)
@@ -5907,8 +5907,8 @@ class _matcher():
                                m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
                                m.equo(name, exp,
                                       m.crec(lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
-                                                                                                     False), None,   None),
-                                             (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, False), None, limit)),
+                                                                                                     orifst[1]), None,   None),
+                                             (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), None, limit)),
                                              orig_tuple_p = orifst[0]))))
                      (*maybe_get0Rname(pat)))
 
@@ -6034,19 +6034,19 @@ class _metasex_matcher(_matcher):
                 prepped = m.preprocess(m.form_metasex(form))
                 # _debug_printf("=== form for %s:\n=== %s", _py.repr(form), prepped)
                 return m.crec(lambda: m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), aux, limit),
-                              lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, False), None, None),
+                              lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), None, None),
                               orig_tuple_p = orifst[0])
         def match_symbol(m, bound, name, exp, pat, orifst, aux, limit):
                 symbol = pat[0][1] ## XXX: missing type checking!
                 return m.crec(lambda: m.test(exp[0] is symbol, bound, name, lambda: m.prod(exp[0], orifst),
                                              exp[0], pat[0]),
-                              lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, False), None, None),
+                              lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), None, None),
                               orig_tuple_p = orifst[0])
         def typep_matcher(m, bound, name, exp, pat, orifst, aux, limit):
                 type = pat[0][1] ## XXX: missing type checking!
                 return m.crec(lambda: m.test(typep(exp[0], type), bound, name, lambda: m.prod(exp[0], orifst),
                                              exp[0], pat[0]),
-                              lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, False), None, None),
+                              lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), None, None),
                               orig_tuple_p = orifst[0])
         @staticmethod
         def forc(x, y, orig_tuple_p):
