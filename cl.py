@@ -6107,8 +6107,41 @@ class _metasex_matcher_pp(_metasex_matcher):
                 ############## act as identity
                 return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
 
-_metasex    = _metasex_matcher()
-_metasex_pp = _metasex_matcher_pp()
+_intern_and_bind_pynames("%LAX")
+
+class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
+        def __init__(m):
+                _metasex_matcher_pp.__init__(m)
+                m.register_complex_matcher(_lax, m.lax)
+        def lax(m, bound, name, exp, pat, orifst, aux, limit):
+                return (m.prod(exp, orifst[0])                if not exp         else
+                        ######################### Thought paused here..
+                        m.match(bound, name, exp, (([(_lax,)] if _tuplep(exp[0]) else
+                                                    (typep, t)), (_lax,)), (False, False), None, None))
+        def crec(m, exp, l0, lR, orig_tuple_p = False):
+                ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
+                failpat, failex, bound0, boundR = None, None, None, None
+                def try_produce_0():
+                        nonlocal bound0, failex, failpat
+                        _, failex, failpat = l0()
+                        if failpat is None: return failex
+                        return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (typep, t),
+                                       (None, None), None, None)
+                def try_produce_R():
+                        nonlocal boundR, failex, failpat
+                        _, failex, failpat = lR(bound0)
+                        if failpat is None: return failex
+                        return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (typep, t),
+                                       (None, None), None, None)
+                result = m.comb(try_produce_0, try_produce_R, orig_tuple_p)
+                if _matcher_trace_yield:
+                        _debug_printf("+t+ YIELD for %s:\n%s", exp, result)
+                return (m.succ(boundR, result) if failpat is None else
+                        m.fail(boundR or bound0, failex, failpat))
+
+_metasex              = _metasex_matcher()
+_metasex_pp           = _metasex_matcher_pp()
+_metasex_nonstrict_pp = _metasex_matcher_nonstrict_pp()
 
 _matcher_trace_all      =                            False
 _matcher_trace_matchers = _matcher_trace_all      or False
@@ -6174,6 +6207,24 @@ _matcher_trace_calls    =                            False
 # assert(bound_good)
 # assert(result_good)
 # print("; PP: passed")
+
+# def mal_pp():
+#         return _match(_metasex_nonstrict_pp,
+#                       (let, ((first),
+#                              (second, (car,), ())),
+#                         _body),
+#                       (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
+#                          1, [(_notlead, "\n"), _form]))
+# bound_good, result_good, nofail = runtest(mal_pp,
+#                                           {},
+#                                           """(LET ((FIRST ())
+#       (SECOND (CAR)))
+#   &BODY)""")
+# results()
+# assert(nofail)
+# assert(bound_good)
+# assert(result_good)
+# print("; MAL-PP: passed")
 
 # def empty():
 #         return _match(_metasex_pp, (), {"whole":()})
