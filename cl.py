@@ -5773,14 +5773,10 @@ def _maybe_destructure_binding(pat):
 def _error_bad_pattern(pat):
         raise Exception("Bad pattern: %s." % (pat,))
 
-_matcher_trace_all      =                            False
-_matcher_trace_matchers = _matcher_trace_all      or False
-_matcher_trace_complex  = _matcher_trace_matchers or False
-_matcher_trace_segment  = _matcher_trace_matchers or False
-_matcher_trace_match    = _matcher_trace_matchers or False
-_matcher_trace_yield    =                            False
-_matcher_trace_notlead  =                            False
-_matcher_trace_form     =                            False
+def _r(x, y, retval, q = ""):
+        if _matcher_trace_calls:
+                _debug_printf("--- %12s:%3s < %s   %s   %s", _caller_name(), q, retval, x, y)
+        return retval
 
 class _matcher():
         @staticmethod
@@ -5804,8 +5800,8 @@ class _matcher():
         def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
         ###
         def test(m, test, bound, name, resf:"() -> result", exp, fail_pat, if_exists:{error, replace} = error):
-                return (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
-                        m.fail(bound, exp, fail_pat))
+                return _r(test, "", (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
+                                     m.fail(bound, exp, fail_pat)))
         def equo(m, name, exp, x):
                 "Apply result binding, if any."
                 b, r, f = x
@@ -5830,9 +5826,11 @@ class _matcher():
                         if failpat is None: return failex
                 result = m.comb(try_produce_0, try_produce_R, orig_tuple_p)
                 if _matcher_trace_yield:
-                        _debug_printf("+++ YIELD for %s:\n%s", exp, result)
-                return (m.succ(boundR, result) if failpat is None else
-                        m.fail(boundR or bound0, failex, failpat))
+                        _debug_printf("+++ YIELD for %s (orig: %s, callers: %s->%s):\n%s",
+                                      exp, orig_tuple_p, _caller_name(1), _caller_name(), result)
+                return _r(exp, "",
+                          m.succ(boundR, result) if failpat is None else
+                          m.fail(boundR or bound0, failex, failpat))
         ###
         def register_complex_matcher(m, name, matcher):
                 m.__complex_patterns__[name] = matcher
@@ -5840,9 +5838,11 @@ class _matcher():
                 return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def complex_match(m, bound, name, exp, pat, orifst, aux, limit):
                 if _matcher_trace_complex:
-                        _debug_printf("complex_match  %s %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
-                                      pat[0][0], id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit)
-                return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit)
+                        _debug_printf("complex_match  %s (caller: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
+                                      pat[0][0], _caller_name(1), _caller_name(), id(exp) ^ id(pat),
+                                      name, bound, exp, pat, orifst, aux, limit)
+                return _r(exp, pat[0][0],
+                          m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit))
         def __init__(m):
                 m.__complex_patterns__ = _py.dict()
                 m.register_complex_matcher(some, m.segment_match)
@@ -5867,38 +5867,42 @@ class _matcher():
                 firstp = aux is None
                 aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
                 if _matcher_trace_segment:
-                        _debug_printf("segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  firstp:%s  newaux:%s  %s",
+                        _debug_printf("segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  firstp:%s newaux:%s limit:%s",
                                       id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit)
                 end = (end                        if end is not None                          else
                        position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                        0)
                 if ((end and end > _py.len(exp)) or ## no boundary variant fitted
                     end is None):                   ## a constant pattern was missing
-                        return m.fail(bound, exp, pat)
+                        return _r(exp, pat, m.fail(bound, exp, pat))
                 seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                                      (exp, ()))
-                return m.coor(m.crec(exp,
-                                     lambda:
-                                             ((lambda seg_bound, seg_r, seg_fail_pat:
-                                                       m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
-                                                              if_exists = replace))
-                                              (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
-                                                 m.fail(bound, exp, pat)                                if limit == 0    else
-                                                 ## Try biting one more iteration off seg_exp:
-                                                 m.match(bound, name,  seg_exp,     aux,  (orifst[0],
-                                                                                           firstp), aux, (limit - 1 if integerp(limit) else
-                                                                                                          None))))),
-                                     lambda seg_bound:
-                                             m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None)),
-                              lambda: m.segment_match(   bound, name,      exp,      pat, orifst,   None,  limit,
-                                                         end + 1))
+                if _matcher_trace_segment:
+                        _debug_printf("segment_match  seg_exp:%s", seg_exp)
+                return _r(exp, pat,
+                          m.coor(m.crec(exp,
+                                        lambda:
+                                                ((lambda seg_bound, seg_r, seg_fail_pat:
+                                                          m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
+                                                                 if_exists = replace))
+                                                 (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
+                                                    m.fail(bound, exp, pat)                                if limit == 0    else
+                                                    ## Try biting one more iteration off seg_exp:
+                                                    m.match(bound, name,  seg_exp,     aux,  (orifst[0],
+                                                                                              firstp), aux, (limit - 1 if integerp(limit) else
+                                                                                                             None))))),
+                                        lambda seg_bound:
+                                                m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None)),
+                                 lambda: m.segment_match(   bound, name,      exp,      pat, orifst,   None,  limit,
+                                                            end + 1)))
         def match_maybe(m, bound, name, exp, pat, orifst, aux, limit):
                 ## The semantics of aux are painfully unclear here:
                 ##  - we need to perform aux pass-through, for any potential surrounding segment match
                 ##  - we need a clean slate for this segment_match..
                 ## So, do we need a separate stack for aux here?  Sounds like an in inevitability..
                 ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
-                return m.segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], (False, orifst[1]), None, 1)
+                return _r(exp, pat,
+                          m.segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], (False, orifst[1]), None, 1))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
         ## 1. type narrows down the case analysis chain (of which there is a lot)
@@ -5918,22 +5922,23 @@ class _matcher():
                                       id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
                                       atomp, null, (not (atom or null)) and m.complex_pat_p(pat[0]))
                 return \
-                    (m.test((m.match_atom(exp, pat) if atomp else
-                             exp == ()),
-                             bound, name, lambda: m.prod(exp, orifst[0]), exp, pat)    if atomp or null        else
-                     m.complex_match(bound, name, (exp,), (pat,), orifst, None, limit) if m.complex_pat_p(pat) else
-                     (lambda pat0name, pat0, patR, clean_pat:
-                              (m.equo(name, exp,
-                                      m.complex_match(bound, pat0name, exp, clean_pat, orifst, aux, limit))
-                                                         if m.complex_pat_p(pat0)         else
-                               m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
-                               m.equo(name, exp,
-                                      m.crec(exp,
-                                             lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
-                                                                                                     orifst[1]), None,   None),
-                                             (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), aux, limit)),
-                                             orig_tuple_p = orifst[0]))))
-                     (*maybe_get0Rname(pat)))
+                    _r(exp, pat,
+                       (m.test((m.match_atom(exp, pat) if atomp else
+                                exp == ()),
+                               bound, name, lambda: m.prod(exp, orifst[0]), exp, pat)     if atomp or null        else
+                        m.complex_match(bound, name, (exp,), (pat,), orifst, None, limit) if m.complex_pat_p(pat) else
+                        (lambda pat0name, pat0, patR, clean_pat:
+                                 (m.equo(name, exp,
+                                         m.complex_match(bound, pat0name, exp, clean_pat, orifst, aux, limit))
+                                  if m.complex_pat_p(pat0)         else
+                                  m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
+                                  m.equo(name, exp,
+                                         m.crec(exp,
+                                                lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
+                                                                                                        orifst[1]), None,   None),
+                                                (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), aux, limit)),
+                                                orig_tuple_p = orifst[0]))))
+                        (*maybe_get0Rname(pat))))
 
 def _match(matcher, exp, pat):
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
@@ -5983,7 +5988,10 @@ class _metasex_matcher(_matcher):
                 return x == _name
         @staticmethod
         def prod(x, orig_tuple_p):
-                return _py.str(x) if x or orig_tuple_p else ""
+                result = _py.str(x) if x or orig_tuple_p else ""
+                if _matcher_trace_yield:
+                        _debug_printf("+++ YIELD prod:\n%s", result)
+                return result
         @staticmethod
         def comb(f0, fR, orig_tuple_p):
                 global _pp_base_depth, _pp_depth
@@ -6030,14 +6038,16 @@ class _metasex_matcher(_matcher):
                         _pp_depth = old_depth
         @staticmethod
         def match_atom(exp, pat):
-                # _debug_printf("%%%%%% match_atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
-                #               exp, pat, ((symbolp(exp) and not keywordp(exp)) if pat is _name else
-                #                          exp is pat                           if symbolp(pat) else
-                #                          exp == pat),
-                #               pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp))
-                return ((symbolp(exp) and not keywordp(exp)) if pat is _name else
-                        exp is pat                           if symbolp(pat) else
-                        exp == pat)
+                if _matcher_trace_atom:
+                        _debug_printf("%%% match_atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
+                                      exp, pat, ((symbolp(exp) and not keywordp(exp)) if pat is _name else
+                                                 exp is pat                           if symbolp(pat) else
+                                                 exp == pat),
+                                      pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp))
+                return _r(exp, pat,
+                          ((symbolp(exp) and not keywordp(exp)) if pat is _name else
+                           exp is pat                           if symbolp(pat) else
+                           exp == pat))
         @staticmethod
         def form_metasex(form):
                 ####### Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
@@ -6070,10 +6080,11 @@ class _metasex_matcher(_matcher):
                 if _matcher_trace_form:
                         _debug_printf("=== form for %s:\n    %s", _py.repr(form), prepped)
                 ## We seem to have aux-poisoning here..
-                return m.crec(exp,
-                              lambda: m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), None, limit),
-                              lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), aux, None),
-                              orig_tuple_p = orifst[0])
+                return _r(exp, pat,
+                          m.crec(exp,
+                                 lambda: m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), None, limit),
+                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), aux, None),
+                                 orig_tuple_p = orifst[0]))
         def match_symbol(m, bound, name, exp, pat, orifst, aux, limit):
                 symbol = pat[0][1] ## XXX: missing type checking!
                 return m.crec(exp,
@@ -6083,16 +6094,28 @@ class _metasex_matcher(_matcher):
                               orig_tuple_p = orifst[0])
         def typep_matcher(m, bound, name, exp, pat, orifst, aux, limit):
                 type = pat[0][1] ## XXX: missing type checking!
-                return m.crec(exp,
-                              lambda: m.test(typep(exp[0], type), bound, name, lambda: m.prod(exp[0], orifst),
-                                             exp[0], pat[0]),
-                              lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), aux, None),
-                              orig_tuple_p = orifst[0])
+                return _r(exp, pat,
+                          m.crec(exp,
+                                 lambda: m.test(typep(exp[0], type), bound, name, lambda: m.prod(exp[0], orifst),
+                                                exp[0], pat[0]),
+                                 lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), aux, None),
+                                 orig_tuple_p = orifst[0]))
         @staticmethod
         def forc(x, y, orig_tuple_p):
                 return (("OR",) if orig_tuple_p else ()) + (x,) + y
 
 _metasex = _metasex_matcher()
+
+_matcher_trace_all      =                            False
+_matcher_trace_matchers = _matcher_trace_all      or False
+_matcher_trace_complex  = _matcher_trace_matchers or False
+_matcher_trace_segment  = _matcher_trace_matchers or False
+_matcher_trace_match    = _matcher_trace_matchers or False
+_matcher_trace_yield    = _matcher_trace_all      or False
+_matcher_trace_notlead  =                            False
+_matcher_trace_form     = _matcher_trace_all      or False
+_matcher_trace_atom     =                            False
+_matcher_trace_calls    =                            False
 
 ###
 ### testing
