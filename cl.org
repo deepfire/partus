@@ -6491,9 +6491,10 @@ def _find_known(x):
                            "%MAYBE-ONCE", "%ONCE",
                            "%SET-MINUS")
   
-  ## This is brutally non-thread-safe.  Horrors.  (Yeah, famous last words..)
-  _pp_base_depth = 0
-  _pp_depth = 0
+  _string_set("*PP-BASE-DEPTH*", 0)
+  _string_set("*PP-DEPTH*", 0)
+  def _pp_base_depth(): return _symbol_value(_pp_base_depth_)
+  def _pp_depth():      return _symbol_value(_pp_depth_)
   
   class _metasex_matcher(_matcher):
           def __init__(m):
@@ -6598,47 +6599,31 @@ def _find_known(x):
                   return result
           @staticmethod
           def comb(f0, fR, orig_tuple_p):
-                  global _pp_base_depth, _pp_depth
                   acc = "(" if orig_tuple_p else ""
-                  old_base, new_base = _pp_base_depth, (_pp_depth + 1 if orig_tuple_p else
-                                                        _pp_base_depth)
-                  try:
-                          _pp_base_depth = new_base
-                          res0 = f0()
-                          if res0 is None: return
-                          acc += res0
-                          old_depth, new_depth = _pp_depth, _pp_base_depth + _py.len(res0)
-                          try:
-                                  _pp_depth = new_depth
-                                  resR = fR()
-                                  if resR is None: return
-                                  acc += resR
+                  new_base = (_pp_depth() + 1 if orig_tuple_p else _pp_base_depth())
+                  with progv({ _pp_base_depth_: new_base }):
+                          f0r = f0()
+                          if f0r is None: return
+                          acc += f0r
+                          with progv({ _pp_depth_: new_base + _py.len(f0r) }):
+                                  fRr = fR()
+                                  if fRr is None: return
+                                  acc += fRr
                                   acc += ")" if orig_tuple_p else ""
-                          finally:
-                                  _pp_depth = old_depth
-                  finally:
-                          _pp_base_depth = old_base
                   return acc
           def process_newline(m, bound, name, exp, pat, orifst, aux, limit):
-                  global _pp_base_depth, _pp_depth
                   n, tail = pat[0][1], pat[1:]
-                  old_depth, old_base, new_base = _pp_depth, _pp_base_depth, _pp_base_depth + n
-                  try:
-                          _pp_depth = _pp_base_depth = new_base
-                          return m.post(m.match(m.bind(_pp_base_depth, bound, name), None, exp, tail, orifst, aux, None),
-                                        lambda r: "\n" + (" " * _pp_base_depth) + r)
-                  finally:
-                          _pp_depth, _pp_base_depth = old_depth, old_base
+                  new_base = _pp_base_depth() + n
+                  with progv({ _pp_depth_:      new_base,
+                               _pp_base_depth_: new_base}):
+                          return m.post(m.match(m.bind(new_base, bound, name), None, exp, tail, orifst, aux, None),
+                                        lambda r: "\n" + (" " * new_base) + r)
           def process_indent(m, bound, name, exp, pat, orifst, aux, limit):
-                  global _pp_base_depth, _pp_depth
                   n, tail = pat[0][1], pat[1:]
-                  old_depth, new_depth = _pp_depth, _pp_depth + n
-                  try:
-                          _pp_depth = new_depth
-                          return m.post(m.match(m.bind(_pp_depth, bound, name), None, exp, tail, orifst, aux, None),
+                  new_depth = _pp_depth() + n
+                  with progv({ _pp_depth_: new_depth }):
+                          return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, None),
                                         lambda r: (" " * n) + r)
-                  finally:
-                          _pp_depth = old_depth
           def process_notlead(m, bound, name, exp, pat, orifst, aux, limit):
                   maybe_pat = pat[0][1]
                   if _matcher_trace_notlead:
@@ -6806,11 +6791,15 @@ def _find_known(x):
   ## Girls are sucking up energy and focus, generally.  It's fairly tragic.
   ## Are there any exceptions?
   
-  def _pp_sex(sex, validate = t):
-          _, r, f = _match(_metasex_pp, sex, _metasex.form_metasex(sex))
+  def _pp_sex(sex, strict = t, initial_depth = None):
+          ## Unregistered Issue RELAXED-METASEX-PRETTY-PRINTER-MODE-NEEDED
+          initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
+          with progv({ _pp_depth_:      initial_depth,
+                       _pp_base_depth_: initial_depth}):
+                  _, r, f = _match(_metasex_pp, sex, _metasex.form_metasex(sex))
           if f is not None:
                   error("=== fail: %s\n=== failpat: %s\n=== exp: %s", sex, f, r)
-          return r
+          return r or ""
   
   def _match_sex(sex):
           return _match(_metasex_pp, sex, _metasex.form_metasex(sex))
@@ -6850,16 +6839,11 @@ def _prepend_prologue(pro, tuple):
   
   _string_set("*COMPILER-DEBUG-P*",    nil)
   
-  def _sex_space():
-          return " " * _pp_base_depth
+  def _sex_space(delta = None, char = " "):
+          return char * (_pp_base_depth() + _defaulted(delta, 0))
   def _sex_deeper(n, body):
-          global _pp_base_depth
-          old_base, new_base = _pp_base_depth, _pp_base_depth + n
-          try:
-                  _pp_base_depth = new_base
+          with progv({ _pp_base_depth_: _pp_base_depth() + n }):
                   return body()
-          finally:
-                  _pp_base_depth = old_base
   
   def _debug_compiler(value = t):
           _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
@@ -7592,7 +7576,7 @@ def _lower(form):
         def _rec(x):
                 # NOTE: we are going to splice unquoting processing here, as we must be able
                 # to work in READ-less environment.
-                _debug_printf_if(_debugging_compiler(), ";;; lowering:\n%s", _pp_sex(x))
+                _debug_printf_if(_debugging_compiler(), ";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
                 if _tuplep(x):
                         def noisep(x): return x in [symbol]
                         def puntedp(x):
