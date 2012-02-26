@@ -6642,6 +6642,27 @@ def _find_known(x):
   #         for fun, b, r, f in _results:
   #                 _debug_printf("%15s bound: %s", fun.__name__, b)
   #                 _debug_printf("%15s res: %s", fun.__name__, r)
+  # _intern_and_bind_pynames("LET", "FIRST", "SECOND", "CAR", "&BODY")
+  # def pp():
+  #         return _match(_metasex,
+  #                       (let, ((first, ()),
+  #                              (second, (car,))),
+  #                         _body),
+  #                       (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+  #                          1, {"body":[(_notlead, "\n"), _form]}))
+  # bound_good, result_good, nofail = runtest(pp,
+  #                                           { 'bindings': ((first, ()),
+  #                                                          (second, (car,))),
+  #                                             'body':     (_body,)},
+  #                                           """(LET ((FIRST ())
+  #       (SECOND (CAR)))
+  #   &BODY)""")
+  # results()
+  # assert(nofail)
+  # assert(bound_good)
+  # assert(result_good)
+  # print("; PP: passed")
+
   # def empty():
   #         return _match(_metasex, (), {"whole":()})
   # bound_good, result_good, nofail = runtest(empty,
