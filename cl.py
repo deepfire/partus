@@ -6134,6 +6134,7 @@ _metasex = _metasex_matcher()
 # bound_good, result_good, nofail = runtest(empty,
 #                                           { 'whole': () },
 #                                           "()")
+# results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6144,11 +6145,13 @@ _metasex = _metasex_matcher()
 # bound_good, result_good, nofail = runtest(empty_cross,
 #                                           { 'a': (), 'b': () },
 #                                           "()")
+# results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
 # print("; EMPTY-CROSS: passed")
 
+# _intern_and_bind_pynames("PI")
 # def mid_complex():
 #         pat = ({"headname":_name},
 #                   {"headtupname":(_name,)},
@@ -6156,28 +6159,30 @@ _metasex = _metasex_matcher()
 #                                                     {"fix1tupseq":[(_name,)]},
 #                                                                            {"nameseq":[_name]},
 #                                                                                 {"tailname":_name})
-#         exp =              (1,   (1,),   (1,), (1, 1), (1, 1, 1), (1,), (1,), (1,),   1, 1, 1)
+#         exp =              (pi,   (pi,),   (pi,), (pi, pi), (pi, pi, pi), (pi,), (pi,), (pi,),   pi, pi, pi)
 #         return _match(_metasex, exp, pat)
 # bound_good, result_good, nofail = runtest(mid_complex,
-#                                           { 'headname': 1,
-#                                             'headtupname': (1,),
-#                                             'varitupseq': ((1,), (1, 1), (1, 1, 1)),
-#                                             'fix1tupseq': ((1,), (1,), (1,)),
-#                                             'nameseq': (1, 1),
-#                                             'tailname': 1 },
-#                                           "(1(1)(1)(11)(111)(1)(1)(1)111)"
-#                                           # "(1 (1) (1) (1 1) (1 1 1) (1) (1) (1) 1 1 1)"
+#                                           { 'headname': pi,
+#                                             'headtupname': (pi,),
+#                                             'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
+#                                             'fix1tupseq': ((pi,), (pi,), (pi,)),
+#                                             'nameseq': (pi, pi),
+#                                             'tailname': pi },
+#                                           "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)"
+#                                           # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
 #                                           )
+# results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
 # print("; MID-COMPLEX: passed")
 
 # def simple_maybe():
-#         return _match(_metasex, (1, 2, 3), ({"a":(_maybe, _name)}, {"b":_name}, (_maybe, {"c":_name})))
+#         return _match(_metasex, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
 # bound_good, result_good, nofail = runtest(simple_maybe,
-#                                           { 'a': (1,), 'b': 2, 'c': 3, },
-#                                           "(123)")
+#                                           { 'pi': (pi,), 'car': car, 'cdr': cdr, },
+#                                           "(PICARCDR)")
+# results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6423,7 +6428,7 @@ def splice(x):
 # ******* PROGN, IF
 
 @defknown((intern("PROGN")[0],
-            1, [(_nottail, (_notlead, "\n")), _form]))
+            1, [(_notlead, "\n"), _form]))
 def progn(*body):
         if not body:
                 return ([],
