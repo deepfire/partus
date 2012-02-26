@@ -5851,7 +5851,9 @@ class _matcher():
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
         def identity_matcher(m, bound, name, exp, pat, orifst, aux, limit):
                 ## This should dispatch over simplicity.
-                return m.complex_match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+                return m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+        def ignore_matcher(m, bound, name, exp, pat, orifst, aux, limit):
+                return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
         ###
         def segment_match(m, bound, name, exp, pat, orifst, aux, limit, end = None):
                 def cut(n, xs):     return xs[0:n], xs[len(xs) if n is None else n:]
@@ -5961,14 +5963,14 @@ _pp_depth = 0
 class _metasex_matcher(_matcher):
         def __init__(m):
                 _matcher.__init__(m)
-                m.register_complex_matcher(_newline,     m.process_newline)
-                m.register_complex_matcher(_indent,      m.process_indent)
-                m.register_complex_matcher(_notlead,     m.process_notlead)
-                m.register_complex_matcher(_nottail,     m.process_nottail)
                 m.register_complex_matcher(_form,        m.match_form)
                 m.register_complex_matcher(symbol,       m.match_symbol)
-                m.register_complex_matcher(_count_scope, m.identity_matcher)
                 m.register_complex_matcher(typep,        m.typep_matcher)
+                m.register_complex_matcher(_newline,     m.ignore_matcher)
+                m.register_complex_matcher(_indent,      m.ignore_matcher)
+                m.register_complex_matcher(_notlead,     m.identity_matcher)
+                m.register_complex_matcher(_nottail,     m.identity_matcher)
+                m.register_complex_matcher(_count_scope, m.identity_matcher)
         def preprocess(m, pat):
                 "Expand syntactic sugar."
                 def prep_binding(b):
@@ -5984,59 +5986,20 @@ class _metasex_matcher(_matcher):
                         pat                            if not (pat and _tuplep(pat)) else
                         (m.preprocess(pat[0]),) + m.preprocess(pat[1:]))
         @staticmethod
+        def prod(x, orig_tuple_p): return ""
+        @staticmethod
+        def comb(f0, fR, orig_tuple_p):
+                f0r = f0()
+                if f0r is not None:
+                        fRr = fR()
+                        return t
+        @staticmethod
+        def forc(x, y, orig_tuple_p):
+                return (("OR",) if orig_tuple_p else ()) + (x,) + y
+        @staticmethod
         def nonliteral_atom_p(x):
                 ## Currently only depended upon by the segment matcher.
                 return x == _name
-        @staticmethod
-        def prod(x, orig_tuple_p):
-                result = _py.str(x) if x or orig_tuple_p else ""
-                if _matcher_trace_yield:
-                        _debug_printf("+++ YIELD prod:\n%s", result)
-                return result
-        @staticmethod
-        def comb(f0, fR, orig_tuple_p):
-                global _pp_base_depth, _pp_depth
-                acc = "(" if orig_tuple_p else ""
-                old_base, new_base = _pp_base_depth, (_pp_base_depth + _pp_depth + 1 if orig_tuple_p else
-                                                      _pp_base_depth)
-                try:
-                        _pp_base_depth = new_base
-                        res0 = f0()
-                        if res0 is None: return
-                        acc += res0
-                        old_depth, new_depth = _pp_depth, _pp_depth + _py.len(res0)
-                        try:
-                                _pp_depth = new_depth
-                                resR = fR()
-                                if resR is None: return
-                                acc += resR
-                                acc += ")" if orig_tuple_p else ""
-                        finally:
-                                _pp_depth = old_depth
-                finally:
-                        _pp_base_depth = old_base
-                return acc
-        def process_newline(m, bound, name, exp, pat, orifst, aux, limit):
-                global _pp_base_depth, _pp_depth
-                n, tail = pat[0][1], pat[1:]
-                old_base, new_base = _pp_base_depth, _pp_base_depth + n
-                try:
-                        _pp_base_depth = new_base
-                        _pp_depth = 0
-                        return m.post(m.match(m.bind(_pp_base_depth, bound, name), None, exp, tail, orifst, aux, None),
-                                      lambda r: "\n" + (" " * _pp_base_depth) + r)
-                finally:
-                        _pp_base_depth = old_base
-        def process_indent(m, bound, name, exp, pat, orifst, aux, limit):
-                global _pp_base_depth, _pp_depth
-                n, tail = pat[0][1], pat[1:]
-                old_depth, new_depth = _pp_depth, _pp_depth + n
-                try:
-                        _pp_depth = new_depth
-                        return m.post(m.match(m.bind(_pp_depth, bound, name), None, exp, tail, orifst, aux, None),
-                                      lambda r: (" " * n) + r)
-                finally:
-                        _pp_depth = old_depth
         @staticmethod
         def match_atom(exp, pat):
                 if _matcher_trace_atom:
@@ -6058,23 +6021,6 @@ class _metasex_matcher(_matcher):
                         (_name, [(_nottail, " "), _form])       if symbolp(form[0])                                       else
                         (_form, "\n", [(_notlead, " "), _form]) if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
                         ([(_notlead, " "), _form],))
-        def process_notlead(m, bound, name, exp, pat, orifst, aux, limit):
-                maybe_pat = pat[0][1]
-                if _matcher_trace_notlead:
-                        _debug_printf("!!! notlead: first:%s %s %s", orifst[1], pat, exp)
-                if orifst[1]:
-                        return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
-                ############## act as identity
-                return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
-        def process_nottail(m, bound, name, exp, pat, orifst, aux, limit):
-                maybe_pat = pat[0][1]
-                before_end = exp == ()
-                if _matcher_trace_notlead:
-                        _debug_printf("!!! nottail: before-end:%s %s %s", before_end, pat, exp)
-                if before_end:
-                        return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
-                ############## act as identity
-                return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
         def match_form(m, bound, name, exp, pat, orifst, aux, limit):
                 form = exp[0] ## XXX: missing type checking!
                 prepped = m.preprocess(m.form_metasex(form))
@@ -6101,11 +6047,83 @@ class _metasex_matcher(_matcher):
                                                 exp[0], pat[0]),
                                  lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), aux, None),
                                  orig_tuple_p = orifst[0]))
-        @staticmethod
-        def forc(x, y, orig_tuple_p):
-                return (("OR",) if orig_tuple_p else ()) + (x,) + y
 
-_metasex = _metasex_matcher()
+class _metasex_matcher_pp(_metasex_matcher):
+        def __init__(m):
+                _metasex_matcher.__init__(m)
+                m.register_complex_matcher(_newline,     m.process_newline)
+                m.register_complex_matcher(_indent,      m.process_indent)
+                m.register_complex_matcher(_notlead,     m.process_notlead)
+                m.register_complex_matcher(_nottail,     m.process_nottail)
+        @staticmethod
+        def prod(x, orig_tuple_p):
+                result = _py.str(x) if x or orig_tuple_p else ""
+                if _matcher_trace_yield:
+                        _debug_printf("+++ YIELD prod:\n%s", result)
+                return result
+        @staticmethod
+        def comb(f0, fR, orig_tuple_p):
+                global _pp_base_depth, _pp_depth
+                acc = "(" if orig_tuple_p else ""
+                old_base, new_base = _pp_base_depth, (_pp_depth + 1 if orig_tuple_p else
+                                                      _pp_base_depth)
+                try:
+                        _pp_base_depth = new_base
+                        res0 = f0()
+                        if res0 is None: return
+                        acc += res0
+                        old_depth, new_depth = _pp_depth, _pp_base_depth + _py.len(res0)
+                        try:
+                                _pp_depth = new_depth
+                                resR = fR()
+                                if resR is None: return
+                                acc += resR
+                                acc += ")" if orig_tuple_p else ""
+                        finally:
+                                _pp_depth = old_depth
+                finally:
+                        _pp_base_depth = old_base
+                return acc
+        def process_newline(m, bound, name, exp, pat, orifst, aux, limit):
+                global _pp_base_depth, _pp_depth
+                n, tail = pat[0][1], pat[1:]
+                old_depth, old_base, new_base = _pp_depth, _pp_base_depth, _pp_base_depth + n
+                try:
+                        _pp_depth = _pp_base_depth = new_base
+                        return m.post(m.match(m.bind(_pp_base_depth, bound, name), None, exp, tail, orifst, aux, None),
+                                      lambda r: "\n" + (" " * _pp_base_depth) + r)
+                finally:
+                        _pp_depth, _pp_base_depth = old_depth, old_base
+        def process_indent(m, bound, name, exp, pat, orifst, aux, limit):
+                global _pp_base_depth, _pp_depth
+                n, tail = pat[0][1], pat[1:]
+                old_depth, new_depth = _pp_depth, _pp_depth + n
+                try:
+                        _pp_depth = new_depth
+                        return m.post(m.match(m.bind(_pp_depth, bound, name), None, exp, tail, orifst, aux, None),
+                                      lambda r: (" " * n) + r)
+                finally:
+                        _pp_depth = old_depth
+        def process_notlead(m, bound, name, exp, pat, orifst, aux, limit):
+                maybe_pat = pat[0][1]
+                if _matcher_trace_notlead:
+                        _debug_printf("!!! notlead: first:%s %s %s", orifst[1], pat, exp)
+                if orifst[1]:
+                        return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
+                ############## act as identity
+                return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+        def process_nottail(m, bound, name, exp, pat, orifst, aux, limit):
+                maybe_pat = pat[0][1]
+                before_end = exp == ()
+                if _matcher_trace_notlead:
+                        _debug_printf("!!! nottail: before-end:%s %s %s", before_end, pat, exp)
+                if before_end:
+                        return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
+                ############## act as identity
+                return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+
+_metasex    = _metasex_matcher()
+_metasex_pp = _metasex_matcher_pp()
 
 _matcher_trace_all      =                            False
 _matcher_trace_matchers = _matcher_trace_all      or False
@@ -6235,10 +6253,13 @@ _setspec = _defscope("_setspec", _setspec_scope_)
 ## Are there any exceptions?
 
 def _pp_sex(sex, validate = t):
-        _, r, f = _match(_metasex, sex, _metasex.form_metasex(sex))
+        _, r, f = _match(_metasex_pp, sex, _metasex.form_metasex(sex))
         if f is not None:
                 error("=== fail: %s\n=== failpat: %s\n=== exp: %s", sex, f, r)
         return r
+
+def _match_sex(sex):
+        return _match(_metasex_pp, sex, _metasex.form_metasex(sex))
 
 # ***** Tuple intermediate IR
 
@@ -6272,7 +6293,7 @@ _string_set("*COMPILER-TAILP*",      nil)
 _string_set("*COMPILER-DEBUG-P*",    nil)
 
 def _sex_space():
-        return " " * _pp_depth
+        return " " * _pp_base_depth
 def _sex_deeper(n, body):
         global _pp_base_depth
         old_base, new_base = _pp_base_depth, _pp_base_depth + n
