@@ -5888,11 +5888,12 @@ class _matcher():
                                                  (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
                                                     m.fail(bound, exp, pat)                                if limit == 0    else
                                                     ## Try biting one more iteration off seg_exp:
-                                                    m.match(bound, name,  seg_exp,     aux,  (orifst[0],
+                                                    m.match(bound, name,  seg_exp,     aux,  (False,
                                                                                               firstp), aux, (limit - 1 if integerp(limit) else
                                                                                                              None))))),
                                         lambda seg_bound:
-                                                m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None)),
+                                                m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
+                                        orig_tuple_p = firstp and orifst[0]),
                                  lambda: m.segment_match(   bound, name,      exp,      pat, orifst,   None,  limit,
                                                             end + 1)))
         def match_maybe(m, bound, name, exp, pat, orifst, aux, limit):
@@ -5902,7 +5903,7 @@ class _matcher():
                 ## So, do we need a separate stack for aux here?  Sounds like an in inevitability..
                 ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
                 return _r(exp, pat,
-                          m.segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], (False, orifst[1]), None, 1))
+                          m.segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
         ## 1. type narrows down the case analysis chain (of which there is a lot)
