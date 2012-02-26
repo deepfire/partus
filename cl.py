@@ -6152,6 +6152,21 @@ _metasex = _metasex_matcher()
 # print("; EMPTY-CROSS: passed")
 
 # _intern_and_bind_pynames("PI")
+# def simplex():
+#         pat = ({'head':[()]}, {'tail':_name})
+#         exp = ((), pi)
+#         return _match(_metasex, exp, pat)
+# bound_good, result_good, nofail = runtest(simplex,
+#                                           { 'head': ((),),
+#                                             'tail': pi },
+#                                           "(()PI)"
+#                                           )
+# results()
+# assert(nofail)
+# assert(bound_good)
+# assert(result_good)
+# print("; SIMPLEX: passed")
+
 # def mid_complex():
 #         pat = ({"headname":_name},
 #                   {"headtupname":(_name,)},
