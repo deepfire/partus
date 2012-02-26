@@ -5850,8 +5850,8 @@ class _matcher():
         def matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
         def identity_matcher(m, bound, name, exp, pat, orifst, aux, limit):
-                ## This should dispatch over simplicity.
-                return m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+                ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
+                return m.complex_match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
         def ignore_matcher(m, bound, name, exp, pat, orifst, aux, limit):
                 return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
         ###
@@ -6150,9 +6150,28 @@ _matcher_trace_calls    =                            False
 #         for fun, b, r, f in _results:
 #                 _debug_printf("%15s bound: %s", fun.__name__, b)
 #                 _debug_printf("%15s res: %s", fun.__name__, r)
+
 # _intern_and_bind_pynames("LET", "FIRST", "SECOND", "CAR", "&BODY")
-# def pp():
+# def just_match():
 #         return _match(_metasex,
+#                       (let, ((first, ()),
+#                              (second, (car,))),
+#                         _body),
+#                       (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+#                          1, {"body":[(_notlead, "\n"), _form]}))
+# bound_good, result_good, nofail = runtest(just_match,
+#                                           { 'bindings': ((first, ()),
+#                                                          (second, (car,))),
+#                                             'body':     (_body,)},
+#                                           t)
+# results()
+# assert(nofail)
+# assert(bound_good)
+# assert(result_good)
+# print("; JUST-MATCH: passed")
+
+# def pp():
+#         return _match(_metasex_pp,
 #                       (let, ((first, ()),
 #                              (second, (car,))),
 #                         _body),
@@ -6172,7 +6191,7 @@ _matcher_trace_calls    =                            False
 # print("; PP: passed")
 
 # def empty():
-#         return _match(_metasex, (), {"whole":()})
+#         return _match(_metasex_pp, (), {"whole":()})
 # bound_good, result_good, nofail = runtest(empty,
 #                                           { 'whole': () },
 #                                           "()")
@@ -6183,7 +6202,7 @@ _matcher_trace_calls    =                            False
 # print("; EMPTY: passed")
 
 # def empty_cross():
-#         return _match(_metasex, (), ({"a":[_name]}, {"b":[(_name,)]},))
+#         return _match(_metasex_pp, (), ({"a":[_name]}, {"b":[(_name,)]},))
 # bound_good, result_good, nofail = runtest(empty_cross,
 #                                           { 'a': (), 'b': () },
 #                                           "()")
@@ -6197,7 +6216,7 @@ _matcher_trace_calls    =                            False
 # def simplex():
 #         pat = ({'head':[()]}, {'tail':_name})
 #         exp = ((), pi)
-#         return _match(_metasex, exp, pat)
+#         return _match(_metasex_pp, exp, pat)
 # bound_good, result_good, nofail = runtest(simplex,
 #                                           { 'head': ((),),
 #                                             'tail': pi },
@@ -6217,7 +6236,7 @@ _matcher_trace_calls    =                            False
 #                                                                            {"nameseq":[_name]},
 #                                                                                 {"tailname":_name})
 #         exp =              (pi,   (pi,),   (pi,), (pi, pi), (pi, pi, pi), (pi,), (pi,), (pi,),   pi, pi, pi)
-#         return _match(_metasex, exp, pat)
+#         return _match(_metasex_pp, exp, pat)
 # bound_good, result_good, nofail = runtest(mid_complex,
 #                                           { 'headname': pi,
 #                                             'headtupname': (pi,),
@@ -6230,17 +6249,17 @@ _matcher_trace_calls    =                            False
 #                                           )
 # results()
 # assert(nofail)
-# assert(bound_good)
+# assert(bound_good)  ################ Regression
 # assert(result_good)
 # print("; MID-COMPLEX: passed")
 
 # def simple_maybe():
-#         return _match(_metasex, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
+#         return _match(_metasex_pp, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
 # bound_good, result_good, nofail = runtest(simple_maybe,
 #                                           { 'pi': (pi,), 'car': car, 'cdr': cdr, },
 #                                           "(PICARCDR)")
 # results()
-# assert(nofail)
+# assert(nofail)      ################ Regression
 # assert(bound_good)
 # assert(result_good)
 # print("; SIMPLE-MAYBE: passed")
