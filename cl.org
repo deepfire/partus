@@ -33,6 +33,14 @@
     - Issue ORG-SRCBLOCK-GUIDED-KEYBINDING-SCOPING
     - Issue ORG-ISEARCH-ONLY-WORKS-AFTER-FOLD-CYCLING
 
+*** The way
+
+    - we acutely need multiple values
+    - we need preliminary macroexpansion, to get down to just IR knowns and funcalls
+      - for that, we need a walker, to macroexpand only form-positions
+        - for that, we made MetaSEX
+          - but also for: pretty-printing, validation and generally convenient operation
+
 * Boot
 *** Frost boot
 
@@ -522,6 +530,7 @@ def _boot_check_type(pred, x):
         return x if pred(x) else error("A violent faecal odour hung in the air..")
 #+end_src
 
+*** Symbols
 ***** Package system
 ******* Package system conditions
 
@@ -950,7 +959,7 @@ def gensym(x = "G"):
         return make_symbol(_gensymname(x))
 #+end_src
 
-***** Complete dynamic scope
+*** Dynamic scope
 
 #+begin_src python +n
 class _env_cluster(object):
@@ -996,7 +1005,8 @@ with progv(foovar = 3.14,
 
 #+end_src
 
-***** Non-local transfers of control: CATCH, THROW, BLOCK, RETURN-FROM
+*** Non-local transfers of control
+***** CATCH, THROW, BLOCK, RETURN-FROM
 
 #+begin_src python +n
 @boot_defun
@@ -1164,8 +1174,8 @@ def invoke_debugger(condition):
         return _funcall_with_debug_io_syntax(_invoke_debugger, condition)
 #+end_src
 
-***** Type system
-******* Type predicates
+*** Type system
+***** Type predicates
 
 #+begin_src python +n
 def integerp(o):      return _py.isinstance(o, _py.int)
@@ -1178,7 +1188,7 @@ def _boolp(o):        return _py.isinstance(o, _py.bool)
 def sequencep(x):     return _py.getattr(_py.type(x), "__len__", None) is not None
 #+end_src
 
-******* Types mappable to python
+***** Types mappable to python
 
 #+begin_src python
 def _define_python_type_map(symbol_or_name, type):
@@ -1222,7 +1232,7 @@ _define_python_type_map("PYSET",       _py.set)
 _define_python_type_map("PYFROZENSET", _py.frozenset)
 #+end_src
 
-******* Complex type specifier machinery: %TYPE-MISMATCH, @DEFTYPE, TYPEP
+***** Complex type specifier machinery: %TYPE-MISMATCH, @DEFTYPE, TYPEP
 
 #+begin_src python +n
 def _type_specifier_complex_p(x):
@@ -1294,7 +1304,7 @@ def _not_of_type(x):
         return some(_type_mismatch, xs, _infinite(type))
 #+end_src
 
-******* Complex type definitions
+***** Complex type definitions
 
 #+begin_src python
 @deftype
@@ -1419,7 +1429,7 @@ def lambda_list(x, type):
 _unboot_set("typep")
 #+end_src
 
-******* Type relationships, rudimentary
+***** Type relationships, rudimentary
 
 #+begin_src python
 def subtypep(sub, super):
@@ -1438,7 +1448,7 @@ def subtypep(sub, super):
                 sub is super or super is t)
 #+end_src
 
-***** Toplevel definitions: @DEFUN and @DEFCLASS
+*** Toplevel definitions: @DEFUN and @DEFCLASS
 
 #+begin_src python +n
 doit = False
