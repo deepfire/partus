@@ -876,7 +876,7 @@ def _gensymname(x = "N"):
 def gensym(x = "G"):
         return make_symbol(_gensymname(x))
 
-# ***** Complete dynamic scope
+# *** Dynamic scope
 
 class _env_cluster(object):
         def __init__(self, cluster):
@@ -919,7 +919,7 @@ with progv(foovar = 3.14,
                 return _env_cluster(vars if hash_table_p(vars) else
                                     cluster)
 
-# ***** Non-local transfers of control: CATCH, THROW, BLOCK, RETURN-FROM
+# ***** CATCH, THROW, BLOCK, RETURN-FROM
 
 @boot_defun
 def unwind_protect(form, fn):
@@ -1081,7 +1081,7 @@ def invoke_debugger(condition):
         _flush_standard_output_streams()
         return _funcall_with_debug_io_syntax(_invoke_debugger, condition)
 
-# ******* Type predicates
+# ***** Type predicates
 
 def integerp(o):      return _py.isinstance(o, _py.int)
 def floatp(o):        return _py.isinstance(o, _py.float)
@@ -1092,7 +1092,7 @@ def _listp(o):        return _py.isinstance(o, _cold_list_type)
 def _boolp(o):        return _py.isinstance(o, _py.bool)
 def sequencep(x):     return _py.getattr(_py.type(x), "__len__", None) is not None
 
-# ******* Types mappable to python
+# ***** Types mappable to python
 
 def _define_python_type_map(symbol_or_name, type):
         not (stringp(symbol_or_name) or symbolp(symbol_or_name)) and \
@@ -1134,7 +1134,7 @@ _define_python_type_map("PYBYTEARRAY", _py.bytearray)
 _define_python_type_map("PYSET",       _py.set)
 _define_python_type_map("PYFROZENSET", _py.frozenset)
 
-# ******* Complex type specifier machinery: %TYPE-MISMATCH, @DEFTYPE, TYPEP
+# ***** Complex type specifier machinery: %TYPE-MISMATCH, @DEFTYPE, TYPEP
 
 def _type_specifier_complex_p(x):
         """Determines, whether a type specifier X constitutes a
@@ -1204,7 +1204,7 @@ def _not_of_type(x):
         return lambda y: not typep(y, x)
         return some(_type_mismatch, xs, _infinite(type))
 
-# ******* Complex type definitions
+# ***** Complex type definitions
 
 @deftype
 def boolean(x, type):
@@ -1327,7 +1327,7 @@ def lambda_list(x, type):
 
 _unboot_set("typep")
 
-# ******* Type relationships, rudimentary
+# ***** Type relationships, rudimentary
 
 def subtypep(sub, super):
         def coerce_to_python_type(x):
@@ -1344,7 +1344,7 @@ def subtypep(sub, super):
                                                                        typep(sub, (or_, _py.type, (eql, t)))) else
                 sub is super or super is t)
 
-# ***** Toplevel definitions: @DEFUN and @DEFCLASS
+# *** Toplevel definitions: @DEFUN and @DEFCLASS
 
 doit = False
 def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
@@ -5729,14 +5729,30 @@ def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
 def _fbindingp(x): return x.function
 def _specialp(x): return _py.getattr(x, "special")
 
-# ***** IR definition machinery: @DEFKNOWN
+# ***** DEFKNOWN
 
 _known = _poor_man_defstruct("known",
                              "name",
                              "metasex",
                              "compiler",
                              "compiler_params")
+
+def _compute_default_metasex(name):
+        "Return a default MetaSEX form for a known with NAME."
+        return (name, " ", _form)
+
 def defknown(metasex_or_fn, name = None):
+        """Define a form 'known' to the compiler.
+The NAME is bound, in separate namespaces, to:
+   - a function, which accepts a SEX of knowns, and returns either a modified SEX,
+     or a target tuple IR;
+   - a MetaSEX form, which, when unspecified, defaults to (<KNOWN-NAME> " " %FORM),
+     and serves the following purposes:
+     - a pretty-printer specifier
+     - structural validation
+     - destructuring
+     - walking
+"""
         def do_defknown(fn, sym, pyname, metasex):
                 fn.__name__ = "_lower_" + pyname
                 _frost.setf_global(sym, pyname, globals = _py.globals())
@@ -5746,13 +5762,13 @@ def defknown(metasex_or_fn, name = None):
                                    compiler = fn,
                                    compiler_params = _mapset(_indexing(0), compiler_params))
                 return sym # pass through
-        default_metasex = (_name, [(_nottail, " "), _form])
-        def _defknown(fn, metasex = metasex_or_fn, name = name):
+        def _defknown(fn, name = name, metasex = metasex_or_fn):
                 _, sym, pyname = _interpret_toplevel_value(fn, functionp)
-                name = _defaulted(name, sym, symbol)
+                name    = _defaulted(name, sym, symbol)
+                metasex = _defaulted(metasex, _compute_default_metasex(name))
                 return do_defknown(fn, name, pyname, metasex)
-        return (_defknown(metasex_or_fn, metasex = default_metasex) if functionp(metasex_or_fn) else
-                _defknown                                           if _tuplep(metasex_or_fn)   else
+        return (_defknown(metasex_or_fn, metasex = None) if functionp(metasex_or_fn) else
+                _defknown                                if _tuplep(metasex_or_fn)   else
                 error("In DEFKNOWN: argument must be either a function or a pretty-printer code tuple, was: %s.",
                       _py.repr(metasex_or_fn)))
 def _find_known(x):
@@ -5895,7 +5911,7 @@ class _matcher():
                                                                                                              None))))),
                                         lambda seg_bound:
                                                 m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
-                                        orig_tuple_p = firstp and orifst[0]),
+                                        orig_tuple_p = firstp and orifst[0] and seg_exp != ()),
                                  lambda: m.segment_match(   bound, name,      exp,      pat, orifst,   None,  limit,
                                                             end + 1)))
         def match_maybe(m, bound, name, exp, pat, orifst, aux, limit):
@@ -5952,7 +5968,7 @@ def _match(matcher, exp, pat):
 #         MetaSEX presents us with an excellent lesson.  Let's try to understand.
 
 _intern_and_bind_pynames("%NAME", "%MAYBE", "%NOTLEAD", "%NOTTAIL",
-                         "%NEWLINE", "%INDENT", "%FORM", "%COUNT-SCOPE",
+                         "%NEWLINE", "%INDENT", "%FORM", "%SYMBOL", "%TYPEP", "%COUNT-SCOPE",
                          "%MAYBE-ONCE", "%ONCE",
                          "%SET-MINUS")
 
@@ -5965,8 +5981,8 @@ class _metasex_matcher(_matcher):
         def __init__(m):
                 _matcher.__init__(m)
                 m.register_complex_matcher(_form,        m.match_form)
-                m.register_complex_matcher(symbol,       m.match_symbol)
-                m.register_complex_matcher(typep,        m.typep_matcher)
+                m.register_complex_matcher(_symbol,      m.match_symbol)
+                m.register_complex_matcher(_typep,       m.typep_matcher)
                 m.register_complex_matcher(_newline,     m.ignore_matcher)
                 m.register_complex_matcher(_indent,      m.ignore_matcher)
                 m.register_complex_matcher(_notlead,     m.identity_matcher)
@@ -6016,7 +6032,7 @@ class _metasex_matcher(_matcher):
         @staticmethod
         def form_metasex(form):
                 ####### Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
-                return ((typep, t)                              if not _tuplep(form)                                      else
+                return ((_typep, t)                             if not _tuplep(form)                                      else
                         ()                                      if not form                                               else
                         _find_known(form[0]).metasex            if symbolp(form[0]) and _find_known(form[0])              else
                         (_name, [(_nottail, " "), _form])       if symbolp(form[0])                                       else
@@ -6064,18 +6080,20 @@ class _metasex_matcher_pp(_metasex_matcher):
                 return result
         @staticmethod
         def comb(f0, fR, orig_tuple_p):
-                acc = "(" if orig_tuple_p else ""
-                new_base = (_pp_depth() + 1 if orig_tuple_p else _pp_base_depth())
-                with progv({ _pp_base_depth_: new_base }):
+                def orig_tuple_comb(body):
+                        new_base = _pp_depth() + 1
+                        with progv({ _pp_base_depth_: new_base }):
+                                ret = body(new_base)
+                                return None if ret is None else ("(" + ret + ")")
+                def body(base):
                         f0r = f0()
                         if f0r is None: return
-                        acc += f0r
-                        with progv({ _pp_depth_: new_base + _py.len(f0r) }):
+                        with progv({ _pp_depth_: base + _py.len(f0r.split("\n")[-1]) }):
                                 fRr = fR()
                                 if fRr is None: return
-                                acc += fRr
-                                acc += ")" if orig_tuple_p else ""
-                return acc
+                                return f0r + fRr
+                return (orig_tuple_comb if orig_tuple_p else
+                        lambda f: f(_pp_base_depth()))(body)
         def process_newline(m, bound, name, exp, pat, orifst, aux, limit):
                 n, tail = pat[0][1], pat[1:]
                 new_base = _pp_base_depth() + n
@@ -6117,7 +6135,7 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                 return (m.prod(exp, orifst[0])                if not exp         else
                         ######################### Thought paused here..
                         m.match(bound, name, exp, (([(_lax,)] if _tuplep(exp[0]) else
-                                                    (typep, t)), (_lax,)), (False, False), None, None))
+                                                    (_typep, t)), (_lax,)), (False, False), None, None))
         def crec(m, exp, l0, lR, orig_tuple_p = False):
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 failpat, failex, bound0, boundR = None, None, None, None
@@ -6125,13 +6143,13 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                         nonlocal bound0, failex, failpat
                         _, failex, failpat = l0()
                         if failpat is None: return failex
-                        return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (typep, t),
+                        return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (_typep, t),
                                        (None, None), None, None)
                 def try_produce_R():
                         nonlocal boundR, failex, failpat
                         _, failex, failpat = lR(bound0)
                         if failpat is None: return failex
-                        return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (typep, t),
+                        return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (_typep, t),
                                        (None, None), None, None)
                 result = m.comb(try_produce_0, try_produce_R, orig_tuple_p)
                 if _matcher_trace_yield:
@@ -6285,7 +6303,7 @@ _matcher_trace_calls    =                            False
 #                                           )
 # results()
 # assert(nofail)
-# assert(bound_good)  ################ Regression
+# assert(bound_good)
 # assert(result_good)
 # print("; MID-COMPLEX: passed")
 
@@ -6295,7 +6313,7 @@ _matcher_trace_calls    =                            False
 #                                           { 'pi': (pi,), 'car': car, 'cdr': cdr, },
 #                                           "(PICARCDR)")
 # results()
-# assert(nofail)      ################ Regression
+# assert(nofail)
 # assert(bound_good)
 # assert(result_good)
 # print("; SIMPLE-MAYBE: passed")
@@ -6314,17 +6332,63 @@ def _pp_sex(sex, strict = t, initial_depth = None):
                      _pp_base_depth_: initial_depth}):
                 _, r, f = _match(_metasex_pp, sex, _metasex.form_metasex(sex))
         if f is not None:
-                error("=== fail: %s\n=== failpat: %s\n=== exp: %s", sex, f, r)
+                error("\n=== fail: %s\n=== failpat: %s\n=== exp: %s", sex, f, r)
         return r or ""
 
 def _match_sex(sex):
         return _match(_metasex_pp, sex, _metasex.form_metasex(sex))
+
+# ***** Macro-expander
+
+#     How is it do be determined, that a form must be passed through?
+
+#     - directly AST-ifiable (in terms of _astify_constant)
+#     - atrees
+
+#     ..but what about detecting invalid forms?
+
+#     Also: how do we represent fucking tuples?
+#     Also: should we track form paths?
+
+def macroexpand_1(form, env = nil):
+        ## Unregistered Issue COMPLIANCE-MACROEXPANDER-MUST-CONSIDER-LEXENV
+        # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
+        return ((form, nil) if not _tuplep(form) else
+                _if_let((form and macro_function(form[0])),
+                        lambda expander:
+                                (expander(*form[1:]), t),
+                        lambda:
+                                (form, nil)))
+
+def macroexpand(form, env = nil):
+        def do_macroexpand(form, expanded):
+                expansion, expanded_again = macroexpand_1(form, env)
+                return (do_macroexpand(expansion, t) if expanded_again else
+                        (form, expanded))
+        return do_macroexpand(form, nil)
+
+# def macroexpand_all(form, env = nil):
 
 # ***** Tuple intermediate IR
 
 #     A tuple of:
 #     - prologue
 #     - value, can only contain _ast.expr's
+
+# Unregistered Issue DEBUG-SCAFFOLDING
+_string_set("*COMPILER-DEBUG-P*",    nil)
+def _debug_compiler(value = t):
+        _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
+def _debugging_compiler():
+        return _symbol_value(_compiler_debug_p_)
+def _compiler_debug_printf(control, *args):
+        if _debugging_compiler():
+                justification = _sex_space()
+                def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
+                _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
+
+if probe_file("/home/deepfire/.partus-debug-compiler"):
+        _debug_compiler()
 
 def _tuplerator(pve):
         for x in pve[0]:
@@ -6349,23 +6413,11 @@ _string_set("*COMPILER-TOPLEVEL-P*", t)
 _string_set("*COMPILER-DEF*",        nil)
 _string_set("*COMPILER-TAILP*",      nil)
 
-_string_set("*COMPILER-DEBUG-P*",    nil)
-
 def _sex_space(delta = None, char = " "):
         return char * (_pp_base_depth() + _defaulted(delta, 0))
 def _sex_deeper(n, body):
         with progv({ _pp_base_depth_: _pp_base_depth() + n }):
                 return body()
-
-def _debug_compiler(value = t):
-        _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
-def _debugging_compiler():
-        return _symbol_value(_compiler_debug_p_)
-def _compiler_debug_printf(control, *args):
-        if _debugging_compiler():
-                justification = _sex_space()
-                def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
-                _debug_printf(justification + fix_string(control), *_py.tuple(fix_string(a) for a in args))
 
 __compiler_form_record__ = _collections.defaultdict(lambda: 0)
 __compiler_form_record_threshold__ = 5
@@ -6433,23 +6485,23 @@ def _lower_expr(x, fn):
 
 # ***** More IR definition machinery: %IR-ARGS, %IR
 
-@defknown((_name, "\n", _form, (["\n", (typep, _py.str), " ", (typep, t)],)))
+@defknown((_name, "\n", _form, ["\n", ((_typep, _py.str), " ", (_typep, t))],))
 def _ir_args():
         pass
 
 def _maybe_ir_args(x):
-        return (((t, x[1], x[2]) if _py.len(x) == 3 and _tuplep(x[1]) and _tuplep(x[2]) and evenp(_py.len(x[2])) else
-                 error("Malformed IR-ARGS node: %s.", x)) if x and _tuplep(x) and x[0] is _ir_args else
+        "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
+        return ((t, x[1], x[2:]) if _tuplep(x) and x and x[0] is _ir_args else
                 (nil, x, _py.tuple()))
 
 def _ir(*ir, **keys):
-        "This is meant to be used to pass extended arguments down."
+        "This IR-ARGS constructur is meant to be used to pass extended arguments down."
         known = _find_known(the(symbol, ir[0]))
         invalid_params = _py.set(keys.keys()) - known.compiler_params
         if invalid_params:
                 error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
                       known.name, known.compiler_params, invalid_params)
-        return (_ir_args, ir, _alist_plist(_hash_table_alist(keys)))
+        return (_ir_args, ir) + _py.tuple(_hash_table_alist(keys))
 
 def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
@@ -6886,7 +6938,7 @@ def let_(bindings, *body):
 
 # ******* K FUNCALL, LAMBDA
 
-@defknown
+@defknown((intern("FUNCALL")[0], [(_nottail, " "), _form]))
 def funcall(func, *args):
         # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
         if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
@@ -6975,40 +7027,6 @@ def unwind_protect(form, *unwind_body):
                   pro_unwind + [("Expr", val_unwind)])],
                 _lower((symbol, temp_name))[1])
 
-# ***** Macro-expander
-
-#     How is it do be determined, that a form must be passed through?
-
-#     - directly AST-ifiable (in terms of _astify_constant)
-#     - atrees
-
-#     ..but what about detecting invalid forms?
-
-#     Also: how do we represent fucking tuples?
-#     Also: should we track form paths?
-
-def macroexpand_1(form, env = nil):
-        ## Unregistered Issue COMPLIANCE-MACROEXPAND-MUST-CONSIDER-LEXENV
-        # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
-        return ((form, nil) if not _tuplep(form) else
-                _if_let((form and macro_function(form[0])),
-                        lambda expander:
-                                (expander(*form[1:]), t),
-                        lambda:
-                                (form, nil)))
-
-def macroexpand(form, env = nil):
-        ## Unregistered Issue COMPLIANCE-MACROEXPAND-MUST-CONSIDER-LEXENV
-        def do_macroexpand(form, expanded):
-                expansion, expanded_again = macroexpand_1(form)
-                return (do_macroexpand(expansion, t) if expanded_again else
-                        (form, expanded))
-        return do_macroexpand(form, nil)
-
-# Unregistered Issue DEBUG-SCAFFOLDING
-if probe_file("/home/deepfire/.partus-debug-compiler"):
-        _debug_compiler()
-
 # ***** Engine and drivers: %LOWER, @LISP and COMPILE
 
 # Urgent Issue COMPILER-MACRO-SYSTEM
@@ -7036,7 +7054,7 @@ def _lower(form):
                                         return nil, nil
                                 _debug_printf_if(_debugging_compiler() and not noisep(name),
                                                  "%s>>> %s\n%s%s", _sex_space(), name, _sex_space(), ("\n" + _sex_space()).join(_pp_sex(f) for f in forms))
-                                ret = known.compiler(*forms, **_alist_hash_table(_plist_alist(args)))
+                                ret = known.compiler(*forms, **_alist_hash_table(args))
                                 if puntedp(ret):
                                         _debug_printf_if(_debugging_compiler() and not noisep(name),
                                                          "%s===========================\n"
