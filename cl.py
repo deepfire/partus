@@ -6353,12 +6353,11 @@ def _match_sex(sex):
 def macroexpand_1(form, env = nil):
         ## Unregistered Issue COMPLIANCE-MACROEXPANDER-MUST-CONSIDER-LEXENV
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
-        return ((form, nil) if not _tuplep(form) else
-                _if_let((form and macro_function(form[0])),
-                        lambda expander:
-                                (expander(*form[1:]), t),
-                        lambda:
-                                (form, nil)))
+        expander, args = ((form and (macro_function(form[0], env), form[1:])) if _tuplep(form) else
+                          (_symbol_macro_expansion(form, env), (form,))       if symbolp(form) else
+                          (None, None))
+        return ((form, nil) if not expander else
+                (expander(*args), t))
 
 def macroexpand(form, env = nil):
         def do_macroexpand(form, expanded):
