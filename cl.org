@@ -41,6 +41,7 @@
         - for that, we made MetaSEX
           - but also for: pretty-printing, validation and generally convenient operation
     - further, see Compilation/Compiler/Thoughts on processing
+    - maybe we need a binding-less matcher..
 
 * Boot
 *** Frost boot
@@ -6610,7 +6611,7 @@ def _find_known(x):
                                                   exp[0], pat[0]),
                                    lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), aux, None),
                                    orig_tuple_p = orifst[0]))
-
+  
   class _metasex_matcher_pp(_metasex_matcher):
           def __init__(m):
                   _metasex_matcher.__init__(m)
@@ -6670,9 +6671,9 @@ def _find_known(x):
                           return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
                   ############## act as identity
                   return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
-
+  
   _intern_and_bind_pynames("%LAX")
-
+  
   class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
           def __init__(m):
                   _metasex_matcher_pp.__init__(m)
@@ -6899,7 +6900,7 @@ def _find_known(x):
     Also: should we track form paths?
 
 #+begin_src python +n
-  def macroexpand_1(form, env = nil):
+  def _do_macroexpand_1(form, env = nil):
           ## Unregistered Issue COMPLIANCE-MACROEXPANDER-MUST-CONSIDER-LEXENV
           # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
           expander, args = ((form and (macro_function(form[0], env), form[1:])) if _tuplep(form) else
@@ -6908,6 +6909,14 @@ def _find_known(x):
           return ((form, nil) if not expander else
                   (expander(*args), t))
   
+  _string_set("*MACROEXPAND-HOOK*", funcall)
+  _string_set("*ENABLE-MACROEXPAND-HOOK*", t)
+  
+  def macroexpand_1(form, env = nil):
+          if symbol_value(_enable_macroexpand_hook_):
+                  return symbol_value(_macroexpand_hook_)(_do_macroexpand_1, form, env)
+          return _do_macroexpand_1(form, env)
+  
   def macroexpand(form, env = nil):
           def do_macroexpand(form, expanded):
                   expansion, expanded_again = macroexpand_1(form, env)
@@ -6915,8 +6924,28 @@ def _find_known(x):
                           (form, expanded))
           return do_macroexpand(form, nil)
   
-  # def macroexpand_all(form, env = nil):
-          
+  _string_set("*MACROEXPANDER-ENV*", nil)
+  
+  def _macroexpander_inner(m, bound, name, exp, pat, orifst, aux, limit):
+          form = exp[0]
+          form, _ = macroexpand(form, symbol_value(_macroexpander_env_))
+          macro_bindings = remove_if_not(_macro_binding_p, _ir_binds(form))
+          with progv({_macroexpander_env_: _extended_lexenv(env, macro_bindings)}):
+                  return _metasex_matcher.match_form(m, bound, name, (form,) + exp[1:], pat, orifst, aux, limit)
+  
+  class _macroexpander_matcher(_metasex_matcher):
+          def __init__(m):
+                  _metasex_matcher.__init__(m)
+                  m.register_complex_matcher(_form, _macroexpander_inner)
+                  ## We need to replace the combiners, or we'll end up with None.
+  
+  _macroexpander = _macroexpander_matcher()
+  
+  def macroexpand_all(form, env = nil):
+          _, res, failpat = _macroexpander_inner(_macroexpander, dict(), None, (form,), (_metasex.form_metasex(form),),
+                                                 (None, None), aux, limit)
+          assert(not failpat)
+          return res[0]
   
 #+end_src
 

@@ -6350,7 +6350,7 @@ def _match_sex(sex):
 #     Also: how do we represent fucking tuples?
 #     Also: should we track form paths?
 
-def macroexpand_1(form, env = nil):
+def _do_macroexpand_1(form, env = nil):
         ## Unregistered Issue COMPLIANCE-MACROEXPANDER-MUST-CONSIDER-LEXENV
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
         expander, args = ((form and (macro_function(form[0], env), form[1:])) if _tuplep(form) else
@@ -6359,6 +6359,14 @@ def macroexpand_1(form, env = nil):
         return ((form, nil) if not expander else
                 (expander(*args), t))
 
+_string_set("*MACROEXPAND-HOOK*", funcall)
+_string_set("*ENABLE-MACROEXPAND-HOOK*", t)
+
+def macroexpand_1(form, env = nil):
+        if symbol_value(_enable_macroexpand_hook_):
+                return symbol_value(_macroexpand_hook_)(_do_macroexpand_1, form, env)
+        return _do_macroexpand_1(form, env)
+
 def macroexpand(form, env = nil):
         def do_macroexpand(form, expanded):
                 expansion, expanded_again = macroexpand_1(form, env)
@@ -6366,7 +6374,28 @@ def macroexpand(form, env = nil):
                         (form, expanded))
         return do_macroexpand(form, nil)
 
-# def macroexpand_all(form, env = nil):
+_string_set("*MACROEXPANDER-ENV*", nil)
+
+def _macroexpander_inner(m, bound, name, exp, pat, orifst, aux, limit):
+        form = exp[0]
+        form, _ = macroexpand(form, symbol_value(_macroexpander_env_))
+        macro_bindings = remove_if_not(_macro_binding_p, _ir_binds(form))
+        with progv({_macroexpander_env_: _extended_lexenv(env, macro_bindings)}):
+                return _metasex_matcher.match_form(m, bound, name, (form,) + exp[1:], pat, orifst, aux, limit)
+
+class _macroexpander_matcher(_metasex_matcher):
+        def __init__(m):
+                _metasex_matcher.__init__(m)
+                m.register_complex_matcher(_form, _macroexpander_inner)
+                ## We need to replace the combiners, or we'll end up with None.
+
+_macroexpander = _macroexpander_matcher()
+
+def macroexpand_all(form, env = nil):
+        _, res, failpat = _macroexpander_inner(_macroexpander, dict(), None, (form,), (_metasex.form_metasex(form),),
+                                               (None, None), aux, limit)
+        assert(not failpat)
+        return res[0]
 
 # ***** Tuple intermediate IR
 
