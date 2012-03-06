@@ -6377,7 +6377,8 @@ def _do_macroexpand_1(form, env = nil):
         return ((form, nil) if not expander else
                 (expander(*args), t))
 
-_string_set("*MACROEXPAND-HOOK*", funcall)
+## Compliance Issue MACROEXPAND-HOOK-MUST-BE-FUNCALL
+_string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
 _string_set("*ENABLE-MACROEXPAND-HOOK*", t)
 
 def macroexpand_1(form, env = nil):
