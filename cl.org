@@ -5119,7 +5119,7 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
 ******* @DEFAST
 
 #+begin_src python +n
-  def _parse_defbody_ast(names, asts, valid_declarations = make_hash_table()):
+  def _defbody_parse_ast(names, asts, valid_declarations = make_hash_table()):
           """Given a list of defined parameter NAMES, a list of statement ASTS and a
   table of VALID-DECLARATIONS, return the body, documentation and declarations if any."""
           def _ast_call_to_name_p(name, x):
@@ -5164,15 +5164,15 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
                                                          mapcan(lambda dexcall: ensure_valid_declarations(dexcall.value),
                                                                 declarations))
   
-  def _body_methods(body_ast, method_name_fn, valid_methods, arguments_ast = None):
+  def _defbody_methods(desc, body_ast, method_name_fn, valid_methods, arguments_ast = None):
           def fail(x):
                   import more_ast
-                  err("definition body may only contain definitions of %s methods, encountered: %s",
-                      (", ".join([x.upper() for x, _ in
-                                  valid_methods[:-1]]) +
-                       (" and " if _py.len(valid_methods) > 1 else "") +
-                       valid_methods[-1][0].upper()),
-                       x if stringp(x) else more_ast.pp_ast_as_code(x))
+                  error("In %s: definition body may only contain definitions of %s methods, encountered: %s", desc,
+                        (", ".join([x.upper() for x, _ in
+                                    valid_methods[:-1]]) +
+                         (" and " if _py.len(valid_methods) > 1 else "") +
+                         (valid_methods[-1][0].upper() if valid_methods else "")),
+                        x if stringp(x) else more_ast.pp_ast_as_code(x))
           def process(method_name, default_maker):
                   "Return a validated and normalised named method body 'return'-wise."
                   x = find(method_name, body_ast, key = _slotting("name"))
@@ -5181,7 +5181,7 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
                           x.name, x.args = method_name, _defaulted(arguments_ast, x.args)
                           if _py.len(x.body) > 1:
                                   if not typep(x.body[-1], _ast.Return):
-                                          err("multi-line methods must include an explicit terminating Return statement")
+                                          error("In %s: multi-line methods must include an explicit terminating Return statement", desc)
                           elif not(typep(x.body[0], _ast.Return)):
                                   x.body[0] = _ast.Return(x.body[0].value)
                   return _ast_compiled_name(method_name, x or default_maker(method_name),
@@ -5197,6 +5197,9 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
                   fail(invalid_methods.pop().upper())
           return (process(*mspec) for mspec in valid_methods)
   
+  def _defbody_make_required_method_error(desc):
+          return lambda method_name: error("In %s: missing method %s.", desc, method_name)
+  
   def defast(fn):
           ### generic tools
           def declaredp(grouped_decls, x, as_):
@@ -5208,15 +5211,13 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
                           _py.tuple(xform(x) for x in optional) + (_py.tuple() if not args else (args,)) +
                           _py.tuple(xform(x) for x in keyword)  + (_py.tuple() if not keys else (keys,)))
           ### end-of-generic-tools
-          def err(format_control, *format_args):
-                  error(("In DEFAST %s: " % fn.__name__) + format_control + ".", *format_args)
           def validate_defast_name(name):
                   if not name.startswith("_ast_"):
-                          err("the AST name must be prefixed with \"_ast_\"")
+                          error("In DEFAST %s: the AST name must be prefixed with \"_ast_\"", name)
                   name = name[5:]
                   ast_type, therep = gethash(name, _ast.__dict__)
                   if not therep:
-                          err("'%s' does not denote a known AST type", name)
+                          error("In DEFAST %s: '%s' does not denote a known AST type", name, name)
                   return name, ast_type
           name, ast_type = validate_defast_name(fn.__name__)
           def validate_defast_lambda_list(ast_type, lambda_list, annotations):
@@ -5227,16 +5228,17 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
                   ast_field_names_with_defaults = fixed + optional
                   ast_field_types = mapcar(lambda name: annotations[name], ast_field_names)
                   if _py.len(ast_field_types) != _py.len(ast_type._fields):
-                          err("the amount of provided type specifiers (%d) does not match the AST _fields: %s",
-                              _py.len(ast_field_types), ast_type._fields)
+                          error("In DEFAST %s:the amount of provided type specifiers (%d) does not match the AST _fields: %s",
+                                name, _py.len(ast_field_types), ast_type._fields)
                   type_specifier_type = (or_, pytuple, _py.type, pytypename)
                   if not every(_of_type(type_specifier_type), ast_field_types):
                           mismatched = find_if_not(_of_type(type_specifier_type), ast_field_types)
-                          err("the AST field type specifiers must be of type %s, found: %s", type_specifier_type, mismatched)
+                          error("In DEFAST %s: the AST field type specifiers must be of type %s, found: %s",
+                                name, type_specifier_type, mismatched)
                   for i, (fname, ast_fname) in _py.enumerate(_py.zip(ast_field_names, ast_type._fields)):
                           if fname != ast_fname:
-                                  err("the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s",
-                                      i, fname, ast_fname, ast_type._fields)
+                                  error("In DEFAST %s: the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s",
+                                        name, i, fname, ast_fname, ast_type._fields)
                   return ast_field_types
           def arglist_field_infos(parameters, nfix, with_defaults, ast_field_types, grouped_decls):
                   fields = _without_condition_system(lambda: _collections.OrderedDict())
@@ -5272,13 +5274,13 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
                                        lambda_list_names(lambda_list, remove_optional = nil))
           args_ast, body_ast = _function_ast(fn)
           valid_declspecs = _py.dict(walk  = 0)
-          body, documentation, declarations = _parse_defbody_ast(parameters, body_ast,
+          body, documentation, declarations = _defbody_parse_ast(parameters, body_ast,
                                                                  valid_declarations = valid_declspecs)
           fields = arglist_field_infos(parameters, _py.len(fixed), with_defaults, ast_field_types, declarations)
-          [bound_free] = _body_methods(body,
-                                       lambda method: "_ast_%s_%s" % (name, method),
-                                       [("bound_free", lambda name: make_default_bound_free(name, args_ast, fields))],
-                                       arguments_ast = args_ast)
+          [bound_free] = _defbody_methods("DEFAST " + name, body,
+                                          lambda method: "_ast_%s_%s" % (name, method),
+                                          [("bound_free", lambda name: make_default_bound_free(name, args_ast, fields))],
+                                          arguments_ast = args_ast)
           # _debug_printf("bound_free for %s is %s", name, bound_free)
           __ast_infos__[ast_type] = _ast_info(type       = ast_type,
                                               fields     = fields,
@@ -6215,12 +6217,10 @@ def _specialp(x): return _py.getattr(x, "special")
                   fn.__name__ = "_lower_" + pyname
                   _frost.setf_global(sym, pyname, globals = _py.globals())
                   compiler_params = _function_lambda_list(fn)[3]
-                  # lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
-                  # args_ast, body_asts = _function_ast(fn)
-                  # body, documentation, declarations = _parse_defbody_ast(_py.set(), body_asts,
-                  #                                                        valid_declarations = valid_declspecs)
-                  # [] = _body_methods(body, lambda method_name: method_name,
-                  #                    [])
+                  args_ast, body_asts = _function_ast(fn)
+                  body, documentation, declarations = _defbody_parse_ast(_py.set(), body_asts)
+                  [lower] = _defbody_methods("DEFKNOWN " + _py.str(sym), body, lambda method_name: method_name,
+                                             [("lower", _defbody_make_required_method_error("DEFKNOWN %s" % sym))])
                   ## Complete, record the deeds.
                   sym.known = _known(name = sym,
                                      metasex = metasex,
@@ -7090,26 +7090,27 @@ def _prepend_prologue(pro, tuple):
 ***** More IR definition machinery: %IR-ARGS, %IR
 
 #+begin_src python +n
-@defknown((_name, "\n", _form, ["\n", ((_typep, _py.str), " ", (_typep, t))],))
-def _ir_args():
-        pass
-
-def _maybe_ir_args(x):
-        "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
-        return ((t, x[1], x[2:]) if _tuplep(x) and x and x[0] is _ir_args else
-                (nil, x, _py.tuple()))
-
-def _ir(*ir, **keys):
-        "This IR-ARGS constructur is meant to be used to pass extended arguments down."
-        known = _find_known(the(symbol, ir[0]))
-        invalid_params = _py.set(keys.keys()) - known.compiler_params
-        if invalid_params:
-                error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
-                      known.name, known.compiler_params, invalid_params)
-        return (_ir_args, ir) + _py.tuple(_hash_table_alist(keys))
-
-def _ir_args_when(when, ir, **parameters):
-        return _ir(*ir, **parameters) if when else ir
+  @defknown((_name, "\n", _form, ["\n", ((_typep, _py.str), " ", (_typep, t))],))
+  def _ir_args():
+          def lower(*_): error("Invariant failed: %s is not meant to be lowered.", _ir_args)
+  
+  def _maybe_ir_args(x):
+          "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
+          return ((t, x[1], x[2:]) if _tuplep(x) and x and x[0] is _ir_args else
+                  (nil, x, _py.tuple()))
+  
+  def _ir(*ir, **keys):
+          "This IR-ARGS constructur is meant to be used to pass extended arguments down."
+          known = _find_known(the(symbol, ir[0]))
+          invalid_params = _py.set(keys.keys()) - known.compiler_params
+          if invalid_params:
+                  error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
+                        known.name, known.compiler_params, invalid_params)
+          return (_ir_args, ir) + _py.tuple(_hash_table_alist(keys))
+  
+  def _ir_args_when(when, ir, **parameters):
+          return _ir(*ir, **parameters) if when else ir
+  
 #+end_src
 
 ***** IR lowering
@@ -7117,12 +7118,13 @@ def _ir_args_when(when, ir, **parameters):
 
 #+begin_src python +n
 @defknown
-def symbol(name):
-        # Urgent Issue IR-LEVEL-SYMBOLS
-        check_type(name, symbol)
-        _compilation_note_symbol(name)
-        return ([],
-                ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
+def symbol():
+        def lower(name):
+                # Urgent Issue IR-LEVEL-SYMBOLS
+                check_type(name, symbol)
+                _compilation_note_symbol(name)
+                return ([],
+                        ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
 
 def _lower_name(name, ctx = "Load"):
         check_type(name, (or_, symbol, (pytuple, (eql, symbol), symbol)))
@@ -7131,77 +7133,83 @@ def _lower_name(name, ctx = "Load"):
         return ("Name", _frost.full_symbol_name_python_name(name[1] if _tuplep(name) else name), (ctx,))
 
 @defknown((intern("SETQ")[0], " ", _name, " ", _form))
-def setq(name, value):
-        # Urgent Issue IR-LEVEL-SYMBOLS
-        # Urgent Issue SETQ-BROKEN-WRT-SPECIAL-VARIABLES
-        # Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
-        pro, val = _lower(value)
-        return (pro + [("Assign", [_lower_name(name, "Store")], val)],
-                _lower_name(name))
+def setq():
+        def lower(name, value):
+                # Urgent Issue IR-LEVEL-SYMBOLS
+                # Urgent Issue SETQ-BROKEN-WRT-SPECIAL-VARIABLES
+                # Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
+                pro, val = _lower(value)
+                return (pro + [("Assign", [_lower_name(name, "Store")], val)],
+                        _lower_name(name))
 #+end_src
 
 ******* RETURN
 
 #+begin_src python
 @defknown
-def return_(x):
-        with _tail_position():
-                pro, val = _lower(x)
-                return (pro + [("Return", val)],
-                        None)
+def return_():
+        def lower(x):
+                with _tail_position():
+                        pro, val = _lower(x)
+                        return (pro + [("Return", val)],
+                                None)
 #+end_src
 
 ******* QUOTE, QUAQUOTE, COMMA, SPLICE
 
 #+begin_src python
 @defknown
-def quote(x):
-        # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
-        if symbolp(x):
-                return (symbol, x)
-        else:
-                atree, successp = _try_atreeify_constant(x)
-                if successp:
-                        return ([],
-                                atree)
+def quote():
+        def lower(x):
+                # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
+                if symbolp(x):
+                        return (symbol, x)
                 else:
-                        return (list,) + _py.tuple((quote, x) for x in x)
-
-@defknown
-def quaquote(x):
-        # Unregistered Issue COMPILER-QUASIQUOTE-PROCESSING-TAKING-OVER-READER-FUNCTIONALITY
-        def rec(x):
-                if atom(x):
-                        return (quote, x)
-                else:
-                        acc = None
-                        run = [list]
-                        for ix in x:
-                                if not _tuplep(ix) or not ix or ix[0] not in [comma, splice]:
-                                        run.append(rec(ix))
-                                elif len(ix) != 2:
-                                        error("In quasi-quoted form %s: bad %s expression %s.", x, ix[0], ix)
-                                elif ix[0] is comma:
-                                        run.append(ix[1])
-                                elif ix[0] is splice:
-                                        if acc is None:
-                                                acc = [append, _py.tuple(run)]
-                                        acc.append(ix[1])
-                                        run = [list]
-                        if acc:
-                                acc.append(_py.tuple(run))
+                        atree, successp = _try_atreeify_constant(x)
+                        if successp:
+                                return ([],
+                                        atree)
                         else:
-                                acc = run
-                        return _py.tuple(remove((list,), acc))
-        return rec(x)
+                                return (list,) + _py.tuple((quote, x) for x in x)
 
 @defknown
-def comma(x):
-        error("Comma not inside a backquote.")
+def quaquote():
+        def lower(x):
+                # Unregistered Issue COMPILER-QUASIQUOTE-PROCESSING-TAKING-OVER-READER-FUNCTIONALITY
+                def rec(x):
+                        if atom(x):
+                                return (quote, x)
+                        else:
+                                acc = None
+                                run = [list]
+                                for ix in x:
+                                        if not _tuplep(ix) or not ix or ix[0] not in [comma, splice]:
+                                                run.append(rec(ix))
+                                        elif len(ix) != 2:
+                                                error("In quasi-quoted form %s: bad %s expression %s.", x, ix[0], ix)
+                                        elif ix[0] is comma:
+                                                run.append(ix[1])
+                                        elif ix[0] is splice:
+                                                if acc is None:
+                                                        acc = [append, _py.tuple(run)]
+                                                acc.append(ix[1])
+                                                run = [list]
+                                if acc:
+                                        acc.append(_py.tuple(run))
+                                else:
+                                        acc = run
+                                return _py.tuple(remove((list,), acc))
+                return rec(x)
 
 @defknown
-def splice(x):
-        error("Comma not inside a backquote.")
+def comma():
+        def lower(x):
+                error("Comma not inside a backquote.")
+
+@defknown
+def splice():
+        def lower(x):
+                error("Comma not inside a backquote.")
 #+end_src
 
 ******* PROGN, IF
@@ -7209,51 +7217,53 @@ def splice(x):
 #+begin_src python
 @defknown((intern("PROGN")[0],
             1, [(_notlead, "\n"), _form]))
-def progn(*body):
-        if not body:
-                return ([],
-                        _lower((symbol, "nil")))
-        pro, ntotal = [], _py.len(body)
-        with _no_tail_position():
-                for spro, val in (_lower(x) for x in body[:-1]):
-                        pro.extend(spro)
-                        pro.append(("Expr", val))
-        with _maybe_tail_position():
-                return _prepend_prologue(pro,
-                                         _lower(body[-1]))
-        ## Not sure the stuff below still makes sense.  Still, am afraid to erase it.
-        # lowered_body = mapcan(_lower, body)
-        # (( body_bound_vars,  body_free_vars,  body_xtnls),
-        #  (thunk_bound_vars, thunk_free_vars, thunk_xtnls)) = mapcar(_ast_bound_free, [lowered_body, thunks])
-        # must_thunk = _py.len(lowered_body) > 1 or thunks
-        # scope_mutation = (body_bound_vars or thunk_bound_vars or body_xtnls or thunk_xtnls)
-        # if not (must_thunk or scope_mutation):
-        #         return lowered_body
+def progn():
+        def lower(*body):
+                if not body:
+                        return ([],
+                                _lower((symbol, "nil")))
+                pro, ntotal = [], _py.len(body)
+                with _no_tail_position():
+                        for spro, val in (_lower(x) for x in body[:-1]):
+                                pro.extend(spro)
+                                pro.append(("Expr", val))
+                with _maybe_tail_position():
+                        return _prepend_prologue(pro,
+                                                 _lower(body[-1]))
+                ## Not sure the stuff below still makes sense.  Still, am afraid to erase it.
+                # lowered_body = mapcan(_lower, body)
+                # (( body_bound_vars,  body_free_vars,  body_xtnls),
+                #  (thunk_bound_vars, thunk_free_vars, thunk_xtnls)) = mapcar(_ast_bound_free, [lowered_body, thunks])
+                # must_thunk = _py.len(lowered_body) > 1 or thunks
+                # scope_mutation = (body_bound_vars or thunk_bound_vars or body_xtnls or thunk_xtnls)
+                # if not (must_thunk or scope_mutation):
+                #         return lowered_body
 
 @defknown((intern("IF")[0], " ", _form,
              3, _form,
              (_maybe, "\n", _form)))
-def if_(test, consequent, antecedent = nil):
-        with _no_tail_position():
-                lo_test = pro_test, val_test = _lower(test)
-        lo_cons, lo_ante = mapcar(_lower, [consequent, antecedent])
-        ((pro_cons, val_cons),
-         (pro_ante, val_ante)) = lo_cons, lo_ante
-        cons_expr_p, ante_expr_p = mapcar(_tuple_expression_p, [lo_cons, lo_ante])
-        if _py.all([cons_expr_p, ante_expr_p]):
-                _compiler_debug_printf(" -- IF: simple all-expression case")
-                return (pro_test,
-                        ("IfExp", val_test, val_cons, val_ante))
-        else:
-                _compiler_debug_printf(" -- IF: complex FLET-based case")
-                ## Unregistered Issue FUNCALL-MISSING
-                name_cons, name_ante = _gensyms(x = "IF-BRANCH", n = 2)
-                cons, cons_fdefn = ((consequent,           _py.tuple()) if cons_expr_p else
-                                    ((funcall, (symbol, name_cons)), ((name_cons, _py.tuple()) + (consequent,),)))
-                ante, ante_fdefn = ((antecedent,           _py.tuple()) if ante_expr_p else
-                                    ((funcall, (symbol, name_ante)), ((name_ante, _py.tuple()) + (antecedent,),)))
-                return (flet, cons_fdefn + ante_fdefn,
-                         (if_, test, cons, ante))
+def if_():
+        def lower(test, consequent, antecedent = nil):
+                with _no_tail_position():
+                        lo_test = pro_test, val_test = _lower(test)
+                lo_cons, lo_ante = mapcar(_lower, [consequent, antecedent])
+                ((pro_cons, val_cons),
+                 (pro_ante, val_ante)) = lo_cons, lo_ante
+                cons_expr_p, ante_expr_p = mapcar(_tuple_expression_p, [lo_cons, lo_ante])
+                if _py.all([cons_expr_p, ante_expr_p]):
+                        _compiler_debug_printf(" -- IF: simple all-expression case")
+                        return (pro_test,
+                                ("IfExp", val_test, val_cons, val_ante))
+                else:
+                        _compiler_debug_printf(" -- IF: complex FLET-based case")
+                        ## Unregistered Issue FUNCALL-MISSING
+                        name_cons, name_ante = _gensyms(x = "IF-BRANCH", n = 2)
+                        cons, cons_fdefn = ((consequent,           _py.tuple()) if cons_expr_p else
+                                            ((funcall, (symbol, name_cons)), ((name_cons, _py.tuple()) + (consequent,),)))
+                        ante, ante_fdefn = ((antecedent,           _py.tuple()) if ante_expr_p else
+                                            ((funcall, (symbol, name_ante)), ((name_ante, _py.tuple()) + (antecedent,),)))
+                        return (flet, cons_fdefn + ante_fdefn,
+                                 (if_, test, cons, ante))
 #+end_src
 
 ******* %P-L-L-L/L-L-L-L and DEF_
@@ -7347,56 +7357,57 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 @defknown((intern("DEF_")[0], " ", _name, " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), _form]),
           name = intern("DEF_")[0])
-def def_(name, lambda_list, *body, decorators = []):
-        ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
-        # This is NOT a Lisp form, but rather an acknowledgement of the
-        # need to represent a building block from the underlying system.
+def def_():
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
-        cdef = _compiler_def(name   = name,
-                             parent = _compiling_def())
-        toplevelp = _symbol_value(_compiler_toplevel_p_)
-        with progv({_compiler_def_:      cdef,
-                    _compiler_toplevel_p_: nil}):
-                check_type(name, (and_, symbol, (not_, keyword)))
-                # check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
-                def try_compile():
-                        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                        total, args, defaults = _prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
-                        compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
-                        with _tail_position():
-                                # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                                pve = body_ret, _ = _lower((return_, (progn, ) + body))
-                        # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
-                        # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
-                        deco_vals = []
-                        for pro_deco, val_deco in (_lower(d) for d in decorators):
-                                if pro_deco:
-                                        error("in DEF %s: decorators must lower to python expressions.", name)
-                                deco_vals.append(val_deco)
-                        return ([("FunctionDef", _frost.full_symbol_name_python_name(name), compiled_lambda_list,
-                                                 body_ret,
-                                                 deco_vals),
-                                 # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
-                                 ],
-                                _lower((symbol, name))[1])
-                ## Xtnls feedback loop stabilisation scheme.
-                ##
-                ## This looks fairly ridiculous, but this is reality for you:
-                ##  - it's impossible to know externals before compilation
-                ##    - determined by walking the resulting atree
-                ##  - you need to know externals before compilation
-                ##    - at least one optimisation (LET) depends on this
-                ##
-                ## Quietly hoped to be the only parameter requiring such beforehand knowledge.
-                xtnls_guess, xtnls_actual, try_ = None, _py.set(), 0
-                while xtnls_guess != xtnls_actual:
-                        cdef.xtnls = xtnls_guess = xtnls_actual
-                        _compiler_debug_printf(" -- DEF: try %d", try_)
-                        result = try_compile()
-                        _compiler_debug_printf(" -- DEF: result\n%s", result)
-                        xtnls_actual = _tuple_xtnls(result)
-                        try_ += 1
-                return result
+        def lower(name, lambda_list, *body, decorators = []):
+                ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
+                # This is NOT a Lisp form, but rather an acknowledgement of the
+                # need to represent a building block from the underlying system.
+                cdef = _compiler_def(name   = name,
+                                     parent = _compiling_def())
+                toplevelp = _symbol_value(_compiler_toplevel_p_)
+                with progv({_compiler_def_:      cdef,
+                            _compiler_toplevel_p_: nil}):
+                        check_type(name, (and_, symbol, (not_, keyword)))
+                        # check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
+                        def try_compile():
+                                # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
+                                total, args, defaults = _prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
+                                compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
+                                with _tail_position():
+                                        # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+                                        pve = body_ret, _ = _lower((return_, (progn, ) + body))
+                                # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
+                                # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
+                                deco_vals = []
+                                for pro_deco, val_deco in (_lower(d) for d in decorators):
+                                        if pro_deco:
+                                                error("in DEF %s: decorators must lower to python expressions.", name)
+                                        deco_vals.append(val_deco)
+                                return ([("FunctionDef", _frost.full_symbol_name_python_name(name), compiled_lambda_list,
+                                                         body_ret,
+                                                         deco_vals),
+                                         # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
+                                         ],
+                                        _lower((symbol, name))[1])
+                        ## Xtnls feedback loop stabilisation scheme.
+                        ##
+                        ## This looks fairly ridiculous, but this is reality for you:
+                        ##  - it's impossible to know externals before compilation
+                        ##    - determined by walking the resulting atree
+                        ##  - you need to know externals before compilation
+                        ##    - at least one optimisation (LET) depends on this
+                        ##
+                        ## Quietly hoped to be the only parameter requiring such beforehand knowledge.
+                        xtnls_guess, xtnls_actual, try_ = None, _py.set(), 0
+                        while xtnls_guess != xtnls_actual:
+                                cdef.xtnls = xtnls_guess = xtnls_actual
+                                _compiler_debug_printf(" -- DEF: try %d", try_)
+                                result = try_compile()
+                                _compiler_debug_printf(" -- DEF: result\n%s", result)
+                                xtnls_actual = _tuple_xtnls(result)
+                                try_ += 1
+                        return result
 #+end_src
 
 ******* TOIMPL EVAL-WHEN
@@ -7406,7 +7417,7 @@ def def_(name, lambda_list, *body, decorators = []):
                                                 (_maybe_once, _keyword("LOAD-TOPLEVEL")),
                                                 (_maybe_once, _keyword("EXECUTE")))]),
             1, [(_notlead, "\n"), _form]))
-def eval_when(when, *body):
+def eval_when():
         """eval-when (situation*) form* => result*
 
 Arguments and Values:
@@ -7442,14 +7453,15 @@ EVAL-WHEN normally appears as a top level form, but it is meaningful
 for it to appear as a non-top-level form.  However, the compile-time
 side effects described in Section 3.2 (Compilation) only take place
 when EVAL-WHEN appears as a top level form."""
-        ### Unregistered Issue DEPRECATED-SYMBOLS-CONSIDERED-INVALID
-        ctop, ltop, exec = _parse_eval_when_situations(when)
-        ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
-        ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
-        ## so that they're never seen at this level.)
-        _not_implemented()
-        return (((progn,) + body) if exec else
-                _lower(nil))
+        def lower(when, *body):
+                ### Unregistered Issue DEPRECATED-SYMBOLS-CONSIDERED-INVALID
+                ctop, ltop, exec = _parse_eval_when_situations(when)
+                ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
+                ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
+                ## so that they're never seen at this level.)
+                _not_implemented()
+                return (((progn,) + body) if exec else
+                        _lower(nil))
 #+end_src
 
 ******* K DEFMACRO, DEFUN
@@ -7457,27 +7469,29 @@ when EVAL-WHEN appears as a top level form."""
 #+begin_src python
 @defknown((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
             1, [(_notlead, "\n"), _form]))
-def defmacro(name, lambda_list, *body):
-        ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
-        ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
-        fn, warnedp, failedp, [macfundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
-                                                                              (lambda_, lambda_list) + body,
-                                                                              _symbol_value(_lexenv_),
-                                                                              globalp = t, macrop = t)
-        return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this:
-                             # the((varituple, (eql, def_), pytuple), macfundef)
-                _lower((quote, (symbol, string(name))))[1])
+def defmacro():
+        def lower(name, lambda_list, *body):
+                ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
+                ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
+                fn, warnedp, failedp, [macfundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
+                                                                                      (lambda_, lambda_list) + body,
+                                                                                      _symbol_value(_lexenv_),
+                                                                                      globalp = t, macrop = t)
+                return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this:
+                                     # the((varituple, (eql, def_), pytuple), macfundef)
+                        _lower((quote, (symbol, string(name))))[1])
 
 @defknown((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
             1, [(_notlead, "\n"), _form]))
-def defun(name, lambda_list, *body):
-        ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
-        fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
-                                                                           (lambda_, lambda_list) + body,
-                                                                           _symbol_value(_lexenv_),
-                                                                           globalp = t, macrop = t)
-        return ([fundef],
-                _lower((quote, (symbol, string(name))))[1])
+def defun():
+        def lower(name, lambda_list, *body):
+                ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
+                fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
+                                                                                   (lambda_, lambda_list) + body,
+                                                                                   _symbol_value(_lexenv_),
+                                                                                   globalp = t, macrop = t)
+                return ([fundef],
+                        _lower((quote, (symbol, string(name))))[1])
 #+end_src
 
 ******* K LET, FLET, LABELS, LET*
@@ -7518,154 +7532,160 @@ def defun(name, lambda_list, *body):
 #+begin_src python
 @defknown((intern("LET")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
             1, [(_notlead, "\n"), _form]))
-def let(bindings, *body):
-        # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
-        if not (_tuplep(bindings) and
-                every(_of_type((or_, symbol, (pytuple, symbol, t))))):
-                error("LET: malformed bindings: %s.", bindings)
-        # Unregistered Issue PRIMITIVE-DECLARATIONS
-        bindings_thru_defaulting = _py.tuple(_ensure_cons(b, nil) for b in bindings)
-        names, values = _recombine((_py.list, _py.list), identity, bindings_thru_defaulting)
-        compiled_value_pves = mapcar(_lower, values)
-        if every(_tuple_expression_p, compiled_value_pves):
-                _compiler_debug_printf(" -- LET: simple all-expression LAMBDA case")
-                return (funcall, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
-                                     dont_delay_defaults = t))
-        else:
-                _compiler_debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
-                last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
-                n_nonexprs = last_non_expr_posn + 1
-                temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
-                # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
-                return ((progn,) +
-                        _py.tuple((setq, n, v) for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
-                        (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
-                             dont_delay_defaults = t),))
+def let():
+        def lower(bindings, *body):
+                # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
+                if not (_tuplep(bindings) and
+                        every(_of_type((or_, symbol, (pytuple, symbol, t))))):
+                        error("LET: malformed bindings: %s.", bindings)
+                # Unregistered Issue PRIMITIVE-DECLARATIONS
+                bindings_thru_defaulting = _py.tuple(_ensure_cons(b, nil) for b in bindings)
+                names, values = _recombine((_py.list, _py.list), identity, bindings_thru_defaulting)
+                compiled_value_pves = mapcar(_lower, values)
+                if every(_tuple_expression_p, compiled_value_pves):
+                        _compiler_debug_printf(" -- LET: simple all-expression LAMBDA case")
+                        return (funcall, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
+                                             dont_delay_defaults = t))
+                else:
+                        _compiler_debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
+                        last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
+                        n_nonexprs = last_non_expr_posn + 1
+                        temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
+                        # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
+                        return ((progn,) +
+                                _py.tuple((setq, n, v) for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
+                                (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
+                                     dont_delay_defaults = t),))
 
 @defknown((intern("FLET")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), _form],),
                                                          1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), _form]))
-def flet(bindings, *body):
-        # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
-        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
-        # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-        if not every(_of_type((partuple, symbol, pytuple)), bindings):
-                error("FLET: malformed bindings: %s.", bindings)
-        # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
-        return ((let, _py.tuple(_poor_man_let(gensym(string(name)),
-                                              lambda temp_fname: (name, (progn,
-                                                                         (def_, temp_fname, lambda_list) + _py.tuple(fbody),
-                                                                         (symbol, temp_fname))))
-                                for name, lambda_list, *fbody in bindings)) +
-                body)
+def flet():
+        def lower(bindings, *body):
+                # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
+                # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
+                # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
+                if not every(_of_type((partuple, symbol, pytuple)), bindings):
+                        error("FLET: malformed bindings: %s.", bindings)
+                # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
+                return ((let, _py.tuple(_poor_man_let(gensym(string(name)),
+                                                      lambda temp_fname: (name, (progn,
+                                                                                 (def_, temp_fname, lambda_list) + _py.tuple(fbody),
+                                                                                 (symbol, temp_fname))))
+                                        for name, lambda_list, *fbody in bindings)) +
+                        body)
 
 @defknown((intern("LABELS")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), _form],),
                                                            1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), _form]))
-def labels(bindings, *body):
-        # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
-        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
-        # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-        if not every(_of_type((partuple, symbol, pytuple))):
-                error("LABELS: malformed bindings: %s.", bindings)
-        temp_name = gensym("LABELS")
-        _compiler_debug_printf(" -- LABELS: to DEF + FLET")
-        return (flet, ((temp_name, _py.tuple(),
-                        _py.tuple((def_, name, lambda_list, body)
-                               for name, lambda_list, *body in bindings) +
-                        body)),
-                 (funcall, temp_name))
+def labels():
+        def lower(bindings, *body):
+                # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
+                # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
+                # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
+                if not every(_of_type((partuple, symbol, pytuple))):
+                        error("LABELS: malformed bindings: %s.", bindings)
+                temp_name = gensym("LABELS")
+                _compiler_debug_printf(" -- LABELS: to DEF + FLET")
+                return (flet, ((temp_name, _py.tuple(),
+                                _py.tuple((def_, name, lambda_list, body)
+                                       for name, lambda_list, *body in bindings) +
+                                body)),
+                         (funcall, temp_name))
 
 @defknown((intern("LET*")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
             1, [(_notlead, "\n"), _form]),
           name = intern("LET*")[0])
-def let_(bindings, *body):
-        # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
-        if not (_tuplep(bindings) and
-                every(_of_type((or_, symbol, (pytuple, symbol, t))))):
-                error("LET*: malformed bindings: %s.", bindings)
-        # Unregistered Issue PRIMITIVE-DECLARATIONS
-        if not bindings:
-                return (progn,) + body
-        else:
-                return (let, bindings[:1],
-                         (let_, bindings[1:]) + body)
+def let_():
+        def lower(bindings, *body):
+                # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
+                if not (_tuplep(bindings) and
+                        every(_of_type((or_, symbol, (pytuple, symbol, t))))):
+                        error("LET*: malformed bindings: %s.", bindings)
+                # Unregistered Issue PRIMITIVE-DECLARATIONS
+                if not bindings:
+                        return (progn,) + body
+                else:
+                        return (let, bindings[:1],
+                                 (let_, bindings[1:]) + body)
 #+end_src
 
 ******* K FUNCALL, LAMBDA
 
 #+begin_src python +n
 @defknown((intern("FUNCALL")[0], [(_nottail, " "), _form]))
-def funcall(func, *args):
-        # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
-        if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
-                          # - quote_ compilation in lower_
-                func_pro, func_val = ([],
-                                      ("Name", func, ("Load",)))
-        else:
-                with _no_tail_position():
-                        func_pro, func_val = _lower(func)
-        with _no_tail_position():
-                arg_pves = mapcar(_lower, args)
-        if every(_tuple_expression_p, arg_pves):
-                _compiler_debug_printf(" -- FUNCALL: simple case")
-                return (func_pro,
-                        ("Call", func_val, mapcar(second, arg_pves), []))
-        else:
-                _compiler_debug_printf(" -- FUNCALL: complex LET + FUNCALL")
-                temp_names = _gensyms(n = _py.len(args), x = "FUNCALL-ARG")
-                if _tuple_expression_p((func_pro, func_val)):
-                        func_binding, func_exp = (_py.tuple(),
-                                                  func)
+def funcall():
+        def lower(func, *args):
+                # Unregistered Issue IMPROVEMENT-FUNCALL-COULD-VALIDATE-CALLS-OF-KNOWNS
+                if stringp(func): # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-FUNCALL
+                                  # - quote_ compilation in lower_
+                        func_pro, func_val = ([],
+                                              ("Name", func, ("Load",)))
                 else:
-                        func_name = gensym("FUNCALL-FUNCNAME")
-                        func_binding, func_exp = (((func_name, func),),
-                                                  (symbol, func_name))
-                return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
-                         (funcall, func_exp) + _py.tuple())
+                        with _no_tail_position():
+                                func_pro, func_val = _lower(func)
+                with _no_tail_position():
+                        arg_pves = mapcar(_lower, args)
+                if every(_tuple_expression_p, arg_pves):
+                        _compiler_debug_printf(" -- FUNCALL: simple case")
+                        return (func_pro,
+                                ("Call", func_val, mapcar(second, arg_pves), []))
+                else:
+                        _compiler_debug_printf(" -- FUNCALL: complex LET + FUNCALL")
+                        temp_names = _gensyms(n = _py.len(args), x = "FUNCALL-ARG")
+                        if _tuple_expression_p((func_pro, func_val)):
+                                func_binding, func_exp = (_py.tuple(),
+                                                          func)
+                        else:
+                                func_name = gensym("FUNCALL-FUNCNAME")
+                                func_binding, func_exp = (((func_name, func),),
+                                                          (symbol, func_name))
+                        return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
+                                 (funcall, func_exp) + _py.tuple())
 
 @defknown((intern("LAMBDA")[0], " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), _form]))
-def lambda_(lambda_list, *body, dont_delay_defaults = nil):
-        # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
-        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-        # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-        # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
-        # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
-        preliminary_body_pve = _lower((progn,) + body)
-        body_exprp = _tuple_expression_p(preliminary_body_pve)
-        if body_exprp:
-                total, args, defaults = _prepare_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
-                (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
-                if not (optional or keys):
-                        _compiler_debug_printf(" -- LAMBDA: simple")
-                        return ([],
-                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
-                elif rest or restkey:
-                        _not_implemented("rest/restkey-ful defaulting lambda list")
-                elif dont_delay_defaults:
-                        # duplicate code here, but the checking "issue" is not understood well-enough..
-                        _compiler_debug_printf(" -- LAMBDA: undelayed defaults")
-                        return ([],
-                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
+def lambda_():
+        def lower(lambda_list, *body, dont_delay_defaults = nil):
+                # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
+                # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
+                # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+                # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
+                # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
+                preliminary_body_pve = _lower((progn,) + body)
+                body_exprp = _tuple_expression_p(preliminary_body_pve)
+                if body_exprp:
+                        total, args, defaults = _prepare_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
+                        (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
+                        if not (optional or keys):
+                                _compiler_debug_printf(" -- LAMBDA: simple")
+                                return ([],
+                                        ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
+                        elif rest or restkey:
+                                _not_implemented("rest/restkey-ful defaulting lambda list")
+                        elif dont_delay_defaults:
+                                # duplicate code here, but the checking "issue" is not understood well-enough..
+                                _compiler_debug_printf(" -- LAMBDA: undelayed defaults")
+                                return ([],
+                                        ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
+                        else:
+                                ## Delay evaluation of default values.
+                                def defaulting_expr(arg, default):
+                                        return (if_, (eq, arg, (symbol, "None")),
+                                                     default,
+                                                     arg)
+                                _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
+                                return (lambda_, _py.tuple(fixed + [_optional] + optional + keys),
+                                         (let, _py.tuple((arg, defaulting_expr(arg, default))
+                                                         for arg, default in _py.zip(optional + keys,
+                                                                                     optdefs + keydefs))) +
+                                           body)
+
                 else:
-                        ## Delay evaluation of default values.
-                        def defaulting_expr(arg, default):
-                                return (if_, (eq, arg, (symbol, "None")),
-                                             default,
-                                             arg)
-                        _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
-                        return (lambda_, _py.tuple(fixed + [_optional] + optional + keys),
-                                 (let, _py.tuple((arg, defaulting_expr(arg, default))
-                                                 for arg, default in _py.zip(optional + keys,
-                                                                             optdefs + keydefs))) +
-                                   body)
-                                
-        else:
-                _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
-                func_name = _gensymname("LET-BODY-")
-                return (flet, ((func_name, lambda_list) + body,),
-                         (symbol, func_name))
+                        _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
+                        func_name = _gensymname("LET-BODY-")
+                        return (flet, ((func_name, lambda_list) + body,),
+                                 (symbol, func_name))
 #+end_src
 
 ******* K UNWIND-PROTECT
@@ -7673,18 +7693,19 @@ def lambda_(lambda_list, *body, dont_delay_defaults = nil):
 #+begin_src python
 @defknown((intern("UNWIND-PROTECT")[0], " ", _form,
             1, [(_notlead, "\n"), _form]))
-def unwind_protect(form, *unwind_body):
-        if not unwind_body:
-                return _lower(form)
-        temp_name = gensym("PROTECTED-FORM-VALUE")
-        pro_form, val_form = _lower((setq, temp_name, form))
-        pro_unwind, val_unwind = _lower((progn,) + unwind_body)
-        return ([("TryFinally",
-                  # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
-                  pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
-                  # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
-                  pro_unwind + [("Expr", val_unwind)])],
-                _lower((symbol, temp_name))[1])
+def unwind_protect():
+        def lower(form, *unwind_body):
+                if not unwind_body:
+                        return _lower(form)
+                temp_name = gensym("PROTECTED-FORM-VALUE")
+                pro_form, val_form = _lower((setq, temp_name, form))
+                pro_unwind, val_unwind = _lower((progn,) + unwind_body)
+                return ([("TryFinally",
+                          # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
+                          pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
+                          # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
+                          pro_unwind + [("Expr", val_unwind)])],
+                        _lower((symbol, temp_name))[1])
 #+end_src
 
 ******* TOIMPL BLOCK, RETURN-FROM
