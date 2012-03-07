@@ -4798,9 +4798,12 @@ table of VALID-DECLARATIONS, return the body, documentation and declarations if 
                                        if name in d[2:])
                          for name in _mapsetn(_declaration_names, decls) } # INDEXING..
         content, _ = _prefix_suffix_if(_not_of_type(_ast.Pass), asts)
-        documentation, body = ((content[0], content[1:]) if content and stringp(content[0]) else
+        documentation, body = ((content[0].value.s, content[1:]) if (len(content) > 1 and
+                                                                     typep(content[0], _ast.Expr) and
+                                                                     typep(content[0].value, _ast.Str)) else
                                (nil, content))
         declarations, body = _prefix_suffix_if(_curry(_ast_call_to_name_p, "declare"), body)
+        _debug_printf("D-P-A: %s, %s, %s", documentation, declarations, body)
         return body, documentation, group_declarations(valid_declarations,
                                                        mapcan(lambda dexcall: ensure_valid_declarations(dexcall.value),
                                                               declarations))
@@ -4808,28 +4811,40 @@ table of VALID-DECLARATIONS, return the body, documentation and declarations if 
 def _defbody_methods(desc, body_ast, method_name_fn, valid_methods, arguments_ast = None):
         def fail(x):
                 import more_ast
-                error("In %s: definition body may only contain definitions of %s methods, encountered: %s", desc,
+                error("In %s: definition body may only contain definitions of %s methods, encountered: %s, an object of type %s", desc,
                       (", ".join([x.upper() for x, _ in
                                   valid_methods[:-1]]) +
                        (" and " if _py.len(valid_methods) > 1 else "") +
                        (valid_methods[-1][0].upper() if valid_methods else "")),
-                      x if stringp(x) else more_ast.pp_ast_as_code(x))
+                      x if stringp(x) else more_ast.pp_ast_as_code(x), type_of(x))
         def process(method_name, default_maker):
                 "Return a validated and normalised named method body 'return'-wise."
                 x = find(method_name, body_ast, key = _slotting("name"))
                 method_name = method_name_fn(method_name)
                 if x:
                         x.name, x.args = method_name, _defaulted(arguments_ast, x.args)
-                        if _py.len(x.body) > 1:
-                                if not typep(x.body[-1], _ast.Return):
-                                        error("In %s: multi-line methods must include an explicit terminating Return statement", desc)
-                        elif not(typep(x.body[0], _ast.Return)):
-                                x.body[0] = _ast.Return(x.body[0].value)
+                        ## recursively analyse RETURN-ality
+                        def massage_tail(x, multiline):
+                                if multiline:
+                                        if hasattr(x.body[-1], "body"):
+                                                massage_tail(x.body[-1], True)
+                                        elif not typep(x.body[-1], _ast.Return):
+                                                error("In %s: multi-line methods must include an explicit terminating Return statement", desc)
+                                elif not(typep(x.body[0], _ast.Return)):
+                                        if _py.hasattr(x.body[0], "value"):
+                                                x.body[0] = _ast.Return(x.body[0].value)
+                                        elif _py.hasattr(x.body[0], "body"):
+                                                massage_tail(x.body[0], _py.len(x.body[0].body) > 1)
+                                        else:
+                                                error("In %s: tail-positioned form %s has no redeeming qualities what so ever.",
+                                                      desc, type_of(x.body[0]))
+                        massage_tail(x, _py.len(x.body) > 1)
                 return _ast_compiled_name(method_name, x or default_maker(method_name),
                                           locals = _py.locals(), globals = _py.globals())
         ##
         body_ast = remove_if(_of_type(_ast.Pass), body_ast) # Remove noise.
         non_fdefns = find_if_not(_of_type(_ast.FunctionDef), body_ast)
+        _debug_printf("In %s: %s", desc, non_fdefns)
         if non_fdefns:
                 fail(non_fdefns)
         specified_method_names = { x.name:x for x in body_ast }
