@@ -6223,8 +6223,9 @@ def _specialp(x): return _py.getattr(x, "special")
   def defknown(metasex_or_fn, name = None):
           """Define a form 'known' to the compiler.
   The NAME is bound, in separate namespaces, to:
-     - a function, which accepts a SEX of knowns, and returns either a modified SEX,
-       or a target tuple IR;
+     - a LOWER method, which returns either a modified SEX, or a target tuple IR;
+     - a BINDS method, which returns a namespace-categorised enumeration of bindings
+       established by the form around its body, if any;
      - a MetaSEX form, which, when unspecified, defaults to (<KNOWN-NAME> " " %FORM),
        and serves the following purposes:
        - a pretty-printer specifier
@@ -6237,8 +6238,11 @@ def _specialp(x): return _py.getattr(x, "special")
                   _frost.setf_global(sym, pyname, globals = _py.globals())
                   args_ast, body_asts = _function_ast(fn)
                   body, documentation, declarations = _defbody_parse_ast(_py.set(), body_asts)
-                  [lower] = _defbody_methods("DEFKNOWN " + _py.str(sym), body, lambda method_name: method_name,
-                                             [("lower", _defbody_make_required_method_error("DEFKNOWN %s" % sym))])
+                  [binds,
+                   lower] = _defbody_methods("DEFKNOWN " + _py.str(sym), body, lambda method_name: method_name,
+                                             [("binds", lambda _: _py.compile("def binds(*_): return dict()", "", "exec",
+                                                                              flags = _ast.PyCF_ONLY_AST).body[0]),
+                                              "lower"])
                   lower_key_args = _function_lambda_list(lower)[3]
                   ## Complete, record the deeds.
                   sym.known = _known(name = sym,
@@ -7112,6 +7116,7 @@ def _prepend_prologue(pro, tuple):
   @defknown((_name, "\n", _form, ["\n", ((_typep, _py.str), " ", (_typep, t))],))
   def _ir_args():
           def lower(*_): error("Invariant failed: %s is not meant to be lowered.", _ir_args)
+          def binds(*_): _py.set()
   
   def _maybe_ir_args(x):
           "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
@@ -7153,6 +7158,7 @@ def _lower_name(name, ctx = "Load"):
 
 @defknown((intern("SETQ")[0], " ", _name, " ", _form))
 def setq():
+        ## COMPLIANCE-ISSUE-SETQ-BINDING
         def lower(name, value):
                 # Urgent Issue IR-LEVEL-SYMBOLS
                 # Urgent Issue SETQ-BROKEN-WRT-SPECIAL-VARIABLES
