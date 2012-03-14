@@ -1382,6 +1382,10 @@ doit = True
 
 # ***** Delayed class definitions
 
+def _attrify_args(self, locals, *names):
+        for name in names:
+                setattr(self, name, locals[name])
+
 @defclass
 class nil():
         @classmethod
@@ -1395,7 +1399,7 @@ class t():
 @defclass
 class simple_condition(condition.python_type):
         def __init__(self, format_control, *format_arguments):
-                self.format_control, self.format_arguments = format_control, format_arguments
+                _attrify_args(self, locals(), "format_control", "format_arguments")
                 # _debug_printf("About to signal a simple condition of type %s:\n%s", _py.type(self), self)
         def __str__(self):
                 try:
@@ -5718,18 +5722,58 @@ def _compilation_unit_prologue():
                 if _top_compilation_unit_p() else
                 [])
 
-# ***** Lexical environments
+# ***** Scopes
+
+_intern_and_bind_pynames("*LEXENV*", 
+                         "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO")
+
+class _name():
+        name, type = None, None
+        def __init__(self, name, kind, type, **attributes):
+                _attrify_args(self, locals(), "name", "kind", "type")
+def _namep(x):
+        return _py.isinstance(x, _name)
 
 class _binding():
-        name = None
-        def __init__(self, name, value = None, function = None, ):
-                # It's not terribly clear how to tag values in a binding..
-                check_type(value, (member, _keyword("PLAIN"), _keyword("SPECIAL"), _keyword("CONSTANT")))
-                self.name, self.value, self.function = name, value, function
-                self.__dict__.update(attributes)
-def _bindingp(x): return _py.isinstance(x, _binding)
+        value, shadows = None, None
+        def __init__(self, value, shadows, **attributes):
+                _attrify_args(self, locals(), "value", "shadows")
+def _bindingp(x):
+        return _py.isinstance(x, _binding)
 
-_intern_and_bind_pynames("*LEXENV*")
+class _variable(_name):
+        def __init__(self, name, kind, type, dynamic_extent = nil, **attributes):
+                check_type(kind, (member, t, constant, special, symbol-macro)) # constant | special | symbol-macro | t
+                _name.__init__(self, name, kind, type, **attributes)
+                _attrify_args(self, locals(),
+                              "dynamic_extent") # t | nil
+def _name_variablep(x): return _py.isinstance(x, _variable)
+def _make_variable(name, kind, type = t, **attributes):
+        return _variable(name, kind, type, **attributes)
+
+class _function(_name):
+        def __init__(self, name, kind, type, **attributes):
+                check_type(kind, (member, t, macro, compiler_macro)) # macro | compiler-macro | t
+                _name.__init__(self, name, kind, type, **attributes)
+def _name_functionp(x): return _py.isinstance(x, _function)
+def _make_function(name, kind, type = t, **attributes):
+        return _function(name, kind, type, **attributes)
+
+class _variable_binding(_variable, _binding):
+        def __init__(self, name, kind, type, value, shadows, dynamic_extent = nil, **attributes):
+                _variable.__init__(self, name, kind, type, dynamic_extent, **attributes)
+                _binding.__init__(self, value, shadows, **attributes)
+def _variable_bindingp(x): return _py.isinstance(x, _variable_binding)
+def _make_variable_binding(name, kind, value, type = t, dynamic_extent = nil, shadows = nil, **attributes):
+        return _variable_binding(name, kind, type, value, shadows, dynamic_extent, **attributes)
+
+class _function_binding(_function, _binding):
+        def __init__(self, name, kind, type, value, shadows, **attributes):
+                _variable.__init__(self, name, kind, type, **attributes)
+                _binding.__init__(self, value, shadows, **attributes)
+def _function_bindingp(x): return _py.isinstance(x, _function_binding)
+def _make_function_binding(name, kind, value, type = t, shadows = nil, **attributes):
+        return _function_binding(name, kind, type, value, shadows, **attributes)
 
 @defclass
 class _lexenv(_collections.UserDict):
@@ -5737,8 +5781,8 @@ class _lexenv(_collections.UserDict):
         def __init__(self, initial_content = None, parent = nil):
                 self.data = _py.dict(initial_content or {})
                 for k, v in self.data.items():
-                        symbolp(k)   or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
-                        _bindingp(k) or error("Lexenv values must be bindings, found: %s.", v.__repr__())
+                        symbolp(k) or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
+                        _namep(k)  or error("Lexenv values must be bindings, found: %s.", v.__repr__())
                 self.scope = (self, (nil                        if null(parent)        else
                                      the(_lexenv, parent).scope if _specifiedp(parent) else
                                      _symbol_value(_lexenv_).scope))
@@ -6812,6 +6856,9 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
           name = intern("DEF_")[0])
 def def_():
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
+        def binds(name, lambda_list, *body, decorators = []):
+                total, _, __ = _prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
+                return { _variable: _py.set(total) }
         def lower(name, lambda_list, *body, decorators = []):
                 ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 # This is NOT a Lisp form, but rather an acknowledgement of the
