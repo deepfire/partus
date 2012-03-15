@@ -6419,16 +6419,6 @@ def _match_sex(sex):
 
 # ***** Macro-expander
 
-#     How is it do be determined, that a form must be passed through?
-
-#     - directly AST-ifiable (in terms of _astify_constant)
-#     - atrees
-
-#     ..but what about detecting invalid forms?
-
-#     Also: how do we represent fucking tuples?
-#     Also: should we track form paths?
-
 def _do_macroexpand_1(form, env = nil):
         ## Unregistered Issue COMPLIANCE-MACROEXPANDER-MUST-CONSIDER-LEXENV
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
@@ -6438,7 +6428,7 @@ def _do_macroexpand_1(form, env = nil):
         return ((form, nil) if not expander else
                 (expander(*args), t))
 
-## Compliance Issue MACROEXPAND-HOOK-MUST-BE-FUNCALL
+## Unregistered Issue COMPLIANCE-MACROEXPAND-HOOK-MUST-BE-FUNCALL
 _string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
 _string_set("*ENABLE-MACROEXPAND-HOOK*", t)
 
@@ -6760,7 +6750,7 @@ def if_():
                         return (flet, cons_fdefn + ante_fdefn,
                                  (if_, test, cons, ante))
 
-# ******* %P-L-L-L/L-L-L-L and DEF_
+# ********* Code
 
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (symbol, "None"))
@@ -6854,7 +6844,7 @@ def def_():
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
-                return { _variable: _py.set(total) }
+                return { _make_variable_binding(name, _variable, None) for name in total }
         def lower(name, lambda_list, *body, decorators = []):
                 ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 # This is NOT a Lisp form, but rather an acknowledgement of the
@@ -6959,9 +6949,14 @@ when EVAL-WHEN appears as a top level form."""
 
 # ******* K DEFMACRO, DEFUN
 
+#         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST.
+
 @defknown((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
             1, [(_notlead, "\n"), _form]))
 def defmacro():
+        def binds(name, lambda_list, *body, decorators = []):
+                total, _, __ = _prepare_lispy_lambda_list("DEFMACRO %s" % name, lambda_list)
+                return { _make_variable_binding(name, t, None) for name in total }
         def lower(name, lambda_list, *body):
                 ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
                 ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
@@ -6976,6 +6971,9 @@ def defmacro():
 @defknown((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
             1, [(_notlead, "\n"), _form]))
 def defun():
+        def binds(name, lambda_list, *body, decorators = []):
+                total, _, __ = _prepare_lispy_lambda_list("DEFUN %s" % name, lambda_list)
+                return { _make_variable_binding(name, t, None) for name in total }
         def lower(name, lambda_list, *body):
                 ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
                 fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
@@ -6990,6 +6988,10 @@ def defun():
 @defknown((intern("LET")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
             1, [(_notlead, "\n"), _form]))
 def let():
+        def binds(bindings, *body):
+                bindings = (((b,    None) if symbolp(b) else
+                             (b[0], b[1])) for b in bindings)
+                return { _make_variable_binding(name, t, None) for name, _ in bindings }
         def lower(bindings, *body):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (_tuplep(bindings) and
@@ -7018,6 +7020,8 @@ def let():
                                                          1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), _form]))
 def flet():
+        def binds(bindings, *body):
+                return { _make_function_binding(name, t, None) for name, _, *__ in bindings }
         def lower(bindings, *body):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -7036,6 +7040,8 @@ def flet():
                                                            1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), _form]))
 def labels():
+        def binds(bindings, *body):
+                return { _make_function_binding(name, t, None) for name, _, *__ in bindings }
         def lower(bindings, *body):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -7054,6 +7060,10 @@ def labels():
             1, [(_notlead, "\n"), _form]),
           name = intern("LET*")[0])
 def let_():
+        def binds(bindings, *body):
+                bindings = (((b,    None) if symbolp(b) else
+                             (b[0], b[1])) for b in bindings)
+                return { _make_variable_binding(name, t, None) for name, _ in bindings }
         def lower(bindings, *body):
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
                 if not (_tuplep(bindings) and
@@ -7067,6 +7077,8 @@ def let_():
                                  (let_, bindings[1:]) + body)
 
 # ******* K FUNCALL, LAMBDA
+
+#         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST.
 
 @defknown((intern("FUNCALL")[0], [(_nottail, " "), _form]))
 def funcall():
@@ -7101,6 +7113,9 @@ def funcall():
 @defknown((intern("LAMBDA")[0], " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), _form]))
 def lambda_():
+        def binds(lambda_list, *body, dont_delay_defaults = nil):
+                total, _, __ = _prepare_lispy_lambda_list("LAMBDA", lambda_list)
+                return { _make_variable_binding(name, t, None) for name in total }
         def lower(lambda_list, *body, dont_delay_defaults = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES

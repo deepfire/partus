@@ -43,6 +43,9 @@
     - further, see Compilation/Compiler/Thoughts on processing
     - maybe we need a binding-less matcher..
 
+*** Compliance
+***** Lambda list deviations
+***** IR-BINDS ignores declarations
 * Boot
 *** Frost boot
 
@@ -6008,6 +6011,27 @@ all AST-trees .. except for the case of tuples."""
         Instead of being pessimistic in assumptions, act as if doing WPO, while tracking
         dependents.
 
+******* Macroexpanding
+
+        How is it to be determined, that a form must be passed through?
+        
+        - directly AST-ifiable (in terms of _astify_constant)
+        - atrees
+        
+        ..but what about detecting invalid forms?
+        
+        Also: how do we represent fucking tuples?
+        Also: should we track form paths?
+
+******* IR-BINDS
+
+        Weren't we supposed to use the matcher to validate and destructure forms?
+
+        ..but we can't do that before all macroexpansion is complete.. and we need the IR-BINDS
+        for the macroexpander to process lexenv changes due to macrolet/symbol-macrolet..
+
+        Cold version IR-BINDS is due?
+
 ***** Generic pieces
 
 #+begin_src python +n
@@ -6970,16 +6994,6 @@ def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
 
 ***** Macro-expander
 
-    How is it do be determined, that a form must be passed through?
-
-    - directly AST-ifiable (in terms of _astify_constant)
-    - atrees
-
-    ..but what about detecting invalid forms?
-
-    Also: how do we represent fucking tuples?
-    Also: should we track form paths?
-
 #+begin_src python +n
   def _do_macroexpand_1(form, env = nil):
           ## Unregistered Issue COMPLIANCE-MACROEXPANDER-MUST-CONSIDER-LEXENV
@@ -6990,7 +7004,7 @@ def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
           return ((form, nil) if not expander else
                   (expander(*args), t))
   
-  ## Compliance Issue MACROEXPAND-HOOK-MUST-BE-FUNCALL
+  ## Unregistered Issue COMPLIANCE-MACROEXPAND-HOOK-MUST-BE-FUNCALL
   _string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
   _string_set("*ENABLE-MACROEXPAND-HOOK*", t)
   
@@ -7332,6 +7346,14 @@ def if_():
 #+end_src
 
 ******* %P-L-L-L/L-L-L-L and DEF_
+********* Deviations from CL lambda list
+
+          - the name bound by &REST does not contain the arglist which is then (optionally
+            partially) destructured by the &KEY-bound part of the parameter list.
+          - no &ALLOW-OTHER-KEYS (its function is subsumed by &RESTKEY)
+          - existence of a separate &RESTKEY
+
+********* Code
 
 #+begin_src python
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
@@ -7426,7 +7448,7 @@ def def_():
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
-                return { _variable: _py.set(total) }
+                return { _make_variable_binding(name, _variable, None) for name in total }
         def lower(name, lambda_list, *body, decorators = []):
                 ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 # This is NOT a Lisp form, but rather an acknowledgement of the
@@ -7534,10 +7556,15 @@ when EVAL-WHEN appears as a top level form."""
 
 ******* K DEFMACRO, DEFUN
 
+        Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST.
+
 #+begin_src python
 @defknown((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
             1, [(_notlead, "\n"), _form]))
 def defmacro():
+        def binds(name, lambda_list, *body, decorators = []):
+                total, _, __ = _prepare_lispy_lambda_list("DEFMACRO %s" % name, lambda_list)
+                return { _make_variable_binding(name, t, None) for name in total }
         def lower(name, lambda_list, *body):
                 ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
                 ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
@@ -7552,6 +7579,9 @@ def defmacro():
 @defknown((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
             1, [(_notlead, "\n"), _form]))
 def defun():
+        def binds(name, lambda_list, *body, decorators = []):
+                total, _, __ = _prepare_lispy_lambda_list("DEFUN %s" % name, lambda_list)
+                return { _make_variable_binding(name, t, None) for name in total }
         def lower(name, lambda_list, *body):
                 ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
                 fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
@@ -7601,6 +7631,10 @@ def defun():
 @defknown((intern("LET")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
             1, [(_notlead, "\n"), _form]))
 def let():
+        def binds(bindings, *body):
+                bindings = (((b,    None) if symbolp(b) else
+                             (b[0], b[1])) for b in bindings)
+                return { _make_variable_binding(name, t, None) for name, _ in bindings }
         def lower(bindings, *body):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (_tuplep(bindings) and
@@ -7629,6 +7663,8 @@ def let():
                                                          1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), _form]))
 def flet():
+        def binds(bindings, *body):
+                return { _make_function_binding(name, t, None) for name, _, *__ in bindings }
         def lower(bindings, *body):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -7647,6 +7683,8 @@ def flet():
                                                            1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), _form]))
 def labels():
+        def binds(bindings, *body):
+                return { _make_function_binding(name, t, None) for name, _, *__ in bindings }
         def lower(bindings, *body):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -7665,6 +7703,10 @@ def labels():
             1, [(_notlead, "\n"), _form]),
           name = intern("LET*")[0])
 def let_():
+        def binds(bindings, *body):
+                bindings = (((b,    None) if symbolp(b) else
+                             (b[0], b[1])) for b in bindings)
+                return { _make_variable_binding(name, t, None) for name, _ in bindings }
         def lower(bindings, *body):
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
                 if not (_tuplep(bindings) and
@@ -7679,6 +7721,8 @@ def let_():
 #+end_src
 
 ******* K FUNCALL, LAMBDA
+
+        Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST.
 
 #+begin_src python +n
 @defknown((intern("FUNCALL")[0], [(_nottail, " "), _form]))
@@ -7714,6 +7758,9 @@ def funcall():
 @defknown((intern("LAMBDA")[0], " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), _form]))
 def lambda_():
+        def binds(lambda_list, *body, dont_delay_defaults = nil):
+                total, _, __ = _prepare_lispy_lambda_list("LAMBDA", lambda_list)
+                return { _make_variable_binding(name, t, None) for name in total }
         def lower(lambda_list, *body, dont_delay_defaults = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
