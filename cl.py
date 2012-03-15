@@ -5727,12 +5727,12 @@ def _compilation_unit_prologue():
 _intern_and_bind_pynames("*LEXENV*", 
                          "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO")
 
-class _name():
+class _nameuse():
         name, type = None, None
         def __init__(self, name, kind, type, **attributes):
                 _attrify_args(self, locals(), "name", "kind", "type")
-def _namep(x):
-        return _py.isinstance(x, _name)
+def _nameusep(x):
+        return _py.isinstance(x, _nameuse)
 
 class _binding():
         value, shadows = None, None
@@ -5741,21 +5741,21 @@ class _binding():
 def _bindingp(x):
         return _py.isinstance(x, _binding)
 
-class _variable(_name):
+class _variable(_nameuse):
         def __init__(self, name, kind, type, dynamic_extent = nil, **attributes):
                 check_type(kind, (member, t, constant, special, symbol-macro)) # constant | special | symbol-macro | t
-                _name.__init__(self, name, kind, type, **attributes)
+                _nameuse.__init__(self, name, kind, type, **attributes)
                 _attrify_args(self, locals(),
                               "dynamic_extent") # t | nil
-def _name_variablep(x): return _py.isinstance(x, _variable)
+def _nameuse_variablep(x): return _py.isinstance(x, _variable)
 def _make_variable(name, kind, type = t, **attributes):
         return _variable(name, kind, type, **attributes)
 
-class _function(_name):
+class _function(_nameuse):
         def __init__(self, name, kind, type, **attributes):
                 check_type(kind, (member, t, macro, compiler_macro)) # macro | compiler-macro | t
-                _name.__init__(self, name, kind, type, **attributes)
-def _name_functionp(x): return _py.isinstance(x, _function)
+                _nameuse.__init__(self, name, kind, type, **attributes)
+def _nameuse_functionp(x): return _py.isinstance(x, _function)
 def _make_function(name, kind, type = t, **attributes):
         return _function(name, kind, type, **attributes)
 
@@ -5781,8 +5781,8 @@ class _lexenv(_collections.UserDict):
         def __init__(self, initial_content = None, parent = nil):
                 self.data = _py.dict(initial_content or {})
                 for k, v in self.data.items():
-                        symbolp(k) or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
-                        _namep(k)  or error("Lexenv values must be bindings, found: %s.", v.__repr__())
+                        symbolp(k)   or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
+                        _bindingp(k) or error("Lexenv values must be bindings, found: %s.", v.__repr__())
                 self.scope = (self, (nil                        if null(parent)        else
                                      the(_lexenv, parent).scope if _specifiedp(parent) else
                                      _symbol_value(_lexenv_).scope))
@@ -5798,10 +5798,6 @@ class _lexenv(_collections.UserDict):
                 return scope[x] if scope else None
 def _lexenvp(x):         return _py.isinstance(x, _lexenv)
 def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
-
-## lexical info kinds
-def _fbindingp(x): return x.function
-def _specialp(x): return _py.getattr(x, "special")
 
 # ***** DEFKNOWN
 
