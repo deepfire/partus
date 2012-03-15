@@ -44,7 +44,26 @@
     - maybe we need a binding-less matcher..
 
 *** Compliance
-***** Lambda list deviations
+***** Deviations from CL lambda list
+
+      - the name bound by &REST contains all positionally-provided arguments in the excess
+        of those specified in the parameter list and up to the first keyword-provided
+        argument
+      - the name bound by &REST does not contain all (or even just any) arguments past the
+        last optionally-specified positional
+      - within provided arguments, a keyword-provided argument for an optionally-specified
+        parameter, can be positioned after the first keyword-provided argument for a
+        keyword-specified parameter
+      - no &ALLOW-OTHER-KEYS (its function is subsumed by &RESTKEY)
+      - existence of a separate &RESTKEY
+      - ..there are more
+
+******* Conclusion
+
+        We need our own argument list processing to be compliant.
+
+        How unexpectable.
+
 ***** IR-BINDS ignores declarations
 * Boot
 *** Frost boot
@@ -7346,13 +7365,6 @@ def if_():
 #+end_src
 
 ******* %P-L-L-L/L-L-L-L and DEF_
-********* Deviations from CL lambda list
-
-          - the name bound by &REST does not contain the arglist which is then (optionally
-            partially) destructured by the &KEY-bound part of the parameter list.
-          - no &ALLOW-OTHER-KEYS (its function is subsumed by &RESTKEY)
-          - existence of a separate &RESTKEY
-
 ********* Code
 
 #+begin_src python
