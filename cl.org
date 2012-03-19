@@ -33,16 +33,96 @@
     - Issue ORG-SRCBLOCK-GUIDED-KEYBINDING-SCOPING
     - Issue ORG-ISEARCH-ONLY-WORKS-AFTER-FOLD-CYCLING
 
-*** The way
+*** Thoughts on processing
+***** Multiple values are acutely needed
+***** Early macroexpansion as a separate stage
 
-    - we acutely need multiple values
-    - we need preliminary macroexpansion, to get down to just IR knowns and funcalls
-      - for that, we need a walker, to macroexpand only form-positions
-        - for that, we made MetaSEX
-          - but also for: pretty-printing, validation and generally convenient operation
-    - further, see Compilation/Compiler/Thoughts on processing
-    - maybe we need a binding-less matcher..
+      Once we perform macroexpansion, we're supposed to be down to knowns and funcalls, that is
+      a set of primitives with semantics simple enough to allow for exhaustive case analysis
+      with regard to at least some of properties.
 
+      This allows us to do analysis on subforms without paying the cost of full compilation.
+
+***** [#C] Data structure setup for a one-time matcher run
+***** Splitting off sequencing: separation of K-forms
+
+      There are many knowns which combine their specialty with sequencing, which is an
+      orthogonal issue and therefore a burden:
+
+      - EVAL-WHEN, DEFMACRO, DEFUN, LET, FLET, LABELS, LET*, LAMBDA, UNWIND-PROTECT
+
+      We should switch to processing their K-forms, which would only accept a single form, not
+      a body.
+
+      This would significantly affect multiple values processing, so it looks like an immediate
+      issue.
+
+***** Multiple values: analysis
+
+      The big question is whether we need known-specific processing of multiple-value
+      contexts. (See "Walking".)
+
+      There are following roles wrt. values processing:
+
+      - determined roles
+        - producer
+          - known multiple-values producer form: VALUES-LIST and VALUES
+          - a funcall of a multiple-values -typed function
+        - consumer -- somebody who doesn't just pass the values along
+          - known multiple-values consumer form: MULTIPLE-VALUE-{BIND,CALL,LIST}, NTH-VALUE
+          - funcalls
+          - forms with evaluation in non-tail positions
+            - IF, test position
+            - LET/*, WITH-SLOTS
+            - OR (it expands to a series of LET and IFs)
+            - SETQ
+            - VALUES
+            - PROGN, including implicits, like EVAL-WHEN, LET/*, FLET, LABELS, LAMBDA and
+              top-level DEF-forms
+            - SPLICE
+            - default value forms within lambda lists
+          - PROG1, PROG2, the counterexamples to all
+        - identity
+          - all tail positions, but PROG1 and PROG2
+          - RETURN, RETURN-FROM
+      - indeterminate roles -- potentials
+        - potential producer
+          - a funcall of a non-specifically-typed function
+        - potential consumer
+          - just a form
+
+***** Dependents
+
+      Instead of being pessimistic in assumptions, act as if doing WPO, while tracking
+      dependents.
+
+***** Macroexpanding
+
+      How is it to be determined, that a form must be passed through?
+      
+      - directly AST-ifiable (in terms of _astify_constant)
+      - atrees
+      
+      ..but what about detecting invalid forms?
+      
+      Also: how do we represent fucking tuples?
+      Also: should we track form paths?
+
+***** IR-BINDS
+
+      Weren't we supposed to use the matcher to validate and destructure forms?
+
+      ..but metasex is only available for knowns, which requires all macros to be expanded..
+      ..but the macroexpansion process itself needs IR-BINDS..
+
+      we can't do that before all macroexpansion is complete.. and we need the IR-BINDS for the
+      macroexpander to process lexenv changes due to macrolet/symbol-macrolet..
+
+      If/when we make IR-BINDS use metasex, a cold version of IR-BINDS will be due?
+
+      Right now, though, metasex implications are of no issue.
+
+***** DONE Unification of pretty-printing, well-formed-ness checking and walking
 *** Compliance
 ***** Deviations from CL lambda list
 
@@ -5962,95 +6042,6 @@ all AST-trees .. except for the case of tuples."""
 #+end_src
 
 *** Compiler
-***** Thoughts on processing
-******* Unification of pretty-printing, well-formed-ness checking and, maybe, walking
-********* Abstracting out walking (what a novel concept!)
-
-          - needed for macroexpansion, for determining subforms for further expansion
-          - potentially needed for multiple value processing
-          - could be specified declaratively
-
-*********** Early macroexpansion as a separate stage
-
-            Once we perform macroexpansion, we're supposed to be down to knowns and funcalls, that is
-            a set of primitives with semantics simple enough to allow for exhaustive case analysis
-            with regard to at least some of properties.
-
-            This allows us to do analysis on subforms without paying the cost of full compilation.
-
-******* Splitting off sequencing
-
-        There are many knowns which combine their specialty with sequencing, which is an
-        orthogonal issue and therefore a burden:
-
-        - EVAL-WHEN, DEFMACRO, DEFUN, LET, FLET, LABELS, LET*, LAMBDA, UNWIND-PROTECT
-
-        We should switch to processing their K-forms, which would only accept a single form, not
-        a body.
-
-        This would significantly affect multiple values processing, so it looks like an immediate
-        issue.
-
-******* Multiple values
-
-        The big question is whether we need known-specific processing of multiple-value
-        contexts. (See "Walking".)
-
-        There are following roles wrt. values processing:
-
-        - determined roles
-          - producer
-            - known multiple-values producer form: VALUES-LIST and VALUES
-            - a funcall of a multiple-values -typed function
-          - consumer -- somebody who doesn't just pass the values along
-            - known multiple-values consumer form: MULTIPLE-VALUE-{BIND,CALL,LIST}, NTH-VALUE
-            - funcalls
-            - forms with evaluation in non-tail positions
-              - IF, test position
-              - LET/*, WITH-SLOTS
-              - OR (it expands to a series of LET and IFs)
-              - SETQ
-              - VALUES
-              - PROGN, including implicits, like EVAL-WHEN, LET/*, FLET, LABELS, LAMBDA and
-                top-level DEF-forms
-              - SPLICE
-              - default value forms within lambda lists
-            - PROG1, PROG2, the counterexamples to all
-          - identity
-            - all tail positions, but PROG1 and PROG2
-            - RETURN, RETURN-FROM
-        - indeterminate roles -- potentials
-          - potential producer
-            - a funcall of a non-specifically-typed function
-          - potential consumer
-            - just a form
-
-******* Dependents
-
-        Instead of being pessimistic in assumptions, act as if doing WPO, while tracking
-        dependents.
-
-******* Macroexpanding
-
-        How is it to be determined, that a form must be passed through?
-        
-        - directly AST-ifiable (in terms of _astify_constant)
-        - atrees
-        
-        ..but what about detecting invalid forms?
-        
-        Also: how do we represent fucking tuples?
-        Also: should we track form paths?
-
-******* IR-BINDS
-
-        Weren't we supposed to use the matcher to validate and destructure forms?
-
-        ..but we can't do that before all macroexpansion is complete.. and we need the IR-BINDS
-        for the macroexpander to process lexenv changes due to macrolet/symbol-macrolet..
-
-        Cold version IR-BINDS is due?
-
 ***** Generic pieces
 
 #+begin_src python +n
