@@ -2667,6 +2667,18 @@ def intersection(x, y):
 # ******* Dicts
 
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
+def _dictappend(*dicts):
+        acc = _py.dict()
+        for dict in dicts:
+                acc.update(dict)
+        return acc
+
+def _dict_select_keys(dict, *keys):
+        acc = _py.dict()
+        for k in keys:
+                acc[k] = dict[k]
+        return acc
+
 def _maphash(f, dict) -> _py.list:
         return [ f(k, v) for k, v in dict.items() ]
 
@@ -5778,8 +5790,8 @@ def _make_function_binding(name, kind, value, type = t, shadows = nil, **attribu
 @defclass
 class _lexenv(_collections.UserDict):
         scope = nil
-        def __init__(self, initial_content = None, parent = nil):
-                self.data = _py.dict(initial_content or {})
+        def __init__(self, parent = nil, **initial_content):
+                self.data = initial_content
                 for k, v in self.data.items():
                         symbolp(k)   or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
                         _bindingp(k) or error("Lexenv values must be bindings, found: %s.", v.__repr__())
@@ -5798,6 +5810,9 @@ class _lexenv(_collections.UserDict):
                 return scope[x] if scope else None
 def _lexenvp(x):         return _py.isinstance(x, _lexenv)
 def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
+def _make_lexenv(parent = nil, **initial_content):
+        ## just a dumb pass-through
+        return _lexenv(parent, **initial_content)
 
 # ***** DEFKNOWN
 
@@ -6042,7 +6057,7 @@ def _match(matcher, exp, pat):
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
         return matcher.match(_py.dict(), name, exp, prepped, (True, False), None, None)
 
-# ******* Code
+# ******* METASEX-MATCHER, METASEX-MATCHER-PP and METASEX-MATCHER-NONSTRICT-PP
 
 #         MetaSEX presents us with an excellent lesson.  Let's try to understand.
 
@@ -6051,10 +6066,10 @@ _intern_and_bind_pynames("%NAME", "%MAYBE", "%NOTLEAD", "%NOTTAIL",
                          "%MAYBE-ONCE", "%ONCE",
                          "%SET-MINUS")
 
-_string_set("*PP-BASE-DEPTH*", 0)
-_string_set("*PP-DEPTH*", 0)
-def _pp_base_depth(): return _symbol_value(_pp_base_depth_)
-def _pp_depth():      return _symbol_value(_pp_depth_)
+def _form_known(form):
+        ## METASEX-MATCHER guts it, due to case analysis
+        complex_form_p = _tuplep(form) and symbolp(form[0])
+        return complex_form_p and _find_known(form[0])
 
 class _metasex_matcher(_matcher):
         def __init__(m):
@@ -6143,6 +6158,11 @@ class _metasex_matcher(_matcher):
                                                 exp[0], pat[0]),
                                  lambda bound: m.match(bound, None, exp[1:], pat[1:], (False, orifst[1]), aux, None),
                                  orig_tuple_p = orifst[0]))
+
+_string_set("*PP-BASE-DEPTH*", 0)
+_string_set("*PP-DEPTH*", 0)
+def _pp_base_depth(): return _symbol_value(_pp_base_depth_)
+def _pp_depth():      return _symbol_value(_pp_depth_)
 
 class _metasex_matcher_pp(_metasex_matcher):
         def __init__(m):
@@ -6251,9 +6271,34 @@ _matcher_trace_form     = _matcher_trace_all      or False
 _matcher_trace_atom     =                            False
 _matcher_trace_calls    =                            False
 
-###
-### testing
-###
+def _match_sex(sex):
+        return _match(_metasex_pp, sex, _metasex.form_metasex(sex))
+
+## WIP: set specifiers (got bored)
+_string_set("*SETSPEC-SCOPE*", nil)
+_setspec = _defscope("_setspec", _setspec_scope_)
+
+# ******* Pretty-printing
+
+def _pp_sex(sex, strict = t, initial_depth = None):
+        ## Unregistered Issue RELAXED-METASEX-PRETTY-PRINTER-MODE-NEEDED
+        initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
+        with progv({ _pp_depth_:      initial_depth,
+                     _pp_base_depth_: initial_depth}):
+                _, r, f = _match(_metasex_pp, sex, _metasex.form_metasex(sex))
+        if f is not None:
+                error("\n=== fail: %s\n=== failpat: %s\n=== exp: %s", sex, f, r)
+        return r or ""
+
+# ******* FORM-BINDS
+
+def _form_binds(form):
+        known = _complex_form_known(form)
+        return (_py.dict() if not known else
+                known.binds(*form))
+
+# ******* Testing
+
 # _results = []
 # def runtest(fun, bindings, result):
 #         b, r, f = fun()
@@ -6397,26 +6442,6 @@ _matcher_trace_calls    =                            False
 # assert(result_good)
 # print("; SIMPLE-MAYBE: passed")
 
-_string_set("*SETSPEC-SCOPE*", nil)
-_setspec = _defscope("_setspec", _setspec_scope_)
-
-## Hell on the curve of her lips..
-## Girls are sucking up energy and focus, generally.  It's fairly tragic.
-## Are there any exceptions?
-
-def _pp_sex(sex, strict = t, initial_depth = None):
-        ## Unregistered Issue RELAXED-METASEX-PRETTY-PRINTER-MODE-NEEDED
-        initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
-        with progv({ _pp_depth_:      initial_depth,
-                     _pp_base_depth_: initial_depth}):
-                _, r, f = _match(_metasex_pp, sex, _metasex.form_metasex(sex))
-        if f is not None:
-                error("\n=== fail: %s\n=== failpat: %s\n=== exp: %s", sex, f, r)
-        return r or ""
-
-def _match_sex(sex):
-        return _match(_metasex_pp, sex, _metasex.form_metasex(sex))
-
 # ***** Macro-expander
 
 def _do_macroexpand_1(form, env = nil):
@@ -6449,8 +6474,10 @@ _string_set("*MACROEXPANDER-ENV*", nil)
 def _macroexpander_inner(m, bound, name, exp, pat, orifst, aux, limit):
         form = exp[0]
         form, _ = macroexpand(form, symbol_value(_macroexpander_env_))
-        macro_bindings = remove_if_not(_macro_binding_p, _ir_binds(form))
-        with progv({_macroexpander_env_: _extended_lexenv(env, macro_bindings)}):
+        ## now, it's either a funcall or a known
+        env = _symbol_value(_macroexpander_env_)
+        expander_bindings = _dict_select_keys(_form_binds(form), macro, symbol_macro)
+        with progv({_macroexpander_env_: _make_lexenv(env, **expander_bindings)}):
                 return _metasex_matcher.match_form(m, bound, name, (form,) + exp[1:], pat, orifst, aux, limit)
 
 class _macroexpander_matcher(_metasex_matcher):
