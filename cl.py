@@ -563,7 +563,9 @@ class symbol(): # Turned to a symbol, during the package system bootstrap.
                 (self.name, self.package,
                  (self.function,
                   self.macro_function,
-                  self.known)) = name, None, (None, nil, nil)
+                  self.compiler_macro_function,
+                  self.symbol_macro_expansion,
+                  self.known)) = name, None, (None, nil, nil, None, nil)
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __call__(self, *args, **keys):
@@ -697,7 +699,9 @@ def _cold_make_nil():
          nil.package,
          nil.function,
          nil.macro_function,
-         nil.known) = "NIL", __cl, nil, nil, nil
+         nil.compiler_macro_function,
+         nil.symbol_macro_expansion,
+         nil.known) = "NIL", __cl, nil, nil, nil, None, nil
         return _do_intern_symbol(nil, __cl)
 
 NIL = nil = _cold_make_nil()
@@ -2799,7 +2803,8 @@ Description:
 Removes the function or macro definition, if any, of NAME in the
 global environment."""
         (the(symbol, name).function,
-         symbol.macro_function) = nil, nil
+         symbol.macro_function,
+         symbol.compiler_macro_function) = nil, nil, nil
         return name
 
 ## @defun def function was moved lower, due to dependency on @defun and CL:T
@@ -2840,7 +2845,7 @@ an attempt to write its definition.)"""
         return _symbol_function(the(symbol, symbol_))
 
 @defun
-def macro_function(symbol_, environment = None):
+def macro_function(symbol_, environment = nil):
         """macro-function symbol &optional environment => function
 
 (setf (macro-function symbol &optional environment) new-function)
@@ -2878,10 +2883,30 @@ Exceptional Situations:
 
 The consequences are undefined if ENVIRONMENT is non-NIL in a use of
 SETF of MACRO-FUNCTION."""
-        ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-PROVIDED-ENVIRONMENT-IGNORED
-        environment is nil or _not_implemented("query of environments other than global")
-        ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
-        return the((or_, function, null), the(symbol, symbol_).macro_function)
+        b_or_res = (the(_lexenv, environment).lookup_func_kind(macro, symbol_, nil) if environment else
+               the(symbol, symbol_).macro_function)
+        return the((or_, function, null),
+                   (b_or_res.value if _bindingp(b_or_res) else b_or_res) or nil)
+
+@defun
+def compiler_macro_function(symbol_, environment = nil):
+        """compiler-macro-function symbol &optional environment => function"""
+        return the((or_, function, null),
+                   the(symbol, symbol_).compiler_macro_function)
+
+@defun
+def setf_compiler_macro_function(new_function, symbol, environment = nil):
+        "<See documentation for COMPILER-MACRO-FUNCTION>"
+        ## Ensure compliance.
+        check_type(environment, null)
+        symbol.compiler_macro_function = the(function, new_function)
+        return new_function
+
+def _symbol_macro_expander(symbol_, environment = None):
+        ## -> (-> expansion) | None
+        expansion = (the(_lexenv, environment).lookup_var_kind(symbol_macro, symbol) if environment else
+                     the(symbol, symbol_).symbol_macro_expansion)
+        return (lambda: expansion) if expansion is not None else None
 
 def _style_warn(control, *args):
         warn(simple_style_warning, control, *args)
@@ -2894,8 +2919,10 @@ def _warn_possible_redefinition(x, type):
                 _style_warn("In %s: %s is being redefined.", type, x.name)
 
 @defun
-def setf_macro_function(new_function, symbol, environment = None):
+def setf_macro_function(new_function, symbol, environment = nil):
         "<See documentation for MACRO-FUNCTION>"
+        ## Ensure compliance.
+        check_type(environment, null)
         if symbol.function:
                 _warn_incompatible_function_redefinition(symbol, "macro", "function")
                 symbol.function = nil
@@ -5746,7 +5773,7 @@ _intern_and_bind_pynames("*LEXENV*",
                          ## "FUNCTION"
 
 class _nameuse():
-        name, type = None, None
+        name, kind, type = None, None, None
         def __init__(self, name, kind, type, **attributes):
                 _attrify_args(self, locals(), "name", "kind", "type")
 def _nameusep(x):
@@ -5793,32 +5820,71 @@ def _function_bindingp(x): return _py.isinstance(x, _function_binding)
 def _make_function_binding(name, kind, value, type = t, shadows = nil, **attributes):
         return _function_binding(name, kind, type, value, shadows, **attributes)
 
-@defclass
-class _lexenv(_collections.UserDict):
-        scope = nil
-        def __init__(self, parent = nil, **initial_content):
-                self.data = initial_content
-                for k, v in self.data.items():
-                        symbolp(k)   or error("Lexenv keys must be symbols, found: %s.",    k.__repr__())
-                        _bindingp(k) or error("Lexenv values must be bindings, found: %s.", v.__repr__())
-                self.scope = (self, (nil                        if null(parent)        else
-                                     the(_lexenv, parent).scope if _specifiedp(parent) else
-                                     _symbol_value(_lexenv_).scope))
-        def __bool__(selt): return t
-        def find_scope(self, x):
-                scope = self.scope
+@defclass(intern("%LEXENV")[0])
+class _lexenv():
+        """Chains variable and function scope pieces together.  Scope pieces map binding kinds
+           to binding sets and bound names to bindings."""
+        varscope, funcscope = nil, nil
+        def __init__(self, parent = nil,
+                     name_varframe = None, name_funcframe = None,
+                     kind_varframe = None, kind_funcframe = None,
+                     full_varframe = None, full_funcframe = None):
+                # for k, v in self.data.items():
+                #         symbolp(k)   or error("Lexenv scope keys must be symbols, found: %s.",    k.__repr__())
+                #         _bindingp(k) or error("Lexenv scopt values must be bindings, found: %s.", v.__repr__())
+                def complete_name_frame(framespec):
+                        res = _collections.defaultdict(_py.set)
+                        res["name"] = framespec
+                        for binding in framespec.values():
+                                res[binding.kind].add(binding)
+                        return res
+                def complete_kind_frame(framespec):
+                        res = _py.dict(framespec)
+                        res["names"] = names = _py.dict()
+                        for set in framespec.values:
+                                for binding in set:
+                                        names[binding.name] = binding
+                        return res
+                def complete_frame(name, kind, full):
+                        return (full                       if full else
+                                complete_name_frame(name)  if name else
+                                complete_kind_frame(frame) if kind else
+                                None)
+                def compute_scope(parent, sname, frame):
+                        parent = (parent if _specifiedp(parent) else
+                                  _symbol_value(_lexenv_))
+                        pscope = _py.getattr(parent, sname) if parent else nil
+                        return (pscope if not frame else
+                                ((frame, (nil if parent is nil else
+                                          pscope))))
+                (self.varscope,
+                 self.funcscope) = (compute_scope(parent,  "varscope",
+                                                  complete_frame(name_varframe, kind_varframe, full_varframe)),
+                                    compute_scope(parent, "funcscope",
+                                                  complete_frame(name_funcframe, kind_funcframe, full_funcframe)))
+        @staticmethod
+        def do_lookup_scope(scope, x, default):
                 while scope:
-                        if x in scope[0]:
-                                return scope
+                        if x in scope[0]["name"]:
+                                return scope[0]["name"][x]
                         scope = scope[1] # COLD-CDR
-        def __get__(self, x):
-                scope = self.find_scope(x)
-                return scope[x] if scope else None
-def _lexenvp(x):         return _py.isinstance(x, _lexenv)
+                return default
+        def lookup_func(self, x, default = None):         return self.do_lookup_scope(self.funcscope, x, default)
+        def lookup_var(self, x, default = None):          return self.do_lookup_scope(self.varscope, x, default)
+        def lookup_scope(self, sname, x, default = None): return self.do_lookup_scope(getattr(self, sname), x, default)
+        def funcscope_binds_p(self, x): return self.lookup_func(x) is not None
+        def varscope_binds_p(self, x):  return self.lookup_var(x)  is not None
+        def lookup_func_kind(self, kind, x, default = None):
+                b = self.do_lookup_scope(self.funcscope, x, None)
+                return (b and b.kind is kind and b) or default
+        def lookup_var_kind(self, kind, x, default = None):
+                b = self.do_lookup_scope(self.varscope, x, None)
+                return (b and b.kind is kind and b) or default
+def _lexenvp(x):         return _py.isinstance(x, _lexenv.python_type)
 def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
 def _make_lexenv(parent = nil, **initial_content):
         ## just a dumb pass-through
-        return _lexenv(parent, **initial_content)
+        return _lexenv.python_type(parent, **initial_content)
 
 # ***** DEFKNOWN
 
@@ -6490,7 +6556,7 @@ def _do_macroexpand_1(form, env = nil):
         ## Unregistered Issue COMPLIANCE-MACROEXPANDER-MUST-CONSIDER-LEXENV
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
         expander, args = ((form and (macro_function(form[0], env), form[1:])) if _tuplep(form) else
-                          (_symbol_macro_expansion(form, env), (form,))       if symbolp(form) else
+                          (_symbol_macro_expander(form, env), ())             if symbolp(form) else
                           (None, None))
         return ((form, nil) if not expander else
                 (expander(*args), t))
@@ -6525,7 +6591,7 @@ def _macroexpander_inner(m, bound, name, exp, pat, orifst, aux, limit):
 class _macroexpander_matcher(_metasex_matcher):
         def __init__(m):
                 _metasex_matcher.__init__(m)
-                m.register_complex_matcher(_form, _macroexpander_inner)
+                m.register_complex_matcher(_form, lambda *args: _macroexpander_inner(m, *args))
                 ## We need to replace the combiners, or we'll end up with None.
 
 _macroexpander = _macroexpander_matcher()
