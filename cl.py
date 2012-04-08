@@ -5883,9 +5883,34 @@ def _maybe_destructure_binding(pat):
 def _error_bad_pattern(pat):
         raise Exception("Bad pattern: %s." % (pat,))
 
+_intern_and_bind_pynames("%CALL", "%RETURN")
+
+_trace_table = _py.dict()
+def _do_tracep(*props):       return props in _trace_table
+def _no_trace(*_):            return False
+_tracep = _do_tracep
+def _trace(*props):
+        _tracep = _do_tracep
+        if props:
+                _trace_table[props] = t
+def _untrace(*props):
+        if props:
+                del _trace_table[props]
+        else:
+                _tracep = _no_trace
+
+### Default trace settings:
+_untrace()
+
+def _trace_printf(tracespec, control, *args):
+        if _tracep(*(tracespec                    if _tuplep(tracespec) else
+                     (tracespec,)                 if stringp(tracespec) else
+                     (tracespec, _caller_name(1)))):
+                _debug_printf(control, *(args if not (_py.len(args) == 1 and functionp(args[0])) else
+                                         args[0]()))
+
 def _r(x, y, retval, q = ""):
-        if _matcher_trace_calls:
-                _debug_printf("--- %12s:%3s < %s   %s   %s", _caller_name(), q, retval, x, y)
+        _trace_printf(_return, "--- %12s:%3s < %s   %s   %s", lambda: (_caller_name(2), q, retval, x, y))
         return retval
 
 class _matcher():
@@ -5935,9 +5960,8 @@ class _matcher():
                         boundR, failex, failpat = lR(bound0)
                         if failpat is None: return failex
                 result = m.comb(try_produce_0, try_produce_R, orig_tuple_p)
-                if _matcher_trace_yield:
-                        _debug_printf("+++ YIELD for %s (orig: %s, callers: %s->%s):\n%s",
-                                      exp, orig_tuple_p, _caller_name(1), _caller_name(), result)
+                _trace_printf("yield", "+++ YIELD for %s (orig: %s, callers: %s->%s):\n%s",
+                              lambda: (exp, orig_tuple_p, _caller_name(1), _caller_name(), result))
                 return _r(exp, "",
                           m.succ(boundR, result) if failpat is None else
                           m.fail(boundR or bound0, failex, failpat))
@@ -5947,17 +5971,15 @@ class _matcher():
         def simplex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
         def complex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def simplex_match(m, bound, name, exp, pat, orifst):
-                if _matcher_trace_simplex:
-                        _debug_printf("simplex_match  %s (caller: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s",
-                                      pat[0], _caller_name(1), _caller_name(), id(exp) ^ id(pat),
-                                      name, bound, exp, pat)
+                _trace_printf("simplex", "simplex_match  %s (caller: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s",
+                              lambda: (pat[0], _caller_name(1), _caller_name(), id(exp) ^ id(pat),
+                                       name, bound, exp, pat))
                 return _r(exp, pat[0],
                           m.__simplex_patterns__[pat[0]](bound, name, exp, pat, orifst))
         def complex_match(m, bound, name, exp, pat, orifst, aux, limit):
-                if _matcher_trace_complex:
-                        _debug_printf("complex_match  %s (caller: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
-                                      pat[0][0], _caller_name(1), _caller_name(), id(exp) ^ id(pat),
-                                      name, bound, exp, pat, orifst, aux, limit)
+                _trace_printf("complex", "complex_match  %s (caller: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
+                              lambda: (pat[0][0], _caller_name(1), _caller_name(), id(exp) ^ id(pat),
+                                       name, bound, exp, pat, orifst, aux, limit))
                 return _r(exp, pat[0][0],
                           m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit))
         def __init__(m):
@@ -5987,9 +6009,8 @@ class _matcher():
                 seg_pat, rest_pat = pat[0][1:], pat[1:]
                 firstp = aux is None
                 aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-                if _matcher_trace_segment:
-                        _debug_printf("segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  firstp:%s newaux:%s limit:%s",
-                                      id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit)
+                _trace_printf("segment", "segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  firstp:%s newaux:%s limit:%s",
+                              lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
                 end = (end                        if end is not None                          else
                        position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                        0)
@@ -5998,8 +6019,7 @@ class _matcher():
                         return _r(exp, pat, m.fail(bound, exp, pat))
                 seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                                      (exp, ()))
-                if _matcher_trace_segment:
-                        _debug_printf("segment_match  seg_exp:%s", seg_exp)
+                _trace_printf("segment", "segment_match  seg_exp:%s", seg_exp)
                 return _r(exp, pat,
                           m.coor(m.crec(exp,
                                         lambda:
@@ -6040,12 +6060,11 @@ class _matcher():
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
                 ## the acute sense of time being wasted..
                 atomp, null = not _tuplep(pat), pat == ()
-                if _matcher_trace_match:
-                        _debug_printf("       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s, simplexp: %s",
-                                      id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
-                                      atomp, null,
-                                      (not (atom or null)) and m.complex_pat_p(pat[0]),
-                                      (not (atom or null)) and m.simplex_pat_p(pat[0]))
+                _trace_printf("match", "       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s, simplexp: %s",
+                              lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
+                                       atomp, null,
+                                       (not (atom or null)) and m.complex_pat_p(pat[0]),
+                                       (not (atom or null)) and m.simplex_pat_p(pat[0])))
                 return \
                     _r(exp, pat,
                        (m.test((m.match_atom(exp, pat) if atomp else
@@ -6128,12 +6147,11 @@ class _metasex_matcher(_matcher):
                 return x == _name
         @staticmethod
         def match_atom(exp, pat):
-                if _matcher_trace_atom:
-                        _debug_printf("%%% match_atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
-                                      exp, pat, ((symbolp(exp) and not keywordp(exp)) if pat is _name else
-                                                 exp is pat                           if symbolp(pat) else
-                                                 exp == pat),
-                                      pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp))
+                _trace_printf("atom", "%%% match_atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
+                              lambda: (exp, pat, ((symbolp(exp) and not keywordp(exp)) if pat is _name else
+                                                  exp is pat                           if symbolp(pat) else
+                                                  exp == pat),
+                                       pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp)))
                 return _r(exp, pat,
                           ((symbolp(exp) and not keywordp(exp)) if pat is _name else
                            exp is pat                           if symbolp(pat) else
@@ -6149,8 +6167,7 @@ class _metasex_matcher(_matcher):
                         ([(_notlead, " "), _form],))
         def match_form(m, bound, name, form, pat, orifst):
                 prepped = m.preprocess(m.form_metasex(form))
-                if _matcher_trace_form:
-                        _debug_printf("=== form for %s:\n    %s", _py.repr(form), prepped)
+                _trace_printf("form", "=== form for %s:\n    %s", lambda: (_py.repr(form), prepped))
                 return _r(form, pat, m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), None, None))
         def match_symbol(m, bound, name, form, pat, orifst):
                 return m.test(form is pat[1], bound, name, lambda: m.prod(form, orifst),
@@ -6175,8 +6192,7 @@ class _metasex_matcher_pp(_metasex_matcher):
         @staticmethod
         def prod(x, orig_tuple_p):
                 result = _py.str(x) if x or orig_tuple_p else ""
-                if _matcher_trace_yield:
-                        _debug_printf("+++ YIELD prod:\n%s", result)
+                _trace_printf("yield", "+++ YIELD prod:\n%s", result)
                 return result
         @staticmethod
         def comb(f0, fR, orig_tuple_p):
@@ -6209,8 +6225,7 @@ class _metasex_matcher_pp(_metasex_matcher):
                                       lambda r: (" " * n) + r)
         def process_notlead(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1]
-                if _matcher_trace_notlead:
-                        _debug_printf("!!! notlead: first:%s %s %s", orifst[1], pat, exp)
+                _trace_printf("notlead", "!!! notlead: first:%s %s %s", orifst[1], pat, exp)
                 if orifst[1]:
                         return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
                 ############## act as identity
@@ -6218,8 +6233,7 @@ class _metasex_matcher_pp(_metasex_matcher):
         def process_nottail(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1]
                 before_end = exp == ()
-                if _matcher_trace_notlead:
-                        _debug_printf("!!! nottail: before-end:%s %s %s", before_end, pat, exp)
+                _trace_printf("notlead", "!!! nottail: before-end:%s %s %s", before_end, pat, exp)
                 if before_end:
                         return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
                 ############## act as identity
@@ -6252,8 +6266,7 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                         return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (_typep, t),
                                        (None, None), None, None)
                 result = m.comb(try_produce_0, try_produce_R, orig_tuple_p)
-                if _matcher_trace_yield:
-                        _debug_printf("+t+ YIELD for %s:\n%s", exp, result)
+                _trace_printf("yield", "+t+ YIELD for %s:\n%s", exp, result)
                 return (m.succ(boundR, result) if failpat is None else
                         m.fail(boundR or bound0, failex, failpat))
 
@@ -6261,17 +6274,24 @@ _metasex              = _metasex_matcher()
 _metasex_pp           = _metasex_matcher_pp()
 _metasex_nonstrict_pp = _metasex_matcher_nonstrict_pp()
 
-_matcher_trace_all      =                            False
-_matcher_trace_matchers = _matcher_trace_all      or False
-_matcher_trace_complex  = _matcher_trace_matchers or False
-_matcher_trace_simplex  = _matcher_trace_matchers or False
-_matcher_trace_segment  = _matcher_trace_matchers or False
-_matcher_trace_match    = _matcher_trace_matchers or False
-_matcher_trace_yield    = _matcher_trace_all      or False
-_matcher_trace_notlead  =                            False
-_matcher_trace_form     = _matcher_trace_all      or False
-_matcher_trace_atom     =                            False
-_matcher_trace_calls    =                            False
+# _trace("complex")
+# _trace("simplex")
+# _trace("segment")
+# _trace("match")
+# _trace("yield")
+# _trace("notlead")
+# _trace("form")
+# _trace("atom")
+# _trace(_return, "test")
+# _trace(_return, "crec")
+# _trace(_return, "simplex_match")
+# _trace(_return, "complex_match")
+# _trace(_return, "segment_match")
+# _trace(_return, "match_maybe")
+# _trace(_return, "match")
+# _trace(_return, "match_atom")
+# _trace(_return, "match_form")
+# _trace(_return, "typep_matcher")
 
 def _match_sex(sex):
         return _match(_metasex_pp, sex, _metasex.form_metasex(sex))
