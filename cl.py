@@ -6138,7 +6138,6 @@ class _matcher():
                 return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
         ###
         def segment(m, bound, name, exp, pat, orifst, aux, limit, end = None):
-                def cut(n, xs):     return xs[0:n], xs[len(xs) if n is None else n:]
                 def position(x, xs):
                         for i, ix in enumerate(xs):
                                 if x == ix: return i
@@ -6158,8 +6157,8 @@ class _matcher():
                 if ((end and end > _py.len(exp)) or ## no boundary variant fitted
                     end is None):                   ## a constant pattern was missing
                         return _r(exp, pat, m.fail(bound, exp, pat))
-                seg_exp, rest_exp = (cut(end, exp) if rest_pat else
-                                     (exp, ()))
+                cut = end if rest_pat else len(exp)
+                seg_exp, rest_exp = (exp[0:cut], exp[len(exp) if cut is None else cut:])
                 _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
                 return _r(exp, pat,
                           m.coor(m.crec(exp,
