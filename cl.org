@@ -6476,8 +6476,6 @@ def _make_lexenv(parent = nil, **initial_content):
                   m.__complex_patterns__, m.__simplex_patterns__ = _py.dict(), _py.dict()
                   m.register_complex_matcher(some, m.segment_match)
                   m.register_complex_matcher(_maybe, m.match_maybe)
-                  m.comh = _make_missing_method(m, "COMH")
-                  m.comr = _make_missing_method(m, "COMR")
           def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
                   raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
           def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
@@ -6697,6 +6695,12 @@ def _make_lexenv(parent = nil, **initial_content):
           complex_form_p = _tuplep(form) and symbolp(form[0])
           return complex_form_p and _find_known(form[0])
   
+  def _combine_t_or_None(f0, fR, orig_tuple_p):
+          f0r = f0()
+          if f0r is not None:
+                  fRr = fR()
+                  return t
+
   class _metasex_matcher(_matcher):
           def __init__(m):
                   _matcher.__init__(m)
@@ -6708,7 +6712,6 @@ def _make_lexenv(parent = nil, **initial_content):
                   m.register_complex_matcher(_notlead,     m.identity_matcher)
                   m.register_complex_matcher(_nottail,     m.identity_matcher)
                   m.register_complex_matcher(_count_scope, m.identity_matcher)
-                  m.comh = m.comr = m.combine_t_or_None
           def preprocess(m, pat):
                   "Expand syntactic sugar."
                   def prep_binding(b):
@@ -6726,11 +6729,9 @@ def _make_lexenv(parent = nil, **initial_content):
           @staticmethod
           def prod(x, orig_tuple_p): return ""
           @staticmethod
-          def combine_t_or_None(f0, fR, orig_tuple_p):
-                  f0r = f0()
-                  if f0r is not None:
-                          fRr = fR()
-                          return t
+          def comh(f0, fR, orig_tuple_p): return _combine_t_or_None(f0, fR, orig_tuple_p)
+          @staticmethod
+          def comr(f0, fR, orig_tuple_p): return _combine_t_or_None(f0, fR, orig_tuple_p)
           @staticmethod
           def forc(x, y, orig_tuple_p):
                   return (("OR",) if orig_tuple_p else ()) + (x,) + y
@@ -6775,6 +6776,22 @@ def _make_lexenv(parent = nil, **initial_content):
   def _pp_base_depth(): return _symbol_value(_pp_base_depth_)
   def _pp_depth():      return _symbol_value(_pp_depth_)
   
+  def _combine_pp(f0, fR, orig_tuple_p):
+          def orig_tuple_comb(body):
+                  new_base = _pp_depth() + 1
+                  with progv({ _pp_base_depth_: new_base }):
+                          ret = body(new_base)
+                          return None if ret is None else ("(" + ret + ")")
+          def body(base):
+                  f0r = f0()
+                  if f0r is None: return
+                  with progv({ _pp_depth_: base + _py.len(f0r.split("\n")[-1]) }):
+                          fRr = fR()
+                          if fRr is None: return
+                          return f0r + fRr
+          return (orig_tuple_comb if orig_tuple_p else
+                  lambda f: f(_pp_base_depth()))(body)
+
   class _metasex_matcher_pp(_metasex_matcher):
           def __init__(m):
                   _metasex_matcher.__init__(m)
@@ -6782,28 +6799,15 @@ def _make_lexenv(parent = nil, **initial_content):
                   m.register_complex_matcher(_indent,      m.process_indent)
                   m.register_complex_matcher(_notlead,     m.process_notlead)
                   m.register_complex_matcher(_nottail,     m.process_nottail)
-                  m.comh = m.comr = m.combine_pp
           @staticmethod
           def prod(x, orig_tuple_p):
                   result = _py.str(x) if x or orig_tuple_p else ""
                   _trace_printf("yield", "+++ YIELD prod:\n%s", result)
                   return result
           @staticmethod
-          def combine_pp(f0, fR, orig_tuple_p):
-                  def orig_tuple_comb(body):
-                          new_base = _pp_depth() + 1
-                          with progv({ _pp_base_depth_: new_base }):
-                                  ret = body(new_base)
-                                  return None if ret is None else ("(" + ret + ")")
-                  def body(base):
-                          f0r = f0()
-                          if f0r is None: return
-                          with progv({ _pp_depth_: base + _py.len(f0r.split("\n")[-1]) }):
-                                  fRr = fR()
-                                  if fRr is None: return
-                                  return f0r + fRr
-                  return (orig_tuple_comb if orig_tuple_p else
-                          lambda f: f(_pp_base_depth()))(body)
+          def comh(f0, fR, orig_tuple_p): return _combine_pp(f0, fR, orig_tuple_p)
+          @staticmethod
+          def comr(f0, fR, orig_tuple_p): return _combine_pp(f0, fR, orig_tuple_p)
           def process_newline(m, bound, name, exp, pat, orifst, aux, limit):
                   n, tail = pat[0][1], pat[1:]
                   new_base = _pp_base_depth() + n
