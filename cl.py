@@ -1452,6 +1452,10 @@ def make_instance(class_or_name, **initargs):
                 class_or_name.python_type if symbolp(class_or_name)                          else
                 error("In MAKE-INSTANCE %s: first argument must be a class specifier.", class_or_name))(**initargs)
 
+@defun
+def _make_missing_method(cls, name):
+        return lambda *_, **_k: error("Missing method %s in class %%s." % name.upper(), cls)
+
 # ***** PRINT-UNREADABLE-OBJECT, sort of
 
 def print_unreadable_object(object, stream, body, identity = None, type = None):
