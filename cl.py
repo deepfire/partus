@@ -6645,7 +6645,13 @@ class _macroexpander_matcher(_metasex_matcher):
         @staticmethod
         def prod(x, orig_tuple_p): return ""
         @staticmethod
-        def comb(f0, fR, orig_tuple_p):
+        def comh(f0, fR, orig_tuple_p):
+                f0r = f0()
+                if f0r is not None:
+                        fRr = fR()
+                        return _r(f0r, fRr, f0r + fRr)
+        @staticmethod
+        def comr(f0, fR, orig_tuple_p):
                 f0r = f0()
                 if f0r is not None:
                         fRr = fR()
