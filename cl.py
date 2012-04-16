@@ -6656,7 +6656,7 @@ _string_set("*MACROEXPANDER-ENV*", nil)
 _string_set("*MACROEXPANDER-FORM-BINDS*", nil)
 
 def _macroexpander_inner(m, bound, name, exp, pat, orifst):
-        _debug_printf("%%MXER-INNER: -->\n%s", exp)
+        # _debug_printf("%%MXER-INNER: -->\n%s", exp)
         env = _symbol_value(_macroexpander_env_)
         form, _ = macroexpand(exp, env)
         ## now, it's either an implicit funcall or a known..
@@ -6672,8 +6672,8 @@ def _macroexpander_inner(m, bound, name, exp, pat, orifst):
               if symbol_frame or func_frame else
               _withless()):
                 b, r, f = _metasex_matcher.form(m, bound, name, form, pat, orifst)
-                if not f:
-                        _debug_printf("%%MXER-INNER: <--\n%s", r)
+                # if not f:
+                #         _debug_printf("%%MXER-INNER: <--\n%s", r)
                 return b, r, f
 ##
 ####
