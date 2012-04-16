@@ -5952,7 +5952,7 @@ class _matcher():
                 lRb, lRr, lRf = lR()
                 if lRf is None: return m.succ(lRb, lRr)
                 return m.fail(l0b, lRr, m.forc(l0f, lRf, orig_tuple_p))
-        def crec(m, exp, l0, lR, orig_tuple_p = False):
+        def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 failpat, failex, bound0, boundR = None, None, None, None
                 def try_produce_0():
@@ -5963,7 +5963,8 @@ class _matcher():
                         nonlocal boundR, failex, failpat
                         boundR, failex, failpat = lR(bound0)
                         if failpat is None: return failex
-                result = m.comb(try_produce_0, try_produce_R, orig_tuple_p)
+                result = (m.comh if horisontal else
+                          m.comr)(try_produce_0, try_produce_R, orig_tuple_p)
                 _trace_printf("yield", "+++ YIELD for %s (orig: %s, callers: %s->%s):\n%s",
                               lambda: (exp, orig_tuple_p, _caller_name(1), _caller_name(), result))
                 return _r(exp, "",
@@ -5990,6 +5991,8 @@ class _matcher():
                 m.__complex_patterns__, m.__simplex_patterns__ = _py.dict(), _py.dict()
                 m.register_complex_matcher(some, m.segment_match)
                 m.register_complex_matcher(_maybe, m.match_maybe)
+                m.comh = _make_missing_method(m, "COMH")
+                m.comr = _make_missing_method(m, "COMR")
         def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
         def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
@@ -6038,7 +6041,8 @@ class _matcher():
                                                                                                              None))))),
                                         lambda seg_bound:
                                                 m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
-                                        orig_tuple_p = firstp and orifst[0] and seg_exp != ()),
+                                        orig_tuple_p = firstp and orifst[0] and seg_exp != (),
+                                        horisontal = t),
                                  lambda: m.segment_match(   bound, name,      exp,      pat, orifst,   None,  limit,
                                                             end + 1)))
         def match_maybe(m, bound, name, exp, pat, orifst, aux, limit):
@@ -6088,7 +6092,8 @@ class _matcher():
                                                                                                         orifst[1]),
                                                                        None, None),
                                                 (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), aux, limit)),
-                                                orig_tuple_p = orifst[0]))))
+                                                orig_tuple_p = orifst[0],
+                                                horisontal = nil))))
                         (*maybe_get0Rname(pat))))
 
 def _match(matcher, exp, pat):
@@ -6120,6 +6125,7 @@ class _metasex_matcher(_matcher):
                 m.register_complex_matcher(_notlead,     m.identity_matcher)
                 m.register_complex_matcher(_nottail,     m.identity_matcher)
                 m.register_complex_matcher(_count_scope, m.identity_matcher)
+                m.comh = m.comr = m.combine_t_or_None
         def preprocess(m, pat):
                 "Expand syntactic sugar."
                 def prep_binding(b):
@@ -6137,7 +6143,7 @@ class _metasex_matcher(_matcher):
         @staticmethod
         def prod(x, orig_tuple_p): return ""
         @staticmethod
-        def comb(f0, fR, orig_tuple_p):
+        def combine_t_or_None(f0, fR, orig_tuple_p):
                 f0r = f0()
                 if f0r is not None:
                         fRr = fR()
@@ -6193,13 +6199,14 @@ class _metasex_matcher_pp(_metasex_matcher):
                 m.register_complex_matcher(_indent,      m.process_indent)
                 m.register_complex_matcher(_notlead,     m.process_notlead)
                 m.register_complex_matcher(_nottail,     m.process_nottail)
+                m.comh = m.comr = m.combine_pp
         @staticmethod
         def prod(x, orig_tuple_p):
                 result = _py.str(x) if x or orig_tuple_p else ""
                 _trace_printf("yield", "+++ YIELD prod:\n%s", result)
                 return result
         @staticmethod
-        def comb(f0, fR, orig_tuple_p):
+        def combine_pp(f0, fR, orig_tuple_p):
                 def orig_tuple_comb(body):
                         new_base = _pp_depth() + 1
                         with progv({ _pp_base_depth_: new_base }):
@@ -6269,7 +6276,8 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                         if failpat is None: return failex
                         return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (_typep, t),
                                        (None, None), None, None)
-                result = m.comb(try_produce_0, try_produce_R, orig_tuple_p)
+                result = (m.comh if horisontal else
+                          m.comr)(try_produce_0, try_produce_R, orig_tuple_p)
                 _trace_printf("yield", "+t+ YIELD for %s:\n%s", exp, result)
                 return (m.succ(boundR, result) if failpat is None else
                         m.fail(boundR or bound0, failex, failpat))
