@@ -6532,7 +6532,7 @@ _macroexpander = _macroexpander_matcher()
 
 def macroexpand_all(form, env = nil):
         _, res, failpat = _macroexpander_inner(_macroexpander, dict(), None, (form,), (_metasex.form_metasex(form),),
-                                               (None, None), aux, limit)
+                                               (None, None), None, None)
         assert(not failpat)
         return res[0]
 
