@@ -2315,6 +2315,14 @@ def _from(n, xs):
         for x in iterator:
                 yield x
 
+_termination_marker = gensym()
+def _take(n, xs):
+        iterator = iter(xs)
+        for i in range(n):
+                elt = next(iterator, _termination_marker)
+                if elt is not _termination_marker:
+                        yield elt
+
 @defun
 def every(fn, *xss, start = 0):
         for xs in _from(start, _py.zip(*xss)):
