@@ -6241,7 +6241,7 @@ def _bindingp(x):
 
 class _variable(_nameuse):
         def __init__(self, name, kind, type, dynamic_extent = nil, **attributes):
-                check_type(kind, (member, t, constant, special, symbol-macro)) # constant | special | symbol-macro | t
+                check_type(kind, (member, t, constant, special, symbol_macro)) # constant | special | symbol-macro | t
                 _nameuse.__init__(self, name, kind, type, **attributes)
                 _attrify_args(self, locals(),
                               "dynamic_extent") # t | nil
