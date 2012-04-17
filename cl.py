@@ -93,6 +93,7 @@ import math        as _math
 import time        as _time
 import types       as _types
 import socket      as _socket
+import hashlib     as _hashlib
 import inspect     as _inspect
 import platform    as _platform
 import functools   as _functools
@@ -1774,12 +1775,6 @@ def _next_frame(f):
 def _caller_frame(caller_relative = 0):
         return _sys._getframe(caller_relative + 2)
 
-def _caller_name(n = 0):
-        return _fun_name(_frame_fun(_sys._getframe(n + 2)))
-
-def _exception_frame():
-        return _sys.exc_info()[2].tb_frame
-
 def _frames_calling(f = None, n = -1):
         "Semantics of N are slightly confusing, but the implementation is so simple.."
         f = _caller_frame() if f is None else the(_frame, f)
@@ -1788,6 +1783,12 @@ def _frames_calling(f = None, n = -1):
                 f, n = f.f_back, n - 1
                 acc.append(f)
         return acc
+
+def _caller_name(n = 0):
+        return _fun_name(_frame_fun(_sys._getframe(n + 2)))
+
+def _exception_frame():
+        return _sys.exc_info()[2].tb_frame
 
 def _top_frame():
         return _caller_frame()
@@ -1833,6 +1834,8 @@ def _fun_bytecode(f):    return f.co_code
 def _fun_constants(f):   return f.co_consts
 
 # ******* Frame pretty-printing
+
+def _frame_fun_name(f):          return f.f_code.co_name
 
 def _print_function_arglist(f):
         argspec = _inspect.getargspec(f)
@@ -1884,6 +1887,19 @@ def _escape_percent(x):
         return x.replace("%", "%%")
 
 # ******* Higher-level debug trace functions
+
+# lf = open("/home/deepfire/lf", "w")
+def _frame_chain_hash(f, ignore_callers = _py.set(["<lambda>"])):
+        "Return an MD5 digest of the caller name chain, with callers listed in IGNORE-CALLERS omitted."
+        def f_digestible(f):
+                name = f.f_code.co_name
+                return name.encode() if name not in ignore_callers else b''
+        fchain = _frames_calling(f)[1:]
+        retv = reduce((lambda acc, f:
+                               acc.update(f_digestible(f)) or acc),
+                      fchain, _hashlib.new("md5")).hexdigest()
+        # _fprintf(lf, "%s %s\n", mapcar(f_str, _py.reversed(chain)), r)
+        return retv
 
 def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
         def _do_format(x, args):
@@ -5971,7 +5987,9 @@ def _error_bad_pattern(pat):
 _intern_and_bind_pynames("%CALL", "%RETURN")
 
 _trace_table = _py.dict()
-def _do_tracep(*props):       return props in _trace_table
+def _do_tracep(*props):
+        # _debug_printf("tracep %s", props)
+        return props in _trace_table
 def _no_trace(*_):            return False
 _tracep = _do_tracep
 def _trace(*props):
@@ -5994,9 +6012,30 @@ def _trace_printf(tracespec, control, *args):
                 _debug_printf(control, *(args if not (_py.len(args) == 1 and functionp(args[0])) else
                                          args[0]()))
 
-def _r(x, y, retval, q = ""):
-        _trace_printf(_return, "--- %12s:%3s < %s   %s   %s", lambda: (_caller_name(2), q, retval, x, y))
+def _r(x, y, retval, q = "", n = 15, ignore_callers = _py.set(["<lambda>"])):
+        frames = _py.reversed(
+                _py.list(_take(n, (f for f in _frames_calling(_caller_frame()) if _frame_fun_name(f) not in ignore_callers))))
+        _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s",
+                      lambda: (":".join(
+                                (("%s_%s" % (_frame_fun_name(f),
+                                             _frame_chain_hash(f, ignore_callers = ignore_callers)[:3]))
+                                 for f in frames)),
+                               q, retval, x, y))
         return retval
+
+### .prod
+## segment:       coor <- crec <- succ <-
+## match:         test <-
+## match:         test <-
+## typep:         test <-
+## lax
+#
+### .crec
+## segment:       coor <-
+## match:         equo <-
+#
+### .comb
+## crec:          succ <-
 
 class _matcher():
         @staticmethod
