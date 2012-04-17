@@ -2178,6 +2178,9 @@ def _frame_chain_hash(f, ignore_callers = _py.set(["<lambda>"])):
         # _fprintf(lf, "%s %s\n", mapcar(f_str, _py.reversed(chain)), r)
         return retv
 
+def _frame_id(f):
+        return _hashlib.new("md5", ("%x" % id(f)).encode()).hexdigest()
+
 def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
         def _do_format(x, args):
                 try:
@@ -6496,10 +6499,12 @@ def _make_lexenv(parent = nil, **initial_content):
   def _no_trace(*_):            return False
   _tracep = _do_tracep
   def _trace(*props):
+          global _tracep
           _tracep = _do_tracep
           if props:
                   _trace_table[props] = t
   def _untrace(*props):
+          global _tracep
           if props:
                   del _trace_table[props]
           else:
@@ -6515,13 +6520,14 @@ def _make_lexenv(parent = nil, **initial_content):
                   _debug_printf(control, *(args if not (_py.len(args) == 1 and functionp(args[0])) else
                                            args[0]()))
   
-  def _r(x, y, retval, q = "", n = 15, ignore_callers = _py.set(["<lambda>"])):
+  def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "complex"])):
           frames = _py.reversed(
                   _py.list(_take(n, (f for f in _frames_calling(_caller_frame()) if _frame_fun_name(f) not in ignore_callers))))
           _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s",
                         lambda: (":".join(
                                   (("%s_%s" % (_frame_fun_name(f),
-                                               _frame_chain_hash(f, ignore_callers = ignore_callers)[:3]))
+                                               _frame_id(f)[:3]))
+                                               # _frame_chain_hash(f, ignore_callers = ignore_callers)[:3]))
                                    for f in frames)),
                                  q, retval, x, y))
           return retval
