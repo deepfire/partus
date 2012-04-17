@@ -2283,6 +2283,14 @@ def _defscope(name, varname, **initargs):
 
 # ******* Lesser non-CL tools
 
+class _withless():
+        @staticmethod
+        def __init__(): pass
+        @staticmethod
+        def __enter__(): pass
+        @staticmethod
+        def __exit__(*_): pass
+
 class _servile():
         def __repr__(self):
                 return "#%s(%s)" % (_py.type(self).__name__,
