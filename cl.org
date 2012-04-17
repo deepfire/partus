@@ -6521,15 +6521,16 @@ def _make_lexenv(parent = nil, **initial_content):
                                            args[0]()))
   
   def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "complex"])):
-          frames = _py.reversed(
-                  _py.list(_take(n, (f for f in _frames_calling(_caller_frame()) if _frame_fun_name(f) not in ignore_callers))))
-          _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s",
-                        lambda: (":".join(
+          def trace_args():
+                  frames = _py.reversed(
+                          _py.list(_take(n, (f for f in _frames_calling(_caller_frame()) if _frame_fun_name(f) not in ignore_callers))))
+                  return (":".join(
                                   (("%s_%s" % (_frame_fun_name(f),
                                                _frame_id(f)[:3]))
-                                               # _frame_chain_hash(f, ignore_callers = ignore_callers)[:3]))
+                                   # _frame_chain_hash(f, ignore_callers = ignore_callers)[:3]))
                                    for f in frames)),
-                                 q, retval, x, y))
+                          q, retval, x, y)
+          _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s", trace_args)
           return retval
 
   ### .prod
