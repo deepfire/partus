@@ -6592,54 +6592,55 @@ def _make_lexenv(parent = nil, **initial_content):
                   return m.fail(l0b, lRr, m.forc(l0f, lRf, orig_tuple_p))
           def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
                   ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
-                  failpat, failex, bound0, boundR = None, None, None, None
-                  def try_produce_0():
-                          nonlocal bound0, failex, failpat
-                          bound0, failex, failpat = l0()
-                          if failpat is None: return failex
-                  def try_produce_R():
-                          nonlocal boundR, failex, failpat
-                          boundR, failex, failpat = lR(bound0)
-                          if failpat is None: return failex
+                  failpat, fx0, fxR, bound0, boundR = None, None, None, None, None
+                  def try_0():
+                          nonlocal bound0, fx0, failpat
+                          bound0, fx0, failpat = l0()
+                          if failpat is None: return fx0
+                  def try_R():
+                          nonlocal boundR, fxR, failpat
+                          boundR, fxR, failpat = lR(bound0)
+                          if failpat is None: return fxR
                   result = (m.comh if horisontal else
-                            m.comr)(try_produce_0, try_produce_R, orig_tuple_p)
-                  _trace_printf("yield", "+++ YIELD for %s (orig: %s, callers: %s->%s):\n%s",
-                                lambda: (exp, orig_tuple_p, _caller_name(1), _caller_name(), result))
-                  return _r(exp, "",
+                            m.comr)(try_0, try_R, orig_tuple_p)
+                  _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
+                                lambda: (exp, orig_tuple_p, _caller_name(2), _caller_name(1), result))
+                  return _r(exp, [fx0, fxR],
                             m.succ(boundR, result) if failpat is None else
-                            m.fail(boundR or bound0, failex, failpat))
+                            m.fail(boundR or bound0, fx0 if fx0 is not None else fxR, failpat))
           ###
-          def register_simplex_matcher(m, name, matcher): m.__simplex_patterns__[name] = matcher
-          def register_complex_matcher(m, name, matcher): m.__complex_patterns__[name] = matcher
+          def   register_simplex_matcher(m, name, matcher):     m.__simplex_patterns__[name] = matcher
+          def   register_complex_matcher(m, name, matcher):     m.__complex_patterns__[name] = matcher
+          def deregister_complex_matcher(m, name):          del m.__complex_patterns__[name]
           def simplex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
           def complex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
-          def simplex_match(m, bound, name, exp, pat, orifst):
-                  _trace_printf("simplex", "simplex_match  %s (caller: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s",
-                                lambda: (pat[0], _caller_name(1), _caller_name(), id(exp) ^ id(pat),
+          def simplex(m, bound, name, exp, pat, orifst):
+                  _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s",
+                                lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                                          name, bound, exp, pat))
                   return _r(exp, pat[0],
                             m.__simplex_patterns__[pat[0]](bound, name, exp, pat, orifst))
-          def complex_match(m, bound, name, exp, pat, orifst, aux, limit):
-                  _trace_printf("complex", "complex_match  %s (caller: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
-                                lambda: (pat[0][0], _caller_name(1), _caller_name(), id(exp) ^ id(pat),
+          def complex(m, bound, name, exp, pat, orifst, aux, limit):
+                  _trace_printf("complex", "complex  %s (call: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
+                                lambda: (pat[0][0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                                          name, bound, exp, pat, orifst, aux, limit))
                   return _r(exp, pat[0][0],
                             m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit))
           def __init__(m):
                   m.__complex_patterns__, m.__simplex_patterns__ = _py.dict(), _py.dict()
-                  m.register_complex_matcher(some, m.segment_match)
-                  m.register_complex_matcher(_maybe, m.match_maybe)
+                  m.register_complex_matcher(some, m.segment)
+                  m.register_complex_matcher(_maybe, m.maybe)
           def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
                   raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
           def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
                   raise Exception("Not yet capable of matching simplex patterns of type %s.", pat[0])
-          def identity_matcher(m, bound, name, exp, pat, orifst, aux, limit):
+          def identity(m, bound, name, exp, pat, orifst, aux, limit):
                   ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
-                  return m.complex_match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
-          def ignore_matcher(m, bound, name, exp, pat, orifst, aux, limit):
+                  return m.complex(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+          def ignore(m, bound, name, exp, pat, orifst, aux, limit):
                   return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
           ###
-          def segment_match(m, bound, name, exp, pat, orifst, aux, limit, end = None):
+          def segment(m, bound, name, exp, pat, orifst, aux, limit, end = None):
                   def cut(n, xs):     return xs[0:n], xs[len(xs) if n is None else n:]
                   def position(x, xs):
                           for i, ix in enumerate(xs):
@@ -6652,7 +6653,7 @@ def _make_lexenv(parent = nil, **initial_content):
                   seg_pat, rest_pat = pat[0][1:], pat[1:]
                   firstp = aux is None
                   aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-                  _trace_printf("segment", "segment_match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  firstp:%s newaux:%s limit:%s",
+                  _trace_printf("segment", "segment  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  firstp:%s newaux:%s limit:%s",
                                 lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
                   end = (end                        if end is not None                          else
                          position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
@@ -6662,7 +6663,7 @@ def _make_lexenv(parent = nil, **initial_content):
                           return _r(exp, pat, m.fail(bound, exp, pat))
                   seg_exp, rest_exp = (cut(end, exp) if rest_pat else
                                        (exp, ()))
-                  _trace_printf("segment", "segment_match  seg_exp:%s", seg_exp)
+                  _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
                   return _r(exp, pat,
                             m.coor(m.crec(exp,
                                           lambda:
@@ -6679,16 +6680,16 @@ def _make_lexenv(parent = nil, **initial_content):
                                                   m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
                                           orig_tuple_p = firstp and orifst[0] and seg_exp != (),
                                           horisontal = t),
-                                   lambda: m.segment_match(   bound, name,      exp,      pat, orifst,   None,  limit,
+                                   lambda: m.segment(   bound, name,      exp,      pat, orifst,   None,  limit,
                                                               end + 1)))
-          def match_maybe(m, bound, name, exp, pat, orifst, aux, limit):
+          def maybe(m, bound, name, exp, pat, orifst, aux, limit):
                   ## The semantics of aux are painfully unclear here:
                   ##  - we need to perform aux pass-through, for any potential surrounding segment match
-                  ##  - we need a clean slate for this segment_match..
+                  ##  - we need a clean slate for this segment..
                   ## So, do we need a separate stack for aux here?  Sounds like an in inevitability..
                   ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
                   return _r(exp, pat,
-                            m.segment_match(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
+                            m.segment(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
           ## About the vzy33c0's idea:
           ## type-driven variable naming is not good enough, because:
           ## 1. type narrows down the case analysis chain (of which there is a lot)
@@ -6711,15 +6712,15 @@ def _make_lexenv(parent = nil, **initial_content):
                                          (not (atom or null)) and m.simplex_pat_p(pat[0])))
                   return \
                       _r(exp, pat,
-                         (m.test((m.match_atom(exp, pat) if atomp else
+                         (m.test((m.atom(exp, pat) if atomp else
                                   exp == ()),
                                  bound, name, lambda: m.prod(exp, orifst[0]), exp, pat)     if atomp or null        else
-                          m.simplex_match(bound, name, exp,  pat, (_tuplep(exp),
-                                                                   orifst[1]))              if m.simplex_pat_p(pat) else
-                          m.complex_match(bound, name, (exp,), (pat,), orifst, None, limit) if m.complex_pat_p(pat) else
+                          m.simplex(bound, name, exp,  pat, (_tuplep(exp),
+                                                             orifst[1]))              if m.simplex_pat_p(pat) else
+                          m.complex(bound, name, (exp,), (pat,), orifst, None, limit) if m.complex_pat_p(pat) else
                           (lambda pat0name, pat0, pat0simplexp, patR, clean_pat:
                                    (m.equo(name, exp,
-                                           m.complex_match(bound, pat0name, exp, clean_pat, orifst, aux, limit))
+                                           m.complex(bound, pat0name, exp, clean_pat, orifst, aux, limit))
                                     if m.complex_pat_p(pat0)         else
                                     m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
                                     m.equo(name, exp,
@@ -6857,15 +6858,15 @@ def _make_lexenv(parent = nil, **initial_content):
   class _metasex_matcher(_matcher):
           def __init__(m):
                   _matcher.__init__(m)
-                  m.register_simplex_matcher(_form,        m.match_form)
-                  m.register_complex_matcher(_bound,       m.match_form)
-                  m.register_simplex_matcher(_symbol,      m.match_symbol)
-                  m.register_simplex_matcher(_typep,       m.typep_matcher)
-                  m.register_complex_matcher(_newline,     m.ignore_matcher)
-                  m.register_complex_matcher(_indent,      m.ignore_matcher)
-                  m.register_complex_matcher(_notlead,     m.identity_matcher)
-                  m.register_complex_matcher(_nottail,     m.identity_matcher)
-                  m.register_complex_matcher(_count_scope, m.identity_matcher)
+                  m.register_simplex_matcher(_form,        m.form)
+                  m.register_simplex_matcher(_bound,       m.form)
+                  m.register_simplex_matcher(_symbol,      m.symbol)
+                  m.register_simplex_matcher(_typep,       m.typep)
+                  m.register_complex_matcher(_newline,     m.ignore)
+                  m.register_complex_matcher(_indent,      m.ignore)
+                  m.register_complex_matcher(_notlead,     m.identity)
+                  m.register_complex_matcher(_nottail,     m.identity)
+                  m.register_complex_matcher(_count_scope, m.identity)
           def preprocess(m, pat):
                   "Expand syntactic sugar."
                   def prep_binding(b):
@@ -6894,8 +6895,8 @@ def _make_lexenv(parent = nil, **initial_content):
                   ## Currently only depended upon by the segment matcher.
                   return x == _name
           @staticmethod
-          def match_atom(exp, pat):
-                  _trace_printf("atom", "%%% match_atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
+          def atom(exp, pat):
+                  _trace_printf("atom", "%%% atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
                                 lambda: (exp, pat, ((symbolp(exp) and not keywordp(exp)) if pat is _name else
                                                     exp is pat                           if symbolp(pat) else
                                                     exp == pat),
@@ -6913,14 +6914,14 @@ def _make_lexenv(parent = nil, **initial_content):
                           (_name, [(_nottail, " "), _form])       if symbolp(form[0])                                       else
                           (_form, "\n", [(_notlead, " "), _form]) if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
                           ([(_notlead, " "), _form],))
-          def match_form(m, bound, name, form, pat, orifst):
+          def form(m, bound, name, form, pat, orifst):
                   prepped = m.preprocess(m.form_metasex(form))
                   _trace_printf("form", "=== form for %s:\n    %s", lambda: (_py.repr(form), prepped))
                   return _r(form, pat, m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), None, None))
-          def match_symbol(m, bound, name, form, pat, orifst):
+          def symbol(m, bound, name, form, pat, orifst):
                   return m.test(form is pat[1], bound, name, lambda: m.prod(form, orifst),
                                 form, pat)
-          def typep_matcher(m, bound, name, form, pat, orifst):
+          def typep(m, bound, name, form, pat, orifst):
                   return _r(form, pat,
                             m.test(typep(form, pat[1]), bound, name, lambda: m.prod(form, orifst),
                                    form, pat))
@@ -6949,10 +6950,10 @@ def _make_lexenv(parent = nil, **initial_content):
   class _metasex_matcher_pp(_metasex_matcher):
           def __init__(m):
                   _metasex_matcher.__init__(m)
-                  m.register_complex_matcher(_newline,     m.process_newline)
-                  m.register_complex_matcher(_indent,      m.process_indent)
-                  m.register_complex_matcher(_notlead,     m.process_notlead)
-                  m.register_complex_matcher(_nottail,     m.process_nottail)
+                  m.register_complex_matcher(_newline,     m.newline)
+                  m.register_complex_matcher(_indent,      m.indent)
+                  m.register_complex_matcher(_notlead,     m.notlead)
+                  m.register_complex_matcher(_nottail,     m.nottail)
           @staticmethod
           def prod(x, orig_tuple_p):
                   result = _py.str(x) if x or orig_tuple_p else ""
@@ -6962,27 +6963,27 @@ def _make_lexenv(parent = nil, **initial_content):
           def comh(f0, fR, orig_tuple_p): return _combine_pp(f0, fR, orig_tuple_p)
           @staticmethod
           def comr(f0, fR, orig_tuple_p): return _combine_pp(f0, fR, orig_tuple_p)
-          def process_newline(m, bound, name, exp, pat, orifst, aux, limit):
+          def newline(m, bound, name, exp, pat, orifst, aux, limit):
                   n, tail = pat[0][1], pat[1:]
                   new_base = _pp_base_depth() + n
                   with progv({ _pp_depth_:      new_base,
                                _pp_base_depth_: new_base}):
                           return m.post(m.match(m.bind(new_base, bound, name), None, exp, tail, orifst, aux, None),
                                         lambda r: "\n" + (" " * new_base) + r)
-          def process_indent(m, bound, name, exp, pat, orifst, aux, limit):
+          def indent(m, bound, name, exp, pat, orifst, aux, limit):
                   n, tail = pat[0][1], pat[1:]
                   new_depth = _pp_depth() + n
                   with progv({ _pp_depth_: new_depth }):
                           return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, None),
                                         lambda r: (" " * n) + r)
-          def process_notlead(m, bound, name, exp, pat, orifst, aux, limit):
+          def notlead(m, bound, name, exp, pat, orifst, aux, limit):
                   maybe_pat = pat[0][1]
                   _trace_printf("notlead", "!!! notlead: first:%s %s %s", orifst[1], pat, exp)
                   if orifst[1]:
                           return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
                   ############## act as identity
                   return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
-          def process_nottail(m, bound, name, exp, pat, orifst, aux, limit):
+          def nottail(m, bound, name, exp, pat, orifst, aux, limit):
                   maybe_pat = pat[0][1]
                   before_end = exp == ()
                   _trace_printf("notlead", "!!! nottail: before-end:%s %s %s", before_end, pat, exp)
@@ -7004,21 +7005,28 @@ def _make_lexenv(parent = nil, **initial_content):
                                                       (_typep, t)), (_lax,)), (False, False), None, None))
           def crec(m, exp, l0, lR, orig_tuple_p = False):
                   ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
+                  #
+                  ##
+                  ###
+                  ### What the HELL does None mean, as a FAILEX value?
+                  ###
+                  ##
+                  #
                   failpat, failex, bound0, boundR = None, None, None, None
-                  def try_produce_0():
+                  def try_0():
                           nonlocal bound0, failex, failpat
                           _, failex, failpat = l0()
                           if failpat is None: return failex
                           return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (_typep, t),
                                          (None, None), None, None)
-                  def try_produce_R():
+                  def try_R():
                           nonlocal boundR, failex, failpat
                           _, failex, failpat = lR(bound0)
                           if failpat is None: return failex
                           return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (_typep, t),
                                          (None, None), None, None)
                   result = (m.comh if horisontal else
-                            m.comr)(try_produce_0, try_produce_R, orig_tuple_p)
+                            m.comr)(try_0, try_R, orig_tuple_p)
                   _trace_printf("yield", "+t+ YIELD for %s:\n%s", exp, result)
                   return (m.succ(boundR, result) if failpat is None else
                           m.fail(boundR or bound0, failex, failpat))
@@ -7037,14 +7045,15 @@ def _make_lexenv(parent = nil, **initial_content):
   # _trace("atom")
   # _trace(_return, "test")
   # _trace(_return, "crec")
-  # _trace(_return, "simplex_match")
-  # _trace(_return, "complex_match")
-  # _trace(_return, "segment_match")
-  # _trace(_return, "match_maybe")
+  # _trace(_return, "comb")
+  # _trace(_return, "simplex")
+  # _trace(_return, "complex")
+  # _trace(_return, "segment")
+  # _trace(_return, "maybe")
   # _trace(_return, "match")
-  # _trace(_return, "match_atom")
-  # _trace(_return, "match_form")
-  # _trace(_return, "typep_matcher")
+  # _trace(_return, "atom")
+  # _trace(_return, "form")
+  # _trace(_return, "typep")
   
   def _match_sex(sex):
           return _match(_metasex_pp, sex, _metasex.form_metasex(sex))
