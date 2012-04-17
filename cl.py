@@ -7190,26 +7190,6 @@ def labels():
                                 body)),
                          (funcall, temp_name))
 
-@defknown((intern("LET*")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
-            1, [(_notlead, "\n"), _form]),
-          name = intern("LET*")[0])
-def let_():
-        def binds(bindings, *body):
-                bindings = (((b,    None) if symbolp(b) else
-                             (b[0], b[1])) for b in bindings)
-                return { variable: { _make_variable_binding(name, t, None) for name, _ in bindings } }
-        def lower(bindings, *body):
-                # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
-                if not (_tuplep(bindings) and
-                        every(_of_type((or_, symbol, (pytuple, symbol, t))))):
-                        error("LET*: malformed bindings: %s.", bindings)
-                # Unregistered Issue PRIMITIVE-DECLARATIONS
-                if not bindings:
-                        return (progn,) + body
-                else:
-                        return (let, bindings[:1],
-                                 (let_, bindings[1:]) + body)
-
 # ******* K FUNCALL, LAMBDA
 
 #         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST.
