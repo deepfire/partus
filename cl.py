@@ -5742,7 +5742,8 @@ def _compilation_unit_prologue():
 # ***** Scopes
 
 _intern_and_bind_pynames("*LEXENV*", 
-                         "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO")
+                         "VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO")
+                         ## "FUNCTION"
 
 class _nameuse():
         name, type = None, None
@@ -6911,7 +6912,7 @@ def def_():
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
-                return { _make_variable_binding(name, _variable, None) for name in total }
+                return { variable: { _make_variable_binding(name, _variable, None) for name in total } }
         def lower(name, lambda_list, *body, decorators = []):
                 ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 # This is NOT a Lisp form, but rather an acknowledgement of the
@@ -7023,7 +7024,7 @@ when EVAL-WHEN appears as a top level form."""
 def defmacro():
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _prepare_lispy_lambda_list("DEFMACRO %s" % name, lambda_list)
-                return { _make_variable_binding(name, t, None) for name in total }
+                return { variable: { _make_variable_binding(name, t, None) for name in total } }
         def lower(name, lambda_list, *body):
                 ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
                 ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
@@ -7040,7 +7041,7 @@ def defmacro():
 def defun():
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _prepare_lispy_lambda_list("DEFUN %s" % name, lambda_list)
-                return { _make_variable_binding(name, t, None) for name in total }
+                return { variable: { _make_variable_binding(name, t, None) for name in total } }
         def lower(name, lambda_list, *body):
                 ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
                 fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
@@ -7058,7 +7059,7 @@ def let():
         def binds(bindings, *body):
                 bindings = (((b,    None) if symbolp(b) else
                              (b[0], b[1])) for b in bindings)
-                return { _make_variable_binding(name, t, None) for name, _ in bindings }
+                return { variable: { _make_variable_binding(name, t, None) for name, _ in bindings } }
         def lower(bindings, *body):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (_tuplep(bindings) and
@@ -7088,7 +7089,7 @@ def let():
             1, [(_notlead, "\n"), _form]))
 def flet():
         def binds(bindings, *body):
-                return { _make_function_binding(name, t, None) for name, _, *__ in bindings }
+                return { function: { _make_function_binding(name, t, None) for name, _, *__ in bindings } }
         def lower(bindings, *body):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -7108,7 +7109,7 @@ def flet():
             1, [(_notlead, "\n"), _form]))
 def labels():
         def binds(bindings, *body):
-                return { _make_function_binding(name, t, None) for name, _, *__ in bindings }
+                return { function: { _make_function_binding(name, t, None) for name, _, *__ in bindings } }
         def lower(bindings, *body):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -7130,7 +7131,7 @@ def let_():
         def binds(bindings, *body):
                 bindings = (((b,    None) if symbolp(b) else
                              (b[0], b[1])) for b in bindings)
-                return { _make_variable_binding(name, t, None) for name, _ in bindings }
+                return { variable: { _make_variable_binding(name, t, None) for name, _ in bindings } }
         def lower(bindings, *body):
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
                 if not (_tuplep(bindings) and
@@ -7182,7 +7183,7 @@ def funcall():
 def lambda_():
         def binds(lambda_list, *body, dont_delay_defaults = nil):
                 total, _, __ = _prepare_lispy_lambda_list("LAMBDA", lambda_list)
-                return { _make_variable_binding(name, t, None) for name in total }
+                return { variable: { _make_variable_binding(name, t, None) for name in total } }
         def lower(lambda_list, *body, dont_delay_defaults = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
