@@ -7436,7 +7436,7 @@ def if_():
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (symbol, "None"))
         if not _tuplep(lambda_list_):
-                error("In %s: lambda list must be a tuple.", lambda_list_)
+                error("In %s: lambda list must be a tuple, was: %s.", context, lambda_list_)
         def valid_parameter_specifier_p(x): return typep(x, (and_, symbol, (not_, keyword)))
         test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (_tuplep(x) and _py.len(x) == 2 and
                                                                                valid_parameter_specifier_p(x[0])),
@@ -7917,8 +7917,9 @@ def _lower(form):
                 # _debug_printf(";;; compiling:\n%s", _pp_sex(form))
                 # _compiler_report_context()
         def _rec(x):
-                # NOTE: we are going to splice unquoting processing here, as we must be able
-                # to work in READ-less environment.
+                ## XXX: what are the side-effects?
+                ## NOTE: we are going to splice unquoting processing here, as we must be able
+                ## to work in READ-less environment.
                 _debug_printf_if(_debugging_compiler(), ";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
                 if _tuplep(x):
                         def noisep(x): return x in [symbol]
@@ -7978,6 +7979,8 @@ def _lower(form):
                                         atree)
                         else:
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
+        
+        ## XXX: what about side-effects?
         pv = _rec(form)
         # _debug_printf_if(_debugging_compiler(),
         #                  ";;; compilation atree output for\n%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
