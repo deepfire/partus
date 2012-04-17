@@ -8398,7 +8398,14 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 pro, value = _do_compile(form, lexenv) # We're only interested in the resulting DEF.
                 cu_pro = _compilation_unit_prologue()
                 final_pv = cu_pro + pro, value
-                assert _py.len(pro) is 1   # The FunctionDef and the symbol Assign
+                if _py.len(pro) != 1:   # The FunctionDef and the symbol Assign
+                        _debug_printf("*** invariant failed - %s prologue - while compiling form:", ("no" if not pro else
+                                                                                                     "long"))
+                        _dump_form(form)
+                        if pro:
+                                _debug_printf("*** prologue:")
+                                mapc(_dump_form, pro)
+                        assert(_py.len(pro) == 1)
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(final_pv))
                 import more_ast
                 more_ast.assign_meaningful_locations(pro_ast)
