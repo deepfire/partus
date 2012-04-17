@@ -6137,6 +6137,16 @@ all AST-trees .. except for the case of tuples."""
 #+end_src
 
 *** Compiler
+***** A, hopefully, up-to-date overall picture
+
+      - COMPILE
+        - %compile, DEFMACRO, DEFUN
+          - %compile-lambda-as-named-toplevel, %compile-in-lexenv, LISP
+            - %compile-toplevel-def-in-lexenv o (%convert-lambda-to-def/un/<mangle>)
+              - %ast-compiled-name o (%compilation-unit-prologue + %DO-COMPILE)
+                - %lower o macroexpand-all
+      - TODO: COMPILE-FILE
+
 ***** Generic pieces
 
 #+begin_src python +n
