@@ -7595,7 +7595,7 @@ def progn():
         def lower(*body):
                 if not body:
                         return ([],
-                                _lower((symbol, "nil")))
+                                _lower((symbol, nil)))
                 pro, ntotal = [], _py.len(body)
                 with _no_tail_position():
                         for spro, val in (_lower(x) for x in body[:-1]):
@@ -7644,7 +7644,7 @@ def if_():
 
 #+begin_src python
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
-        default_expr = _defaulted(default_expr, (symbol, "None"))
+        default_expr = _defaulted(default_expr, (_name, "None"))
         if not _tuplep(lambda_list_):
                 error("In %s: lambda list must be a tuple, was: %s.", context, lambda_list_)
         def valid_parameter_specifier_p(x): return typep(x, (and_, symbol, (not_, keyword)))
@@ -7861,7 +7861,7 @@ def defmacro():
                                                                                       globalp = t, macrop = t)
                 return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this:
                                      # the((varituple, (eql, def_), pytuple), macfundef)
-                        _lower((quote, (symbol, string(name))))[1])
+                        _lower((quote, (symbol, name)))[1])
 
 @defknown((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
             1, [(_notlead, "\n"), _form]))
@@ -7876,7 +7876,7 @@ def defun():
                                                                                    _symbol_value(_lexenv_),
                                                                                    globalp = t, macrop = t)
                 return ([fundef],
-                        _lower((quote, (symbol, string(name))))[1])
+                        _lower((quote, (symbol, name)))[1])
 #+end_src
 
 ******* K LET, FLET, LABELS, LET*
@@ -8053,7 +8053,7 @@ def lambda_():
                         else:
                                 ## Delay evaluation of default values.
                                 def defaulting_expr(arg, default):
-                                        return (if_, (eq, arg, (symbol, "None")),
+                                        return (if_, (eq, arg, (_name, "None")),
                                                      default,
                                                      arg)
                                 _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
@@ -8065,7 +8065,7 @@ def lambda_():
 
                 else:
                         _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
-                        func_name = _gensymname("LET-BODY-")
+                        func_name = _gensym("LET-BODY-")[0]
                         return (flet, ((func_name, lambda_list) + body,),
                                  (symbol, func_name))
 #+end_src
@@ -8141,7 +8141,7 @@ def _lower(form):
                                         not noisep(name) and _compiler_debug_printf("=== %s done", name)
                                         return ret, t
                         if not x:
-                                return _rec((symbol, "nil"))
+                                return _rec((_name, "nil"))
                         if symbolp(x[0]):
                                 argsp, form, args = _maybe_ir_args(x)
                                 # Urgent Issue COMPILER-MACRO-SYSTEM
