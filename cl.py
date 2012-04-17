@@ -5824,6 +5824,7 @@ def _make_lexenv(parent = nil, **initial_content):
 _known = _poor_man_defstruct("known",
                              "name",
                              "metasex",
+                             "binds",
                              "lower",
                              "lower_params")
 
@@ -5858,6 +5859,7 @@ The NAME is bound, in separate namespaces, to:
                 ## Complete, record the deeds.
                 sym.known = _known(name = sym,
                                    metasex = metasex,
+                                   binds = binds,
                                    lower = lower,
                                    lower_params = _mapset(_indexing(0), lower_key_args))
                 return sym # pass through
@@ -6332,9 +6334,9 @@ def _pp_sex(sex, strict = t, initial_depth = None):
 # ******* FORM-BINDS
 
 def _form_binds(form):
-        known = _complex_form_known(form)
+        known = _form_known(form)
         return (_py.dict() if not known else
-                known.binds(*form))
+                known.binds(*form[1:]))
 
 # ******* Testing
 
@@ -6652,7 +6654,6 @@ def _lower_expr(x, fn):
 @defknown((_name, "\n", _form, ["\n", ((_typep, _py.str), " ", (_typep, t))],))
 def _ir_args():
         def lower(*_): error("Invariant failed: %s is not meant to be lowered.", _ir_args)
-        def binds(*_): _py.set()
 
 def _maybe_ir_args(x):
         "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
