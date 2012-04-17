@@ -4264,8 +4264,8 @@ def __cl_condition_handler__(condspec, frame):
                 cond = _sys.call_tracing(continuation, _py.tuple())
         if type_of(cond) not in __not_even_conditions__:
                 is_not_ball = type_of(cond) is not __catcher_throw__
-                _here("In thread '%s': unhandled condition : %s%s",
-                      _threading.current_thread().name, princ_to_string(cond),
+                _here("In thread '%s': unhandled condition of type %s: %s%s",
+                      _threading.current_thread().name, type_of(cond), princ_to_string(cond),
                       ("\n; Disabling CL condition system." if is_not_ball else
                        ""),
                       callers = 15, frame = signalling_frame)
@@ -6461,7 +6461,7 @@ def _pp_sex(sex, strict = t, initial_depth = None):
                      _pp_base_depth_: initial_depth}):
                 _, r, f = _match(_metasex_pp, sex, _metasex.form_metasex(sex))
         if f is not None:
-                error("\n=== fail: %s\n=== failpat: %s\n=== exp: %s", sex, f, r)
+                error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", sex, f, r)
         return r or ""
 
 # ******* FORM-BINDS
@@ -7418,6 +7418,9 @@ def unwind_protect():
 
 # ***** Engine and drivers: %LOWER, @LISP and COMPILE
 
+def _dump_form(form):
+        _debug_printf("%s\n", "*** " + "\n*** ".join(_pp_sex(form).split("\n")))
+
 # Urgent Issue COMPILER-MACRO-SYSTEM
 def _lower(form):
         # - tail position tracking
@@ -7505,6 +7508,7 @@ def _lower(form):
 def _do_compile(form, lexenv = nil):
         _debug_printf_if(_debugging_compiler(), ";;;%s compiling:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
         macroexpanded = macroexpand_all(form, env = lexenv)
+        _debug_printf_if(_debugging_compiler(), ";;;%s macroexpanded:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(macroexpanded))
         return _lower(macroexpanded)
 
 def function_lambda_expression(function_):
