@@ -6562,7 +6562,7 @@ def _do_macroexpand_1(form, env = nil):
         return ((form, nil) if not expander else
                 (expander(*args), t))
 
-## Unregistered Issue COMPLIANCE-MACROEXPAND-HOOK-MUST-BE-FUNCALL
+## Unregistered Issue COMPLIANCE-MACROEXPAND-HOOK-MUST-BE-FUNCALL-BUT-IT-IS-NOT-A-FUNCTION
 _string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
 _string_set("*ENABLE-MACROEXPAND-HOOK*", t)
 
@@ -6579,16 +6579,50 @@ def macroexpand(form, env = nil):
         return do_macroexpand(form, nil)
 
 _string_set("*MACROEXPANDER-ENV*", nil)
+_string_set("*MACROEXPANDER-FORM-BINDS*", nil)
 
-def _macroexpander_inner(m, bound, name, exp, pat, orifst, aux, limit):
-        form = exp[0]
-        form, _ = macroexpand(form, symbol_value(_macroexpander_env_))
-        ## now, it's either a funcall or a known
-        env = _symbol_value(_macroexpander_env_)
-        expander_bindings = _dict_select_keys(_form_binds(form), macro, symbol_macro)
-        with progv({_macroexpander_env_: _make_lexenv(env, **expander_bindings)}):
-                return _metasex_matcher.match_form(m, bound, name, (form,) + exp[1:], pat, orifst, aux, limit)
-
+def _macroexpander_inner(m, bound, name, exp, pat, orifst, aux, limit,
+                         head_hook = None):
+        def macroexpand_form(form):
+                 env = _symbol_value(_macroexpander_env_)
+                 form, _ = macroexpand(exp[0], env)
+        ## now, it's either an implicit funcall or a known..
+        ## so we can quickly decide, if we're even capable of binding..
+        known = _find_known(form[0]) if _tuplep(form) else nil
+        symbol_frame, func_frame = ((_dict_select_keys(_form_binds(form), symbol_macro),
+                                     _dict_select_keys(_form_binds(form), macro)) if known else
+                                    (_py.dict(), _py.dict()))
+        ## - result accumulation _and_ combination -- how is it done?
+        def call_with_form_binds(fn):
+                with progv({_macroexpander_form_binds_: _make_lexenv(env,
+                                                                     kind_varframe = symbol_frame,
+                                                                     kind_funcframe = func_frame)}):
+                        return fn()
+        def call_maybe_with_hook(fn):
+                return head_hook(fn) if head_hook else fn()
+        return _metasex_matcher.match_form(m, bound, name, (form,) + exp[1:], pat, orifst, aux, limit,
+                                           head_hook = (call_with_form_binds
+                                                        if symbol_frame or func_frame else
+                                                        ## Avoid creating excess dynamic frames.
+                                                        head_hook))
+##
+####
+#####
+####
+###
+### The Grand point-of-continuation TODO is here.
+###
+###  - facilitate the interplay between ACTIVATE-BINDING-EXTENSION and %MACROEXPAND-INNER,
+###    to already make MACROEXPAND-ALL work.
+###  - explore final IR-ification through FUNCALL-conversion
+###  - explore the prospects of compiler macro expansion
+###  - explore generic inline-context-change-aware walking (which doesn't affect the walking itself,
+###    unlike the case with macroexpansion)
+###
+####
+#####
+####
+##
 class _macroexpander_matcher(_metasex_matcher):
         def __init__(m):
                 _metasex_matcher.__init__(m)
@@ -6616,8 +6650,10 @@ class _macroexpander_matcher(_metasex_matcher):
 
 _macroexpander = _macroexpander_matcher()
 
-def macroexpand_all(form, env = nil):
-        _, res, failpat = _macroexpander_inner(_macroexpander, dict(), None, (form,), (_metasex.form_metasex(form),),
+def macroexpand_all(form, env = nil, compiler_macroexpand = nil):
+        _, res, failpat = _macroexpander_inner(_macroexpander, dict(), None,
+                                               (form,),
+                                               (nil,),  ## The pattern will be discarded out of hand, anyway.
                                                (None, None), None, None)
         assert(not failpat)
         return res[0]
@@ -6904,7 +6940,7 @@ def if_():
                         return (flet, cons_fdefn + ante_fdefn,
                                  (if_, test, cons, ante))
 
-# ********* Code
+# ******* %P-L-L-L/L-L-L-L and DEF_
 
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (symbol, "None"))
@@ -7006,7 +7042,7 @@ def def_():
                 cdef = _compiler_def(name   = name,
                                      parent = _compiling_def())
                 toplevelp = _symbol_value(_compiler_toplevel_p_)
-                with progv({_compiler_def_:      cdef,
+                with progv({_compiler_def_:        cdef,
                             _compiler_toplevel_p_: nil}):
                         check_type(name, (and_, symbol, (not_, keyword)))
                         # check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
