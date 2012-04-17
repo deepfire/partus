@@ -5956,9 +5956,9 @@ The NAME is bound, in separate namespaces, to:
                  lower] = _defbody_methods("DEFKNOWN " + _py.str(sym), body, lambda method_name: method_name,
                                            [("binds", lambda _: _py.compile("def binds(*_): return dict()", "", "exec",
                                                                             flags = _ast.PyCF_ONLY_AST).body[0]),
-                                            ("walk_with_bindings",
-                                             lambda _: _py.compile("def walk_with_bindings(* _): return dict()", "", "exec",
-                                                                   flags = _ast.PyCF_ONLY_AST).body[0]),
+                                            # ("walk_with_bindings",
+                                            #  lambda _: _py.compile("def walk_with_bindings(* _): return dict()", "", "exec",
+                                            #                        flags = _ast.PyCF_ONLY_AST).body[0]),
                                             "lower"])
                 lower_key_args = _function_lambda_list(lower)[3]
                 ## Complete, record the deeds.
