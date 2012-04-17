@@ -2971,7 +2971,8 @@ def _dictappend(*dicts):
 def _dict_select_keys(dict, *keys):
         acc = _py.dict()
         for k in keys:
-                acc[k] = dict[k]
+                if k in dict:
+                        acc[k] = dict[k]
         return acc
 
 def _maphash(f, dict) -> _py.list:
