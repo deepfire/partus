@@ -7990,6 +7990,11 @@ def _lower(form):
                 error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
         return pv
 
+def _do_compile(form, lexenv = nil):
+        _debug_printf_if(_debugging_compiler(), ";;;%s compiling:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
+        macroexpanded = macroexpand_all(form, env = lexenv)
+        return _lower(macroexpanded)
+
 def function_lambda_expression(function_):
         """function-lambda-expression function
 
@@ -8196,7 +8201,7 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
 def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = nil, lambda_expression = None):
         ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
         def _in_compilation_unit():
-                pro, value = _lower(form) # We're only interested in the resulting DEF.
+                pro, value = _do_compile(form, lexenv) # We're only interested in the resulting DEF.
                 cu_pro = _compilation_unit_prologue()
                 final_pv = cu_pro + pro, value
                 assert _py.len(pro) is 1   # The FunctionDef and the symbol Assign
