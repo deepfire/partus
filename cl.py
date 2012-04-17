@@ -6173,7 +6173,7 @@ def _match(matcher, exp, pat):
 #         MetaSEX presents us with an excellent lesson.  Let's try to understand.
 
 _intern_and_bind_pynames("%NAME", "%MAYBE", "%NOTLEAD", "%NOTTAIL",
-                         "%NEWLINE", "%INDENT", "%FORM", "%SYMBOL", "%TYPEP", "%COUNT-SCOPE",
+                         "%NEWLINE", "%INDENT", "%FORM", "%BOUND", "%SYMBOL", "%TYPEP", "%COUNT-SCOPE",
                          "%MAYBE-ONCE", "%ONCE",
                          "%SET-MINUS")
 
@@ -6192,6 +6192,7 @@ class _metasex_matcher(_matcher):
         def __init__(m):
                 _matcher.__init__(m)
                 m.register_simplex_matcher(_form,        m.match_form)
+                m.register_complex_matcher(_bound,       m.match_form)
                 m.register_simplex_matcher(_symbol,      m.match_symbol)
                 m.register_simplex_matcher(_typep,       m.typep_matcher)
                 m.register_complex_matcher(_newline,     m.ignore_matcher)
@@ -6591,8 +6592,27 @@ def _macroexpander_inner(m, bound, name, exp, pat, orifst, aux, limit):
 class _macroexpander_matcher(_metasex_matcher):
         def __init__(m):
                 _metasex_matcher.__init__(m)
-                m.register_complex_matcher(_form, lambda *args: _macroexpander_inner(m, *args))
-                ## We need to replace the combiners, or we'll end up with None.
+                m.register_complex_matcher(_form,  lambda *args: _macroexpander_inner(m, *args))
+                m.register_complex_matcher(_bound, m.activate_binding_extension)
+        def activate_binding_extension(m, bound, name, exp, pat, orifst, aux, limit):
+                def call_with_extended_macroexpander_env(fn):
+                        ## The dynamic scope expansion is unavoidable, because we have to
+                        ## terminate the binding extension marker.
+                        with progv({_macroexpander_env_: (_symbol_value(_macroexpander_form_binds_) or
+                                                          _symbol_value(_macroexpander_env_)),
+                                    ## marker scope ends here:
+                                    _macroexpander_form_binds_: nil}):
+                                return fn()
+                return _macroexpander_inner(m, bound, name, exp, pat, orifst, aux, limit,
+                                            head_hook = call_with_extended_macroexpander_env)
+        @staticmethod
+        def prod(x, orig_tuple_p): return ""
+        @staticmethod
+        def comb(f0, fR, orig_tuple_p):
+                f0r = f0()
+                if f0r is not None:
+                        fRr = fR()
+                        return t
 
 _macroexpander = _macroexpander_matcher()
 
