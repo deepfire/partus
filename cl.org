@@ -6542,11 +6542,9 @@ def _make_lexenv(parent = nil, **initial_content):
           def trace_args():
                   frames = _py.reversed(
                           _py.list(_take(n, (f for f in _frames_calling(_caller_frame()) if _frame_fun_name(f) not in ignore_callers))))
-                  return (":".join(
-                                  (("%s_%s" % (_frame_fun_name(f),
+                  return (":".join(("%s_%s" % (_frame_fun_name(f),
                                                _frame_id(f)[:3]))
-                                   # _frame_chain_hash(f, ignore_callers = ignore_callers)[:3]))
-                                   for f in frames)),
+                                   for f in frames),
                           q, retval, x, y)
           _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s", trace_args)
           return retval
@@ -7249,8 +7247,21 @@ def _make_lexenv(parent = nil, **initial_content):
   def _do_macroexpand_1(form, env = nil):
           ## Unregistered Issue COMPLIANCE-MACROEXPANDER-MUST-CONSIDER-LEXENV
           # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
-          expander, args = ((form and (macro_function(form[0], env), form[1:])) if _tuplep(form) else
-                            (_symbol_macro_expander(form, env), ())             if symbolp(form) else
+          def funcallify(form):
+                  # return (funcall,) + form
+                  ## ..ain't so easy..
+                  _not_implemented("Macroexpansion-time funcallification is not possible without full lexenv analysis.")
+          def find_compiler_macroexpander(form):
+                  return nil
+          def find_form_expander(form):
+                  known = _find_known(form[0])
+                  return (macro_function(form[0], env) or
+                          (nil                               if not known             else
+                           find_compiler_macroexpander(form) if known.name is funcall else
+                           nil))
+          expander, args = ((form and symbolp(form[0]) and find_form_expander(form), form[1:])
+                                                                    if _tuplep(form) else
+                            (_symbol_macro_expander(form, env), ()) if symbolp(form) else
                             (None, None))
           return ((form, nil) if not expander else
                   (expander(*args), t))
