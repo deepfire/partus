@@ -6693,9 +6693,15 @@ def _macroexpander_inner(m, bound, name, exp, pat, orifst):
 ### The Grand point-of-continuation TODO is here.
 ###
 ###  - explore final IR-ification through FUNCALL-conversion
-###  - explore the prospects of compiler macro expansion
+###    - not necessarily final, due to:
+###      - inlining
+###      - complex transformations, not possible early, which enable further compiler macro expansion
+###    - but, possibly, still final, if we cache macroexpanded/funcallified forms of functions
+###    - but, even then, complex transformations can recurse, potentially affecting pre-cached expansions
+###      - FINALLY - DEPENDENT TRACKING!
 ###  - explore generic inline-context-change-aware walking (which doesn't affect the walking itself,
 ###    unlike the case with macroexpansion)
+###    - sounds bland, doesn't it?
 ###
 ####
 #####
