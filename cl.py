@@ -5648,6 +5648,257 @@ all AST-trees .. except for the case of tuples."""
                 (astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
         return ret
 
+# *** Matcher
+
+#       A large part of work is development of a calling convention.  Multiple values, as a
+#       concept, is an important, but basic step in the general direction.
+
+_intern_and_bind_pynames("%NAME", "%MAYBE")
+
+def _maybe_destructure_binding(pat):
+        return ((None, pat)               if not typep(pat, _py.dict) else
+                _py.tuple(pat.items())[0] if _py.len(pat) == 1        else
+                error_bad_pattern(pat))
+
+def _error_bad_pattern(pat):
+        raise Exception("Bad pattern: %s." % (pat,))
+
+_intern_and_bind_pynames("%CALL", "%RETURN")
+
+_trace_table = _py.dict()
+def _do_tracep(*props):
+        # _debug_printf("tracep %s", props)
+        return props in _trace_table
+def _no_trace(*_):            return False
+_tracep = _do_tracep
+def _trace(*props):
+        global _tracep
+        _tracep = _do_tracep
+        if props:
+                _trace_table[props] = t
+def _untrace(*props):
+        global _tracep
+        if props:
+                del _trace_table[props]
+        else:
+                _tracep = _no_trace
+
+### Default trace settings:
+_untrace()
+
+def _trace_printf(tracespec, control, *args):
+        if _tracep(*(tracespec                    if _tuplep(tracespec) else
+                     (tracespec,)                 if stringp(tracespec) else
+                     (tracespec, _caller_name(1)))):
+                _debug_printf(control, *(args if not (_py.len(args) == 1 and functionp(args[0])) else
+                                         args[0]()))
+
+def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "complex"])):
+        def trace_args():
+                frames = _py.reversed(
+                        _py.list(_take(n, (f for f in _frames_calling(_caller_frame()) if _frame_fun_name(f) not in ignore_callers))))
+                return (":".join(("%s_%s" % (_frame_fun_name(f),
+                                             _frame_id(f)[:3]))
+                                 for f in frames),
+                        q, retval, x, y)
+        _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s", trace_args)
+        return retval
+
+### .prod
+## segment:       coor <- crec <- succ <-
+## match:         test <-
+## match:         test <-
+## typep:         test <-
+## lax
+#
+### .crec
+## segment:       coor <-
+## match:         equo <-
+#
+### .comb
+## crec:          succ <-
+
+class _matcher():
+        @staticmethod
+        def bind(value, bound, name, if_exists:{error, replace} = error):
+                def error_bound(x):
+                        raise Exception("Rebinding %s from %s to %s." % (_py.repr(name), _py.repr(x), _py.repr(value)))
+                def error_keyword(name, bad, allowed):
+                        raise Exception("Keyword %s must be one of: %s.  Was: %s." % (_py.repr(name), allowed, _py.repr(bad)))
+                if   name is None:            return bound
+                elif (name not in bound or
+                      if_exists is replace):
+                        bound = _py.dict(bound)
+                        bound.update({name:value}); return bound
+                elif if_exists is error:     error_bound(bound[name])
+                else:                        error_keyword("if_exists", if_exists, { error, replace })
+        @staticmethod
+        def succ(bound, res):      return bound, res, None
+        @staticmethod
+        def fail(bound, exp, pat): return bound, exp, pat
+        @staticmethod
+        def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
+        ###
+        def test(m, test, bound, name, resf:"() -> result", exp, fail_pat, if_exists:{error, replace} = error):
+                return _r(test, "", (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
+                                     m.fail(bound, exp, fail_pat)))
+        def equo(m, name, exp, x):
+                "Apply result binding, if any."
+                b, r, f = x
+                return ((m.bind(exp, b, name), r, f) if f is None else
+                        x) # propagate failure as-is
+        def coor(m, l0ret, lR, orig_tuple_p = False):
+                l0b, l0r, l0f = l0ret
+                if l0f is None: return m.succ(l0b, l0r)
+                lRb, lRr, lRf = lR()
+                if lRf is None: return m.succ(lRb, lRr)
+                return m.fail(l0b, lRr, m.forc(l0f, lRf, orig_tuple_p))
+        def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
+                ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
+                failpat, fx0, fxR, bound0, boundR = None, None, None, None, None
+                def try_0():
+                        nonlocal bound0, fx0, failpat
+                        bound0, fx0, failpat = l0()
+                        if failpat is None: return fx0
+                def try_R():
+                        nonlocal boundR, fxR, failpat
+                        boundR, fxR, failpat = lR(bound0)
+                        if failpat is None: return fxR
+                result = (m.comh if horisontal else
+                          m.comr)(try_0, try_R, orig_tuple_p)
+                _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
+                              lambda: (exp, orig_tuple_p, _caller_name(2), _caller_name(1), result))
+                return _r(exp, [fx0, fxR],
+                          m.succ(boundR, result) if failpat is None else
+                          m.fail(boundR or bound0, fx0 if fx0 is not None else fxR, failpat))
+        ###
+        def   register_simplex_matcher(m, name, matcher):     m.__simplex_patterns__[name] = matcher
+        def   register_complex_matcher(m, name, matcher):     m.__complex_patterns__[name] = matcher
+        def deregister_complex_matcher(m, name):          del m.__complex_patterns__[name]
+        def simplex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
+        def complex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
+        def simplex(m, bound, name, exp, pat, orifst):
+                _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s",
+                              lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
+                                       name, bound, exp, pat))
+                return _r(exp, pat[0],
+                          m.__simplex_patterns__[pat[0]](bound, name, exp, pat, orifst))
+        def complex(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_printf("complex", "complex  %s (call: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
+                              lambda: (pat[0][0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
+                                       name, bound, exp, pat, orifst, aux, limit))
+                return _r(exp, pat[0][0],
+                          m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit))
+        def __init__(m):
+                m.__complex_patterns__, m.__simplex_patterns__ = _py.dict(), _py.dict()
+                m.register_complex_matcher(some, m.segment)
+                m.register_complex_matcher(_maybe, m.maybe)
+        def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
+                raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
+        def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
+                raise Exception("Not yet capable of matching simplex patterns of type %s.", pat[0])
+        def identity(m, bound, name, exp, pat, orifst, aux, limit):
+                ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
+                return m.complex(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+        def ignore(m, bound, name, exp, pat, orifst, aux, limit):
+                return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
+        ###
+        def segment(m, bound, name, exp, pat, orifst, aux, limit, end = None):
+                def position(x, xs):
+                        for i, ix in enumerate(xs):
+                                if x == ix: return i
+                def constant_pat_p(pat):
+                        def nonconstant_pat_p(x): return _tuplep(x) or m.nonliteral_atom_p(x)
+                        return not nonconstant_pat_p(_py.tuple(pat.items())[0][1] if typep(pat, _py.dict) else
+                                                     pat)
+                ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
+                seg_pat, rest_pat = pat[0][1:], pat[1:]
+                firstp = aux is None
+                aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
+                _trace_printf("segment", "segment  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  firstp:%s newaux:%s limit:%s",
+                              lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
+                end = (end                        if end is not None                          else
+                       position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
+                       0)
+                if ((end and end > _py.len(exp)) or ## no boundary variant fitted
+                    end is None):                   ## a constant pattern was missing
+                        return _r(exp, pat, m.fail(bound, exp, pat))
+                cut = end if rest_pat else len(exp)
+                seg_exp, rest_exp = (exp[0:cut], exp[len(exp) if cut is None else cut:])
+                _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
+                return _r(exp, pat,
+                          m.coor(m.crec(exp,
+                                        lambda:
+                                                ((lambda seg_bound, seg_r, seg_fail_pat:
+                                                          m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
+                                                                 if_exists = replace))
+                                                 (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
+                                                    m.fail(bound, exp, pat)                                if limit == 0    else
+                                                    ## Try biting one more iteration off seg_exp:
+                                                    m.match(bound, name,  seg_exp,     aux,  (False,
+                                                                                              firstp), aux, (limit - 1 if integerp(limit) else
+                                                                                                             None))))),
+                                        lambda seg_bound:
+                                                m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
+                                        orig_tuple_p = firstp and orifst[0] and seg_exp != (),
+                                        horisontal = t),
+                                 lambda: m.segment(   bound, name,      exp,      pat, orifst,   None,  limit,
+                                                            end + 1)))
+        def maybe(m, bound, name, exp, pat, orifst, aux, limit):
+                ## The semantics of aux are painfully unclear here:
+                ##  - we need to perform aux pass-through, for any potential surrounding segment match
+                ##  - we need a clean slate for this segment..
+                ## So, do we need a separate stack for aux here?  Sounds like an in inevitability..
+                ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
+                return _r(exp, pat,
+                          m.segment(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
+        ## About the vzy33c0's idea:
+        ## type-driven variable naming is not good enough, because:
+        ## 1. type narrows down the case analysis chain (of which there is a lot)
+        ## 2. expressions also need typing..
+        def match(m, bound, name, exp, pat, orifst, aux, limit):
+                def maybe_get0Rname(pat):
+                        ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
+                        (name, pat0), patR = _maybe_destructure_binding(pat[0]), pat[1:]
+                        return (name, pat0, name and m.simplex_pat_p(pat0), patR,
+                                (((pat0,) + patR) if name is not None else
+                                 pat)) ## Attempt to avoid consing..
+                ## I just caught myself feeling so comfortable thinking about life matters,
+                ## while staring at a screenful of code.  In "real" life I'd be pressed by
+                ## the acute sense of time being wasted..
+                atomp, null = not _tuplep(pat), pat == ()
+                _trace_printf("match", "       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s, simplexp: %s",
+                              lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
+                                       atomp, null,
+                                       (not (atom or null)) and m.complex_pat_p(pat[0]),
+                                       (not (atom or null)) and m.simplex_pat_p(pat[0])))
+                return \
+                    _r(exp, pat,
+                       (m.test((m.atom(exp, pat) if atomp else
+                                exp == ()),
+                               bound, name, lambda: m.prod(exp, orifst[0]), exp, pat)     if atomp or null        else
+                        m.simplex(bound, name, exp,  pat, (_tuplep(exp),
+                                                           orifst[1]))              if m.simplex_pat_p(pat) else
+                        m.complex(bound, name, (exp,), (pat,), orifst, None, limit) if m.complex_pat_p(pat) else
+                        (lambda pat0name, pat0, pat0simplexp, patR, clean_pat:
+                                 (m.equo(name, exp,
+                                         m.complex(bound, pat0name, exp, clean_pat, orifst, aux, limit))
+                                  if m.complex_pat_p(pat0)         else
+                                  m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
+                                  m.equo(name, exp,
+                                         m.crec(exp,
+                                                lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
+                                                                                                        orifst[1]),
+                                                                       None, None),
+                                                (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), aux, limit)),
+                                                orig_tuple_p = orifst[0],
+                                                horisontal = nil))))
+                        (*maybe_get0Rname(pat))))
+
+def _match(matcher, exp, pat):
+        name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
+        return matcher.match(_py.dict(), name, exp, prepped, (True, False), None, None)
+
 # ***** Generic pieces
 
 def _parse_body(body, doc_string_allowed = t, toplevel = nil):
@@ -5979,257 +6230,6 @@ The NAME is bound, in separate namespaces, to:
                       _py.repr(metasex_or_fn)))
 def _find_known(x):
         return _symbol_known(the(symbol, x))
-
-# ***** Matcher
-
-#       A large part of work is development of a calling convention.  Multiple values, as a
-#       concept, is an important, but basic step in the general direction.
-
-_intern_and_bind_pynames("%NAME", "%MAYBE")
-
-def _maybe_destructure_binding(pat):
-        return ((None, pat)               if not typep(pat, _py.dict) else
-                _py.tuple(pat.items())[0] if _py.len(pat) == 1        else
-                error_bad_pattern(pat))
-
-def _error_bad_pattern(pat):
-        raise Exception("Bad pattern: %s." % (pat,))
-
-_intern_and_bind_pynames("%CALL", "%RETURN")
-
-_trace_table = _py.dict()
-def _do_tracep(*props):
-        # _debug_printf("tracep %s", props)
-        return props in _trace_table
-def _no_trace(*_):            return False
-_tracep = _do_tracep
-def _trace(*props):
-        global _tracep
-        _tracep = _do_tracep
-        if props:
-                _trace_table[props] = t
-def _untrace(*props):
-        global _tracep
-        if props:
-                del _trace_table[props]
-        else:
-                _tracep = _no_trace
-
-### Default trace settings:
-_untrace()
-
-def _trace_printf(tracespec, control, *args):
-        if _tracep(*(tracespec                    if _tuplep(tracespec) else
-                     (tracespec,)                 if stringp(tracespec) else
-                     (tracespec, _caller_name(1)))):
-                _debug_printf(control, *(args if not (_py.len(args) == 1 and functionp(args[0])) else
-                                         args[0]()))
-
-def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "complex"])):
-        def trace_args():
-                frames = _py.reversed(
-                        _py.list(_take(n, (f for f in _frames_calling(_caller_frame()) if _frame_fun_name(f) not in ignore_callers))))
-                return (":".join(("%s_%s" % (_frame_fun_name(f),
-                                             _frame_id(f)[:3]))
-                                 for f in frames),
-                        q, retval, x, y)
-        _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s", trace_args)
-        return retval
-
-### .prod
-## segment:       coor <- crec <- succ <-
-## match:         test <-
-## match:         test <-
-## typep:         test <-
-## lax
-#
-### .crec
-## segment:       coor <-
-## match:         equo <-
-#
-### .comb
-## crec:          succ <-
-
-class _matcher():
-        @staticmethod
-        def bind(value, bound, name, if_exists:{error, replace} = error):
-                def error_bound(x):
-                        raise Exception("Rebinding %s from %s to %s." % (_py.repr(name), _py.repr(x), _py.repr(value)))
-                def error_keyword(name, bad, allowed):
-                        raise Exception("Keyword %s must be one of: %s.  Was: %s." % (_py.repr(name), allowed, _py.repr(bad)))
-                if   name is None:            return bound
-                elif (name not in bound or
-                      if_exists is replace):
-                        bound = _py.dict(bound)
-                        bound.update({name:value}); return bound
-                elif if_exists is error:     error_bound(bound[name])
-                else:                        error_keyword("if_exists", if_exists, { error, replace })
-        @staticmethod
-        def succ(bound, res):      return bound, res, None
-        @staticmethod
-        def fail(bound, exp, pat): return bound, exp, pat
-        @staticmethod
-        def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
-        ###
-        def test(m, test, bound, name, resf:"() -> result", exp, fail_pat, if_exists:{error, replace} = error):
-                return _r(test, "", (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
-                                     m.fail(bound, exp, fail_pat)))
-        def equo(m, name, exp, x):
-                "Apply result binding, if any."
-                b, r, f = x
-                return ((m.bind(exp, b, name), r, f) if f is None else
-                        x) # propagate failure as-is
-        def coor(m, l0ret, lR, orig_tuple_p = False):
-                l0b, l0r, l0f = l0ret
-                if l0f is None: return m.succ(l0b, l0r)
-                lRb, lRr, lRf = lR()
-                if lRf is None: return m.succ(lRb, lRr)
-                return m.fail(l0b, lRr, m.forc(l0f, lRf, orig_tuple_p))
-        def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
-                ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
-                failpat, fx0, fxR, bound0, boundR = None, None, None, None, None
-                def try_0():
-                        nonlocal bound0, fx0, failpat
-                        bound0, fx0, failpat = l0()
-                        if failpat is None: return fx0
-                def try_R():
-                        nonlocal boundR, fxR, failpat
-                        boundR, fxR, failpat = lR(bound0)
-                        if failpat is None: return fxR
-                result = (m.comh if horisontal else
-                          m.comr)(try_0, try_R, orig_tuple_p)
-                _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
-                              lambda: (exp, orig_tuple_p, _caller_name(2), _caller_name(1), result))
-                return _r(exp, [fx0, fxR],
-                          m.succ(boundR, result) if failpat is None else
-                          m.fail(boundR or bound0, fx0 if fx0 is not None else fxR, failpat))
-        ###
-        def   register_simplex_matcher(m, name, matcher):     m.__simplex_patterns__[name] = matcher
-        def   register_complex_matcher(m, name, matcher):     m.__complex_patterns__[name] = matcher
-        def deregister_complex_matcher(m, name):          del m.__complex_patterns__[name]
-        def simplex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
-        def complex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
-        def simplex(m, bound, name, exp, pat, orifst):
-                _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s",
-                              lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
-                                       name, bound, exp, pat))
-                return _r(exp, pat[0],
-                          m.__simplex_patterns__[pat[0]](bound, name, exp, pat, orifst))
-        def complex(m, bound, name, exp, pat, orifst, aux, limit):
-                _trace_printf("complex", "complex  %s (call: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
-                              lambda: (pat[0][0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
-                                       name, bound, exp, pat, orifst, aux, limit))
-                return _r(exp, pat[0][0],
-                          m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit))
-        def __init__(m):
-                m.__complex_patterns__, m.__simplex_patterns__ = _py.dict(), _py.dict()
-                m.register_complex_matcher(some, m.segment)
-                m.register_complex_matcher(_maybe, m.maybe)
-        def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
-                raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
-        def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
-                raise Exception("Not yet capable of matching simplex patterns of type %s.", pat[0])
-        def identity(m, bound, name, exp, pat, orifst, aux, limit):
-                ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
-                return m.complex(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
-        def ignore(m, bound, name, exp, pat, orifst, aux, limit):
-                return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
-        ###
-        def segment(m, bound, name, exp, pat, orifst, aux, limit, end = None):
-                def position(x, xs):
-                        for i, ix in enumerate(xs):
-                                if x == ix: return i
-                def constant_pat_p(pat):
-                        def nonconstant_pat_p(x): return _tuplep(x) or m.nonliteral_atom_p(x)
-                        return not nonconstant_pat_p(_py.tuple(pat.items())[0][1] if typep(pat, _py.dict) else
-                                                     pat)
-                ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
-                seg_pat, rest_pat = pat[0][1:], pat[1:]
-                firstp = aux is None
-                aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-                _trace_printf("segment", "segment  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  firstp:%s newaux:%s limit:%s",
-                              lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
-                end = (end                        if end is not None                          else
-                       position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
-                       0)
-                if ((end and end > _py.len(exp)) or ## no boundary variant fitted
-                    end is None):                   ## a constant pattern was missing
-                        return _r(exp, pat, m.fail(bound, exp, pat))
-                cut = end if rest_pat else len(exp)
-                seg_exp, rest_exp = (exp[0:cut], exp[len(exp) if cut is None else cut:])
-                _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
-                return _r(exp, pat,
-                          m.coor(m.crec(exp,
-                                        lambda:
-                                                ((lambda seg_bound, seg_r, seg_fail_pat:
-                                                          m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
-                                                                 if_exists = replace))
-                                                 (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
-                                                    m.fail(bound, exp, pat)                                if limit == 0    else
-                                                    ## Try biting one more iteration off seg_exp:
-                                                    m.match(bound, name,  seg_exp,     aux,  (False,
-                                                                                              firstp), aux, (limit - 1 if integerp(limit) else
-                                                                                                             None))))),
-                                        lambda seg_bound:
-                                                m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
-                                        orig_tuple_p = firstp and orifst[0] and seg_exp != (),
-                                        horisontal = t),
-                                 lambda: m.segment(   bound, name,      exp,      pat, orifst,   None,  limit,
-                                                            end + 1)))
-        def maybe(m, bound, name, exp, pat, orifst, aux, limit):
-                ## The semantics of aux are painfully unclear here:
-                ##  - we need to perform aux pass-through, for any potential surrounding segment match
-                ##  - we need a clean slate for this segment..
-                ## So, do we need a separate stack for aux here?  Sounds like an in inevitability..
-                ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
-                return _r(exp, pat,
-                          m.segment(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
-        ## About the vzy33c0's idea:
-        ## type-driven variable naming is not good enough, because:
-        ## 1. type narrows down the case analysis chain (of which there is a lot)
-        ## 2. expressions also need typing..
-        def match(m, bound, name, exp, pat, orifst, aux, limit):
-                def maybe_get0Rname(pat):
-                        ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
-                        (name, pat0), patR = _maybe_destructure_binding(pat[0]), pat[1:]
-                        return (name, pat0, name and m.simplex_pat_p(pat0), patR,
-                                (((pat0,) + patR) if name is not None else
-                                 pat)) ## Attempt to avoid consing..
-                ## I just caught myself feeling so comfortable thinking about life matters,
-                ## while staring at a screenful of code.  In "real" life I'd be pressed by
-                ## the acute sense of time being wasted..
-                atomp, null = not _tuplep(pat), pat == ()
-                _trace_printf("match", "       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s, simplexp: %s",
-                              lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
-                                       atomp, null,
-                                       (not (atom or null)) and m.complex_pat_p(pat[0]),
-                                       (not (atom or null)) and m.simplex_pat_p(pat[0])))
-                return \
-                    _r(exp, pat,
-                       (m.test((m.atom(exp, pat) if atomp else
-                                exp == ()),
-                               bound, name, lambda: m.prod(exp, orifst[0]), exp, pat)     if atomp or null        else
-                        m.simplex(bound, name, exp,  pat, (_tuplep(exp),
-                                                           orifst[1]))              if m.simplex_pat_p(pat) else
-                        m.complex(bound, name, (exp,), (pat,), orifst, None, limit) if m.complex_pat_p(pat) else
-                        (lambda pat0name, pat0, pat0simplexp, patR, clean_pat:
-                                 (m.equo(name, exp,
-                                         m.complex(bound, pat0name, exp, clean_pat, orifst, aux, limit))
-                                  if m.complex_pat_p(pat0)         else
-                                  m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
-                                  m.equo(name, exp,
-                                         m.crec(exp,
-                                                lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
-                                                                                                        orifst[1]),
-                                                                       None, None),
-                                                (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), aux, limit)),
-                                                orig_tuple_p = orifst[0],
-                                                horisontal = nil))))
-                        (*maybe_get0Rname(pat))))
-
-def _match(matcher, exp, pat):
-        name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
-        return matcher.match(_py.dict(), name, exp, prepped, (True, False), None, None)
 
 # ******* METASEX-MATCHER, METASEX-MATCHER-PP and METASEX-MATCHER-NONSTRICT-PP
 
