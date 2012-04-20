@@ -8056,11 +8056,22 @@ def labels():
                          (funcall, temp_name))
 #+end_src
 
-******* K FUNCALL, LAMBDA
+******* K FUNCTION, FUNCALL, LAMBDA
 
         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST.
 
 #+begin_src python +n
+_intern_and_bind_pynames("SETF")
+
+@defknown((intern("FUNCTION")[0], " ", (or_, _name,
+                                             (setf, _name))))
+def function():
+        ## A purely marker known, for now.
+        ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
+        def lower(name):
+                check_type(name, symbol)
+                return (symbol, name)
+
 @defknown((intern("FUNCALL")[0], [(_nottail, " "), _form]))
 def funcall():
         def lower(func, *args):
