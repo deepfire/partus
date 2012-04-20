@@ -6660,7 +6660,7 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
         def find_compiler_macroexpander(form):
                 ### XXX: we rely on the FUNCALL form to have been validated! (Joys of MetaSEX, yet?)
-                b, _, fail = _match_sex(form[1:], ((or_, (quote,    { "global_function_name":  (_typep, symbol)})
+                b, _, fail = _match_sex(form[1:], ((or_, (quote,    { "global_function_name":  (_typep, symbol)}),
                                                          (function, { "lexical_function_name": (_typep, symbol)})), [_form]))
                 global_, lexical_ = (b.get("global_function_name",  nil),
                                      b.get("lexical_function_name", nil))
@@ -6668,8 +6668,8 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
                         nil)
         def knownifier_and_maybe_compiler_macroexpander(form, known):
                 if not known: ## ..then it's a funcall, because all macros
-                        form = (funcall, (function, form[0])) + form[1:]
-                        return lambda *_: (find_compiler_macroexpander(form) or identity)(form)
+                        xformed = (funcall, (function, form[0])) + form[1:]
+                        return lambda *_: (find_compiler_macroexpander(xformed) or identity)(xformed)
                 else:
                         return (find_compiler_macroexpander(form) if known.name is funcall else
                                 nil)
@@ -6689,7 +6689,7 @@ _string_set("*ENABLE-MACROEXPAND-HOOK*", t)
 
 def macroexpand_1(form, env = nil, compilerp = nil):
         if symbol_value(_enable_macroexpand_hook_):
-                return symbol_value(_macroexpand_hook_)(_do_macroexpand_1, form, env)
+                return symbol_value(_macroexpand_hook_)(_do_macroexpand_1, form, env, compilerp = compilerp)
         return _do_macroexpand_1(form, env, compilerp)
 
 def macroexpand(form, env = nil, compilerp = nil):
@@ -7476,6 +7476,24 @@ def unwind_protect():
                           # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
                           pro_unwind + [("Expr", val_unwind)])],
                         _lower((symbol, temp_name))[1])
+
+# ***** Known tests
+
+_intern_and_bind_pynames("COND")
+
+def funcallification():
+        return _macroexpander_inner(_macroexpander, dict(), None,
+                                    (cond,),
+                                    nil,  ## The pattern will be discarded out of hand, anyway.
+                                    (None, None))
+bound_good, result_good, nofail = _runtest(funcallification,
+                                           {},
+                                           (funcall, (function, cond)))
+_results()
+assert(nofail)
+assert(bound_good)
+assert(result_good)
+print("; FUNCALLIFICATION: passed")
 
 # ***** Engine and drivers: %LOWER, @LISP and COMPILE
 
