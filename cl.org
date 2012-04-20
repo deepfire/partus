@@ -96,18 +96,7 @@
       Instead of being pessimistic in assumptions, act as if doing WPO, while tracking
       dependents.
 
-***** Macroexpanding
-
-      How is it to be determined, that a form must be passed through?
-      
-      - directly AST-ifiable (in terms of _astify_constant)
-      - atrees
-      
-      ..but what about detecting invalid forms?
-      
-      Also: how do we represent fucking tuples?
-      Also: should we track form paths?
-
+***** Form paths?
 ***** Lexenv processing
 
       Weren't we supposed to use the matcher to destructure forms?
@@ -138,9 +127,12 @@
       I think, that, at this point, it's clear that it's easier to think of the macrowalker
       separately.  Perhaps we could generalise, but that'll have to wait.
 
+***** DONE Macroexpanding
 ***** DONE Unification of pretty-printing, well-formed-ness checking and walking
 *** Compliance
 ***** Deviations from CL lambda list
+
+      aka COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST
 
       - the name bound by &REST contains all positionally-provided arguments in the excess
         of those specified in the parameter list and up to the first keyword-provided
@@ -152,6 +144,11 @@
         keyword-specified parameter
       - no &ALLOW-OTHER-KEYS (its function is subsumed by &RESTKEY)
       - existence of a separate &RESTKEY
+      - the parameters do not establish scope for subsequent default and &AUX value forms
+
+        aka COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST-INTRA-VALUE-FORMS-BINDING-SCOPE
+
+        - we should push processing of this out, to macros, simplifying knowns
       - ..there are more
 
 ******* Conclusion
