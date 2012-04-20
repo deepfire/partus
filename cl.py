@@ -7069,7 +7069,7 @@ def if_():
                         return (flet, cons_fdefn + ante_fdefn,
                                  (if_, test, cons, ante))
 
-# ******* %P-L-L-L/L-L-L-L and DEF_
+# ******* %P-L-L-L/L-L-L-L
 
 def _prepare_lispy_lambda_list(context, lambda_list_, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (_name, "None"))
@@ -7147,6 +7147,8 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
                 odef_vals,
                 kdef_vals)
 
+# ******* DEF_
+
 # 1. I'd rather much separate:
 #    - named lambda compilation
 #        def thunk():
@@ -7157,7 +7159,7 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
 #    - installation of such named lambdas as global function definitions
 #        emit a decorator? install_fdefinition
 @defknown((intern("DEF_")[0], " ", _name, " ", ([(_notlead, " "), _form],),
-            1, [(_notlead, "\n"), _form]),
+            1, [(_notlead, "\n"), (_bound, _form)]),
           name = intern("DEF_")[0])
 def def_():
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
@@ -7268,10 +7270,11 @@ when EVAL-WHEN appears as a top level form."""
 
 # ******* K DEFMACRO, DEFUN
 
-#         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST.
+#         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST
+#         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST-INTRA-VALUE-FORMS-BINDING-SCOPE
 
 @defknown((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
-            1, [(_notlead, "\n"), _form]))
+            1, [(_notlead, "\n"), (_bound, _form)]))
 def defmacro():
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _prepare_lispy_lambda_list("DEFMACRO %s" % name, lambda_list)
@@ -7288,7 +7291,7 @@ def defmacro():
                         _lower((quote, (symbol, name)))[1])
 
 @defknown((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
-            1, [(_notlead, "\n"), _form]))
+            1, [(_notlead, "\n"), (_bound, _form)]))
 def defun():
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _prepare_lispy_lambda_list("DEFUN %s" % name, lambda_list)
@@ -7305,7 +7308,7 @@ def defun():
 # ********* Code
 
 @defknown((intern("LET")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
-            1, [(_notlead, "\n"), _form]))
+            1, [(_notlead, "\n"), (_bound, _form)]))
 def let():
         def binds(bindings, *body):
                 bindings = (((b,    None) if symbolp(b) else
@@ -7337,7 +7340,7 @@ def let():
 
 @defknown((intern("FLET")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), _form],),
                                                          1, [(_notlead, "\n"), _form])],),
-            1, [(_notlead, "\n"), _form]))
+            1, [(_notlead, "\n"), (_bound, _form)]))
 def flet():
         def binds(bindings, *body):
                 return { function: { _make_function_binding(name, t, None) for name, _, *__ in bindings } }
@@ -7355,9 +7358,9 @@ def flet():
                                         for name, lambda_list, *fbody in bindings)) +
                         body)
 
-@defknown((intern("LABELS")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), _form],),
-                                                           1, [(_notlead, "\n"), _form])],),
-            1, [(_notlead, "\n"), _form]))
+@defknown((intern("LABELS")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), (_bound, _form)],),
+                                                           1, [(_notlead, "\n"), (_bound, _form)])],),
+            1, [(_notlead, "\n"), (_bound, _form)]))
 def labels():
         def binds(bindings, *body):
                 return { function: { _make_function_binding(name, t, None) for name, _, *__ in bindings } }
@@ -7410,7 +7413,7 @@ def funcall():
                                  (funcall, func_exp) + _py.tuple())
 
 @defknown((intern("LAMBDA")[0], " ", ([(_notlead, " "), _form],),
-            1, [(_notlead, "\n"), _form]))
+            1, [(_notlead, "\n"), (_bound, _form)]))
 def lambda_():
         def binds(lambda_list, *body, dont_delay_defaults = nil):
                 total, _, __ = _prepare_lispy_lambda_list("LAMBDA", lambda_list)
