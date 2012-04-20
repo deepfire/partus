@@ -5795,6 +5795,7 @@ class _matcher():
                 m.__complex_patterns__, m.__simplex_patterns__ = _py.dict(), _py.dict()
                 m.register_complex_matcher(some, m.segment)
                 m.register_complex_matcher(_maybe, m.maybe)
+                m.register_complex_matcher(or_, m.or_)
         def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
         def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
@@ -5854,6 +5855,17 @@ class _matcher():
                 ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
                 return _r(exp, pat,
                           m.segment(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
+        def or_(m, bound, name, exp, pat, orifst, aux, limit):
+                alternatives = pat[0][1:]
+                def fail():
+                        return m.fail(bound, exp, pat[0])
+                def rec(head, tail):
+                        return m.coor(m.match(bound, name, exp, (head,) + pat[1:], orifst, None, None),
+                                      ## Unregistered Issue MATCHER-OR-FAILED-EXPRESSION-TOO-UNSPECIFIC
+                                      lambda: (fail() if not tail else
+                                               rec(tail[0], tail[1:])))
+                return (fail() if not alternatives else
+                        rec(alternatives[0], alternatives[1:]))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
         ## 1. type narrows down the case analysis chain (of which there is a lot)
@@ -6571,6 +6583,18 @@ def _form_binds(form):
 # assert(bound_good)
 # assert(result_good)
 # print("; EMPTY-CROSS: passed")
+
+# def alternates():
+#         return _match(_metasex_pp, (1, "a"), {"whole":([(or_, (_typep, _py.int),
+#                                                               (_typep, _py.str))],)})
+# bound_good, result_good, nofail = runtest(alternates,
+#                                           { 'whole': (1, "a") },
+#                                           "(1a)")
+# results()
+# assert(nofail)
+# assert(bound_good)
+# assert(result_good)
+# print("; ALTERNATES: passed")
 
 # _intern_and_bind_pynames("PI")
 # def simplex():
