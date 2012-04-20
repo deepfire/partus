@@ -2924,10 +2924,12 @@ SETF of MACRO-FUNCTION."""
                    (b_or_res.value if _bindingp(b_or_res) else b_or_res) or nil)
 
 @defun
-def compiler_macro_function(symbol_, environment = nil):
+def compiler_macro_function(symbol_, environment = nil, check_shadow = t):
         """compiler-macro-function symbol &optional environment => function"""
-        return the((or_, function, null),
-                   the(symbol, symbol_).compiler_macro_function)
+        shadow = check_shadow and environment and environment.funcscope_binds_p(symbol_)
+        return (the((or_, function, null),
+                     the(symbol, symbol_).compiler_macro_function) if not shadow else
+                nil)
 
 @defun
 def setf_compiler_macro_function(new_function, symbol, environment = nil):
@@ -6451,8 +6453,8 @@ _metasex_nonstrict_pp = _metasex_matcher_nonstrict_pp()
 # _trace(_return, "form")
 # _trace(_return, "typep")
 
-def _match_sex(sex):
-        return _match(_metasex_pp, sex, _metasex.form_metasex(sex))
+def _match_sex(sex, pattern = None):
+        return _match(_metasex, sex, _defaulted(pattern, _metasex.form_metasex(sex)))
 
 ## WIP: set specifiers (got bored)
 _string_set("*SETSPEC-SCOPE*", nil)
@@ -6624,25 +6626,36 @@ def _form_binds(form):
 
 # ***** Macro-expander
 
-def _do_macroexpand_1(form, env = nil):
-        ## Unregistered Issue COMPLIANCE-MACROEXPANDER-MUST-CONSIDER-LEXENV
+def _do_macroexpand_1(form, env = nil, compilerp = nil):
+        """This handles:
+             - macro expansion, and,
+           optionally, if COMPILERP is non-NIL:
+             - conversion of implicit funcalls to knowns, and
+             - compiler macro expansion"""
+        ## Unregistered Issue COMPLIANCE-IMPLICIT-FUNCALL-INTERPRETATION
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
-        def funcallify(form):
-                # return (funcall,) + form
-                ## ..ain't so easy..
-                _not_implemented("Macroexpansion-time funcallification is not possible without full lexenv analysis.")
         def find_compiler_macroexpander(form):
-                return nil
-        def find_form_expander(form):
-                known = _find_known(form[0])
-                return (macro_function(form[0], env) or
-                        (nil                               if not known             else
-                         find_compiler_macroexpander(form) if known.name is funcall else
-                         nil))
-        expander, args = ((form and symbolp(form[0]) and find_form_expander(form), form[1:])
-                                                                  if _tuplep(form) else
-                          (_symbol_macro_expander(form, env), ()) if symbolp(form) else
-                          (None, None))
+                ### XXX: we rely on the FUNCALL form to have been validated! (Joys of MetaSEX, yet?)
+                b, _, fail = _match_sex(form[1:], ((or_, (quote,    { "global_function_name":  (_typep, symbol)})
+                                                         (function, { "lexical_function_name": (_typep, symbol)})), [_form]))
+                global_, lexical_ = (b.get("global_function_name",  nil),
+                                     b.get("lexical_function_name", nil))
+                return (compiler_macro_function(global_ or lexical_, check_shadow = lexical_) if fail is None else
+                        nil)
+        def knownifier_and_maybe_compiler_macroexpander(form, known):
+                if not known: ## ..then it's a funcall, because all macros
+                        form = (funcall, (function, form[0])) + form[1:]
+                        return lambda *_: (find_compiler_macroexpander(form) or identity)(form)
+                else:
+                        return (find_compiler_macroexpander(form) if known.name is funcall else
+                                nil)
+        expander, args = (((form and symbolp(form[0]) and
+                            (macro_function(form[0], env) or
+                             (compilerp and
+                              knownifier_and_maybe_compiler_macroexpander(form, _find_known(form[0]))))),
+                           form[1:])                              if _tuplep(form) else
+                          (_symbol_macro_expander(form, env), ()) if symbolp(form) else ## Notice, how NIL is not expanded.
+                          (nil, nil))
         return ((form, nil) if not expander else
                 (expander(*args), t))
 
@@ -6650,36 +6663,39 @@ def _do_macroexpand_1(form, env = nil):
 _string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
 _string_set("*ENABLE-MACROEXPAND-HOOK*", t)
 
-def macroexpand_1(form, env = nil):
+def macroexpand_1(form, env = nil, compilerp = nil):
         if symbol_value(_enable_macroexpand_hook_):
                 return symbol_value(_macroexpand_hook_)(_do_macroexpand_1, form, env)
-        return _do_macroexpand_1(form, env)
+        return _do_macroexpand_1(form, env, compilerp)
 
-def macroexpand(form, env = nil):
+def macroexpand(form, env = nil, compilerp = nil):
         def do_macroexpand(form, expanded):
-                expansion, expanded_again = macroexpand_1(form, env)
+                expansion, expanded_again = macroexpand_1(form, env, compilerp)
                 return (do_macroexpand(expansion, t) if expanded_again else
                         (form, expanded))
         return do_macroexpand(form, nil)
 
-_string_set("*MACROEXPANDER-ENV*", nil)
+_string_set("*MACROEXPANDER-ENV*", nil)       ## This is for regular macro expansion.
 _string_set("*MACROEXPANDER-FORM-BINDS*", nil)
 
-def _macroexpander_inner(m, bound, name, exp, pat, orifst):
+def _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t):
         # _debug_printf("%%MXER-INNER: -->\n%s", exp)
+        ## 1. Expose the knowns and implicit funcalls:
         env = _symbol_value(_macroexpander_env_)
-        form, _ = macroexpand(exp, env)
-        ## now, it's either an implicit funcall or a known..
-        ## so we can quickly decide, if we're even capable of binding..
+        form, _ = macroexpand(exp, env, compilerp = compilerp)
+        ## 2. Compute bindings contributed by this outer form.
         known = _find_known(form[0]) if _tuplep(form) else nil
-        symbol_frame, func_frame = ((_dict_select_keys(_form_binds(form), symbol_macro),
-                                     _dict_select_keys(_form_binds(form), macro)) if known else
-                                    (_py.dict(), _py.dict()))
-        ## - result accumulation _and_ combination -- how is it done?
+        (symbol_frame,
+         mfunc_frame,
+         ffunc_frame) = ((_dict_select_keys(_form_binds(form), symbol_macro),
+                          _dict_select_keys(_form_binds(form), macro),
+                          _dict_select_keys(_form_binds(form), function)) if known else
+                         (_py.dict(), _py.dict(), _py.dict()))
+        ## 3. Pass the binding extension information down.
         with (progv({_macroexpander_form_binds_: _make_lexenv(env,
                                                               kind_varframe = symbol_frame,
-                                                              kind_funcframe = func_frame)})
-              if symbol_frame or func_frame else
+                                                              kind_funcframe = _dictappend(mfunc_frame, ffunc_frame))})
+              if symbol_frame or mfunc_frame or ffunc_frame else
               _withless()):
                 b, r, f = _metasex_matcher.form(m, bound, name, form, pat, orifst)
                 # if not f:
@@ -6709,8 +6725,9 @@ def _macroexpander_inner(m, bound, name, exp, pat, orifst):
 ##
 class _macroexpander_matcher(_metasex_matcher):
         def __init__(m):
+                ## Unregistered Issue MACROEXPANDER-COMPILERP-STATE-PASSING-TANGLED
                 _metasex_matcher.__init__(m)
-                m.register_simplex_matcher(_form,  lambda *args: _macroexpander_inner(m, *args))
+                m.register_simplex_matcher(_form,  lambda *args: _macroexpander_inner(m, *args, compilerp = t))
                 m.register_simplex_matcher(_bound, m.activate_binding_extension)
         def activate_binding_extension(m, bound, name, exp, pat, orifst):
                 ## The dynamic scope expansion is unavoidable, because we have to
@@ -6719,7 +6736,7 @@ class _macroexpander_matcher(_metasex_matcher):
                                                   _symbol_value(_macroexpander_env_)),
                             ## marker scope ends here:
                             _macroexpander_form_binds_: nil}):
-                        return _macroexpander_inner(m, bound, name, exp, pat, orifst)
+                        return _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t)
         @staticmethod
         def prod(x, orig_tuple_p): return x
         @staticmethod
@@ -6737,11 +6754,12 @@ class _macroexpander_matcher(_metasex_matcher):
 
 _macroexpander = _macroexpander_matcher()
 
-def macroexpand_all(form, env = nil, compiler_macroexpand = nil):
+def macroexpand_all(form, env = nil, compilerp = t):
         _, res, failpat = _macroexpander_inner(_macroexpander, dict(), None,
                                                form,
                                                nil,  ## The pattern will be discarded out of hand, anyway.
-                                               (None, None))
+                                               (None, None),
+                                               compilerp = t)
         assert(not failpat)
         return res
 
