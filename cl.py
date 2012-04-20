@@ -6493,17 +6493,17 @@ def _form_binds(form):
 
 # ******* Testing
 
-# _results = []
-# def runtest(fun, bindings, result):
-#         b, r, f = fun()
-#         _results.append((fun, b, r, f))
-#         return (b == bindings,
-#                 r == result,
-#                 f is None)
-# def results():
-#         for fun, b, r, f in _results:
-#                 _debug_printf("%15s bound: %s", fun.__name__, b)
-#                 _debug_printf("%15s res: %s", fun.__name__, r)
+_results_ = []
+def _runtest(fun, bindings, result):
+        b, r, f = fun()
+        _results_.append((fun, b, r, f))
+        return (b == bindings,
+                r == result,
+                f is None)
+def _results():
+        for fun, b, r, f in _results_:
+                _debug_printf("%15s bound: %s", fun.__name__, b)
+                _debug_printf("%15s res: %s", fun.__name__, r)
 
 # _intern_and_bind_pynames("LET", "FIRST", "SECOND", "CAR", "&BODY")
 # def just_match():
@@ -6513,12 +6513,12 @@ def _form_binds(form):
 #                         _body),
 #                       (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
 #                          1, {"body":[(_notlead, "\n"), _form]}))
-# bound_good, result_good, nofail = runtest(just_match,
-#                                           { 'bindings': ((first, ()),
-#                                                          (second, (car,))),
-#                                             'body':     (_body,)},
-#                                           t)
-# results()
+# bound_good, result_good, nofail = _runtest(just_match,
+#                                            { 'bindings': ((first, ()),
+#                                                           (second, (car,))),
+#                                              'body':     (_body,)},
+#                                            t)
+# _results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6531,14 +6531,14 @@ def _form_binds(form):
 #                         _body),
 #                       (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
 #                          1, {"body":[(_notlead, "\n"), _form]}))
-# bound_good, result_good, nofail = runtest(pp,
-#                                           { 'bindings': ((first, ()),
-#                                                          (second, (car,))),
-#                                             'body':     (_body,)},
-#                                           """(LET ((FIRST ())
+# bound_good, result_good, nofail = _runtest(pp,
+#                                            { 'bindings': ((first, ()),
+#                                                           (second, (car,))),
+#                                              'body':     (_body,)},
+#                                            """(LET ((FIRST ())
 #       (SECOND (CAR)))
 #   &BODY)""")
-# results()
+# _results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6551,12 +6551,12 @@ def _form_binds(form):
 #                         _body),
 #                       (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
 #                          1, [(_notlead, "\n"), _form]))
-# bound_good, result_good, nofail = runtest(mal_pp,
-#                                           {},
-#                                           """(LET ((FIRST ())
+# bound_good, result_good, nofail = _runtest(mal_pp,
+#                                            {},
+#                                            """(LET ((FIRST ())
 #       (SECOND (CAR)))
 #   &BODY)""")
-# results()
+# _results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6564,10 +6564,10 @@ def _form_binds(form):
 
 # def empty():
 #         return _match(_metasex_pp, (), {"whole":()})
-# bound_good, result_good, nofail = runtest(empty,
-#                                           { 'whole': () },
-#                                           "()")
-# results()
+# bound_good, result_good, nofail = _runtest(empty,
+#                                            { 'whole': () },
+#                                            "()")
+# _results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6575,10 +6575,10 @@ def _form_binds(form):
 
 # def empty_cross():
 #         return _match(_metasex_pp, (), ({"a":[_name]}, {"b":[(_name,)]},))
-# bound_good, result_good, nofail = runtest(empty_cross,
-#                                           { 'a': (), 'b': () },
-#                                           "()")
-# results()
+# bound_good, result_good, nofail = _runtest(empty_cross,
+#                                            { 'a': (), 'b': () },
+#                                            "()")
+# _results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6587,10 +6587,10 @@ def _form_binds(form):
 # def alternates():
 #         return _match(_metasex_pp, (1, "a"), {"whole":([(or_, (_typep, _py.int),
 #                                                               (_typep, _py.str))],)})
-# bound_good, result_good, nofail = runtest(alternates,
-#                                           { 'whole': (1, "a") },
-#                                           "(1a)")
-# results()
+# bound_good, result_good, nofail = _runtest(alternates,
+#                                            { 'whole': (1, "a") },
+#                                            "(1a)")
+# _results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6601,12 +6601,12 @@ def _form_binds(form):
 #         pat = ({'head':[()]}, {'tail':_name})
 #         exp = ((), pi)
 #         return _match(_metasex_pp, exp, pat)
-# bound_good, result_good, nofail = runtest(simplex,
-#                                           { 'head': ((),),
-#                                             'tail': pi },
-#                                           "(()PI)"
-#                                           )
-# results()
+# bound_good, result_good, nofail = _runtest(simplex,
+#                                            { 'head': ((),),
+#                                              'tail': pi },
+#                                            "(()PI)"
+#                                            )
+# _results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6621,17 +6621,17 @@ def _form_binds(form):
 #                                                                                 {"tailname":_name})
 #         exp =              (pi,   (pi,),   (pi,), (pi, pi), (pi, pi, pi), (pi,), (pi,), (pi,),   pi, pi, pi)
 #         return _match(_metasex_pp, exp, pat)
-# bound_good, result_good, nofail = runtest(mid_complex,
-#                                           { 'headname': pi,
-#                                             'headtupname': (pi,),
-#                                             'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
-#                                             'fix1tupseq': ((pi,), (pi,), (pi,)),
-#                                             'nameseq': (pi, pi),
-#                                             'tailname': pi },
-#                                           "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)"
-#                                           # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
-#                                           )
-# results()
+# bound_good, result_good, nofail = _runtest(mid_complex,
+#                                            { 'headname': pi,
+#                                              'headtupname': (pi,),
+#                                              'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
+#                                              'fix1tupseq': ((pi,), (pi,), (pi,)),
+#                                              'nameseq': (pi, pi),
+#                                              'tailname': pi },
+#                                            "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)"
+#                                            # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
+#                                            )
+# _results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
@@ -6639,10 +6639,10 @@ def _form_binds(form):
 
 # def simple_maybe():
 #         return _match(_metasex_pp, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
-# bound_good, result_good, nofail = runtest(simple_maybe,
-#                                           { 'pi': (pi,), 'car': car, 'cdr': cdr, },
-#                                           "(PICARCDR)")
-# results()
+# bound_good, result_good, nofail = _runtest(simple_maybe,
+#                                            { 'pi': (pi,), 'car': car, 'cdr': cdr, },
+#                                            "(PICARCDR)")
+# _results()
 # assert(nofail)
 # assert(bound_good)
 # assert(result_good)
