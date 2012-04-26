@@ -245,7 +245,8 @@ def pp_ast(o, stream = sys.stdout):
                 subprefix = pspec + (([True] if i < child_list_slots_nr - 1 else [False]))
                 for sub in v:
                     do_pp_ast_rec(sub, '', subprefix)
-    do_pp_ast_rec(o, '', [])
+    do_pp_ast_rec((compile(o, "<ast>", 'exec', flags=ast.PyCF_ONLY_AST).body[0] if isinstance(o, str) else
+                   o), '', [])
     return o
 
 class NotImplemented(Exception):
