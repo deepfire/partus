@@ -202,56 +202,49 @@ some subform of FORM."""
         return rec(form)
 
 def pp_ast(o, stream = sys.stdout):
-    """Pretty-print AST O."""
-
     def do_pp_ast_rec(x, name, pspec):
         lstr = ['']
-
         def lmesg(msg):
             lstr[0] += msg
             if msg[-1] == '\n'[0]:
-                fprintf(stream, (lstr[0]))
+                print(lstr[0], file = stream, end = '')
                 lstr[0] = ''
-
         def pp_prefix(spec):
             for i in spec:
                 lmesg((' |  ' if i else '    '))
-
+        def sequencep(x):
+            return getattr(type(x), "__len__", None) is not None
         pp_prefix(pspec)
         if name:
             lmesg('<' + name + '>: ')
         if x is None:
             lmesg('<None>\n')
-        elif stringp(x):
+        elif isinstance(x, str):
             lmesg("'" + x + "'\n")
-        elif bytesp(x) or integerp(x) or floatp(x) or isinstance(x, bool):
+        elif isinstance(x, (bytes, int, float, bool)):
             lmesg(str(x) + '\n')
-        elif sequencep(x) and emptyp(x):
+        elif sequencep(x) and len(x) == 0:
             lmesg('[]\n')
         else:
             child_slot_names = type(x)._fields
             child_slots = [(k, getattr(x, k)) for k in child_slot_names]
             lmesg(type(x).__name__ + '  ')
-
             for (k, v) in child_slots:
-                if stringp(v):
+                if isinstance(v, str):
                     lmesg("<%s>: '%s', "%(k, v))
-
             lmesg('\n')
-            child_list_slots = list(reversed(sort([(k, v) for (k, v) in child_slots if isinstance(v, list)], key=car)))
+            child_list_slots = list(reversed(sorted([(k, v) for (k, v) in child_slots if isinstance(v, list)],
+                                                    key = lambda x: x[0])))
             child_list_slots_nr = len(child_list_slots)
-
             for (k, v) in child_slots:
-                if not isinstance(v, list) and not stringp(v):
+                if not isinstance(v, list) and not isinstance(v, str):
                     do_pp_ast_rec(v, k, pspec + (([True] if child_list_slots_nr > 0 else [False])))
-
             for ((k, v), i) in zip(child_list_slots, range(0, child_list_slots_nr)):
                 pp_prefix(pspec)
                 lmesg(' ^[' + k + ']\n')
                 subprefix = pspec + (([True] if i < child_list_slots_nr - 1 else [False]))
                 for sub in v:
                     do_pp_ast_rec(sub, '', subprefix)
-
     do_pp_ast_rec(o, '', [])
     return o
 
