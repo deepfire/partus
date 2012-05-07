@@ -7045,29 +7045,30 @@ def _make_lexenv(parent = nil, **initial_content):
                   _frost.setf_global(sym, pyname, globals = _py.globals())
                   args_ast, body_asts = _function_ast(fn)
                   body, documentation, declarations = _defbody_parse_ast(_py.set(), body_asts)
-                  def meth(name, body):
-                          return (name, lambda *_: _py.compile(body, "", "exec", flags = _ast.PyCF_ONLY_AST).body[0])
+                  def meth(name, body, *args):
+                          return (name, lambda *_: _py.compile(body % args, "", "exec",
+                                                               flags = _ast.PyCF_ONLY_AST).body[0])
                   [lower,
                    binds,
                    nvalues, nth_value,
                    effects, affected,
-                  ] = _defbody_methods("DEFKNOWN " + _py.str(sym), body, lambda method_name: method_name,
+                  ] = _defbody_methods("DEFKNOWN " + _py.str(sym), body, lambda method_name: pyname + "_" + method_name,
                                        ["lower",
                                         meth("binds",
-                                             """def binds(*_): 
-                                                        return dict()"""),
+                                             """def %s_binds(*_):
+                                                        return dict()""", pyname),
                                         meth("nvalues",
-                                             """def nvalues(*_):
-                                                        error('Known %s unsupported in values context.')""" % sym),
+                                             """def %s_nvalues(*_):
+                                                        error('Known %s unsupported in values context.')""", pyname, sym),
                                         meth("nth_value",
-                                             """def nth_value(*_):
-                                                        error('Known %s unsupported in values context.')""" % sym),
+                                             """def %s_nth_value(*_):
+                                                        error('Known %s unsupported in values context.')""", pyname, sym),
                                         meth("effects",
-                                             """def effects(*_):
-                                                        error('Effect analysis unsupported for known %s.')""" % sym),
+                                             """def %s_effects(*_):
+                                                        error('Effect analysis unsupported for known %s.')""", pyname, sym),
                                         meth("affected",
-                                             """def affected(*_):
-                                                        error('Effect analysis unsupported for known %s.')""" % sym)])
+                                             """def %s_affected(*_):
+                                                        error('Effect analysis unsupported for known %s.')""", pyname, sym)])
                   lower_key_args = _function_lambda_list(lower)[3]
                   ## Complete, record the deeds.
                   sym.known = _known(name = sym,
