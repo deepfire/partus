@@ -8988,7 +8988,7 @@ def def_():
         def nvalues(_):             return 1
         def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, (symbol, nil))
         def binds(name, lambda_list, *body, decorators = []):
-                total, _, __ = _ir_prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
+                total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
         def lower(name, lambda_list, *body, decorators = []):
                 ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
@@ -9003,7 +9003,7 @@ def def_():
                         # check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
                         def try_compile():
                                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                                total, args, defaults = _ir_prepare_lispy_lambda_list("DEF %s" % name, lambda_list)
+                                total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
                                 compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
                                 with _tail_position():
                                         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
@@ -9062,7 +9062,7 @@ def defmacro():
         def nvalues(_):             return 1
         def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, (symbol, nil))
         def binds(name, lambda_list, *body, decorators = []):
-                total, _, __ = _ir_prepare_lispy_lambda_list("DEFMACRO %s" % name, lambda_list)
+                total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEFMACRO %s" % name)
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
         def lower(name, lambda_list, *body):
                 ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
@@ -9094,7 +9094,7 @@ def defun():
         def nvalues(_):             return 1
         def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, (symbol, nil))
         def binds(name, lambda_list, *body, decorators = []):
-                total, _, __ = _ir_prepare_lispy_lambda_list("DEFUN %s" % name, lambda_list)
+                total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEFUN %s" % name)
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
         def lower(name, lambda_list, *body):
                 ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
@@ -9124,7 +9124,7 @@ def lambda_():
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
         def binds(lambda_list, *body, dont_delay_defaults = nil):
-                total, _, __ = _ir_prepare_lispy_lambda_list("LAMBDA", lambda_list)
+                total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA")
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
         def lower(lambda_list, *body, dont_delay_defaults = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
@@ -9135,7 +9135,7 @@ def lambda_():
                 preliminary_body_pve = _lower((progn,) + body)
                 body_exprp = _tuple_expression_p(preliminary_body_pve)
                 if body_exprp:
-                        total, args, defaults = _ir_prepare_lispy_lambda_list("LAMBDA", lambda_list, allow_defaults = t)
+                        total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                         (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
                         if not (optional or keys):
                                 _compiler_debug_printf(" -- LAMBDA: simple")
