@@ -6871,7 +6871,7 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
                         nil)
         def knownifier_and_maybe_compiler_macroexpander(form, known):
                 if not known: ## ..then it's a funcall, because all macros
-                        xformed = (apply, (function, form[0])) + form[1:] + ((symbol, nil),)
+                        xformed = (apply, (function, form[0])) + form[1:] + (nil,)
                         return lambda *_: (find_compiler_macroexpander(xformed) or identity)(xformed)
                 else:
                         return (find_compiler_macroexpander(form) if known.name is apply else
@@ -7230,8 +7230,11 @@ def _ir_function_form_nth_value_form(n, func, orig_form):
 
 # Python calls
 
+def _ir_cl_module_name(name):
+        return ("cl", name)
+
 def _ir_cl_module_call(name, *ir_args):
-        return (apply, ("cl", name)) + ir_args
+        return (apply, _ir_cl_module_name(name)) + ir_args
 
 # SETQ
 #         :PROPERTIES:
@@ -7251,7 +7254,7 @@ def _lower_name(name, ctx = "Load"):
 @defknown((intern("SETQ")[0], " ", _name, " ", _form))
 def setq():
         def nvalues(_, __):               return 1
-        def nth_value(n, orig, _, value): return orig if n is 0 else (progn, orig, (symbol, nil))
+        def nth_value(n, orig, _, value): return orig if n is 0 else (progn, orig, nil)
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
         def lower(name, value):
@@ -7275,11 +7278,11 @@ def setq():
 @defknown
 def quote():
         def nvalues(_):            return 1
-        def nth_value(n, orig, _): return orig if n is 0 else (symbol, nil)
+        def nth_value(n, orig, _): return orig if n is 0 else nil
         def lower(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
-                if symbolp(x):
-                        return (symbol, x)
+                if symbolp(x) and not constantp(x):
+                        return nil if x is nil else (ref, x)
                 else:
                         atree, successp = _try_atreeify_constant(x)
                         if successp:
@@ -7346,12 +7349,12 @@ def _ir_nth_valueify_last_subform(n, form):
 @defknown((intern("PROGN")[0],
             1, [(_notlead, "\n"), _form]))
 def progn():
-        def nvalues(*body):            return 1              if not body else _ir_nvalues(body[-1])
-        def nth_value(n, orig, *body): return ((symbol, nil) if not body else _ir_nth_valueify_last_subform(n, orig))
+        def nvalues(*body):            return 1   if not body else _ir_nvalues(body[-1])
+        def nth_value(n, orig, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def lower(*body):
                 if not body:
                         return ([],
-                                _lower((symbol, nil)))
+                                _lower(nil))
                 pro, ntotal = [], _py.len(body)
                 with _no_tail_position():
                         for spro, val in (_lower(x) for x in body[:-1]):
@@ -7414,10 +7417,10 @@ def if_():
                         _compiler_debug_printf(" -- IF: complex FLET-based case")
                         ## Unregistered Issue FUNCALL-MISSING
                         name_cons, name_ante = _gensyms(x = "IF-BRANCH", n = 2)
-                        cons, cons_fdefn = ((consequent,           _py.tuple()) if cons_expr_p else
-                                            ((apply, (symbol, name_cons)), ((name_cons, _py.tuple()) + (consequent,),), (symbol, nil)))
-                        ante, ante_fdefn = ((antecedent,           _py.tuple()) if ante_expr_p else
-                                            ((apply, (symbol, name_ante)), ((name_ante, _py.tuple()) + (antecedent,),), (symbol, nil)))
+                        cons, cons_fdefn = ((consequent,                     ()) if cons_expr_p else
+                                            ((apply, (ref, name_cons), nil), ((name_cons, ()) + (consequent,),)))
+                        ante, ante_fdefn = ((antecedent,                     ()) if ante_expr_p else
+                                            ((apply, (ref, name_ante), nil), ((name_ante, ()) + (antecedent,),)))
                         return (flet, cons_fdefn + ante_fdefn,
                                  (if_, test, cons, ante))
         def effects(test, consequent, antecedent):  return _py.any(_ir_effects(f) for f in [test, consequent, antecedent])
@@ -7435,8 +7438,8 @@ def if_():
 @defknown((intern("LET")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
             1, [(_notlead, "\n"), (_bound, _form)]))
 def let():
-        def nvalues(bindings, *body):            return 1 if not body else _ir_nvalues(body[-1])
-        def nth_value(n, orig, bindings, *body): return (symbol, nil) if not body else _ir_nth_valueify_last_subform(n, orig)
+        def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
+        def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
                 bindings = (((b,    None) if symbolp(b) else
                              (b[0], b[1])) for b in bindings)
@@ -7453,7 +7456,7 @@ def let():
                 if every(_tuple_expression_p, compiled_value_pves):
                         _compiler_debug_printf(" -- LET: simple all-expression LAMBDA case")
                         form = (apply, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
-                                            dont_delay_defaults = t), (symbol, nil))
+                                            dont_delay_defaults = t), nil)
                 else:
                         _compiler_debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
                         last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
@@ -7486,8 +7489,8 @@ def let():
                                                          1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), (_bound, _form)]))
 def flet():
-        def nvalues(bindings, *body):            return 1             if not body else _ir_nvalues(body[-1])
-        def nth_value(n, orig, bindings, *body): return (symbol, nil) if not body else _ir_nth_valueify_last_subform(n, orig)
+        def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
+        def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
                 return { function: { _function_binding(name, function, None) for name, _, *__ in bindings } }
         def lower(bindings, *body):
@@ -7500,7 +7503,7 @@ def flet():
                 tempnames = [ gensym(string(name)) for name, _, *__ in bindings ]
                 form = ((let, _py.tuple((name, (progn,
                                                  (def_, tempname, lambda_list) + _py.tuple(fbody),
-                                                 (symbol, tempname)))
+                                                 (ref, tempname)))
                                         for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings))) +
                         body)
                 with progv({ _lexenv_: _lexenv(kind_funcframe = { function: { _function_binding(name, function,
@@ -7525,8 +7528,8 @@ def flet():
                                                            1, [(_notlead, "\n"), (_bound, _form)])],),
             1, [(_notlead, "\n"), (_bound, _form)]))
 def labels():
-        def nvalues(bindings, *body):            return 1             if not body else _ir_nvalues(body[-1])
-        def nth_value(n, orig, bindings, *body): return (symbol, nil) if not body else _ir_nth_valueify_last_subform(n, orig)
+        def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
+        def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
                 return { function: { _function_binding(name, function, None) for name, _, *__ in bindings } }
         def lower(bindings, *body):
@@ -7541,7 +7544,7 @@ def labels():
                                 _py.tuple((def_, name, lambda_list, body)
                                        for name, lambda_list, *body in bindings) +
                                 body)),
-                         (apply, temp_name, (symbol, nil)))
+                         (apply, temp_name, nil))
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -7566,12 +7569,12 @@ def function():
         ## A purely marker known, for now.
         ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
         def nvalues(_):            return 1
-        def nth_value(n, orig, _): return orig if n is 0 else (symbol, nil)
+        def nth_value(n, orig, _): return orig if n is 0 else nil
         def lower(name):
                 binding = symbol_value(_lexenv_).lookup_function(the(symbol, name))
                 if not (binding or name.function):
                         simple_style_warning("undefined function: ~A", name)
-                return (symbol, name)
+                return (ref, name)
         def effects(name):         return nil
         def affected(name):        return not symbol_value(_lexenv_).funcscope_binds_p(name)
 """function name => function
@@ -7630,7 +7633,7 @@ def unwind_protect():
                           pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
                           # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
                           pro_unwind + [("Expr", val_unwind)])],
-                        _lower((symbol, temp_name))[1])
+                        _lower((ref, temp_name))[1])
         def effects(form, *unwind_body):
                 return _py.any(_ir_effects(f) for f in (form,) + body)
         def affected(form, *unwind_body):
@@ -7649,8 +7652,8 @@ def unwind_protect():
                                                              1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), (_bound, _form)]))
 def macrolet():
-        def nvalues(bindings, *body):            return 1             if not body else _ir_nvalues(body[-1])
-        def nth_value(n, orig, bindings, *body): return (symbol, nil) if not body else _ir_nth_valueify_last_subform(n, orig)
+        def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
+        def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
                 return { macro: { _function_binding(name, macro, (lambda_list, body))
                                   for name, lambda_list, *body in bindings } }
@@ -7674,8 +7677,8 @@ def macrolet():
 @defknown((intern("SYMBOL-MACROLET")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
             1, [(_notlead, "\n"), (_bound, _form)]))
 def symbol_macrolet():
-        def nvalues(bindings, *body):            return 1             if not body else _ir_nvalues(body[-1])
-        def nth_value(n, orig, bindings, *body): return (symbol, nil) if not body else _ir_nth_valueify_last_subform(n, orig)
+        def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
+        def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
                 return { symbol_macro: { _variable_binding(name, symbol_macro, form) for name, form in bindings } }
         def lower(bindings, *body):
@@ -7697,8 +7700,8 @@ def symbol_macrolet():
 
 @defknown((intern("BLOCK")[0], " ", _name, ([(_notlead, "\n"), (_bound, _form)],)))
 def block():
-        def nvalues(name, *body):            return 1 if not body else _ir_nvalues(body[-1])
-        def nth_value(n, orig, name, *body): return (symbol, nil) if not body else _ir_nth_valueify_last_subform(n, orig)
+        def nvalues(name, *body):            return 1   if not body else _ir_nvalues(body[-1])
+        def nth_value(n, orig, name, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(name, *body):
                 return { block: { _block_binding(name, t) } }
         def lower(name, *body):
@@ -7742,8 +7745,8 @@ def return_from():
 def catch():
         def nvalues(_, *body):              return 1 if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, tag, *body): return (_ir_nth_valueify_last_subform(n, orig) if body             else
-                                                    (progn, tag, (symbol, nil))            if _ir_effects(tag) else
-                                                    (symbol, nil))
+                                                    (progn, tag, nil)                      if _ir_effects(tag) else
+                                                    nil)
         def lower(tag, *body):    return _ir_cl_module_call("_do_catch", tag, (lambda_, ()) + body)
         def effects(tag, *body):  return _ir_effects(tag) or _py.any(_ir_effects(f) for f in body)
         def affected(tag, *body): return _ir_affected(tag) or _py.any(_ir_affected(f) for f in body)
@@ -7784,9 +7787,9 @@ def throw():
 @defknown((intern("TAGBODY")[0], (["\n", (or_, (_name,), (_bound, _form))],)))
 def tagbody():
         def nvalues(*tags_and_forms):            return 1
-        def nth_value(_, orig, *tags_and_forms): return ((symbol, nil) if not _py.any(_ir_effects(f) for f in tags_and_forms
-                                                                                      if not symbolp(f)) else
-                                                         (progn, orig, (symbol, nil)))
+        def nth_value(_, orig, *tags_and_forms): return (nil if not _py.any(_ir_effects(f) for f in tags_and_forms
+                                                                            if not symbolp(f)) else
+                                                         (progn, orig, nil))
         def binds(*tags_and_forms):              return { tag: { _tag_binding(name, t) for name in tags_and_forms
                                                                  if symbolp(name) } }
         def lower(*tags_and_forms):
@@ -7946,9 +7949,9 @@ def let_():
 def progv():
         def nvalues(_, __, *body):                    return 1 if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, names, values, *body): return (_ir_nth_valueify_last_subform(n, orig) if body                  else
-                                                              (progn, names, values, (symbol, nil))  if (_ir_effects(names) or
-                                                                                                         _ir_effects(values)) else
-                                                              (symbol, nil))
+                                                              (progn, names, values, nil)  if (_ir_effects(names) or
+                                                                                               _ir_effects(values)) else
+                                                              nil)
         def lower(names, values, *body):
                 _not_implemented()
                 # ppro, pval = _lower(_ir_cl_module_call("_progv", ???))
@@ -7995,7 +7998,7 @@ def multiple_value_prog1():
         def effects(first_form, *forms):            return _ir_effects(first_form) or _py.any(_ir_effects(f) for f in forms)
         def affected(first_form, *forms):           return _ir_affected(first_form) or _py.any(_ir_affected(f) for f in forms)
 
-# SYMBOL
+# REF
 #         :PROPERTIES:
 #         :K:        [X]
 #         :VALUES:   [X]
@@ -8005,9 +8008,9 @@ def multiple_value_prog1():
 #         :END:
 
 @defknown
-def symbol():
+def ref():
         def nvalues(_):            return 1
-        def nth_value(n, orig, _): return orig if n is 0 else (symbol, nil)
+        def nth_value(n, orig, _): return orig if n is 0 else nil
         def lower(name):
                 check_type(name, symbol)
                 _compilation_note_symbol(name)
@@ -8093,9 +8096,9 @@ def splice():
 def nth_value():
         def nvalues(_, __):    return 1
         def nth_value(n, orig, form_n, form):
-                return ((nth_value, n, orig)         if not (integerp(n) and integerp(form_n)) else ## Give up.  Too early?
-                        (symbol, nil)                if n != form_n and not _ir_effects(form)  else
-                        (progn, form, (symbol, nil)) if n != form_n                            else
+                return ((nth_value, n, orig) if not (integerp(n) and integerp(form_n)) else ## Give up.  Too early?
+                        nil                  if n != form_n and not _ir_effects(form)  else
+                        (progn, form, nil)   if n != form_n                            else
                         _ir_nth_value(n, form)) ## We don't risque unbounded recursion here, so let's further analysis..
         def lower(n, form):    return _ir_cl_module_call("_values_frame_project", n, form)
         def effects(n, form):  return _ir_effects(n) or _ir_effects(form)
@@ -8125,7 +8128,7 @@ def nth_value():
 def def_():
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
         def nvalues(_):             return 1
-        def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, (symbol, nil))
+        def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, nil)
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
@@ -8146,7 +8149,7 @@ def def_():
                                 compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
                                 with _tail_position():
                                         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                                        pve = body_ret, _ = _lower((return_, (progn, ) + body))
+                                        pve = body_ret, _ = _lower((return_from, name, (progn, ) + body))
                                 # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                                 # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                                 deco_vals = []
@@ -8159,7 +8162,7 @@ def def_():
                                                          deco_vals),
                                          # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
                                          ],
-                                        _lower((symbol, name))[1])
+                                        _lower(name)[1])
                         ## Xtnls feedback loop stabilisation scheme.
                         ##
                         ## This looks fairly ridiculous, but this is reality for you:
@@ -8197,7 +8200,7 @@ def def_():
             1, [(_notlead, "\n"), (_bound, _form)]))
 def defmacro():
         def nvalues(_):             return 1
-        def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, (symbol, nil))
+        def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, nil)
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEFMACRO %s" % name)
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
@@ -8210,7 +8213,7 @@ def defmacro():
                                                                                       globalp = t, macrop = t)
                 return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this:
                                      # the((varituple, (eql, def_), pytuple), macfundef)
-                        _lower((quote, (symbol, name)))[1])
+                        _lower((quote, name))[1])
         def effects(name):          return t
         def affected(name):         return nil
 
@@ -8227,7 +8230,7 @@ def defmacro():
             1, [(_notlead, "\n"), (_bound, _form)]))
 def defun():
         def nvalues(_):             return 1
-        def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, (symbol, nil))
+        def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, nil)
         def binds(name, lambda_list, *body, decorators = []):
                 total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEFUN %s" % name)
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
@@ -8238,7 +8241,7 @@ def defun():
                                                                                    _symbol_value(_lexenv_),
                                                                                    globalp = t, macrop = t)
                 return ([fundef],
-                        _lower((quote, (symbol, name)))[1])
+                        _lower((quote, name))[1])
         def effects(name):          return t
         def affected(name):         return nil
 
@@ -8298,7 +8301,7 @@ def lambda_():
                         _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
                         func_name = _gensym("LET-BODY-")[0]
                         return (flet, ((func_name, lambda_list) + body,),
-                                 (symbol, func_name))
+                                 (function, func_name))
         def effects(*_):            return nil
         def affected(*_):           return nil
 
@@ -8330,7 +8333,7 @@ def apply():
                 ## the comparison against a literal NIL is much weaker than a NULL type membership test.
                 ## Therefore, the important evolutionary question, is what kind of preparations are
                 ## required to make such type analysis viable.
-                no_varargs = rest == (symbol, nil)
+                no_varargs = rest == nil
                 with _no_tail_position():
                         arg_pvs = mapcar(_lower, fixed + (rest,))
                 if every(_tuple_expression_p, arg_pvs):
@@ -8340,11 +8343,11 @@ def apply():
                                                                                       None)))
                 else:
                         _compiler_debug_printf(" -- APPLY: complex LET + APPLY")
-                        func_binding, func_expr = ((_py.tuple(),            func) if func_pro else
+                        func_binding, func_expr = (((),                     func) if func_pro else
                                                    (lambda func_name:
-                                                     (((func_name, func),), (symbol, func_name)))(gensym("APPLY-FUNCNAME")))
+                                                     (((func_name, func),), (ref, func_name)))(gensym("APPLY-FUNCNAME")))
                         temp_names = _py.tuple(_gensyms(n = _py.len(arg_pvs) - no_varargs, x = "APPLY-ARG"))
-                        arg_exprs = temp_names + (((symbol, nil),) if no_varargs else ())
+                        arg_exprs = temp_names + ((nil,) if no_varargs else ())
                         return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
                                  (apply, func_expr) + arg_exprs)
         def effects(func, arg, *args):
@@ -8365,7 +8368,7 @@ def applyification():
                                     (None, None))
 bound_good, result_good, nofail = _runtest(applyification,
                                            {},
-                                           (apply, (function, cond), (symbol, nil)))
+                                           (apply, (function, cond), nil))
 _results()
 assert(nofail)
 assert(bound_good)
@@ -8392,7 +8395,7 @@ def _lower(form):
                 ## NOTE: we are going to splice unquoting processing here, as we must be able
                 ## to work in READ-less environment.
                 _debug_printf_if(_debugging_compiler(), ";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
-                if _tuplep(x):
+                if listp(x): ## nil or _tuplep
                         def noisep(x): return x in [symbol]
                         def puntedp(x):
                                 "Whether the primitive compiler requested recompilation."
@@ -8418,8 +8421,8 @@ def _lower(form):
                                 else:
                                         not noisep(name) and _compiler_debug_printf("=== %s done", name)
                                         return ret, t
-                        if not x:
-                                return _rec((_name, "nil"))
+                        if not x: ## Either an empty list or NIL itself.
+                                return _rec((nil,))
                         if symbolp(x[0]):
                                 argsp, form, args = _maybe_ir_args(x)
                                 # Urgent Issue COMPILER-MACRO-SYSTEM
@@ -8431,15 +8434,15 @@ def _lower(form):
                                 if expanded:
                                         return _rec(form)
                                 # basic function call
-                                return _rec((apply,) + form + ((symbol, nil),))
+                                return _rec((apply,) + form + (nil,))
                         elif (_tuplep(x[0]) and x[0] and x[0][0] is lambda_):
-                                return _rec((apply,) + x + ((symbol, nil),))
+                                return _rec((apply,) + x + (nil,))
                         elif stringp(x[0]): # basic function call
-                                return _rec((apply,) + x + ((symbol, nil),))
+                                return _rec((apply,) + x + (nil,))
                         else:
                                 error("Invalid form: %s.", princ_to_string(x))
-                elif symbolp(x):
-                        return _rec((symbol, x))
+                elif symbolp(x) and not constantp(x):
+                        return _attr_chain_atree(_ir_cl_module_name("nil"))
                 else:
                         # NOTE: we don't care about quoting here, as constants are self-evaluating.
                         atree, successp = _try_atreeify_constant(x) # NOTE: this allows to directly pass through ASTs.
@@ -8671,8 +8674,8 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
                 return _compile_toplevel_def_in_lexenv(
                         ## This decorator-passing scheme is fairly archaic -- we would be better served by macros.
                         name, _ir_args_when(globalp, _convert_lambda_to_def(name, lambda_expression),
-                                            decorators = [(symbol, _set_macro_definition) if macrop else
-                                                          (symbol, _set_function_definition)]),
+                                            decorators = [(ref, _set_macro_definition) if macrop else
+                                                          (ref, _set_function_definition)]),
                         lexenv,
                         globalp = globalp, macrop = globalp and macrop,
                         lambda_expression = lambda_expression)
