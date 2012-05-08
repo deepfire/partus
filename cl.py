@@ -1407,7 +1407,7 @@ class t():
 
 @defclass
 class simple_condition(condition.python_type):
-        def __init__(self, format_control, *format_arguments):
+        def __init__(self, format_control, format_arguments):
                 _attrify_args(self, locals(), "format_control", "format_arguments")
                 # _debug_printf("About to signal a simple condition of type %s:\n%s", _py.type(self), self)
         def __str__(self):
