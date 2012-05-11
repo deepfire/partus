@@ -7688,18 +7688,18 @@ def _convert_quasiquotation(quasiquoted_form):
   _string_set("*MACROEXPANDER-ENV*", nil)       ## This is for regular macro expansion.
   _string_set("*MACROEXPANDER-FORM-BINDS*", nil)
   
-  def _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t):
+  def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t):
           # _debug_printf("%%MXER-INNER: -->\n%s", exp)
           ## 1. Expose the knowns and implicit funcalls:
           env = _symbol_value(_macroexpander_env_)
-          form, _ = macroexpand(exp, env, compilerp = compilerp)
+          expanded_form, _ = macroexpand(form, env, compilerp = compilerp)
           ## 2. Compute bindings contributed by this outer form.
-          known = _find_known(form[0]) if _tuplep(form) else nil
+          known = _find_known(expanded_form[0]) if _tuplep(expanded_form) else nil
           (symbol_frame,
            mfunc_frame,
-           ffunc_frame) = ((_dict_select_keys(_ir_binds(form), symbol_macro),
-                            _dict_select_keys(_ir_binds(form), macro),
-                            _dict_select_keys(_ir_binds(form), function)) if known else
+           ffunc_frame) = ((_dict_select_keys(_ir_binds(expanded_form), symbol_macro),
+                            _dict_select_keys(_ir_binds(expanded_form), macro),
+                            _dict_select_keys(_ir_binds(expanded_form), function)) if known else
                            (_py.dict(), _py.dict(), _py.dict()))
           ## 3. Pass the binding extension information down.
           with (progv({_macroexpander_form_binds_: _make_lexenv(env,
@@ -7707,7 +7707,7 @@ def _convert_quasiquotation(quasiquoted_form):
                                                                 kind_funcframe = _dictappend(mfunc_frame, ffunc_frame))})
                 if symbol_frame or mfunc_frame or ffunc_frame else
                 _withless()):
-                  b, r, f = _metasex_matcher.form(m, bound, name, form, pat, orifst)
+                  b, r, f = _metasex_matcher.form(m, bound, name, expanded_form, "ignored", orifst)
                   # if not f:
                   #         _debug_printf("%%MXER-INNER: <--\n%s", r)
                   return b, r, f
