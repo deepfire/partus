@@ -6687,12 +6687,23 @@ def _pp_sex(sex, strict = t, initial_depth = None):
                 error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", sex, f, r)
         return r or ""
 
-# FORM-BINDS
+# IR method -based services
 
-def _form_binds(form):
-        known = _form_known(form)
-        return (_py.dict() if not known else
-                known.binds(*form[1:]))
+def _ir_nvalues(form):
+        return (lambda known: (known.nvalues(*form[1:])            if known else
+                               None))                (_form_known(form))
+def _ir_nth_value(n, form):
+        return (lambda known: (known.nth_value(n, form, *form[1:]) if known else
+                               (nth_value, n, form)))(_form_known(form))
+def _ir_binds(form):
+        return (lambda known: (known.binds(*form[1:])              if known else
+                               _py.dict()))          (_form_known(form))
+def _ir_effects(form):
+        return (lambda known: (known.effects(*form[1:])            if known else
+                               t))                   (_form_known(form))
+def _ir_affected(form):
+        return (lambda known: (known.affected(*form[1:])           if known else
+                               t))                   (_form_known(form))
 
 # Testing
 
@@ -6914,9 +6925,9 @@ def _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t):
         known = _find_known(form[0]) if _tuplep(form) else nil
         (symbol_frame,
          mfunc_frame,
-         ffunc_frame) = ((_dict_select_keys(_form_binds(form), symbol_macro),
-                          _dict_select_keys(_form_binds(form), macro),
-                          _dict_select_keys(_form_binds(form), function)) if known else
+         ffunc_frame) = ((_dict_select_keys(_ir_binds(form), symbol_macro),
+                          _dict_select_keys(_ir_binds(form), macro),
+                          _dict_select_keys(_ir_binds(form), function)) if known else
                          (_py.dict(), _py.dict(), _py.dict()))
         ## 3. Pass the binding extension information down.
         with (progv({_macroexpander_form_binds_: _make_lexenv(env,
