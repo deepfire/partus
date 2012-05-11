@@ -7039,8 +7039,7 @@ def macroexpand_all(form, env = nil, compilerp = t):
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
         return (eval_when, (_compile_toplevel, _load_toplevel, _execute),
-                 (apply, ("cl", "_set_macro_definition"),
-                         (apply, (function, append), (lambda_, lambda_list), body),
+                 (apply, ("cl", "_set_macro_definition"), (lambda_, lambda_list) + body,
                          nil))
 
 # Tuple intermediate IR
