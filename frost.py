@@ -5,24 +5,27 @@ def lisp_symbol_name_python_name(x):
         def sub(cs):
                 acc = []
                 for c in cs:
-                        acc.append("_" if c in "-*&%" else c)
+                        acc.append("_" if c in "-*:&%" else c)
                 return acc
         ret = "".join(sub(x)).lower()
         return ret
 
+common_ands = { "WHOLE", "OPTIONAL", "REST", "BODY", "KEY", "ALLOW-OTHER-KEYS" }
 def python_name_lisp_symbol_name(x):
-        """Heuristic to undo the effect of _lisp_symbol_name_python_name().
+        """Heuristic to (not quite) undo the effect of _lisp_symbol_name_python_name().
 Irreversibles: %."""
         def sub(cs):
                 if len(cs) > 1:
-                        starred = cs[0]  == cs[-1] == "_" # *very-nice*
-                        anded   = cs[0]  == "_" != cs[-1] # &something; This #\& heuristic might bite us quite sensibly..
-                        tailed  = cs[-1] == "_" != cs[0]  # something-in-conflict
+                        starred       = cs[0]  == cs[-1] == "_"                                   # *very-nice*
+                        anded         = cs[0]  == "_" != cs[-1] and cs[1:].upper() in common_ands # &something
+                        maybe_keyword = cs[0]  == "_" != cs[-1]                                   # :something
+                        tailed        = cs[-1] == "_" != cs[0]                                    # something-in-conflict
                 else:
-                        starred = anded = tailed = False
-                pre, post, start, end = (("*", "*", 1, len(cs) - 1) if starred else
-                                         ("&", "",  1, None)        if anded   else
-                                         ("",  "",  0, len(cs) - 1) if tailed  else
+                        starred = anded = maybe_keyword = tailed = False
+                pre, post, start, end = (("*", "*", 1, len(cs) - 1) if starred       else
+                                         ("&", "",  1, None)        if anded         else
+                                         (":", "",  1, None)        if maybe_keyword else
+                                         ("",  "",  0, len(cs) - 1) if tailed        else
                                          ("",  "",  0, None))
                 return (pre +
                         "".join("-" if c == "_" else c for c in cs[start:end]) +
