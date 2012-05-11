@@ -3070,6 +3070,7 @@ def _do_set_function_definition(function, x):
         function and _frost.make_object_like_python_function(x, function)
         return x
 
+_intern_and_bind_pynames("DEFMACRO")
 def _do_set_macro_definition(function, x):
         if the(symbol, x).function:
                 _warn_incompatible_function_redefinition(x, "macro", "function")
@@ -6862,7 +6863,7 @@ def _results():
 # assert(result_good)
 # print("; SIMPLE-MAYBE: passed")
 
-# Macro-expander
+# Macroexpansion
 
 def _do_macroexpand_1(form, env = nil, compilerp = nil):
         """This handles:
@@ -7000,6 +7001,17 @@ def macroexpand_all(form, env = nil, compilerp = t):
                                                compilerp = t)
         assert(not failpat)
         return res
+
+# DEFMACRO
+
+@_set_macro_definition
+# ((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
+#   1, [(_notlead, "\n"), (_bound, _form)]))
+def DEFMACRO(name, lambda_list, *body):
+        return (eval_when, (_compile_toplevel, _load_toplevel, _execute),
+                 (apply, ("cl", "_set_macro_definition"),
+                         (apply, (function, append), (lambda_, lambda_list), body),
+                         nil))
 
 # Tuple intermediate IR
 
@@ -7300,7 +7312,7 @@ def quote():
                                 return ([],
                                         atree)
                         else:
-                                return (list,) + _py.tuple((quote, x) for x in x)
+                                return (apply, (function, list)) + _py.tuple((quote, x) for x in x) + (nil,)
         def effects(x):            return nil
         def affected(x):           return nil
 
@@ -8195,67 +8207,6 @@ def def_():
         def effects(name):         return t
         def affected(name):        return nil
 
-# DEFMACRO
-#         :PROPERTIES:
-#         :K:        [ ]
-#         :VALUES:   [X]
-#         :EFFECTS:  [X]
-#         :IMPL:     [X]
-#         :CL:       [ ]
-#         :END:
-
-#         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST
-#         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST-INTRA-VALUE-FORMS-BINDING-SCOPE
-
-@defknown((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
-            1, [(_notlead, "\n"), (_bound, _form)]))
-def defmacro():
-        def nvalues(_):             return 1
-        def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, nil)
-        def binds(name, lambda_list, *body, decorators = []):
-                total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEFMACRO %s" % name)
-                return { variable: { _variable_binding(name, variable, None) for name in total } }
-        def lower(name, lambda_list, *body):
-                ## Unregistered Issue COMPLIANCE-DEFMACRO-LAMBDA-LIST
-                ## Unregistered Issue COMPLIANCE-MACRO-FUNCTION-MAGIC-RETURN-VALUE
-                fn, warnedp, failedp, [macfundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
-                                                                                      (lambda_, lambda_list) + body,
-                                                                                      _symbol_value(_lexenv_),
-                                                                                      globalp = t, macrop = t)
-                return ([macfundef], # Used to mistakingly (?) force MACFUNDEF like this:
-                                     # the((varituple, (eql, def_), pytuple), macfundef)
-                        _lower((quote, name))[1])
-        def effects(name):          return t
-        def affected(name):         return nil
-
-# DEFUN
-#         :PROPERTIES:
-#         :K:        [ ]
-#         :VALUES:   [X]
-#         :EFFECTS:  [X]
-#         :IMPL:     [X]
-#         :CL:       [ ]
-#         :END:
-
-@defknown((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
-            1, [(_notlead, "\n"), (_bound, _form)]))
-def defun():
-        def nvalues(_):             return 1
-        def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, nil)
-        def binds(name, lambda_list, *body, decorators = []):
-                total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEFUN %s" % name)
-                return { variable: { _variable_binding(name, variable, None) for name in total } }
-        def lower(name, lambda_list, *body):
-                ## Unregistered Issue COMPLIANCE-ORDINARY-LAMBDA-LIST
-                fn, warnedp, failedp, [fundef] = _compile_lambda_as_named_toplevel(the(symbol, name),
-                                                                                   (lambda_, lambda_list) + body,
-                                                                                   _symbol_value(_lexenv_),
-                                                                                   globalp = t, macrop = t)
-                return ([fundef],
-                        _lower((quote, name))[1])
-        def effects(name):          return t
-        def affected(name):         return nil
-
 # LAMBDA
 #         :PROPERTIES:
 #         :K:        [ ]
@@ -8752,6 +8703,19 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
 # @LISP tests
 
 @lisp
+# ((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
+#    1, [(_notlead, "\n"), (_bound, _form)]))
+def DEFUN(name, lambda_list, *body):
+        (defmacro, defun, (name, lambda_list, _body, body),
+          (quaquote,
+            (progn,
+              ## SBCL has a :COMPILE-TOPLEVEL part, but it's not very clear what we need in this respect.
+              (eval_when, (_load_toplevel, _execute),
+                (apply, ("cl", "_set_function_definition"),
+                        (lambda_, (comma, lambda_list), (splice, body)),
+                        nil)))))
+
+@lisp
 def cond(*clauses):
         (defmacro, cond, (_rest, clauses),
          (if_, (not_, clauses),
@@ -8893,7 +8857,7 @@ def _preprocessor_macroexpand_1(form):
         except error.python_type as condition:
                 _compiler_error("(during macroexpansion of %s)\n%s", format(nil, "%s", form), condition)
 
-## The %CONVERT-AND-MAYBE-CONMPILE function returns whatever LOWER returns.
+## The %CONVERT-AND-MAYBE-COMPILE function returns whatever LOWER returns.
 ## The PROCESS-* functions return possibly empty lists of %C-A-M-C return values.
 def _process_toplevel_progn(forms, path, compile_time_too):
         return mapcan(lambda f: _process_toplevel_form(f, path, compile_time_too), forms)
