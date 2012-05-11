@@ -6370,6 +6370,36 @@ def _make_lexenv(parent = nil, **initial_content):
         ## just a dumb pass-through
         return _lexenv.python_type(parent, **initial_content)
 
+# Quasiquotation
+
+def _convert_quasiquotation(quasiquoted_form):
+        """Expand abbreviation of QUASIQUOTED-FORM (in a simple, yet suboptimal way)."""
+        def rec(x):
+                if atom(x):
+                        return (quote, x)
+                else:
+                        acc = []
+                        run = [list]
+                        for ix in x:
+                                if not _tuplep(ix) or not ix or ix[0] not in [comma, splice]:
+                                        run.append(rec(ix))
+                                elif len(ix) != 2:
+                                        error("In quasi-quoted form %s: bad %s expression %s.", x, ix[0], ix)
+                                elif ix[0] is comma:
+                                        run.append(ix[1])
+                                elif ix[0] is splice:
+                                        if not acc:
+                                                acc = [append]
+                                        acc.append(_py.tuple(run))
+                                        acc.append(ix[1])
+                                        run = [list]
+                        if acc:
+                                acc.append(_py.tuple(run))
+                        else:
+                                acc = run
+                        return _py.tuple(remove((list,), acc, test = equal))
+        return rec(qq_form[1:])
+
 # DEFKNOWN
 
 _known = _poor_man_defstruct("known",
@@ -8041,70 +8071,6 @@ def ref():
                         ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
         def effects(name):         return nil
         def affected(name):        return not _name_defined_as_constant_p(name)
-
-# QUAQUOTE
-#         :PROPERTIES:
-#         :K:        [X]
-#         :VALUES:   [X]
-#         :EFFECTS:  [X]
-#         :IMPL:     [X]
-#         :CL:       [ ]
-#         :END:
-
-@defknown
-def quaquote():
-        ## Unregistered Issue QUASIQUOTE-IMPLEMENTATION-STRATEGY-RETHINKING
-        def lower(x):
-                def rec(x):
-                        if atom(x):
-                                return (quote, x)
-                        else:
-                                acc = None
-                                run = [list]
-                                for ix in x:
-                                        if not _tuplep(ix) or not ix or ix[0] not in [comma, splice]:
-                                                run.append(rec(ix))
-                                        elif len(ix) != 2:
-                                                error("In quasi-quoted form %s: bad %s expression %s.", x, ix[0], ix)
-                                        elif ix[0] is comma:
-                                                run.append(ix[1])
-                                        elif ix[0] is splice:
-                                                if acc is None:
-                                                        acc = [append, _py.tuple(run)]
-                                                acc.append(ix[1])
-                                                run = [list]
-                                if acc:
-                                        acc.append(_py.tuple(run))
-                                else:
-                                        acc = run
-                                return _py.tuple(remove((list,), acc))
-                return rec(x)
-
-# COMMA
-#         :PROPERTIES:
-#         :K:        [X]
-#         :VALUES:   [X]
-#         :EFFECTS:  [X]
-#         :IMPL:     [X]
-#         :CL:       [ ]
-#         :END:
-
-@defknown
-def comma():
-        def lower(x): error("Comma not inside a backquote.")
-
-# SPLICE
-#         :PROPERTIES:
-#         :K:        [X]
-#         :VALUES:   [X]
-#         :EFFECTS:  [X]
-#         :IMPL:     [X]
-#         :CL:       [ ]
-#         :END:
-
-@defknown
-def splice():
-        def lower(x): error("Comma not inside a backquote.")
 
 # NTH-VALUE
 #         :PROPERTIES:
