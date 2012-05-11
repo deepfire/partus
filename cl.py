@@ -7573,7 +7573,7 @@ def function():
         def lower(name):
                 binding = symbol_value(_lexenv_).lookup_function(the(symbol, name))
                 if not (binding or name.function):
-                        simple_style_warning("undefined function: ~A", name)
+                        simple_style_warning("undefined function: %s", name)
                 return (ref, name)
         def effects(name):         return nil
         def affected(name):        return not symbol_value(_lexenv_).funcscope_binds_p(name)
@@ -7727,7 +7727,7 @@ def return_from():
         def lower(name, value):
                 binding = symbol_value(_lexenv_).lookup_block(the(symbol, name))
                 if not binding:
-                        simple_program_error("return for unknown block: ~A", name)
+                        simple_program_error("return for unknown block: %s", name)
                 return (throw, (quote, binding.value), value)
         def effects(_, value):            return _ir_effects(value)
         def affected(_, value):           return _ir_affected(value)
@@ -7819,7 +7819,7 @@ def go():
         def lower(name):
                 binding = symbol_value(_lexenv_).lookup_gotag(the(symbol, name))
                 if not binding:
-                        simple_program_error("attempt to GO to nonexistent tag: ~A", name)
+                        simple_program_error("attempt to GO to nonexistent tag: %s", name)
                 return _not_implemented()
         def effects(_):            return nil
         def affected(_):           return nil
