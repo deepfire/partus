@@ -1533,27 +1533,27 @@ specified by this standard, are bound to values that produce standard
 READ/PRINT behavior. The values for the variables specified by this
 standard are listed in the next figure.
 
-Variable                     Value                               
-*package*                    The CL-USER package                 
-*print-array*                t                                   
-*print-base*                 10                                  
-*print-case*                 :upcase                             
-*print-circle*               nil                                 
-*print-escape*               t                                   
-*print-gensym*               t                                   
-*print-length*               nil                                 
-*print-level*                nil                                 
-*print-lines*                nil                                 
-*print-miser-width*          nil                                 
-*print-pprint-dispatch*      The standard pprint dispatch table  
-*print-pretty*               nil                                 
-*print-radix*                nil                                 
-*print-readably*             t                                   
-*print-right-margin*         nil                                 
-*read-base*                  10                                  
-*read-default-float-format*  single-float                        
-*read-eval*                  t                                   
-*read-suppress*              nil                                 
+Variable                     Value
+*package*                    The CL-USER package
+*print-array*                t
+*print-base*                 10
+*print-case*                 :upcase
+*print-circle*               nil
+*print-escape*               t
+*print-gensym*               t
+*print-length*               nil
+*print-level*                nil
+*print-lines*                nil
+*print-miser-width*          nil
+*print-pprint-dispatch*      The standard pprint dispatch table
+*print-pretty*               nil
+*print-radix*                nil
+*print-readably*             t
+*print-right-margin*         nil
+*read-base*                  10
+*read-default-float-format*  single-float
+*read-eval*                  t
+*read-suppress*              nil
 *readtable*                  The standard readtable
 """
         with progv(**__standard_io_syntax__):
@@ -2628,7 +2628,7 @@ of subsequence-1 bounded by start1 and end1 with the elements of
 subsequence-2 bounded by start2 and end2. """
         # XXX: this will bomb out when designated subsequence of sequence_2 is
         #      shorter than that of sequence_1, which is quite fine by CL:REPLACE:
-        # 
+        #
         # "If these subsequences are not of the same length, then the
         #  shorter length determines how many elements are copied; the
         #  extra elements near the end of the longer subsequence are not
@@ -5123,7 +5123,7 @@ def _ast_Expression(body: _ast.expr): pass
 # ...                 # elif 0: # errs: SyntaxError: name 'a' is nonlocal and global
 # ...                 #         nonlocal a
 # ...         inner()
-# ... 
+# ...
 # <stdin>:7: SyntaxWarning: name 'a' is assigned to before global declaration
 # >>> damage()
 # >>> print(a)
@@ -5138,7 +5138,7 @@ def _ast_Expression(body: _ast.expr): pass
 # ...                 # elif 0: # errs: SyntaxError: name 'a' is nonlocal and global
 # ...                 #         nonlocal a
 # ...         inner(1)
-# ... 
+# ...
 # <stdin>:7: SyntaxWarning: name 'a' is assigned to before global declaration
 #   File "<stdin>", line 3
 # SyntaxError: name 'a' is parameter and global
@@ -6246,7 +6246,7 @@ def _compilation_unit_prologue():
 
 # Code
 
-_intern_and_bind_pynames("*LEXENV*", 
+_intern_and_bind_pynames("*LEXENV*",
                          "VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO", "BLOCK")
                          ## "FUNCTION"
 
@@ -7361,9 +7361,9 @@ def _do_multiple_value_call(fn, values_frames):
 def multiple_value_call():
         ## We might start considering the argument forms for the values queries,
         ## once we get into the partial evaluation affairs..
-        def nvalues(func, *_):            
+        def nvalues(func, *_):
                 return _ir_function_form_nvalues(func)
-        def nth_value(n, orig, func, *_): 
+        def nth_value(n, orig, func, *_):
                 return _ir_function_form_nth_value_form(n, func, orig)
         def lower(fn, *arg_forms):
                 ## We have no choice, but to lower immediately, and by hand.
@@ -8381,7 +8381,7 @@ def _lower(form):
                                         atree)
                         else:
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
-        
+
         ## XXX: what about side-effects?
         pv = _rec(form)
         # _debug_printf_if(_debugging_compiler(),
@@ -9804,7 +9804,7 @@ associated with the generic function metaobject. These values can then
 be accessed by calling the corresponding generic function. The
 correspondences are as follows:
 
-Table 2: Initialization arguments and accessors for generic function metaobjects. 
+Table 2: Initialization arguments and accessors for generic function metaobjects.
 
 Initialization Argument         Generic Function
 --------------------------------------------------------------------------
@@ -9919,7 +9919,7 @@ short-form-option::= :documentation documentation |
                      :identity-with-one-argument identity-with-one-argument |
                      :operator operator
 
-method-group-specifier::= (name {qualifier-pattern+ | predicate} [[long-form-option]]) 
+method-group-specifier::= (name {qualifier-pattern+ | predicate} [[long-form-option]])
 
 long-form-option::= :description description |
                     :order order |
@@ -11138,11 +11138,11 @@ def defgeneric(_ = None,
 option::= (:argument-precedence-order parameter-name+) |
           (declare gf-declaration+) |
           (:documentation gf-documentation) |
-          (:method-combination method-combination method-combination-argument*) | 
+          (:method-combination method-combination method-combination-argument*) |
           (:generic-function-class generic-function-class) |
           (:method-class method-class)
 
-method-description::= (:method method-qualifier* specialized-lambda-list [[declaration* | documentation]] form*) 
+method-description::= (:method method-qualifier* specialized-lambda-list [[declaration* | documentation]] form*)
 
 Arguments and Values:
 
@@ -11722,7 +11722,7 @@ function-name::= {symbol | (setf symbol)}
 method-qualifier::= non-list
 
 specialized-lambda-list::= ({var | (var parameter-specializer-name)}*
-                            [&optional {var | (var [initform [supplied-p-parameter] ])}*] 
+                            [&optional {var | (var [initform [supplied-p-parameter] ])}*]
                             [&rest var]
                             [&key{var | ({var | (keywordvar)} [initform [supplied-p-parameter] ])}*
                                  [&allow-other-keys] ]

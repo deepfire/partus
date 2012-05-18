@@ -192,10 +192,10 @@
 (defun foo () (return-from a))
 ; in: DEFUN FOO
 ;     (RETURN-FROM A)
-; 
+;
 ; caught ERROR:
 ;   return for unknown block: A
-; 
+;
 ; compilation unit finished
 ;   caught 1 ERROR condition
 
@@ -1871,27 +1871,27 @@ specified by this standard, are bound to values that produce standard
 READ/PRINT behavior. The values for the variables specified by this
 standard are listed in the next figure.
 
-Variable                     Value                               
-*package*                    The CL-USER package                 
-*print-array*                t                                   
-*print-base*                 10                                  
-*print-case*                 :upcase                             
-*print-circle*               nil                                 
-*print-escape*               t                                   
-*print-gensym*               t                                   
-*print-length*               nil                                 
-*print-level*                nil                                 
-*print-lines*                nil                                 
-*print-miser-width*          nil                                 
-*print-pprint-dispatch*      The standard pprint dispatch table  
-*print-pretty*               nil                                 
-*print-radix*                nil                                 
-*print-readably*             t                                   
-*print-right-margin*         nil                                 
-*read-base*                  10                                  
-*read-default-float-format*  single-float                        
-*read-eval*                  t                                   
-*read-suppress*              nil                                 
+Variable                     Value
+*package*                    The CL-USER package
+*print-array*                t
+*print-base*                 10
+*print-case*                 :upcase
+*print-circle*               nil
+*print-escape*               t
+*print-gensym*               t
+*print-length*               nil
+*print-level*                nil
+*print-lines*                nil
+*print-miser-width*          nil
+*print-pprint-dispatch*      The standard pprint dispatch table
+*print-pretty*               nil
+*print-radix*                nil
+*print-readably*             t
+*print-right-margin*         nil
+*read-base*                  10
+*read-default-float-format*  single-float
+*read-eval*                  t
+*read-suppress*              nil
 *readtable*                  The standard readtable
 """
         with progv(**__standard_io_syntax__):
@@ -1931,19 +1931,19 @@ _set_settable_standard_globals()
 ***** Type naming policy, unfinished (stale?)
 
       Two aspects are at play: the type aspect and the function aspect.
-      
+
       In Python the type name has only one value associated with it, and
       this value works both as a type specifier, and as its constructor
       function -- everything in single value namespace.
-      
+
       In CL this isn't so, and the symbol can have a function associated
       with it, at the same time it can be interepreted as a type
       specifier on its own, and still it might have no value attached to
       it (this is, in fact, the common case).
-      
+
       To be able to correctly reflect that picture, we need to introduce
       an artificial split into the single python namespace.  So:
-      
+
        - ...
 
 ***** Derived names:  %NoneType, REDUCE, SORT, %CURRY, STRINGP, %CLASSP, %NONEP etc.
@@ -3025,7 +3025,7 @@ of subsequence-1 bounded by start1 and end1 with the elements of
 subsequence-2 bounded by start2 and end2. """
         # XXX: this will bomb out when designated subsequence of sequence_2 is
         #      shorter than that of sequence_1, which is quite fine by CL:REPLACE:
-        # 
+        #
         # "If these subsequences are not of the same length, then the
         #  shorter length determines how many elements are copied; the
         #  extra elements near the end of the longer subsequence are not
@@ -3207,10 +3207,10 @@ def _lisp_symbol_ast(sym, current_package):
  ; in: DEFMACRO YAY
  ;     (LET* ((X (CAR (CDR #:WHOLE628))))
  ;       (BLOCK YAY '(A)))
- ; 
+ ;
  ; caught STYLE-WARNING:
  ;   The variable X is defined but never used.
- ; 
+ ;
  ; compilation unit finished
  ;   caught 1 STYLE-WARNING condition
 
@@ -5164,7 +5164,7 @@ executes the following:
           return body, documentation, group_declarations(valid_declarations,
                                                          mapcan(lambda dexcall: ensure_valid_declarations(dexcall.value),
                                                                 declarations))
-  
+
   def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast = None):
           method_specs = _py.list((mspec if _tuplep(mspec) else
                                    (mspec, _defbody_make_required_method_error(desc))) for mspec in method_specs)
@@ -5209,7 +5209,7 @@ executes the following:
           if invalid_methods:
                   fail(invalid_methods.pop().upper())
           return (process(*mspec) for mspec in method_specs)
-  
+
   def _defbody_make_required_method_error(desc):
           return lambda method_name: error("In %s: missing method %s.", desc, _py.str(method_name).upper())
 #+end_src
@@ -5484,7 +5484,7 @@ def _read_ast(x):
            - possibly mutating structure.
                                It is, therefore, concluded, that comprehensions must not be processed
                                separately, but rather in part of parent *Comp/Generator processing.
-         - *Assign:             Neatly solved by upward out-boundedness protocol. 
+         - *Assign:             Neatly solved by upward out-boundedness protocol.
          - Import*:             Same problem as *Assign (almost: can only rebind names, not mutate structure).
          - Global/Nonlocal:     Related to the same problem as *Assign.
          - For:                 (+ (refs self.target <see the above complication in comprehension>)
@@ -5668,11 +5668,11 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
                                               fields     = fields,
                                               bound_free = bound_free,
                                               nfixed     = _py.len(fixed))
-  
+
   ## AST + Symbols
   _register_astifier_for_type(symbol.python_type, nil, (lambda sym: _ast_funcall("_find_symbol_or_fail",
                                                                                  [symbol_name(sym)])))
-  
+
 #+end_src
 
 ***** Rich AST definitions
@@ -5703,7 +5703,7 @@ def _ast_Expression(body: _ast.expr): pass
 # ...                 # elif 0: # errs: SyntaxError: name 'a' is nonlocal and global
 # ...                 #         nonlocal a
 # ...         inner()
-# ... 
+# ...
 # <stdin>:7: SyntaxWarning: name 'a' is assigned to before global declaration
 # >>> damage()
 # >>> print(a)
@@ -5718,7 +5718,7 @@ def _ast_Expression(body: _ast.expr): pass
 # ...                 # elif 0: # errs: SyntaxError: name 'a' is nonlocal and global
 # ...                 #         nonlocal a
 # ...         inner(1)
-# ... 
+# ...
 # <stdin>:7: SyntaxWarning: name 'a' is assigned to before global declaration
 #   File "<stdin>", line 3
 # SyntaxError: name 'a' is parameter and global
@@ -6352,17 +6352,17 @@ def constantp(form):
 
 #+begin_src python
   _intern_and_bind_pynames("%NAME", "%MAYBE")
-  
+
   def _maybe_destructure_binding(pat):
           return ((None, pat)               if not typep(pat, _py.dict) else
                   _py.tuple(pat.items())[0] if _py.len(pat) == 1        else
                   error_bad_pattern(pat))
-  
+
   def _error_bad_pattern(pat):
           raise Exception("Bad pattern: %s." % (pat,))
-  
+
   _intern_and_bind_pynames("%CALL", "%RETURN")
-  
+
   _trace_table = _py.dict()
   def _do_tracep(*props):
           # _debug_printf("tracep %s", props)
@@ -6380,17 +6380,17 @@ def constantp(form):
                   del _trace_table[props]
           else:
                   _tracep = _no_trace
-  
+
   ### Default trace settings:
   _untrace()
-  
+
   def _trace_printf(tracespec, control, *args):
           if _tracep(*(tracespec                    if _tuplep(tracespec) else
                        (tracespec,)                 if stringp(tracespec) else
                        (tracespec, _caller_name(1)))):
                   _debug_printf(control, *(args if not (_py.len(args) == 1 and functionp(args[0])) else
                                            args[0]()))
-  
+
   def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "complex"])):
           def trace_args():
                   frames = _py.reversed(
@@ -6604,12 +6604,12 @@ def constantp(form):
                                                   orig_tuple_p = orifst[0],
                                                   horisontal = nil))))
                           (*maybe_get0Rname(pat))))
-  
+
   def _match(matcher, exp, pat):
           name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
           return matcher.match(_py.dict(), name, exp, prepped, (True, False), None, None)
-    
-  
+
+
 #+end_src
 
 *** Compiler
@@ -6627,7 +6627,7 @@ def constantp(form):
 
 #+begin_src python
   _fns = make_hash_table()
-  
+
   @defclass
   class _fn():
           ## Omnidefined:
@@ -6672,20 +6672,20 @@ def constantp(form):
                                   if not d.dependents[reason]:
                                          del d.dependents[reason]
                   self.dependencies.clear()
-  
+
   @defun
   def _fn(name):
           return _fns.get(name, nil)
-  
+
   _string_set("*COMPILER-FN*", nil)
-  
+
   def _compiling_fn():
           return symbol_value(_compiler_fn_)
-  
+
   def _depend_on(fn_or_name, reason = t):
           fn = fn_or_name if functionp(fn_or_name) else _fn(fn_or_name)
           fn.add_dependent(reason, _compiling_fn())
-  
+
   def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
           ## TODO: we should depend for the de-pessimisation sense likewise.
           ## ..or should we?  I think, at least for rechecking of conditions.. which is only possible
@@ -6707,7 +6707,7 @@ def constantp(form):
                                   _depend_on(fn, prop)
                           return body(fn, *prop_vals)
           return None
-  
+
 #+end_src
 
 ***** Generic pieces
@@ -6874,7 +6874,7 @@ def _compilation_unit_prologue():
 ******* Code
 
 #+begin_src python +n
-_intern_and_bind_pynames("*LEXENV*", 
+_intern_and_bind_pynames("*LEXENV*",
                          "VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO", "BLOCK")
                          ## "FUNCTION"
 
@@ -7007,7 +7007,7 @@ def _make_lexenv(parent = nil, **initial_content):
         - DEFUN, DEFMACRO, query
         - %COMPILE-TOPLEVEL-DEF-IN-LEXENV, initial setup
         - cargo-culted file compiler initialia
-      
+
 ******* Values
 
         - variable :: form
@@ -7057,11 +7057,11 @@ def _convert_quasiquotation(quasiquoted_form):
                                "lower",
                                "effects", "affected",
                                "lower_params")
-  
+
   def _compute_default_metasex(name):
           "Return a default MetaSEX form for a known with NAME."
           return (name, " ", _form)
-  
+
   def defknown(metasex_or_fn, name = None):
           """Define a form 'known' to the compiler.
   The NAME is bound, in separate namespaces, to:
@@ -7125,7 +7125,7 @@ def _convert_quasiquotation(quasiquoted_form):
                         _py.repr(metasex_or_fn)))
   def _find_known(x):
           return _symbol_known(the(symbol, x))
-  
+
 #+end_src#
 
 ***** MetaSEX
@@ -7219,18 +7219,18 @@ def _convert_quasiquotation(quasiquoted_form):
                            "%NEWLINE", "%INDENT", "%FORM", "%BOUND", "%SYMBOL", "%TYPEP", "%COUNT-SCOPE",
                            "%MAYBE-ONCE", "%ONCE",
                            "%SET-MINUS")
-  
+
   def _form_known(form):
           ## METASEX-MATCHER guts it, due to case analysis
           complex_form_p = _tuplep(form) and symbolp(form[0])
           return complex_form_p and _find_known(form[0])
-  
+
   def _combine_t_or_None(f0, fR, orig_tuple_p):
           f0r = f0()
           if f0r is not None:
                   fRr = fR()
                   return t
-  
+
   class _metasex_matcher(_matcher):
           def __init__(m):
                   _matcher.__init__(m)
@@ -7301,12 +7301,12 @@ def _convert_quasiquotation(quasiquoted_form):
                   return _r(form, pat,
                             m.test(typep(form, pat[1]), bound, name, lambda: m.prod(form, orifst),
                                    form, pat))
-  
+
   _string_set("*PP-BASE-DEPTH*", 0)
   _string_set("*PP-DEPTH*", 0)
   def _pp_base_depth(): return _symbol_value(_pp_base_depth_)
   def _pp_depth():      return _symbol_value(_pp_depth_)
-  
+
   def _combine_pp(f0, fR, orig_tuple_p):
           def orig_tuple_comb(body):
                   new_base = _pp_depth() + 1
@@ -7322,7 +7322,7 @@ def _convert_quasiquotation(quasiquoted_form):
                           return f0r + fRr
           return (orig_tuple_comb if orig_tuple_p else
                   lambda f: f(_pp_base_depth()))(body)
-  
+
   class _metasex_matcher_pp(_metasex_matcher):
           def __init__(m):
                   _metasex_matcher.__init__(m)
@@ -7367,9 +7367,9 @@ def _convert_quasiquotation(quasiquoted_form):
                           return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
                   ############## act as identity
                   return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
-  
+
   _intern_and_bind_pynames("%LAX")
-  
+
   class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
           def __init__(m):
                   _metasex_matcher_pp.__init__(m)
@@ -7406,11 +7406,11 @@ def _convert_quasiquotation(quasiquoted_form):
                   _trace_printf("yield", "+t+ YIELD for %s:\n%s", exp, result)
                   return (m.succ(boundR, result) if failpat is None else
                           m.fail(boundR or bound0, failex, failpat))
-  
+
   _metasex              = _metasex_matcher()
   _metasex_pp           = _metasex_matcher_pp()
   _metasex_nonstrict_pp = _metasex_matcher_nonstrict_pp()
-  
+
   # _trace("complex")
   # _trace("simplex")
   # _trace("segment")
@@ -7430,10 +7430,10 @@ def _convert_quasiquotation(quasiquoted_form):
   # _trace(_return, "atom")
   # _trace(_return, "form")
   # _trace(_return, "typep")
-  
+
   def _match_sex(sex, pattern = None):
           return _match(_metasex, sex, _defaulted(pattern, _metasex.form_metasex(sex)))
-  
+
   ## WIP: set specifiers (got bored)
   _string_set("*SETSPEC-SCOPE*", nil)
   _setspec = _defscope("_setspec", _setspec_scope_)
@@ -7487,7 +7487,7 @@ def _convert_quasiquotation(quasiquoted_form):
           for fun, b, r, f in _results_:
                   _debug_printf("%15s bound: %s", fun.__name__, b)
                   _debug_printf("%15s res: %s", fun.__name__, r)
-  
+
   # _intern_and_bind_pynames("LET", "FIRST", "SECOND", "CAR", "&BODY")
   # def just_match():
   #         return _match(_metasex,
@@ -7506,7 +7506,7 @@ def _convert_quasiquotation(quasiquoted_form):
   # assert(bound_good)
   # assert(result_good)
   # print("; JUST-MATCH: passed")
-  
+
   # def pp():
   #         return _match(_metasex_pp,
   #                       (let, ((first, ()),
@@ -7526,7 +7526,7 @@ def _convert_quasiquotation(quasiquoted_form):
   # assert(bound_good)
   # assert(result_good)
   # print("; PP: passed")
-  
+
   # def mal_pp():
   #         return _match(_metasex_nonstrict_pp,
   #                       (let, ((first),
@@ -7544,7 +7544,7 @@ def _convert_quasiquotation(quasiquoted_form):
   # assert(bound_good)
   # assert(result_good)
   # print("; MAL-PP: passed")
-  
+
   # def empty():
   #         return _match(_metasex_pp, (), {"whole":()})
   # bound_good, result_good, nofail = _runtest(empty,
@@ -7555,7 +7555,7 @@ def _convert_quasiquotation(quasiquoted_form):
   # assert(bound_good)
   # assert(result_good)
   # print("; EMPTY: passed")
-  
+
   # def empty_cross():
   #         return _match(_metasex_pp, (), ({"a":[_name]}, {"b":[(_name,)]},))
   # bound_good, result_good, nofail = _runtest(empty_cross,
@@ -7566,7 +7566,7 @@ def _convert_quasiquotation(quasiquoted_form):
   # assert(bound_good)
   # assert(result_good)
   # print("; EMPTY-CROSS: passed")
-  
+
   # def alternates():
   #         return _match(_metasex_pp, (1, "a"), {"whole":([(or_, (_typep, _py.int),
   #                                                               (_typep, _py.str))],)})
@@ -7578,7 +7578,7 @@ def _convert_quasiquotation(quasiquoted_form):
   # assert(bound_good)
   # assert(result_good)
   # print("; ALTERNATES: passed")
-  
+
   # _intern_and_bind_pynames("PI")
   # def simplex():
   #         pat = ({'head':[()]}, {'tail':_name})
@@ -7594,7 +7594,7 @@ def _convert_quasiquotation(quasiquoted_form):
   # assert(bound_good)
   # assert(result_good)
   # print("; SIMPLEX: passed")
-  
+
   # def mid_complex():
   #         pat = ({"headname":_name},
   #                   {"headtupname":(_name,)},
@@ -7619,7 +7619,7 @@ def _convert_quasiquotation(quasiquoted_form):
   # assert(bound_good)
   # assert(result_good)
   # print("; MID-COMPLEX: passed")
-  
+
   # def simple_maybe():
   #         return _match(_metasex_pp, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
   # bound_good, result_good, nofail = _runtest(simple_maybe,
@@ -7630,7 +7630,7 @@ def _convert_quasiquotation(quasiquoted_form):
   # assert(bound_good)
   # assert(result_good)
   # print("; SIMPLE-MAYBE: passed")
-  
+
 #+end_src
 
 ***** Macroexpansion
@@ -7668,26 +7668,26 @@ def _convert_quasiquotation(quasiquoted_form):
                             (nil, nil))
           return ((form, nil) if not expander else
                   (expander(*args), t))
-  
+
   ## Unregistered Issue COMPLIANCE-MACROEXPAND-HOOK-MUST-BE-FUNCALL-BUT-IT-IS-NOT-A-FUNCTION
   _string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
   _string_set("*ENABLE-MACROEXPAND-HOOK*", t)
-  
+
   def macroexpand_1(form, env = nil, compilerp = nil):
           if symbol_value(_enable_macroexpand_hook_):
                   return symbol_value(_macroexpand_hook_)(_do_macroexpand_1, form, env, compilerp = compilerp)
           return _do_macroexpand_1(form, env, compilerp)
-  
+
   def macroexpand(form, env = nil, compilerp = nil):
           def do_macroexpand(form, expanded):
                   expansion, expanded_again = macroexpand_1(form, env, compilerp)
                   return (do_macroexpand(expansion, t) if expanded_again else
                           (form, expanded))
           return do_macroexpand(form, nil)
-  
+
   _string_set("*MACROEXPANDER-ENV*", nil)       ## This is for regular macro expansion.
   _string_set("*MACROEXPANDER-FORM-BINDS*", nil)
-  
+
   def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t):
           # _debug_printf("%%MXER-INNER: -->\n%s", exp)
           ## 1. Expose the knowns and implicit funcalls:
@@ -7761,9 +7761,9 @@ def _convert_quasiquotation(quasiquoted_form):
                   if f0r is not None:
                           fRr = fR()
                           return _r(f0r, fRr, (f0r,) + fRr)
-  
+
   _macroexpander = _macroexpander_matcher()
-  
+
   def macroexpand_all(form, env = nil, compilerp = t):
           _, res, failpat = _macroexpander_inner(_macroexpander, dict(), None,
                                                  form,
@@ -7832,13 +7832,13 @@ def _prepend_prologue(pro, tuple):
   _string_set("*COMPILER-TOPLEVEL-P*", t)
   _string_set("*COMPILER-DEF*",        nil)
   _string_set("*COMPILER-TAILP*",      nil)
-  
+
   def _sex_space(delta = None, char = " "):
           return char * (_pp_base_depth() + _defaulted(delta, 0))
   def _sex_deeper(n, body):
           with progv({ _pp_base_depth_: _pp_base_depth() + n }):
                   return body()
-  
+
   __compiler_form_record__ = _collections.defaultdict(lambda: 0)
   __compiler_form_record_threshold__ = 5
   def _compiler_track_compiled_form(form):
@@ -7848,34 +7848,34 @@ def _prepend_prologue(pro, tuple):
           #         error("Apparent non-termination while compiling %s (happened over %d times).",
           #               form, __compiler_form_record_threshold__)
           __compiler_form_record__[_py.id(form)] += 1
-  
+
   class _compiler_def(_servile):
           pass
-  
+
   def _compiling_def():     return _symbol_value(_compiler_def_)
   def _tail_position_p():   return _symbol_value(_compiler_tailp_)
-  
+
   def _compiler_report_context():
           _here("def %s\n      tailp: %s",
                 *mapcar(_symbol_value, [_compiler_def_,
                                         _compiler_tailp_]))
-  
+
   _tail_position       = _defwith("_tail_position",
                                      lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_TAILP_ = t)),
                                      lambda *_: _dynamic_scope_pop())
-  
+
   _maybe_tail_position = _defwith("_maybe_tail_position", # This is just a documentation feature.
                                      lambda *_: None,
                                      lambda *_: None)
-  
+
   _no_tail_position    = _defwith("_no_tail_position",
                                      lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_TAILP_ = nil)),
                                      lambda *_: _dynamic_scope_pop())
-  
+
   _compiler_debug         = _defwith("_compiler_debug",
                                      lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_DEBUG_P_ = t)),
                                      lambda *_: _dynamic_scope_pop())
-  
+
   #### Issues:
   ## Tail position optimisations
   ## Lisp-level bound/free
@@ -7883,7 +7883,7 @@ def _prepend_prologue(pro, tuple):
   
   ###                                      (QUAQUOTE)    <-
   ###                                      (COMMA)       <-
-  
+
   ###                                      (SYMBOL)      <-
   ###                                      (SETF VALUES) <-
   ###                                      (RETURN)      <-
@@ -7898,11 +7898,11 @@ def _prepend_prologue(pro, tuple):
   ###                 PROGN | LET, LET* <- (LET*)        <-
   @defun("NOT")
   def not_(x):        return t if x is nil else nil
-  
+
   def _lower_expr(x, fn):
           pro, val = lower(x)
           return (pro, fn(val))
-  
+
 #+end_src
 
 ***** Out-of-band IR argument passing: %IR-ARGS, %IR
@@ -7911,12 +7911,12 @@ def _prepend_prologue(pro, tuple):
   @defknown((_name, "\n", _form, ["\n", ((_typep, _py.str), " ", (_typep, t))],))
   def _ir_args():
           def lower(*_): error("Invariant failed: %s is not meant to be lowered.", _ir_args)
-  
+
   def _maybe_ir_args(x):
           "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
           return ((t, x[1], x[2:]) if _tuplep(x) and x and x[0] is _ir_args else
                   (nil, x, _py.tuple()))
-  
+
   def _ir(*ir, **keys):
           "This IR-ARGS constructur is meant to be used to pass extended arguments down."
           known = _find_known(the(symbol, ir[0]))
@@ -7925,7 +7925,7 @@ def _prepend_prologue(pro, tuple):
                   error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
                         known.name, known.lower_params, invalid_params)
           return (_ir_args, ir) + _py.tuple(_hash_table_alist(keys))
-  
+
   def _ir_args_when(when, ir, **parameters):
           return _ir(*ir, **parameters) if when else ir
 #+end_src
@@ -8052,7 +8052,7 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
                                                        lambda fn, types: _py.len(types),
                                                        ("value_types", lambda x: x is not t)),
                   t)
-  
+
   def _ir_function_form_nth_value_form(n, func, orig_form):
           return _defaulted(
                   _ir_depending_on_function_properties(
@@ -8155,14 +8155,14 @@ def quote():
 #+begin_src python
   def _do_multiple_value_call(fn, values_frames):
           return fn(*reduce(lambda acc, f: acc + f[1:], values_frames, []))
-  
+
   @defknown
   def multiple_value_call():
           ## We might start considering the argument forms for the values queries,
           ## once we get into the partial evaluation affairs..
-          def nvalues(func, *_):            
+          def nvalues(func, *_):
                   return _ir_function_form_nvalues(func)
-          def nth_value(n, orig, func, *_): 
+          def nth_value(n, orig, func, *_):
                   return _ir_function_form_nth_value_form(n, func, orig)
           def lower(fn, *arg_forms):
                   ## We have no choice, but to lower immediately, and by hand.
@@ -9168,7 +9168,7 @@ def apply():
   assert(bound_good)
   assert(result_good)
   print("; APPLYIFICATION: passed")
-  
+
 #+end_src
 
 ***** Engine and drivers: %LOWER, @LISP and COMPILE
@@ -9250,7 +9250,7 @@ def _lower(form):
                                         atree)
                         else:
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
-        
+
         ## XXX: what about side-effects?
         pv = _rec(form)
         # _debug_printf_if(_debugging_compiler(),
@@ -10707,7 +10707,7 @@ associated with the generic function metaobject. These values can then
 be accessed by calling the corresponding generic function. The
 correspondences are as follows:
 
-Table 2: Initialization arguments and accessors for generic function metaobjects. 
+Table 2: Initialization arguments and accessors for generic function metaobjects.
 
 Initialization Argument		Generic Function
 --------------------------------------------------------------------------
@@ -10824,7 +10824,7 @@ short-form-option::= :documentation documentation |
                      :identity-with-one-argument identity-with-one-argument |
                      :operator operator
 
-method-group-specifier::= (name {qualifier-pattern+ | predicate} [[long-form-option]]) 
+method-group-specifier::= (name {qualifier-pattern+ | predicate} [[long-form-option]])
 
 long-form-option::= :description description |
                     :order order |
@@ -12051,11 +12051,11 @@ def defgeneric(_ = None,
 option::= (:argument-precedence-order parameter-name+) |
           (declare gf-declaration+) |
           (:documentation gf-documentation) |
-          (:method-combination method-combination method-combination-argument*) | 
+          (:method-combination method-combination method-combination-argument*) |
           (:generic-function-class generic-function-class) |
           (:method-class method-class)
 
-method-description::= (:method method-qualifier* specialized-lambda-list [[declaration* | documentation]] form*) 
+method-description::= (:method method-qualifier* specialized-lambda-list [[declaration* | documentation]] form*)
 
 Arguments and Values:
 
@@ -12641,7 +12641,7 @@ function-name::= {symbol | (setf symbol)}
 method-qualifier::= non-list
 
 specialized-lambda-list::= ({var | (var parameter-specializer-name)}*
-                            [&optional {var | (var [initform [supplied-p-parameter] ])}*] 
+                            [&optional {var | (var [initform [supplied-p-parameter] ])}*]
                             [&rest var]
                             [&key{var | ({var | (keywordvar)} [initform [supplied-p-parameter] ])}*
                                  [&allow-other-keys] ]
