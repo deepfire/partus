@@ -6118,6 +6118,9 @@ def _parse_body(body, doc_string_allowed = t, toplevel = nil):
 def _process_decls(decls, vars, fvars):
         _warn_not_implemented()
 
+def _self_evaluating_form_p(x):
+        return _py.isinstance(x, (_py.int, _py.str, _py.float)) or x in [t, nil]
+
 # Compiler conditions
 
 @defclass
