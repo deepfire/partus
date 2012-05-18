@@ -1656,11 +1656,12 @@ def _cold_constantp(form):
                 (type_of(form).__name__ == "symbol" and
                  ((form.package.name == "KEYWORD") or
                   (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL", "PI"]))) or
-                (_tuplep(form)                          and
-                 _py.len(form) == 2                        and
-                 type_of(form[0]).__name__ == "symbol" and
-                 form.package.name == "COMMON-LISP"     and
-                 form.name in ["QUOTE"]))
+                (_tuplep(form) and
+                 ((not form) or
+                  (_py.len(form) == 2                    and
+                   type_of(form[0]).__name__ == "symbol" and
+                   form.package.name == "COMMON-LISP"    and
+                   form.name in ["QUOTE"]))))
 constantp = _cold_constantp
 
 # Basic string/char functions and %CASE-XFORM
@@ -5740,9 +5741,9 @@ def _name_defined_as_constant_p(name):
 def constantp(form):
         ## See also: %COLD-CONSTANTP
         return (_py.isinstance(form, (_py.int, _py.float, _py.complex, _py.str)) or
-                keywordp(form) or
-                (symbolp(form) and form in __constants__) or
-                (_tuplep(form) and _py.len(form) is 2 and form[0] is quote))
+                keywordp(form)                                                   or
+                (symbolp(form) and form in __constants__)                        or
+                (_tuplep(form) and (not form or (_py.len(form) is 2 and form[0] is quote))))
 
 # Matcher
 
