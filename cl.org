@@ -568,11 +568,11 @@ def _tuplep(x):
         return _py.isinstance(x, _cold_tuple_type)
 
 @boot_defun
-def atom(x):        return not _tuplep(x)
+def atom(x):        return not _tuplep(x) or x == ()
 @boot_defun # Unregistered Issue LIST-CONSNESS
-def consp(x):       return _tuplep(x)
+def consp(x):       return _tuplep(x) and x != ()
 @boot_defun # Unregistered Issue LIST-CONSNESS
-def listp(x):       return x is nil or _tuplep(x)
+def listp(x):       return x is nil or _tuplep(x) ## covers x == ()
 @boot_defun # Unregistered Issue LIST-CONSNESS
 def list(*xs):      return xs
 @boot_defun # Unregistered Issue LIST-CONSNESS
@@ -1002,7 +1002,7 @@ def _cold_make_nil():
 NIL = nil = _cold_make_nil()
 
 @boot_defun
-def null(x): return x is nil
+def null(x): return x is nil or x == ()
 #+end_src
 
 ******* Package system core
