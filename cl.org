@@ -2016,13 +2016,12 @@ def _cold_constantp(form):
                 (type_of(form).__name__ == "symbol" and
                  ((form.package.name == "KEYWORD") or
                   (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL", "PI"]))) or
-                (_tuplep(form)                          and
-                 _py.len(form) == 0) or
-                (_tuplep(form)                          and
-                 _py.len(form) == 2                     and
-                 type_of(form[0]).__name__ == "symbol"  and
-                 form.package.name == "COMMON-LISP"     and
-                 form.name in ["QUOTE"]))
+                (_tuplep(form) and
+                 ((not form) or
+                  (_py.len(form) == 2                    and
+                   type_of(form[0]).__name__ == "symbol" and
+                   form.package.name == "COMMON-LISP"    and
+                   form.name in ["QUOTE"]))))
 constantp = _cold_constantp
 #+end_src
 
