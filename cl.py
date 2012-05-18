@@ -6376,33 +6376,118 @@ def _make_lexenv(parent = nil, **initial_content):
 
 # Quasiquotation
 
-def _convert_quasiquotation(quasiquoted_form):
-        """Expand abbreviation of QUASIQUOTED-FORM (in a simple, yet suboptimal way)."""
-        def rec(x):
+## From CLHS 2.4.6:
+##
+## The backquote syntax can be summarized formally as follows.
+##
+## * `basic is the same as 'basic, that is, (quote basic), for any expression basic that is not a list or a general vector.
+##
+## * `,form is the same as form, for any form, provided that the representation of form does not begin with at-sign or dot.
+## (A similar caveat holds for all occurrences of a form after a comma.)
+##
+## * `,@form has undefined consequences.
+##
+## * `(x1 x2 x3 ... xn . atom) may be interpreted to mean
+##
+## (append [ x1] [ x2] [ x3] ... [ xn] (quote atom))
+##
+##         where the brackets are used to indicate a transformation of an xj as follows:
+##
+##              -- [form] is interpreted as (list `form), which contains a backquoted form that must then be further
+##              interpreted.
+##
+##              -- [,form] is interpreted as (list form).
+##
+##              -- [,@form] is interpreted as form.
+##
+## * `(x1 x2 x3 ... xn) may be interpreted to mean the same as the backquoted form `(x1 x2 x3 ... xn . nil), thereby
+## reducing it to the previous case.
+##
+## * `(x1 x2 x3 ... xn . ,form) may be interpreted to mean
+##
+## (append [ x1] [ x2] [ x3] ... [ xn] form)
+##
+##         where the brackets indicate a transformation of an xj as described above.
+##
+## * `(x1 x2 x3 ... xn . ,@form) has undefined consequences.
+##
+## * `#(x1 x2 x3 ... xn) may be interpreted to mean (apply #'vector `(x1 x2 x3 ... xn)).
+##
+## Anywhere ``,@'' may be used, the syntax ``,.'' may be used instead to indicate that it is permissible to operate
+## destructively on the list structure produced by the form following the ``,.'' (in effect, to use nconc instead of
+## append).
+##
+## If the backquote syntax is nested, the innermost backquoted form should be expanded first. This means that if several
+## commas occur in a row, the leftmost one belongs to the innermost backquote.
+
+_intern_and_bind_pynames("QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
+
+## Unregistered Issue COMPLIANCE-BACKQUOTE-EXPANSION-DOTTED-LIST-HANDLING
+
+def _expand_quasiquotation(quasiquotation_form):
+        """Expand abbreviation of QUASIQUOTATION-FORM (in a simple, yet suboptimal way)."""
+        def malform(x): error("Invalid %s form: %s.", x[0], x)
+        def process_form(x):
+                return (x                                         if atom(x)            else
+                        (process_qq(x[1]) if _py.len(x) is 2 else
+                         malform(x))                              if x[0] is quasiquote else
+                        _py.tuple(process_form(ix) for ix in x))
+        def process_qq(x):
                 if atom(x):
                         return (quote, x)
                 else:
-                        acc = []
-                        run = [list]
-                        for ix in x:
-                                if not _tuplep(ix) or not ix or ix[0] not in [comma, splice]:
-                                        run.append(rec(ix))
-                                elif len(ix) != 2:
-                                        error("In quasi-quoted form %s: bad %s expression %s.", x, ix[0], ix)
-                                elif ix[0] is comma:
-                                        run.append(ix[1])
-                                elif ix[0] is splice:
-                                        if not acc:
-                                                acc = [append]
-                                        acc.append(_py.tuple(run))
-                                        acc.append(ix[1])
-                                        run = [list]
-                        if acc:
-                                acc.append(_py.tuple(run))
-                        else:
-                                acc = run
-                        return _py.tuple(remove((list,), acc, test = equal))
-        return rec(qq_form[1:])
+                        acc = [append]
+                        for xi in x:
+                                if atom(xi):
+                                        acc.append((list, (quote, xi)))
+                                elif xi[0] in (comma, splice):
+                                        _py.len(xi) is 2 or malform(xi)
+                                        acc.append((list, xi[1]) if xi[0] is comma else
+                                                   xi[1])
+                                else:
+                                        if xi[0] is quasiquote:
+                                                _py.len(xi) is 2 or malform(xi)
+                                                nxi = process_qq(xi[1])
+                                                xi = nxi
+                                        acc.append((list, process_qq(xi)))
+                        ## Simplify an obvious case of APPEND having only LIST subforms.
+                        if _py.all(consp(x) and x[0] is list for x in acc[1:]):
+                                acc = (list,) + _py.tuple(x[1] for x in acc[1:])
+                        return _py.tuple(acc)
+        return process_form(quasiquotation_form)
+
+def _runtest(fn, input, expected):
+        result = fn(input)
+        if result != expected:
+                _debug_printf("Failed %s: on input:\n%s\nexpected:\n%s\ngot:\n%s", fn.__name__.upper(), input, expected, result)
+        return result == expected
+
+assert(_runtest(_expand_quasiquotation,
+                ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
+                (quasiquote, (1, (comma, 2), 3, (splice, 4), 5,
+                              ((comma, 6), (splice, 7)),
+                              (splice, 8), (splice, 9))),
+                ((append, (list, (quote, 1)), (list, 2), (list, (quote, 3)), 4,
+                          (list, (quote, 5)), (list, (append, (list, 6), 7)),
+                          8, 9))))
+print("; QUASIQUOTATION-SIMPLE: passed")
+
+assert(_runtest(_expand_quasiquotation,
+                ## `(a ,b ,@c `(d ,,e ,@f ,@,g)) -- numbers don't do, as CONSTANTP is used for simplification.
+                (quasiquote,
+                 (1, (comma, 2), (splice, 3),
+                  (quasiquote, (4, (comma, (comma, 5)), (splice, 6), (splice, (comma, 7)))))),
+                (append,
+                 (list, (quote, 1)), (list, 2), 3,
+                 ## The first pass ought to be:
+                 ## (append, (list, (quote, 4)), (list, (comma, 5)), 6, (comma, 7))
+                 (list, (list,
+                         (quote, append),
+                         (list, (quote, list), (list, (quote, quote), (quote, 4))),
+                         (list, (quote, list), 5),
+                         (quote, 6),
+                         7)))))
+print("; QUASIQUOTATION-NESTED: passed")
 
 # DEFKNOWN
 
@@ -7137,9 +7222,6 @@ _compiler_debug         = _defwith("_compiler_debug",
 ## Tail position optimisations
 ## Lisp-level bound/free
 ## is the value generally side-effect-free?
-
-###                                      (QUAQUOTE)    <-
-###                                      (COMMA)       <-
 
 ###                                      (SYMBOL)      <-
 ###                                      (SETF VALUES) <-
@@ -8677,7 +8759,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
 #    1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFUN(name, lambda_list, *body):
         (defmacro, defun, (name, lambda_list, _body, body),
-          (quaquote,
+          (quasiquote,
             (progn,
               ## SBCL has a :COMPILE-TOPLEVEL part, but it's not very clear what we need in this respect.
               (eval_when, (_load_toplevel, _execute),
@@ -8694,9 +8776,9 @@ def cond(*clauses):
                  (rest, (rest, clauses))),
            (let, ((test, (first, clause)),
                   (body, (rest, clause))),
-            (quaquote, (if_, (unquote, test),
-                        (progn, (splice, body)),
-                        (cond, (splice, rest))))))))
+            (quasiquote, (if_, (unquote, test),
+                         (progn, (splice, body)),
+                         (cond, (splice, rest))))))))
 
 @lisp
 def fdefinition(name):
