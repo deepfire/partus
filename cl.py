@@ -5918,7 +5918,11 @@ class _matcher():
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                 seg_pat, rest_pat = pat[0][1:], pat[1:]
                 firstp = aux is None
-                aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
+                last_attempt_p = _py.len(exp) <= 1
+                ## Compute and cache the tuple being iteratively matched upon.
+                aux = ( # seg_pat                         if last_attempt_p else
+                       (seg_pat + ((some,) + seg_pat,)) if aux is None    else
+                        aux)
                 _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
                               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
                 end = (end                        if end is not None                          else
