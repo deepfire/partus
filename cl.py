@@ -6742,7 +6742,7 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                         ######################### Thought paused here..
                         m.match(bound, name, exp, (([(_lax,)] if _tuplep(exp[0]) else
                                                     (_typep, t)), (_lax,)), (False, False), None, None))
-        def crec(m, exp, l0, lR, orig_tuple_p = False):
+        def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 #
                 ##
