@@ -5901,6 +5901,12 @@ class _matcher():
         def ignore(m, bound, name, exp, pat, orifst, aux, limit):
                 return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
         ###
+        # Methods to be implemented:
+        # 
+        # def forc(f0, fR, orig_tuple_p)
+        # def prod(exp, orig_tuple_p)
+        # def nonliteral_atom_p(exp) -- XXX: abstraction leak!
+        ###
         def segment(m, bound, name, exp, pat, orifst, aux, limit, end = None):
                 def position(x, xs):
                         for i, ix in enumerate(xs):
