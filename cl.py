@@ -7988,9 +7988,9 @@ def go():
 #         :END:
 
 @defknown((intern("EVAL-WHEN")[0], " ", ([(_notlead, " "),
-                                          (or_, (_maybe_once, _keyword("COMPILE-TOPLEVEL")),
-                                                (_maybe_once, _keyword("LOAD-TOPLEVEL")),
-                                                (_maybe_once, _keyword("EXECUTE")))],),
+                                          (or_, _keyword("COMPILE-TOPLEVEL"),
+                                                _keyword("LOAD-TOPLEVEL"),
+                                                _keyword("EXECUTE"))],),
             1, [(_notlead, "\n"), _form]))
 def eval_when():
         """eval-when (situation*) form* => result*
