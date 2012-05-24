@@ -5835,6 +5835,8 @@ class _matcher():
         def fail(bound, exp, pat): return bound, exp, pat
         @staticmethod
         def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
+        @staticmethod
+        def post_fail(x, pat):     return                           x if x[2] is None else (x[0], x[1], pat)
         ###
         def test(m, test, bound, name, resf:"() -> result", exp, fail_pat, if_exists:{error, replace} = error):
                 return _r(test, "", (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
@@ -5935,23 +5937,25 @@ class _matcher():
                 seg_exp, rest_exp = (exp[0:cut], exp[len(exp) if cut is None else cut:])
                 _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
                 return _r(exp, pat,
-                          m.coor(m.crec(exp,
-                                        lambda:
-                                                ((lambda seg_bound, seg_r, seg_fail_pat:
-                                                          m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
-                                                                 if_exists = replace))
-                                                 (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
-                                                    m.fail(bound, exp, pat)                                if limit == 0    else
-                                                    ## Try biting one more iteration off seg_exp:
-                                                    m.match(bound, name,  seg_exp,     aux,  (False,
-                                                                                              firstp), aux, (limit - 1 if integerp(limit) else
-                                                                                                             None))))),
-                                        lambda seg_bound:
-                                                m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
-                                        orig_tuple_p = firstp and orifst[0] and seg_exp != (),
-                                        horisontal = t),
-                                 lambda: m.segment(   bound, name,      exp,      pat, orifst,   None,  limit,
-                                                            end + 1)))
+                          m.post_fail(
+                                m.coor(m.crec(exp,
+                                              lambda:
+                                                      ((lambda seg_bound, seg_r, seg_fail_pat:
+                                                                m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
+                                                                       if_exists = replace))
+                                                       (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
+                                                          m.fail(bound, exp, pat)                                if limit == 0    else
+                                                          ## Try biting one more iteration off seg_exp:
+                                                          m.match(bound, name,  seg_exp,     aux,  (False,
+                                                                                                    firstp), aux, (limit - 1 if integerp(limit) else
+                                                                                                                   None))))),
+                                              lambda seg_bound:
+                                                      m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
+                                              orig_tuple_p = firstp and orifst[0] and seg_exp != (),
+                                              horisontal = t),
+                                       lambda: m.segment(   bound, name,      exp,      pat, orifst,   None,  limit,
+                                                            end + 1)),
+                                pat[0]))
         def maybe(m, bound, name, exp, pat, orifst, aux, limit):
                 ## The semantics of aux are painfully unclear here:
                 ##  - we need to perform aux pass-through, for any potential surrounding segment match
@@ -5962,15 +5966,16 @@ class _matcher():
                           m.segment(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
         def or_(m, bound, name, exp, pat, orifst, aux, limit):
                 alternatives = pat[0][1:]
-                def fail():
-                        return m.fail(bound, exp, pat[0])
                 def rec(head, tail):
                         return m.coor(m.match(bound, name, exp, (head,) + pat[1:], orifst, None, None),
                                       ## Unregistered Issue MATCHER-OR-FAILED-EXPRESSION-TOO-UNSPECIFIC
-                                      lambda: (fail() if not tail else
+                                      lambda: (m.fail(bound, exp, ()) if not tail else
                                                rec(tail[0], tail[1:])))
-                return (fail() if not alternatives else
-                        rec(alternatives[0], alternatives[1:]))
+                if not alternatives:
+                        return m.fail(bound, exp, pat[0])
+                return _r(exp, pat,
+                          m.post_fail(rec(alternatives[0], alternatives[1:]),
+                                      pat[0]))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
         ## 1. type narrows down the case analysis chain (of which there is a lot)
