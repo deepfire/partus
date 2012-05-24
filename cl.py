@@ -5875,13 +5875,13 @@ class _matcher():
         def simplex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
         def complex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def simplex(m, bound, name, exp, pat, orifst):
-                _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s",
+                _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s",
                               lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                                        name, bound, exp, pat))
                 return _r(exp, pat[0],
                           m.__simplex_patterns__[pat[0]](bound, name, exp, pat, orifst))
         def complex(m, bound, name, exp, pat, orifst, aux, limit):
-                _trace_printf("complex", "complex  %s (call: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s",
+                _trace_printf("complex", "complex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  %s  %s",
                               lambda: (pat[0][0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                                        name, bound, exp, pat, orifst, aux, limit))
                 return _r(exp, pat[0][0],
@@ -5913,7 +5913,7 @@ class _matcher():
                 seg_pat, rest_pat = pat[0][1:], pat[1:]
                 firstp = aux is None
                 aux = (seg_pat + ((some,) + seg_pat,)) if aux is None else aux # We'll MATCH against this
-                _trace_printf("segment", "segment  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  firstp:%s newaux:%s limit:%s",
+                _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
                               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
                 end = (end                        if end is not None                          else
                        position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
@@ -5976,7 +5976,7 @@ class _matcher():
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
                 ## the acute sense of time being wasted..
                 atomp, null = not _tuplep(pat), pat == ()
-                _trace_printf("match", "       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s, simplexp: %s",
+                _trace_printf("match", "       _match  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  %s  %s, atomp: %s, null: %s, complexp: %s, simplexp: %s",
                               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
                                        atomp, null,
                                        (not (atom or null)) and m.complex_pat_p(pat[0]),
@@ -6802,9 +6802,10 @@ def _pp_sex(sex, strict = t, initial_depth = None):
         initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
         with progv({ _pp_depth_:      initial_depth,
                      _pp_base_depth_: initial_depth}):
-                _, r, f = _match(_metasex_pp, sex, _metasex.form_metasex(sex))
+                pat = _metasex.form_metasex(sex)
+                _, r, f = _match(_metasex_pp, sex, pat)
         if f is not None:
-                error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", sex, f, r)
+                error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s", sex, pat, f, r)
         return r or ""
 
 # IR method -based services
