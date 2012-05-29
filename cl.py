@@ -5947,10 +5947,9 @@ class _matcher():
                                                           m.fail(bound, exp, pat)                                if limit == 0    else
                                                           ## Try biting one more iteration off seg_exp:
                                                           m.match(bound, name,  seg_exp,     aux,  (False,
-                                                                                                    firstp), aux, (limit - 1 if integerp(limit) else
-                                                                                                                   None))))),
+                                                                                                    firstp), aux, limit - 1)))),
                                               lambda seg_bound:
-                                                      m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
+                                                      m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
                                               orig_tuple_p = firstp and orifst[0] and seg_exp != (),
                                               horisontal = t),
                                        lambda: m.segment(   bound, name,      exp,      pat, orifst,   None,  limit,
@@ -5967,7 +5966,7 @@ class _matcher():
         def or_(m, bound, name, exp, pat, orifst, aux, limit):
                 alternatives = pat[0][1:]
                 def rec(head, tail):
-                        return m.coor(m.match(bound, name, exp, (head,) + pat[1:], orifst, None, None),
+                        return m.coor(m.match(bound, name, exp, (head,) + pat[1:], orifst, None, -1),
                                       ## Unregistered Issue MATCHER-OR-FAILED-EXPRESSION-TOO-UNSPECIFIC
                                       lambda: (m.fail(bound, exp, ()) if not tail else
                                                rec(tail[0], tail[1:])))
@@ -6013,7 +6012,7 @@ class _matcher():
                                          m.crec(exp,
                                                 lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
                                                                                                         orifst[1]),
-                                                                       None, None),
+                                                                       None, -1),
                                                 (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), aux, limit)),
                                                 orig_tuple_p = orifst[0],
                                                 horisontal = nil))))
@@ -6021,7 +6020,7 @@ class _matcher():
 
 def _match(matcher, exp, pat):
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
-        return matcher.match(_py.dict(), name, exp, prepped, (True, False), None, None)
+        return matcher.match(_py.dict(), name, exp, prepped, (True, False), None, -1)
 
 # Functions (in the sense of result of compilation)
 
@@ -6665,7 +6664,7 @@ class _metasex_matcher(_matcher):
         def form(m, bound, name, form, pat, orifst):
                 prepped = m.preprocess(m.form_metasex(form))
                 _trace_printf("form", "=== form for %s:\n    %s", lambda: (_py.repr(form), prepped))
-                return _r(form, pat, m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), None, None))
+                return _r(form, pat, m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), None, -1))
         def symbol(m, bound, name, form, pat, orifst):
                 return m.test(form is pat[1], bound, name, lambda: m.prod(form, orifst),
                               form, pat)
@@ -6716,13 +6715,13 @@ class _metasex_matcher_pp(_metasex_matcher):
                 new_base = _pp_base_depth() + n
                 with progv({ _pp_depth_:      new_base,
                              _pp_base_depth_: new_base}):
-                        return m.post(m.match(m.bind(new_base, bound, name), None, exp, tail, orifst, aux, None),
+                        return m.post(m.match(m.bind(new_base, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: "\n" + (" " * new_base) + r)
         def indent(m, bound, name, exp, pat, orifst, aux, limit):
                 n, tail = pat[0][1], pat[1:]
                 new_depth = _pp_depth() + n
                 with progv({ _pp_depth_: new_depth }):
-                        return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, None),
+                        return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: (" " * n) + r)
         def notlead(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1]
@@ -6750,7 +6749,7 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                 return (m.prod(exp, orifst[0])                if not exp         else
                         ######################### Thought paused here..
                         m.match(bound, name, exp, (([(_lax,)] if _tuplep(exp[0]) else
-                                                    (_typep, t)), (_lax,)), (False, False), None, None))
+                                                    (_typep, t)), (_lax,)), (False, False), None, -1))
         def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 #
