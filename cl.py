@@ -5822,7 +5822,10 @@ class _matcher():
         @staticmethod
         def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
         @staticmethod
-        def post_fail(x, pat):     return                           x if x[2] is None else (x[0], x[1], pat)
+        def post_fail(x, pat):
+                if x[2] is not None:
+                        _debug_printf("replacing fail %s ---> %s", x[2], pat)
+                return                           x if x[2] is None else (x[0], x[1], pat)
         ###
         def test(m, test, bound, name, resf:"() -> result", exp, fail_pat, if_exists:{error, replace} = error):
                 return _r(test, "", (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
@@ -8759,6 +8762,17 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 return with_compilation_unit(_in_compilation_unit)
 
 # @LISP tests
+_trace(_return, "crec")
+_trace(_return, "maybe")
+_trace(_return, "segment")
+
+@lisp
+def FOO():
+        (defmacro, foo, (), (eval_when, (_execute,), nil))
+
+@lisp
+def FOO():
+        (defmacro, foo, ())
 
 @lisp
 # ((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
