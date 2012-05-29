@@ -5790,10 +5790,10 @@ def _trace_printf(tracespec, control, *args):
                 _debug_printf(control, *(args if not (_py.len(args) == 1 and functionp(args[0])) else
                                          args[0]()))
 
-def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "complex"])):
+def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "complex", "simplex"])):
         def trace_args():
                 frames = _py.reversed(
-                        _py.list(_take(n, (f for f in _frames_calling(_caller_frame()) if _frame_fun_name(f) not in ignore_callers))))
+                        _py.list(_take(n, (f for f in _frames_calling(_caller_frame(2)) if _frame_fun_name(f) not in ignore_callers))))
                 return (":".join(("%s_%s" % (_frame_fun_name(f),
                                              _frame_id(f)[:3]))
                                  for f in frames),
