@@ -5801,20 +5801,6 @@ def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "comp
         _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s", trace_args)
         return retval
 
-### .prod
-## segment:       coor <- crec <- succ <-
-## match:         test <-
-## match:         test <-
-## typep:         test <-
-## lax
-#
-### .crec
-## segment:       coor <-
-## match:         equo <-
-#
-### .comb
-## crec:          succ <-
-
 class _matcher():
         @staticmethod
         def bind(value, bound, name, if_exists:{error, replace} = error):
@@ -5873,7 +5859,6 @@ class _matcher():
         ###
         def   register_simplex_matcher(m, name, matcher):     m.__simplex_patterns__[name] = matcher
         def   register_complex_matcher(m, name, matcher):     m.__complex_patterns__[name] = matcher
-        def deregister_complex_matcher(m, name):          del m.__complex_patterns__[name]
         def simplex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
         def complex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def simplex(m, bound, name, exp, pat, orifst):
@@ -5918,24 +5903,26 @@ class _matcher():
                         return not nonconstant_pat_p(_py.tuple(pat.items())[0][1] if typep(pat, _py.dict) else
                                                      pat)
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
+                ## 1. Destructure the pattern, deduce the situation.
                 seg_pat, rest_pat = pat[0][1:], pat[1:]
                 firstp = aux is None
-                last_attempt_p = _py.len(exp) <= 1
-                ## Compute and cache the tuple being iteratively matched upon.
-                aux = ( # seg_pat                         if last_attempt_p else
-                       (seg_pat + ((some,) + seg_pat,)) if aux is None    else
+                ## 2. Memoize the tuple being iteratively matched upon.
+                aux = ((seg_pat + ((some,) + seg_pat,)) if aux is None    else
                         aux)
                 _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
                               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
+                ## 3. (Re-)establish and check the boundary.
                 end = (end                        if end is not None                          else
                        position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                        0)
-                if ((end and end > _py.len(exp)) or ## no boundary variant fitted
-                    end is None):                   ## a constant pattern was missing
+                if ((end and end > _py.len(exp)) or ## No chance of a successful match.
+                    end is None):                   ## A constant pattern was missing, likewise.
                         return _r(exp, pat, m.fail(bound, exp, pat))
+                ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
                 cut = end if rest_pat else len(exp)
                 seg_exp, rest_exp = (exp[0:cut], exp[len(exp) if cut is None else cut:])
                 _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
+                ## 5. Recursion and alternate length attempts.
                 return _r(exp, pat,
                           m.post_fail(
                                 m.coor(m.crec(exp,
@@ -5943,7 +5930,9 @@ class _matcher():
                                                       ((lambda seg_bound, seg_r, seg_fail_pat:
                                                                 m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
                                                                        if_exists = replace))
-                                                       (*(m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
+                                                       (*(## Test for success -- segment piece exhausted.
+                                                          m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
+                                                          ## Test specific for bounded matching.
                                                           m.fail(bound, exp, pat)                                if limit == 0    else
                                                           ## Try biting one more iteration off seg_exp:
                                                           m.match(bound, name,  seg_exp,     aux,  (False,
@@ -5952,8 +5941,9 @@ class _matcher():
                                                       m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
                                               orig_tuple_p = firstp and orifst[0] and seg_exp != (),
                                               horisontal = t),
-                                       lambda: m.segment(   bound, name,      exp,      pat, orifst,   None,  limit,
-                                                            end + 1)),
+                                       ## Retry with a longer part of expression allotted to this segment.
+                                       lambda: m.segment(bound, name,      exp,      pat, orifst,   None,  limit,
+                                                         end + 1)),
                                 pat[0]))
         def maybe(m, bound, name, exp, pat, orifst, aux, limit):
                 ## The semantics of aux are painfully unclear here:
@@ -5965,16 +5955,16 @@ class _matcher():
                           m.segment(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
         def or_(m, bound, name, exp, pat, orifst, aux, limit):
                 alternatives = pat[0][1:]
+                def fail(): return m.fail(bound, exp, pat[0])
                 def rec(head, tail):
                         return m.coor(m.match(bound, name, exp, (head,) + pat[1:], orifst, None, -1),
                                       ## Unregistered Issue MATCHER-OR-FAILED-EXPRESSION-TOO-UNSPECIFIC
-                                      lambda: (m.fail(bound, exp, ()) if not tail else
+                                      lambda: (fail() if not tail else
                                                rec(tail[0], tail[1:])))
-                if not alternatives:
-                        return m.fail(bound, exp, pat[0])
-                return _r(exp, pat,
-                          m.post_fail(rec(alternatives[0], alternatives[1:]),
-                                      pat[0]))
+                return (fail() if not alternatives else
+                        _r(exp, pat,
+                           m.post_fail(rec(alternatives[0], alternatives[1:]),
+                                       pat[0])))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
         ## 1. type narrows down the case analysis chain (of which there is a lot)
@@ -6774,7 +6764,7 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                                        (None, None), None, None)
                 result = (m.comh if horisontal else
                           m.comr)(try_0, try_R, orig_tuple_p)
-                _trace_printf("yield", "+t+ YIELD for %s:\n%s", exp, result)
+                _trace_printf("yield", "+t+ YIELD for %s:\n%s\nfailpat: %s", exp, result, failpat)
                 return (m.succ(boundR, result) if failpat is None else
                         m.fail(boundR or bound0, failex, failpat))
 
@@ -6819,7 +6809,7 @@ def _pp_sex(sex, strict = t, initial_depth = None):
                 pat = _metasex.form_metasex(sex)
                 _, r, f = _match(_metasex_pp, sex, pat)
         if f is not None:
-                error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s", sex, pat, f, r)
+                error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s", sex, pat, f, _py.repr(r))
         return r or ""
 
 # IR method -based services
