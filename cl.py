@@ -5840,22 +5840,23 @@ class _matcher():
                 return m.fail(l0b, lRr, m.forc(l0f, lRf, orig_tuple_p))
         def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
-                failpat, fx0, fxR, bound0, boundR = None, None, None, None, None
+                b0, bR, fx0, fxR, fp0, fpR  = None, None, None, None, None, None
                 def try_0():
-                        nonlocal bound0, fx0, failpat
-                        bound0, fx0, failpat = l0()
-                        if failpat is None: return fx0
+                        nonlocal b0, fx0, fp0
+                        b0, fx0, fp0 = l0()
+                        if fp0 is None: return fx0
                 def try_R():
-                        nonlocal boundR, fxR, failpat
-                        boundR, fxR, failpat = lR(bound0)
-                        if failpat is None: return fxR
+                        nonlocal bR, fxR, fpR
+                        bR, fxR, fpR = lR(b0)
+                        if fpR is None: return fxR
                 result = (m.comh if horisontal else
                           m.comr)(try_0, try_R, orig_tuple_p)
                 _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
                               lambda: (exp, orig_tuple_p, _caller_name(2), _caller_name(1), result))
                 return _r(exp, [fx0, fxR],
-                          m.succ(boundR, result) if failpat is None else
-                          m.fail(boundR or bound0, fx0 if fx0 is not None else fxR, failpat))
+                          m.succ(bR, result) if fp0 is None and fpR is None else
+                          m.fail(*((b0, fx0, fp0) if fp0 is not None else
+                                   (bR, fxR, fpR))))
         ###
         def   register_simplex_matcher(m, name, matcher):     m.__simplex_patterns__[name] = matcher
         def   register_complex_matcher(m, name, matcher):     m.__complex_patterns__[name] = matcher
