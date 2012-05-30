@@ -434,7 +434,7 @@ def _coerce_to_condition(datum, *args, default_type = None, **keys):
         type = (type_specifier             if typep(type_specifier, _cold_class_type)                              else
                 None                       if _conditionp(type_specifier)                                          else
                 type_specifier.python_type if symbolp(type_specifier) and _symbol_type_specifier_p(type_specifier) else
-                error(simple_type_error, "Cannot coerce %s to a condition.", _py.repr(datum)))
+                simple_type_error("Cannot coerce %s to a condition.", _py.repr(datum)))
         cond = (datum              if type is None   else # Already a condition.
                 type(datum % args) if stringp(datum) else
                 type(*args, **keys))
@@ -726,8 +726,8 @@ def _coerce_to_package(x, if_null = "current"):
         return (find_package(x)                                              if stringp(x) or symbolp(x) or packagep(x) else
                 (_symbol_value(_package_) if if_null == "current" else
                  _package_not_found_error(x))                                if (not x)                                 else
-                error(simple_type_error, "COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
-                      x, type_of(x)))
+                simple_type_error("COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
+                                  x, type_of(x)))
 
 @boot("symbol", lambda _intern, x, package = None:
               _intern(x, package or __cl))
@@ -1149,9 +1149,9 @@ complex type specifier."""
         return _tuplep(x)
 
 def _invalid_type_specifier_error(x, complete_type = None):
-        error(simple_type_error, "%s is not a valid type specifier%s.",
-              x, ("" if not complete_type else
-                  (" (within type specifier %s)" % (complete_type,))))
+        simple_type_error("%s is not a valid type specifier%s.",
+                          x, ("" if not complete_type else
+                              (" (within type specifier %s)" % (complete_type,))))
 
 def _complex_type_mismatch(x, type):
         ret = type[0].type_predicate(x, type)
@@ -1196,9 +1196,10 @@ def deftype(type_name_or_fn):
 def the(type, x):
         mismatch = _type_mismatch(x, type)
         return (x if not mismatch else
-                error(simple_type_error, "The value %s is not of type %s%s.",
-                      x, type, ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
-                                (", specifically, the value %s is not of type %s" % (princ_to_string(mismatch[0]), mismatch[1])))))
+                error(simple_type_error,
+                      format_control = "The value %s is not of type %s%s.",
+                      format_arguments = (x, type, ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
+                                                    (", specifically, the value %s is not of type %s" % (princ_to_string(mismatch[0]), mismatch[1]))))))
 
 @boot_defun
 def check_type(x, type):
@@ -1644,8 +1645,8 @@ def _poor_man_etypecase(val, *clauses):
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
                         return body() if functionp(body) else body
         else:
-                error(simple_type_error, "%s fell through ETYPECASE expression. Wanted one of (%s).",
-                      val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
+                simple_type_error("%s fell through ETYPECASE expression. Wanted one of (%s).",
+                                  val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
 
 def _cold_constantp(form):
         # Coldness:
@@ -4475,8 +4476,8 @@ __valid_restart_options__ = _py.frozenset(["interactive", "report", "test", "fun
 def _restart_case(body, **restarts_args):
         def validate_restart_options(options):
                 unknown = _py.set(options.keys()) - __valid_restart_options__
-                return t if not unknown else error(simple_type_error, "Acceptable restart options are: (%s), not (%s)",
-                                                   " ".join(__valid_restart_options__), " ".join(options.keys()))
+                return t if not unknown else simple_type_error("Acceptable restart options are: (%s), not (%s)",
+                                                               " ".join(__valid_restart_options__), " ".join(options.keys()))
         nonce = gensym("RESTART-CASE")
         wrapped_restarts_args = {
                 restart_name: _poor_man_let(restart_args["function"],
@@ -4911,10 +4912,15 @@ def _literal_ast_sex(ast_):
 
 def _read_ast(x):
         def rec(x):
+                def read_symbol(x):
+                        lisp_name = _frost.python_name_lisp_symbol_name(x)
+                        name, keywordp = (lisp_name, nil) if lisp_name[0] != ":" else (lisp_name[1:], t)
+                        package = symbol_value(_package_) if not keywordp else __keyword
+                        _debug_printf("READ-TREE: %s in %s", name, package)
+                        return _intern(name, package)[0]
                 return (x.n                               if _py.isinstance(x, _ast.Num)   else
                         x.s                               if _py.isinstance(x, _ast.Str)   else
-                        _intern(_frost.python_name_lisp_symbol_name(x.id))[0]
-                                                          if _py.isinstance(x, _ast.Name)  else
+                        read_symbol(x.id)                 if _py.isinstance(x, _ast.Name)  else
                         _py.tuple(rec(e) for e in x)      if _py.isinstance(x, _py.list)   else
                         _py.tuple(rec(e) for e in x.elts) if _py.isinstance(x, _ast.Tuple) else
                         _read_ast(x.value)                if _py.isinstance(x, _ast.Expr)  else
@@ -5835,12 +5841,12 @@ class _matcher():
                 b, r, f = x
                 return ((m.bind(exp, b, name), r, f) if f is None else
                         x) # propagate failure as-is
-        def coor(m, l0ret, lR, orig_tuple_p = False):
+        def coor(m, l0ret, lR, orig_tuple_p = False, combine_fail = None):
                 l0b, l0r, l0f = l0ret
                 if l0f is None: return m.succ(l0b, l0r)
                 lRb, lRr, lRf = lR()
                 if lRf is None: return m.succ(lRb, lRr)
-                return m.fail(l0b, lRr, m.forc(l0f, lRf, orig_tuple_p))
+                return m.fail(l0b, *combine_fail(l0r, l0f, lRr, lRf, orig_tuple_p))
         def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 b0, bR, fx0, fxR, fp0, fpR  = None, None, None, None, None, None
@@ -5856,6 +5862,8 @@ class _matcher():
                           m.comr)(try_0, try_R, orig_tuple_p)
                 _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
                               lambda: (exp, orig_tuple_p, _caller_name(2), _caller_name(1), result))
+                _debug_printf("   crec0:  %s    %s", fx0, fp0)
+                _debug_printf("   crecR:  %s    %s", fxR, fpR)
                 return _r(exp, [fx0, fxR],
                           m.succ(bR, result) if fp0 is None and fpR is None else
                           m.fail(*((b0, fx0, fp0) if fp0 is not None else
@@ -5919,8 +5927,9 @@ class _matcher():
                 end = (end                        if end is not None                          else
                        position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                        0)
-                if ((end and end > _py.len(exp)) or ## No chance of a successful match.
+                if ((end and end > _py.len(exp)) or ## All legitimate splits failed.
                     end is None):                   ## A constant pattern was missing, likewise.
+                        _debug_printf("   FAILing seg: %s", pat)
                         return _r(exp, pat, m.fail(bound, exp, pat))
                 ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
                 cut = end if rest_pat else len(exp)
@@ -5928,27 +5937,33 @@ class _matcher():
                 _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
                 ## 5. Recursion and alternate length attempts.
                 return _r(exp, pat,
-                          m.post_fail(
-                                m.coor(m.crec(exp,
-                                              lambda:
-                                                      ((lambda seg_bound, seg_r, seg_fail_pat:
-                                                                m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
-                                                                       if_exists = replace))
-                                                       (*(## Test for success -- segment piece exhausted.
-                                                          m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
-                                                          ## Test specific for bounded matching.
-                                                          m.fail(bound, exp, pat)                                if limit == 0    else
-                                                          ## Try biting one more iteration off seg_exp:
-                                                          m.match(bound, name,  seg_exp,     aux,  (False,
-                                                                                                    firstp), aux, limit - 1)))),
-                                              lambda seg_bound:
-                                                      m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
-                                              orig_tuple_p = firstp and orifst[0] and seg_exp != (),
-                                              horisontal = t),
-                                       ## Retry with a longer part of expression allotted to this segment.
-                                       lambda: m.segment(bound, name,      exp,      pat, orifst,   None,  limit,
-                                                         end + 1)),
-                                pat[0]))
+                          m.coor(m.crec(exp,
+                                        lambda:
+                                                ((lambda seg_bound, seg_r, seg_fail_pat:
+                                                          m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
+                                                                 if_exists = replace))
+                                                 (*(## Test for success -- segment piece exhausted.
+                                                    m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
+                                                    ## Test specific for bounded matching.
+                                                    m.fail(bound, exp, pat)                                if limit == 0    else
+                                                    ## Try biting one more iteration off seg_exp:
+                                                            m.match(bound, name,  seg_exp,     aux,  (False,
+                                                                                                      firstp), aux, limit - 1)))),
+                                        lambda seg_bound:
+                                                m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
+                                        orig_tuple_p = firstp and orifst[0] and seg_exp != (),
+                                        horisontal = t),
+                                 ## Retry with a longer part of expression allotted to this segment.
+                                 lambda: m.segment(bound, name,      exp,      pat, orifst,   None,  limit,
+                                                   end + 1),
+                                 combine_fail = (lambda e0, p0, eR, pR, _:
+                                                         _debug_printf("    SEGFAIL %s   %s:\nef0: %s  %s\nefR: %s  %s\nret: %s",
+                                                                       pat, seg_pat, e0, p0, eR, pR,
+                                                                       ((e0, p0) if pR == pat else
+                                                                        (eR, pR))) or
+                                                 ((e0, p0) if pR == pat else
+                                                  (eR, pR)))),
+                          pat[0])
         def maybe(m, bound, name, exp, pat, orifst, aux, limit):
                 ## The semantics of aux are painfully unclear here:
                 ##  - we need to perform aux pass-through, for any potential surrounding segment match
@@ -5964,7 +5979,8 @@ class _matcher():
                         return m.coor(m.match(bound, name, exp, (head,) + pat[1:], orifst, None, -1),
                                       ## Unregistered Issue MATCHER-OR-FAILED-EXPRESSION-TOO-UNSPECIFIC
                                       lambda: (fail() if not tail else
-                                               rec(tail[0], tail[1:])))
+                                               rec(tail[0], tail[1:])),
+                                      combine_fail = lambda e0, p0, eR, pR, _: (exp, pat))
                 return (fail() if not alternatives else
                         _r(exp, pat,
                            m.post_fail(rec(alternatives[0], alternatives[1:]),
@@ -6629,23 +6645,19 @@ class _metasex_matcher(_matcher):
         @staticmethod
         def comr(f0, fR, orig_tuple_p): return _combine_t_or_None(f0, fR, orig_tuple_p)
         @staticmethod
-        def forc(x, y, orig_tuple_p):
-                return (("OR",) if orig_tuple_p else ()) + (x,) + y
-        @staticmethod
         def nonliteral_atom_p(x):
                 ## Currently only depended upon by the segment matcher.
                 return x == _name
         @staticmethod
         def atom(exp, pat):
-                _trace_printf("atom", "%%% atom: e:%s p:%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
-                              lambda: (exp, pat, ((symbolp(exp) and not keywordp(exp)) if pat is _name else
-                                                  exp is pat                           if symbolp(pat) else
-                                                  exp == pat),
+                result = ((symbolp(exp) and not keywordp(exp)) if pat is _name else
+                           exp is pat                          if symbolp(pat) else
+                           exp == pat)
+                _trace_printf("atom", "%% atom: e:%s/%s/%s p:%s/%s/%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
+                              lambda: (exp, symbol_name(exp), symbol_package(exp),
+                                       pat, symbol_name(pat), symbol_package(pat), result,
                                        pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp)))
-                return _r(exp, pat,
-                          ((symbolp(exp) and not keywordp(exp)) if pat is _name else
-                           exp is pat                           if symbolp(pat) else
-                           exp == pat))
+                return _r(exp, pat, result)
         @staticmethod
         def form_metasex(form):
                 ####### Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
@@ -7981,9 +7993,9 @@ def go():
 #         :END:
 
 @defknown((intern("EVAL-WHEN")[0], " ", ([(_notlead, " "),
-                                          (or_, _keyword("COMPILE-TOPLEVEL"),
-                                                _keyword("LOAD-TOPLEVEL"),
-                                                _keyword("EXECUTE"))],),
+                                          (or_, _compile_toplevel,
+                                                _load_toplevel,
+                                                _execute)],),
             1, [(_notlead, "\n"), _form]))
 def eval_when():
         """eval-when (situation*) form* => result*
@@ -8762,6 +8774,8 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 return with_compilation_unit(_in_compilation_unit)
 
 # @LISP tests
+# _trace("atom")
+_trace("match")
 _trace(_return, "crec")
 _trace(_return, "maybe")
 _trace(_return, "segment")
