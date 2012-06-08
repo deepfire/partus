@@ -1295,8 +1295,14 @@ def maybe(x, type):
 
 @deftype
 def pylist(x, type):
-        return ((x, type, True)  if _py.len(type) is not 2       else
+        return ((x, type, True)  if _py.len(type) is not 2          else
                 (x, type, False) if not _py.isinstance(x, _py.list) else
+                some(_type_mismatch, x, _infinite(type[1])))
+
+@deftype
+def homotuple(x, type):
+        return ((x, type, True)  if _py.len(type) is not 2           else
+                (x, type, False) if not _py.isinstance(x, _py.tuple) else
                 some(_type_mismatch, x, _infinite(type[1])))
 
 @deftype
