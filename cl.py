@@ -4922,7 +4922,6 @@ def _read_ast(x):
                         lisp_name = _frost.python_name_lisp_symbol_name(x)
                         name, keywordp = (lisp_name, nil) if lisp_name[0] != ":" else (lisp_name[1:], t)
                         package = symbol_value(_package_) if not keywordp else __keyword
-                        _debug_printf("READ-TREE: %s in %s", name, package)
                         return _intern(name, package)[0]
                 return (x.n                               if _py.isinstance(x, _ast.Num)   else
                         x.s                               if _py.isinstance(x, _ast.Str)   else
@@ -5869,8 +5868,6 @@ class _matcher():
                           m.comr)(try_0, try_R, orig_tuple_p)
                 _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
                               lambda: (exp, orig_tuple_p, _caller_name(2), _caller_name(1), result))
-                _debug_printf("   crec0:  %s    %s", fx0, fp0)
-                _debug_printf("   crecR:  %s    %s", fxR, fpR)
                 return _r(exp, [fx0, fxR],
                           m.succ(bR, result) if fp0 is None and fpR is None else
                           m.fail(*((b0, fx0, fp0) if fp0 is not None else
@@ -8782,10 +8779,11 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
 
 # @LISP tests
 # _trace("atom")
-_trace("match")
-_trace(_return, "crec")
-_trace(_return, "maybe")
-_trace(_return, "segment")
+# _trace("match")
+# _trace(_return, "crec")
+# _trace(_return, "maybe")
+# _trace(_return, "segment")
+# _trace(_return, "match")
 
 @lisp
 def FOO():
