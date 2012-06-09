@@ -4246,8 +4246,6 @@ def __cl_condition_handler__(condspec, frame):
                 if type_of(cond) not in __not_even_conditions__:
                         # _debug_printf("signalling %s", cond)
                         if upgradedp:
-                                _backtrace()
-                                backtrace_printed = t
                                 _here("Condition Upgrader: %s of-type %s -> %s of-type %s",
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
