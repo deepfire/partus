@@ -5871,8 +5871,12 @@ class _matcher():
                           m.fail(*((b0, fx0, fp0) if fp0 is not None else
                                    (bR, fxR, fpR))))
         ###
-        def   register_simplex_matcher(m, name, matcher):     m.__simplex_patterns__[name] = matcher
-        def   register_complex_matcher(m, name, matcher):     m.__complex_patterns__[name] = matcher
+        def register_simplex_matcher(m, name, matcher):
+                __metasex_words__.add(name)
+                m.__simplex_patterns__[name] = matcher
+        def register_complex_matcher(m, name, matcher):
+                __metasex_words__.add(name)
+                m.__complex_patterns__[name] = matcher
         def simplex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
         def complex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def simplex(m, bound, name, exp, pat, orifst):
@@ -6517,6 +6521,38 @@ print("; QUASIQUOTATION-NESTED: passed")
 
 # DEFKNOWN
 
+_intern_and_bind_pynames("%NAME", "%MAYBE", "%NOTLEAD", "%NOTTAIL",
+                         "%NEWLINE", "%INDENT", "%FORM", "%BOUND", "%SYMBOL", "%TYPEP", "%COUNT-SCOPE",
+                         "%MAYBE-ONCE", "%ONCE",
+                         "%SET-MINUS",
+                         "%FOR-MATCHERS-XFORM", "%FOR-NOT-MATCHERS-XFORM")
+
+__metasex_words__      = _py.set() ## Populated by _register_*_matcher()
+__metasex_leaf_words__ = { _newline, _indent, _for_matchers_xform, _for_not_matchers_xform }
+
+def _metasex_word_p(x):      return symbolp(x) and x in __metasex_words__
+def _metasex_leaf_word_p(x): return symbolp(x) and x in __metasex_leaf_words__
+
+def _preprocess_metasex(pat):
+        "Expand syntactic sugars."
+        def prep_binding(b):
+                k, v = _py.tuple(b.items())[0]
+                return {k: _preprocess_metasex(v)}
+        ret = ((_count_scope, (some,) +
+                 _py.tuple(_preprocess_metasex(x) for x in pat)) if typep(pat, _py.list)       else
+                prep_binding(pat)                                if typep(pat, _py.dict)       else
+                (_form,)                                         if pat == _form               else
+                (_newline, 0)                                    if pat == "\n"                else
+                (_newline, pat)                                  if integerp(pat)              else
+                (_indent, 1)                                     if pat == " "                 else
+                pat                                              if not (pat and _tuplep(pat)) else
+                ((identity if _metasex_word_p(pat[0]) else
+                  _preprocess_metasex)(pat[0]),) + _py.tuple((                    x  for x in pat[1:])
+                                                             if _metasex_leaf_word_p(pat[0]) else
+                                                             (_preprocess_metasex(x) for x in pat[1:])))
+        # _here("\n ==> %s   -   %s", pat, ret, callers = 15)
+        return ret
+
 _known = _poor_man_defstruct("known",
                              "name",
                              "metasex",
@@ -6526,7 +6562,7 @@ _known = _poor_man_defstruct("known",
                              "effects", "affected",
                              "lower_params")
 
-def _compute_default_metasex(name):
+def _compute_default_known_metasex(name):
         "Return a default MetaSEX form for a known with NAME."
         return (name, " ", _form)
 
@@ -6585,7 +6621,7 @@ The NAME is bound, in separate namespaces, to:
         def _defknown(fn, name = name, metasex = metasex_or_fn):
                 _, sym, pyname = _interpret_toplevel_value(fn, functionp)
                 name    = _defaulted(name, sym, symbol)
-                metasex = _defaulted(metasex, _compute_default_metasex(name))
+                metasex = _defaulted(metasex, _compute_default_known_metasex(name))
                 return do_defknown(fn, name, pyname, metasex)
         return (_defknown(metasex_or_fn, metasex = None) if functionp(metasex_or_fn) else
                 _defknown                                if _tuplep(metasex_or_fn)   else
@@ -6597,11 +6633,6 @@ def _find_known(x):
 # METASEX-MATCHER, METASEX-MATCHER-PP and METASEX-MATCHER-NONSTRICT-PP
 
 #         MetaSEX presents us with an excellent lesson.  Let's try to understand.
-
-_intern_and_bind_pynames("%NAME", "%MAYBE", "%NOTLEAD", "%NOTTAIL",
-                         "%NEWLINE", "%INDENT", "%FORM", "%BOUND", "%SYMBOL", "%TYPEP", "%COUNT-SCOPE",
-                         "%MAYBE-ONCE", "%ONCE",
-                         "%SET-MINUS")
 
 def _form_known(form):
         ## METASEX-MATCHER guts it, due to case analysis
@@ -6626,22 +6657,10 @@ class _metasex_matcher(_matcher):
                 m.register_complex_matcher(_notlead,     m.identity)
                 m.register_complex_matcher(_nottail,     m.identity)
                 m.register_complex_matcher(_count_scope, m.identity)
-        def preprocess(m, pat):
-                "Expand syntactic sugar."
-                def prep_binding(b):
-                        k, v = _py.tuple(b.items())[0]
-                        return {k: m.preprocess(v)}
-                return ((_count_scope, (some,) +
-                         m.preprocess(_py.tuple(pat))) if typep(pat, _py.list)       else
-                        prep_binding(pat)              if typep(pat, _py.dict)       else
-                        (_form,)                       if pat == _form               else
-                        (_newline, 0)                  if pat == "\n"                else
-                        (_newline, pat)                if integerp(pat)              else
-                        (_indent, 1)                   if pat == " "                 else
-                        pat                            if not (pat and _tuplep(pat)) else
-                        (m.preprocess(pat[0]),) + m.preprocess(pat[1:]))
         @staticmethod
-        def prod(x, orig_tuple_p): return ""
+        def preprocess(pat):            return _preprocess_metasex(pat)
+        @staticmethod
+        def prod(x, orig_tuple_p):      return ""
         @staticmethod
         def comh(f0, fR, orig_tuple_p): return _combine_t_or_None(f0, fR, orig_tuple_p)
         @staticmethod
