@@ -5903,6 +5903,9 @@ class _matcher():
         def identity(m, bound, name, exp, pat, orifst, aux, limit):
                 ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
                 return m.complex(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+        def simplex_identity(m, bound, name, exp, pat, orifst):
+                ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
+                return m.simplex(bound, name, exp, pat[1], orifst)
         def ignore(m, bound, name, exp, pat, orifst, aux, limit):
                 return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
         ###
@@ -5993,6 +5996,7 @@ class _matcher():
                                        pat[0])))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
+        ## 0. mostly is already done
         ## 1. type narrows down the case analysis chain (of which there is a lot)
         ## 2. expressions also need typing..
         def match(m, bound, name, exp, pat, orifst, aux, limit):
@@ -6639,6 +6643,17 @@ def _form_known(form):
         complex_form_p = _tuplep(form) and symbolp(form[0])
         return complex_form_p and _find_known(form[0])
 
+def _form_metasex(form):
+        "Return a normalised MetaSEX for FORM."
+        ## Unregistered Issue FORM-METASEX-SHOULD-COMPUTE-METASEX-OF-DEFINED-MACROS
+        ## Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
+        return _preprocess_metasex(
+                (_typep, t)                             if not _tuplep(form)                                      else
+                ()                                      if not form                                               else
+                _find_known(form[0]).metasex            if symbolp(form[0]) and _find_known(form[0])              else
+                (_form, "\n", [(_notlead, " "), _form]) if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
+                ([(_notlead, " "), _form],))
+
 def _combine_t_or_None(f0, fR, orig_tuple_p):
         f0r = f0()
         if f0r is not None:
@@ -6649,7 +6664,7 @@ class _metasex_matcher(_matcher):
         def __init__(m):
                 _matcher.__init__(m)
                 m.register_simplex_matcher(_form,        m.form)
-                m.register_simplex_matcher(_bound,       m.form)
+                m.register_simplex_matcher(_bound,       m.simplex_identity)
                 m.register_simplex_matcher(_symbol,      m.symbol)
                 m.register_simplex_matcher(_typep,       m.typep)
                 m.register_complex_matcher(_newline,     m.ignore)
@@ -6679,19 +6694,33 @@ class _metasex_matcher(_matcher):
                                        pat, symbol_name(pat), symbol_package(pat), result,
                                        pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp)))
                 return _r(exp, pat, result)
-        @staticmethod
-        def form_metasex(form):
-                ####### Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
-                return ((_typep, t)                             if not _tuplep(form)                                      else
-                        ()                                      if not form                                               else
-                        _find_known(form[0]).metasex            if symbolp(form[0]) and _find_known(form[0])              else
-                        (_name, [(_nottail, " "), _form])       if symbolp(form[0])                                       else
-                        (_form, "\n", [(_notlead, " "), _form]) if _tuplep(form[0]) and form[0] and form[0][0] is lambda_ else
-                        ([(_notlead, " "), _form],))
-        def form(m, bound, name, form, pat, orifst):
-                prepped = m.preprocess(m.form_metasex(form))
-                _trace_printf("form", "=== form for %s:\n    %s", lambda: (_py.repr(form), prepped))
-                return _r(form, pat, m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), None, -1))
+        def process_formpat_arguments(m, form, pat):
+                arg_handlers = { _for_matchers_xform:     (lambda arg: m in arg[1:],
+                                                           lambda arg: arg[0](form)),
+                                 _for_not_matchers_xform: (lambda arg: m not in arg[1:],
+                                                           lambda arg: arg[0](form)),
+                                 }
+                if consp(pat):
+                        _, *args = pat
+                        # _debug_printf("args of %s: %s, ", pat, args)
+                        for (argname, *argval) in args:
+                                if argname not in arg_handlers:
+                                        error("Invalid FORM argument: %s, pat: %s", argname, pat)
+                                arg_applicable_p, arg_handler = arg_handlers[argname]
+                                if arg_applicable_p(argval):
+                                        ret = arg_handler(argval)
+                                        # _debug_printf("\n\nMATCHED/xformed: %s", ret)
+                                        return True, ret
+                return None, None
+        def form(m, bound, name, form, pat, orifst, ignore_args = None):
+                ## This is actually a filter.
+                # _debug_printf("\n\nFORM -- %s -- %s", form, pat)
+                handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
+                if handled:
+                        return _r(form, pat, ret)
+                form_pat = _form_metasex(form)
+                # _trace_printf("form", "=== form for %s:\n    %s", lambda: (_py.repr(form), form_pat))
+                return _r(form, form_pat, m.match(bound, name, form, form_pat, (_tuplep(form), orifst[1]), None, -1))
         def symbol(m, bound, name, form, pat, orifst):
                 return m.test(form is pat[1], bound, name, lambda: m.prod(form, orifst),
                               form, pat)
@@ -6830,7 +6859,7 @@ _metasex_nonstrict_pp = _metasex_matcher_nonstrict_pp()
 # _trace(_return, "typep")
 
 def _match_sex(sex, pattern = None):
-        return _match(_metasex, sex, _defaulted(pattern, _metasex.form_metasex(sex)))
+        return _match(_metasex, sex, _defaulted(pattern, _form_metasex(sex)))
 
 ## WIP: set specifiers (got bored)
 _string_set("*SETSPEC-SCOPE*", nil)
@@ -6843,7 +6872,7 @@ def _pp_sex(sex, strict = t, initial_depth = None):
         initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
         with progv({ _pp_depth_:      initial_depth,
                      _pp_base_depth_: initial_depth}):
-                pat = _metasex.form_metasex(sex)
+                pat = _form_metasex(sex)
                 _, r, f = _match(_metasex_pp, sex, pat)
         if f is not None:
                 error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s", sex, pat, f, _py.repr(r))
@@ -7078,12 +7107,17 @@ def macroexpand(form, env = nil, compilerp = nil):
 _string_set("*MACROEXPANDER-ENV*", nil)       ## This is for regular macro expansion.
 _string_set("*MACROEXPANDER-FORM-BINDS*", nil)
 
-def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t):
+def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignore_args = None):
+        "Used as a simplex matcher in _macroexpander_matcher."
         # _debug_printf("%%MXER-INNER: -->\n%s", exp)
         ## 1. Expose the knowns and implicit funcalls:
+        handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
+        if handled:
+                return m.succ(bound, ret)
         env = _symbol_value(_macroexpander_env_)
         expanded_form, _ = macroexpand(form, env, compilerp = compilerp)
         ## 2. Compute bindings contributed by this outer form.
+        # _debug_printf("\nexpanded %s -> %s", form, expanded_form)
         known = _find_known(expanded_form[0]) if _tuplep(expanded_form) else nil
         (symbol_frame,
          mfunc_frame,
@@ -7097,7 +7131,7 @@ def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t):
                                                               kind_funcframe = _dictappend(mfunc_frame, ffunc_frame))})
               if symbol_frame or mfunc_frame or ffunc_frame else
               _withless()):
-                b, r, f = _metasex_matcher.form(m, bound, name, expanded_form, "ignored", orifst)
+                b, r, f = _metasex_matcher.form(m, bound, name, expanded_form, pat, orifst, ignore_args = ignore_args)
                 # if not f:
                 #         _debug_printf("%%MXER-INNER: <--\n%s", r)
                 return b, r, f
@@ -7136,7 +7170,7 @@ class _macroexpander_matcher(_metasex_matcher):
                                                   _symbol_value(_macroexpander_env_)),
                             ## marker scope ends here:
                             _macroexpander_form_binds_: nil}):
-                        return _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t)
+                        return _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t, ignore_args = t)
         @staticmethod
         def prod(x, orig_tuple_p): return x
         @staticmethod
@@ -7150,7 +7184,8 @@ class _macroexpander_matcher(_metasex_matcher):
                 f0r = f0()
                 if f0r is not None:
                         fRr = fR()
-                        return _r(f0r, fRr, (f0r,) + fRr)
+                        if fRr is not None:
+                                return _r(f0r, fRr, (f0r,) + fRr)
 
 _macroexpander = _macroexpander_matcher()
 
@@ -7170,7 +7205,7 @@ def macroexpand_all(form, env = nil, compilerp = t):
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
         return (eval_when, (_compile_toplevel, _load_toplevel, _execute),
-                 (apply, ("cl", "_set_macro_definition"), (lambda_, lambda_list) + body,
+                 (apply, (quote, ("cl", "_set_macro_definition")), (lambda_, lambda_list) + body,
                          nil))
 
 # Tuple intermediate IR
@@ -7414,7 +7449,7 @@ def _ir_cl_module_name(name):
         return ("cl", name)
 
 def _ir_cl_module_call(name, *ir_args):
-        return (apply, _ir_cl_module_name(name)) + ir_args
+        return (apply, (quote, _ir_cl_module_name(name))) + ir_args
 
 # SETQ
 #         :PROPERTIES:
@@ -7455,7 +7490,7 @@ def setq():
 #         :CL:       [X]
 #         :END:
 
-@defknown
+@defknown((intern("QUOTE")[0], " ", (_form, (_for_matchers_xform, identity, _macroexpander))))
 def quote():
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
@@ -8013,6 +8048,14 @@ def go():
 #         :CL:       [X]
 #         :END:
 
+_eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
+_eval_when_keywords = _py.set(_eval_when_ordered_keywords)
+def _parse_eval_when_situations(situ_form):
+        if not (_tuplep(situ_form) and not (_py.set(situ_form) - _eval_when_keywords)):
+                error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
+        return [x in situ_form for x in _eval_when_ordered_keywords]
+
+## Unregistered Issue EVAL-WHEN-LACKING-SPACE-BETWEEN-KEYWORDS-WHEN-PRINTED
 @defknown((intern("EVAL-WHEN")[0], " ", ([(_notlead, " "),
                                           (or_, _compile_toplevel,
                                                 _load_toplevel,
@@ -8060,7 +8103,6 @@ when EVAL-WHEN appears as a top level form."""
                 ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
                 ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
                 ## so that they're never seen at this level.)
-                _not_implemented()
                 return (((progn,) + body) if exec else
                         _lower(nil))
 
@@ -8375,12 +8417,14 @@ def apply():
         def nvalues(func, _, *__):            return _ir_function_form_nvalues(func)
         def nth_value(n, orig, func, _, *__): return _ir_function_form_nth_value_form(n, func, orig)
         def lower(func, arg, *args):
-                def pycall_p(x): return stringp(x) or (_tuplep(x) and _py.all(stringp(x) for x in x))
+                def pycall_p(x): return typep(x, (pytuple, (eql, quote), (homotuple, string)))
                 ## Unregistered Issue IMPROVEMENT-APPLY-COULD-VALIDATE-CALLS-OF-KNOWNS
                 with _no_tail_position():
-                        func_pro, func_val = (([], _attr_chain_atree((func,) if stringp(func) else func))
+                        func_pro, func_val = (([], _attr_chain_atree(func[1]))
+                                              # Unregistered Issue MAYBE-MOVE-PYCALL-HANDLING-TO-FUNCTION
                                               # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-APPLY
                                               # - quote_ compilation in lower_
+                                              # - DEFMACRO, DEFUN
                                               if pycall_p(func) else
                                               _lower(func))
                 fixed, rest = (((),                 arg)       if not args                  else
@@ -8425,7 +8469,7 @@ def applyification():
 bound_good, result_good, nofail = _runtest(applyification,
                                            {},
                                            (apply, (function, cond), nil))
-_results()
+# _results()
 assert(nofail)
 assert(bound_good)
 assert(result_good)
@@ -8796,10 +8840,13 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
 
 # @LISP tests
 # _trace("atom")
-# _trace("match")
 # _trace(_return, "crec")
 # _trace(_return, "maybe")
+# _trace("segment")
 # _trace(_return, "segment")
+# _trace("form")
+# _trace(_return, "form")
+# _trace("match")
 # _trace(_return, "match")
 
 @lisp
@@ -8819,7 +8866,7 @@ def DEFUN(name, lambda_list, *body):
             (progn,
               ## SBCL has a :COMPILE-TOPLEVEL part, but it's not very clear what we need in this respect.
               (eval_when, (_load_toplevel, _execute),
-                (apply, ("cl", "_set_function_definition"),
+                (apply, (quote, ("cl", "_set_function_definition")),
                         (lambda_, (comma, lambda_list), (splice, body)),
                         nil)))))
 
@@ -8974,13 +9021,6 @@ def _process_toplevel_locally(body, path, compile_time_too, vars = [], funs = []
         forms, decls = _parse_body(body, doc_string_allowed = nil, toplevel = t)[:2]
         with progv({_lexenv_: _process_decls(decls, vars, funs)}):
                 return _process_toplevel_progn(forms, path, compile_time_too)
-
-_eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
-_eval_when_keywords = _py.set(_eval_when_ordered_keywords)
-def _parse_eval_when_situations(situ_form):
-        if not (_tuplep(situ_form) and _py.set(situ_form) == _eval_when_keywords):
-                error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
-        return [x in situ_form for x in _eval_when_ordered_keywords]
 
 # functional-components f
 # make-functional-from-toplevel-lambda lambda-expression name path
