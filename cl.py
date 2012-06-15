@@ -6759,7 +6759,9 @@ class _metasex_matcher_pp(_metasex_matcher):
                 m.register_complex_matcher(_nottail,     m.nottail)
         @staticmethod
         def prod(x, orig_tuple_p):
-                result = _py.str(x) if x or orig_tuple_p else ""
+                result = (""            if not (orig_tuple_p or x or (orig_tuple_p and x == ()) or x is nil) else
+                          '"' + x + '"' if stringp(x)                         else
+                          _py.str(x))
                 _trace_printf("yield", "+++ YIELD prod:\n%s", result)
                 return result
         @staticmethod
