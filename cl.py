@@ -6277,10 +6277,14 @@ def _compilation_unit_prologue():
                         ## So, it becomes evident, that we need multiple values.
                         return mapcan((lambda s: _lower((setq, s, (intern, symbol_name(s), (find_package, package_name(symbol_package(s))))))[0]),
                                       symbols)
-        return ((symbol_prologue() +
-                 [])
+        def cl_prologue():
+                return [("Import", [("alias", "cl")])]
+        # _debug_printf("\n\n===\nGenerating prologue -- top compilation unit: %s, symprog: %s",
+        #               _top_compilation_unit_p(), symbol_prologue())
+        return ((cl_prologue() +
+                 symbol_prologue())
                 if _top_compilation_unit_p() else
-                [])
+                cl_prologue())
 
 # Code
 
@@ -7191,14 +7195,15 @@ class _macroexpander_matcher(_metasex_matcher):
 
 _macroexpander = _macroexpander_matcher()
 
-def macroexpand_all(form, env = nil, compilerp = t):
-        _, res, failpat = _macroexpander_inner(_macroexpander, dict(), None,
-                                               form,
-                                               nil,  ## The pattern will be discarded out of hand, anyway.
-                                               (None, None),
-                                               compilerp = t)
-        assert(not failpat)
-        return res
+def macroexpand_all(sex, env = nil, compilerp = t):
+        _, r, f = _macroexpander_inner(_macroexpander, dict(), None,
+                                       sex,
+                                       nil,  ## The pattern will be discarded out of hand, anyway.
+                                       (None, None),
+                                       compilerp = t)
+        if f is not None:
+                error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", sex, f, _py.repr(r))
+        return r
 
 # DEFMACRO
 
@@ -7207,7 +7212,10 @@ def macroexpand_all(form, env = nil, compilerp = t):
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
         return (eval_when, (_compile_toplevel, _load_toplevel, _execute),
-                 (apply, (quote, ("cl", "_set_macro_definition")), (lambda_, lambda_list) + body,
+                 (apply, (quote, ("cl", "_set_macro_definition")),
+                         ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
+                         # (function, (def_, name, lambda_list) + body),
+                         (fdefinition, (def_, name, lambda_list) + body),
                          nil))
 
 # Tuple intermediate IR
@@ -8524,7 +8532,7 @@ def _lower(form):
                                         not noisep(name) and _compiler_debug_printf("=== %s done", name)
                                         return ret, t
                         if not x: ## Either an empty list or NIL itself.
-                                return _rec((nil,))
+                                return _rec((ref, nil))
                         if symbolp(x[0]):
                                 argsp, form, args = _maybe_ir_args(x)
                                 # Urgent Issue COMPILER-MACRO-SYSTEM
@@ -8544,7 +8552,8 @@ def _lower(form):
                         else:
                                 error("Invalid form: %s.", princ_to_string(x))
                 elif symbolp(x) and not constantp(x):
-                        return _attr_chain_atree(_ir_cl_module_name("nil"))
+                        ## Unregistered Issue SYMBOL-MODEL
+                        return _rec((ref, x))
                 else:
                         # NOTE: we don't care about quoting here, as constants are self-evaluating.
                         atree, successp = _try_atreeify_constant(x) # NOTE: this allows to directly pass through ASTs.
@@ -8558,9 +8567,9 @@ def _lower(form):
 
         ## XXX: what about side-effects?
         pv = _rec(form)
-        # _debug_printf_if(_debugging_compiler(),
-        #                  ";;; compilation atree output for\n%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
-        #                  _pp_sex(form), *pv)
+        _debug_printf_if(_debugging_compiler(),
+                         ";;; compilation atree output for\n%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
+                         _pp_sex(form), *pv)
         expected_return_type = (pytuple, pylist, (maybe, (partuple, string)))
         if not typep(pv, expected_return_type):
                 error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
@@ -8787,8 +8796,9 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
         def _in_compilation_unit():
                 pro, value = _do_compile(form, lexenv) # We're only interested in the resulting DEF.
                 cu_pro = _compilation_unit_prologue()
-                final_pv = cu_pro + pro, value
-                if _py.len(pro) != 1:   # The FunctionDef and the symbol Assign
+                pro = cu_pro + pro
+                final_pv = pro, value
+                if _py.len(pro) < 1:   # The FunctionDef and the symbol Assign
                         _debug_printf("*** invariant failed - %s prologue - while compiling form:", ("no" if not pro else
                                                                                                      "long"))
                         _dump_form(form)
@@ -8840,6 +8850,11 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
         with progv({_lexenv_: lexenv}):
                 return with_compilation_unit(_in_compilation_unit)
 
+@defun
+def fdefinition(name):
+        ## DEFMACRO expands into this (DEFUN should too)
+        return symbol_function(the(symbol, name))
+
 # @LISP tests
 # _trace("atom")
 # _trace(_return, "crec")
@@ -8850,14 +8865,13 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
 # _trace(_return, "form")
 # _trace("match")
 # _trace(_return, "match")
+# _debug_compiler()
 
 @lisp
 def FOO():
-        (defmacro, foo, (), (eval_when, (_execute,), nil))
-
-@lisp
-def FOO():
-        (defmacro, foo, ())
+        (defmacro, foo, (),
+          (eval_when, (_execute,),
+            nil))
 
 @lisp
 # ((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
@@ -8884,12 +8898,6 @@ def cond(*clauses):
             (quasiquote, (if_, (unquote, test),
                          (progn, (splice, body)),
                          (cond, (splice, rest))))))))
-
-@lisp
-def fdefinition(name):
-        (defun, fdefinition, (name,),
-         (symbol_function, (the, symbol, name)))
-describe(fdefinition)
 
 # Source info (rudimentary)
 
