@@ -568,7 +568,7 @@ class symbol(): # Turned to a symbol, during the package system bootstrap.
                   self.macro_function,
                   self.compiler_macro_function,
                   self.symbol_macro_expansion,
-                  self.known)) = name, None, (None, nil, nil, None, nil)
+                  self.known)) = name, nil, (None, nil, nil, None, nil)
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
         def __call__(self, *args, **keys):
@@ -6275,6 +6275,8 @@ def _compilation_unit_prologue():
                         #         _debug_printf("++++++++++++++++++++++++++++++++++++ emitting init for %s:\n%s\n\n",
                         #                       s, _lower((setq, s, (intern, symbol_name(s), package_name(symbol_package(s))))))
                         ## So, it becomes evident, that we need multiple values.
+                        for s in symbols:
+                                _debug_printf("sym: %s, name: %s, pack: %s", s, symbol_name(s), symbol_package(s))
                         return mapcan((lambda s: _lower((setq, s, (intern, symbol_name(s), (find_package, package_name(symbol_package(s))))))[0]),
                                       symbols)
         def cl_prologue():
@@ -6317,7 +6319,6 @@ class _function(_nameuse):
                 _nameuse.__init__(self, name, kind, type, **attributes)
 class _block(_nameuse):
         def __init__(self, name, **attributes):
-                check_type(kind, (eql, block)) # block
                 _nameuse.__init__(self, name, block, t, **attributes)
 
 def _nameuse_variablep(x): return _py.isinstance(x, _variable)
@@ -6346,7 +6347,7 @@ class _lexenv():
         """Chains variable and function scope pieces together.  Scope pieces map binding kinds
            to binding sets and bound names to bindings."""
         varscope, funcscope = nil, nil
-        def __init__(self, parent = nil,
+        def __init__(self, parent = None,
                      name_varframe = None, name_funcframe = None, name_blockframe = None,
                      kind_varframe = None, kind_funcframe = None, kind_blockframe = None,
                      full_varframe = None, full_funcframe = None, full_blockframe = None):
@@ -6362,18 +6363,17 @@ class _lexenv():
                 def complete_kind_frame(framespec):
                         res = _py.dict(framespec)
                         res["names"] = names = _py.dict()
-                        for set in framespec.values:
+                        for set in framespec.values():
                                 for binding in set:
                                         names[binding.name] = binding
                         return res
                 def complete_frame(name, kind, full):
-                        return (full                       if full else
-                                complete_name_frame(name)  if name else
-                                complete_kind_frame(frame) if kind else
+                        return (full                      if full else
+                                complete_name_frame(name) if name else
+                                complete_kind_frame(kind) if kind else
                                 None)
                 def compute_scope(parent, sname, frame):
-                        parent = (parent if _specifiedp(parent) else
-                                  _symbol_value(_lexenv_))
+                        parent = parent if _specifiedp(parent) else _symbol_value(_lexenv_)
                         pscope = _py.getattr(parent, sname) if parent else nil
                         return (pscope if not frame else
                                 ((frame, (nil if parent is nil else
@@ -6529,7 +6529,7 @@ print("; QUASIQUOTATION-NESTED: passed")
 
 # DEFKNOWN
 
-_intern_and_bind_pynames("%NAME", "%MAYBE", "%NOTLEAD", "%NOTTAIL",
+_intern_and_bind_pynames("%NAME", "%MAYBE", "%LEAD", "%NOTLEAD", "%NOTTAIL",
                          "%NEWLINE", "%INDENT", "%FORM", "%BOUND", "%SYMBOL", "%TYPEP", "%COUNT-SCOPE",
                          "%MAYBE-ONCE", "%ONCE",
                          "%SET-MINUS",
@@ -6673,6 +6673,7 @@ class _metasex_matcher(_matcher):
                 m.register_simplex_matcher(_typep,       m.typep)
                 m.register_complex_matcher(_newline,     m.ignore)
                 m.register_complex_matcher(_indent,      m.ignore)
+                m.register_complex_matcher(_lead,        m.identity)
                 m.register_complex_matcher(_notlead,     m.identity)
                 m.register_complex_matcher(_nottail,     m.identity)
                 m.register_complex_matcher(_count_scope, m.identity)
@@ -6759,6 +6760,7 @@ class _metasex_matcher_pp(_metasex_matcher):
                 _metasex_matcher.__init__(m)
                 m.register_complex_matcher(_newline,     m.newline)
                 m.register_complex_matcher(_indent,      m.indent)
+                m.register_complex_matcher(_lead,        m.lead)
                 m.register_complex_matcher(_notlead,     m.notlead)
                 m.register_complex_matcher(_nottail,     m.nottail)
         @staticmethod
@@ -6785,6 +6787,13 @@ class _metasex_matcher_pp(_metasex_matcher):
                 with progv({ _pp_depth_: new_depth }):
                         return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: (" " * n) + r)
+        def lead(m, bound, name, exp, pat, orifst, aux, limit):
+                maybe_pat = pat[0][1]
+                _trace_printf("lead", "!!! lead: first:%s %s %s", orifst[1], pat, exp)
+                if not orifst[1]:
+                        return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
+                ############## act as identity
+                return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
         def notlead(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1]
                 _trace_printf("notlead", "!!! notlead: first:%s %s %s", orifst[1], pat, exp)
@@ -6795,7 +6804,7 @@ class _metasex_matcher_pp(_metasex_matcher):
         def nottail(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1]
                 before_end = exp == ()
-                _trace_printf("notlead", "!!! nottail: before-end:%s %s %s", before_end, pat, exp)
+                _trace_printf("nottail", "!!! nottail: before-end:%s %s %s", before_end, pat, exp)
                 if before_end:
                         return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
                 ############## act as identity
@@ -7132,7 +7141,7 @@ def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignor
                           _dict_select_keys(_ir_binds(expanded_form), function)) if known else
                          (_py.dict(), _py.dict(), _py.dict()))
         ## 3. Pass the binding extension information down.
-        with (progv({_macroexpander_form_binds_: _make_lexenv(env,
+        with (progv({_macroexpander_form_binds_: _make_lexenv(parent = env,
                                                               kind_varframe = symbol_frame,
                                                               kind_funcframe = _dictappend(mfunc_frame, ffunc_frame))})
               if symbol_frame or mfunc_frame or ffunc_frame else
@@ -7692,8 +7701,8 @@ def let():
                                 _py.tuple((setq, n, v) for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
                                 (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
                                      dont_delay_defaults = t),))
-                with progv({ _lexenv_: _lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
-                                                                             for name, form in bindings } }) }):
+                with progv({ _lexenv_: _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
+                                                                                  for name, form in bindings } }) }):
                         return _lower(form)
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
@@ -7731,9 +7740,9 @@ def flet():
                                                  (ref, tempname)))
                                         for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings))) +
                         body)
-                with progv({ _lexenv_: _lexenv(kind_funcframe = { function: { _function_binding(name, function,
-                                                                                                _fn.python_type(name))
-                                                                              for name, _, *__ in bindings } }) }):
+                with progv({ _lexenv_: _make_lexenv(kind_funcframe = { function: { _function_binding(name, function,
+                                                                                                     _fn.python_type(name))
+                                                                                   for name, _, *__ in bindings } }) }):
                         return _lower(form)
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
@@ -7796,7 +7805,7 @@ def function():
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
         def lower(name):
-                binding = symbol_value(_lexenv_).lookup_function(the(symbol, name))
+                binding = symbol_value(_lexenv_).lookup_func(the(symbol, name))
                 if not (binding or name.function):
                         simple_style_warning("undefined function: %s", name)
                 return (ref, name)
@@ -7923,7 +7932,8 @@ def symbol_macrolet():
 #         :CL:       [X]
 #         :END:
 
-@defknown((intern("BLOCK")[0], " ", _name, ([(_notlead, "\n"), (_bound, _form)],)))
+@defknown((intern("BLOCK")[0], " ", _name,
+           [1, (_bound, _form)],))
 def block():
         def nvalues(name, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, name, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
@@ -7931,7 +7941,7 @@ def block():
                 return { block: { _block_binding(name, t) } }
         def lower(name, *body):
                 nonce = gensym("BLOCK-" + string(name))
-                with progv({ _lexenv_: _lexenv(name_blockframe = { name: _block_binding(name, nonce) }) }):
+                with progv({ _lexenv_: _make_lexenv(name_blockframe = { name: _block_binding(name, nonce) }) }):
                         return _lower((catch, (quote, nonce)) + body)
         def effects(name, *body):            return _py.any(_ir_effects(f) for f in body)
         def affected(name, *body):           return _py.any(_ir_affected(f) for f in body)
@@ -8018,9 +8028,9 @@ def tagbody():
         def binds(*tags_and_forms):              return { tag: { _tag_binding(name, t) for name in tags_and_forms
                                                                  if symbolp(name) } }
         def lower(*tags_and_forms):
-                with progv({ _lexenv_: _lexenv(name_gotagframe = { name: _gotag_binding(name, t)
-                                                                   for name in tags_and_forms
-                                                                   if symbolp(name) }) }):
+                with progv({ _lexenv_: _make_lexenv(name_gotagframe = { name: _gotag_binding(name, t)
+                                                                        for name in tags_and_forms
+                                                                        if symbolp(name) }) }):
                         _lower((progn,) + body)
                 return _not_implemented()
         def effects(*tags_and_forms):            return _py.any(_ir_effects(f) for f in tags_and_forms
@@ -8318,7 +8328,7 @@ def def_():
                                 compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
                                 with _tail_position():
                                         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                                        pve = body_ret, _ = _lower((return_from, name, (progn, ) + body))
+                                        pve = body_ret, _ = _lower((block, name) + body)
                                 # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                                 # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                                 deco_vals = []
