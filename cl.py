@@ -8255,10 +8255,15 @@ def ref():
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
         def lower(name):
-                check_type(name, symbol)
-                _compilation_note_symbol(name)
-                return ([],
-                        ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
+                def pyref_p(x): return typep(x, (pytuple, (eql, quote), (homotuple, string)))
+                if pyref_p(name):
+                        return ([],
+                                _attr_chain_atree(name[1]))
+                else:
+                        check_type(name, symbol)
+                        _compilation_note_symbol(name)
+                        return ([],
+                                ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
         def effects(name):         return nil
         def affected(name):        return not _name_defined_as_constant_p(name)
 
