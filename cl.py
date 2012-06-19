@@ -7988,7 +7988,7 @@ def return_from():
 #         :END:
 
 @defknown((intern("CATCH")[0], " ", _form,
-           1, ([(_notlead, "\n"), (_bound, _form)],)))
+           1, [(_notlead, "\n"), (_bound, _form)]))
 def catch():
         def nvalues(_, *body):              return 1 if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, tag, *body): return (_ir_nth_valueify_last_subform(n, orig) if body             else
@@ -8605,7 +8605,7 @@ def _lower(form):
         if not form_too_trivial_for_logging(form):
                 _debug_printf_if(_debugging_compiler(),
                                  ";;; compilation atree output for\n%s%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
-                                 _pp_depth() * " ", _pp_sex(form), *pv)
+                                 _sex_space(), _pp_sex(form), *pv)
         expected_return_type = (pytuple, pylist, (maybe, (partuple, string)))
         if not typep(pv, expected_return_type):
                 error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
