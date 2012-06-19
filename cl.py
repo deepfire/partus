@@ -6275,8 +6275,6 @@ def _compilation_unit_prologue():
                         #         _debug_printf("++++++++++++++++++++++++++++++++++++ emitting init for %s:\n%s\n\n",
                         #                       s, _lower((setq, s, (intern, symbol_name(s), package_name(symbol_package(s))))))
                         ## So, it becomes evident, that we need multiple values.
-                        for s in symbols:
-                                _debug_printf("sym: %s, name: %s, pack: %s", s, symbol_name(s), symbol_package(s))
                         return mapcan((lambda s: _lower((setq, s,
                                                          (apply, (quote, ("cl", "intern")),
                                                           symbol_name(s),
@@ -6289,10 +6287,11 @@ def _compilation_unit_prologue():
                 return [("Import", [("alias", "cl")])]
         # _debug_printf("\n\n===\nGenerating prologue -- top compilation unit: %s, symprog: %s",
         #               _top_compilation_unit_p(), symbol_prologue())
-        return ((cl_prologue() +
-                 symbol_prologue())
-                if _top_compilation_unit_p() else
-                cl_prologue())
+        with _no_compiler_debugging():
+                return ((cl_prologue() +
+                         symbol_prologue())
+                        if _top_compilation_unit_p() else
+                        cl_prologue())
 
 # Code
 
@@ -7245,6 +7244,13 @@ def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
 def _debugging_compiler():
         return _symbol_value(_compiler_debug_p_)
+def _maybe_disable_debugging(self):
+        self.was_debugging = _debugging_compiler()
+        _debug_compiler(nil)
+def _maybe_reenable_debugging(self, *_):
+        _debug_compiler(self.was_debugging)
+_no_compiler_debugging = _defwith("_no_compiler_debugging", _maybe_disable_debugging, _maybe_reenable_debugging)
+
 def _compiler_debug_printf(control, *args):
         if _debugging_compiler():
                 justification = _sex_space()
@@ -7982,7 +7988,8 @@ def return_from():
 #         :CL:       [X]
 #         :END:
 
-@defknown((intern("CATCH")[0], " ", _form, ([(_notlead, "\n"), (_bound, _form)],)))
+@defknown((intern("CATCH")[0], " ", _form,
+           1, ([(_notlead, "\n"), (_bound, _form)],)))
 def catch():
         def nvalues(_, *body):              return 1 if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, tag, *body): return (_ir_nth_valueify_last_subform(n, orig) if body             else
@@ -8529,7 +8536,7 @@ def _lower(form):
                 if listp(x): ## nil or _tuplep
                         def noisep(x): return x in [symbol]
                         def puntedp(x):
-                                "Whether the primitive compiler requested recompilation."
+                                "Whether the primitive compiler handled by rewriting."
                                 return x and _tuplep(x) and symbolp(x[0])
                         def maybe_call_primitive_compiler(name, forms, args):
                                 known = _find_known(name)
@@ -8541,7 +8548,7 @@ def _lower(form):
                                 if puntedp(ret):
                                         _debug_printf_if(_debugging_compiler() and not noisep(name),
                                                          "%s===========================\n"
-                                                         "%s\n%s-------------------------->\n%s\n"
+                                                         "%s\n%s-------- rewrote --------->\n%s\n"
                                                          "%s...........................",
                                                          _sex_space(),
                                                          _sex_space() + _pp_sex((name,) + forms),
@@ -8588,9 +8595,11 @@ def _lower(form):
 
         ## XXX: what about side-effects?
         pv = _rec(form)
-        _debug_printf_if(_debugging_compiler(),
-                         ";;; compilation atree output for\n%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
-                         _pp_sex(form), *pv)
+        def form_too_trivial_for_logging(form): return symbolp(form)
+        if not form_too_trivial_for_logging(form):
+                _debug_printf_if(_debugging_compiler(),
+                                 ";;; compilation atree output for\n%s%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
+                                 _pp_depth() * " ", _pp_sex(form), *pv)
         expected_return_type = (pytuple, pylist, (maybe, (partuple, string)))
         if not typep(pv, expected_return_type):
                 error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
