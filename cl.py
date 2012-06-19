@@ -5635,8 +5635,8 @@ __atreeifier_map__ = { _py.str:     (nil, lambda x: ("Str", x)),
                        _py.int:     (nil, lambda x: ("Num", x)),
                        _py.bool:    (nil, lambda x: ("Name", ("True" if x else "False"), ("Load",))),
                        _NoneType:   (nil, lambda x: ("Name", "None", ("Load",))),
-                       _py.list:    (t,   lambda x: ("List", x, ("Load"))),
-                       _py.tuple:   (t,   lambda x: ("Tuple", x, ("Load"))),
+                       _py.list:    (t,   lambda x: ("List", x, ("Load",))),
+                       _py.tuple:   (t,   lambda x: ("Tuple", x, ("Load",))),
                        _py.set:     (t,   lambda x: ("Set", x)),
                        ## symbol: see below
                      }
