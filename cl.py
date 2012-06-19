@@ -6277,7 +6277,13 @@ def _compilation_unit_prologue():
                         ## So, it becomes evident, that we need multiple values.
                         for s in symbols:
                                 _debug_printf("sym: %s, name: %s, pack: %s", s, symbol_name(s), symbol_package(s))
-                        return mapcan((lambda s: _lower((setq, s, (intern, symbol_name(s), (find_package, package_name(symbol_package(s))))))[0]),
+                        return mapcan((lambda s: _lower((setq, s,
+                                                         (apply, (quote, ("cl", "intern")),
+                                                          symbol_name(s),
+                                                          ((apply, (quote, ("cl", "find_package")), package_name(symbol_package(s)), nil)
+                                                           if symbol_package(s) else
+                                                           (ref, (quote, ("cl", "nil")))),
+                                                          nil)))[0]),
                                       symbols)
         def cl_prologue():
                 return [("Import", [("alias", "cl")])]
