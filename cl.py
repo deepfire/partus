@@ -8487,7 +8487,7 @@ def apply():
                                                      (((func_name, func),), (ref, func_name)))(gensym("APPLY-FUNCNAME")))
                         temp_names = _py.tuple(_gensyms(n = _py.len(arg_pvs) - no_varargs, x = "APPLY-ARG"))
                         arg_exprs = temp_names + ((nil,) if no_varargs else ())
-                        return (let, func_binding + _py.tuple(_py.zip(temp_names, args)),
+                        return (let, func_binding + _py.tuple(_py.zip(temp_names, (arg,) + args)),
                                  (apply, func_expr) + arg_exprs)
         def effects(func, arg, *args):
                 return (_py.any(_ir_effects(arg) for arg in (func, arg) + args) or
