@@ -7272,10 +7272,6 @@ def _tuple_bound(pve):        return _mapsetn(_atree_bound, _tuplerator(the((pyt
 def _tuple_free(pve):         return _mapsetn(_atree_free,  _tuplerator(the((pytuple, pylist, pytuple), pve)))
 def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((pytuple, pylist, pytuple), pve)))
 
-def _prepend_prologue(pro, tuple):
-        return (pro + tuple[0],
-                tuple[1])
-
 # Compiler state and miscellanea
 
 ## Should, probably, be bound by the compiler itself.
@@ -7325,6 +7321,16 @@ _no_tail_position    = _defwith("_no_tail_position",
 _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_DEBUG_P_ = t)),
                                    lambda *_: _dynamic_scope_pop())
+
+_string_set("*NO-SYMBOLS-FOR-PROLOGUE*", nil)
+_no_symbols_for_prologue = _defwith("_no_symbols_for_prologue",
+                                   lambda *_: _dynamic_scope_push(_py.dict(_no_symbols_for_prologue_ = t)),
+                                   lambda *_: _dynamic_scope_pop())
+
+def _lowered(pro, val):                   return pro, val
+def _lowered_prepend_prologue(pro, pv):   return (pro + pv[0], pv[1])
+def _rewritten(form, scope = _py.dict()): return form, the(_py.dict, scope)
+def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 
 #### Issues:
 ## Tail position optimisations
@@ -7507,8 +7513,8 @@ def setq():
                 # Urgent Issue SETQ-BROKEN-WRT-SPECIAL-VARIABLES
                 # Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 pro, val = _lower(value)
-                return (pro + [("Assign", [_lower_name(name, "Store")], val)],
-                        _lower_name(name))
+                return _lowered(pro + [("Assign", [_lower_name(name, "Store")], val)],
+                                _lower_name(name))
         def effects(name, value):         return t
         def affected(name, value):        return _ir_affected(value)
 
@@ -7528,14 +7534,15 @@ def quote():
         def lower(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if symbolp(x) and not constantp(x):
-                        return nil if x is nil else (ref, x)
+                        return _rewritten(nil if x is nil else
+                                          (ref, x))
                 else:
                         atree, successp = _try_atreeify_constant(x)
                         if successp:
-                                return ([],
-                                        atree)
+                                return _lowered([],
+                                                atree)
                         else:
-                                return (apply, (function, list)) + _py.tuple((quote, x) for x in x) + (nil,)
+                                return _rewritten((apply, (function, list)) + _py.tuple((quote, x) for x in x) + (nil,))
         def effects(x):            return nil
         def affected(x):           return nil
 
@@ -7568,11 +7575,11 @@ def multiple_value_call():
                         pro.extend(p)
                         pro.append(("Assign", [_lower_name(n, "Store")], v))
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
-                pro.append(("Call", fn_n, [("Subscript", _lower_name(n),
-                                                         ("Slice", ("Num", 1)),
-                                                         ("Load",))
-                                           for _, __, n in arg_pvns], []))
-                return pro
+                return _lowered(pro,
+                                ("Call", fn_n, [("Subscript", _lower_name(n),
+                                                 ("Slice", ("Num", 1)),
+                                                 ("Load",))
+                                                for _, __, n in arg_pvns], []))
         def effects(fn, *arg_forms):
                 return (_py.any(_ir_effects(arg) for arg in arg_forms) or
                         _ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
@@ -7599,28 +7606,18 @@ def progn():
         def nth_value(n, orig, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def lower(*body):
                 if not body:
-                        return ([],
-                                _lower(nil))
+                        return _lowered([],
+                                        _lower(nil))
                 pro, ntotal = [], _py.len(body)
                 with _no_tail_position():
                         for spro, val in (_lower(x) for x in body[:-1]):
                                 pro.extend(spro)
                                 pro.append(("Expr", val))
                 with _maybe_tail_position():
-                        return _prepend_prologue(pro,
-                                                 _lower(body[-1]))
-                ## Not sure the stuff below still makes sense.  Still, am afraid to erase it.
-                # lowered_body = mapcan(_lower, body)
-                # (( body_bound_vars,  body_free_vars,  body_xtnls),
-                #  (thunk_bound_vars, thunk_free_vars, thunk_xtnls)) = mapcar(_ast_bound_free, [lowered_body, thunks])
-                # must_thunk = _py.len(lowered_body) > 1 or thunks
-                # scope_mutation = (body_bound_vars or thunk_bound_vars or body_xtnls or thunk_xtnls)
-                # if not (must_thunk or scope_mutation):
-                #         return lowered_body
-        def effects(*body):
-                return _py.any(_ir_effects(f) for f in body)
-        def affected(*body):
-                return _py.any(_ir_affected(f) for f in body)
+                        return _lowered_prepend_prologue(pro,
+                                                         _lower(body[-1]))
+        def effects(*body):            return _py.any(_ir_effects(f) for f in body)
+        def affected(*body):           return _py.any(_ir_affected(f) for f in body)
 
 # IF
 #         :PROPERTIES:
@@ -7657,8 +7654,8 @@ def if_():
                 cons_expr_p, ante_expr_p = mapcar(_tuple_expression_p, [lo_cons, lo_ante])
                 if _py.all([cons_expr_p, ante_expr_p]):
                         _compiler_debug_printf(" -- IF: simple all-expression case")
-                        return (pro_test,
-                                ("IfExp", val_test, val_cons, val_ante))
+                        return _lowered(pro_test,
+                                        ("IfExp", val_test, val_cons, val_ante))
                 else:
                         _compiler_debug_printf(" -- IF: complex FLET-based case")
                         ## Unregistered Issue FUNCALL-MISSING
@@ -7667,8 +7664,8 @@ def if_():
                                             ((apply, (ref, name_cons), nil), ((name_cons, ()) + (consequent,),)))
                         ante, ante_fdefn = ((antecedent,                     ()) if ante_expr_p else
                                             ((apply, (ref, name_ante), nil), ((name_ante, ()) + (antecedent,),)))
-                        return (flet, cons_fdefn + ante_fdefn,
-                                 (if_, test, cons, ante))
+                        return _rewritten((flet, cons_fdefn + ante_fdefn,
+                                           (if_, test, cons, ante)))
         def effects(test, consequent, antecedent):  return _py.any(_ir_effects(f) for f in [test, consequent, antecedent])
         def affected(test, consequent, antecedent): return _py.any(_ir_affected(f) for f in [test, consequent, antecedent])
 
@@ -7702,7 +7699,8 @@ def let():
                 if every(_tuple_expression_p, compiled_value_pves):
                         _compiler_debug_printf(" -- LET: simple all-expression LAMBDA case")
                         form = (apply, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
-                                            dont_delay_defaults = t), nil)
+                                           evaluate_defaults_early = t),
+                                nil)
                 else:
                         _compiler_debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
                         last_non_expr_posn = position_if_not(_tuple_expression_p, compiled_value_pves, from_end = t)
@@ -7712,10 +7710,10 @@ def let():
                         form = ((progn,) +
                                 _py.tuple((setq, n, v) for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
                                 (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
-                                     dont_delay_defaults = t),))
-                with progv({ _lexenv_: _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
-                                                                                  for name, form in bindings } }) }):
-                        return _lower(form)
+                                     evaluate_defaults_early = t),))
+                return _rewritten(form,
+                                  { _lexenv_: _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
+                                                                                         for name, form in bindings } }) })
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
                 return _py.any(_ir_effects(f) for f in _py.tuple(x[1] for x in bindings) + body)
@@ -7752,10 +7750,11 @@ def flet():
                                                  (ref, tempname)))
                                         for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings))) +
                         body)
-                with progv({ _lexenv_: _make_lexenv(kind_funcframe = { function: { _function_binding(name, function,
-                                                                                                     _fn.python_type(name))
-                                                                                   for name, _, *__ in bindings } }) }):
-                        return _lower(form)
+                return _rewritten(form,
+                                  { _lexenv_: _make_lexenv(kind_funcframe =
+                                                           { function: { _function_binding(name, function,
+                                                                                           _fn.python_type(name))
+                                                                         for name, _, *__ in bindings } }) })
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -7786,11 +7785,11 @@ def labels():
                         error("LABELS: malformed bindings: %s.", bindings)
                 temp_name = gensym("LABELS")
                 _compiler_debug_printf(" -- LABELS: to DEF + FLET")
-                return (flet, ((temp_name, _py.tuple(),
-                                _py.tuple((def_, name, lambda_list, body)
-                                       for name, lambda_list, *body in bindings) +
-                                body)),
-                         (apply, temp_name, nil))
+                return _rewritten((flet, ((temp_name, _py.tuple(),
+                                           _py.tuple((def_, name, lambda_list, body)
+                                                     for name, lambda_list, *body in bindings) +
+                                           body)),
+                                   (apply, temp_name, nil)))
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -7820,7 +7819,7 @@ def function():
                 binding = symbol_value(_lexenv_).lookup_func(the(symbol, name))
                 if not (binding or name.function):
                         simple_style_warning("undefined function: %s", name)
-                return (ref, name)
+                return _rewritten((ref, name))
         def effects(name):         return nil
         def affected(name):        return not symbol_value(_lexenv_).funcscope_binds_p(name)
 """function name => function
@@ -7870,16 +7869,16 @@ def unwind_protect():
         def nth_value(n, orig, form, *unwind_body): return (unwind_protect, _ir_nth_value(n, form)) + unwind_body
         def lower(form, *unwind_body):
                 if not unwind_body:
-                        return _lower(form)
+                        return _rewritten(form)
                 temp_name = gensym("PROTECTED-FORM-VALUE")
                 pro_form, val_form = _lower((setq, temp_name, form))
                 pro_unwind, val_unwind = _lower((progn,) + unwind_body)
-                return ([("TryFinally",
-                          # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
-                          pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
-                          # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
-                          pro_unwind + [("Expr", val_unwind)])],
-                        _lower((ref, temp_name))[1])
+                return _lowered([("TryFinally",
+                                  # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
+                                  pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
+                                  # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
+                                  pro_unwind + [("Expr", val_unwind)])],
+                                _lower((ref, temp_name))[1])
         def effects(form, *unwind_body):
                 return _py.any(_ir_effects(f) for f in (form,) + body)
         def affected(form, *unwind_body):
@@ -7905,7 +7904,7 @@ def macrolet():
                                   for name, lambda_list, *body in bindings } }
         def lower(bindings, *body):
                 ## By the time we get to the lowering stage, all macros have already been expanded.
-                return (progn,) + body
+                return _rewritten((progn,) + body)
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -7929,7 +7928,7 @@ def symbol_macrolet():
                 return { symbol_macro: { _variable_binding(name, symbol_macro, form) for name, form in bindings } }
         def lower(bindings, *body):
                 ## By the time we get to the lowering stage, all macros are already expanded.
-                return (progn,) + body
+                return _rewritten((progn,) + body)
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -7953,8 +7952,8 @@ def block():
                 return { block: { _block_binding(name, t) } }
         def lower(name, *body):
                 nonce = gensym("BLOCK-" + string(name))
-                with progv({ _lexenv_: _make_lexenv(name_blockframe = { name: _block_binding(name, nonce) }) }):
-                        return _lower((catch, (quote, nonce)) + body)
+                return _rewritten((catch, (quote, nonce)) + body,
+                                  { _lexenv_: _make_lexenv(name_blockframe = { name: _block_binding(name, nonce) }) })
         def effects(name, *body):            return _py.any(_ir_effects(f) for f in body)
         def affected(name, *body):           return _py.any(_ir_affected(f) for f in body)
 
@@ -7975,7 +7974,7 @@ def return_from():
                 binding = symbol_value(_lexenv_).lookup_block(the(symbol, name))
                 if not binding:
                         simple_program_error("return for unknown block: %s", name)
-                return (throw, (quote, binding.value), value)
+                return _rewritten((throw, (quote, binding.value), value))
         def effects(_, value):            return _ir_effects(value)
         def affected(_, value):           return _ir_affected(value)
 
@@ -7995,7 +7994,7 @@ def catch():
         def nth_value(n, orig, tag, *body): return (_ir_nth_valueify_last_subform(n, orig) if body             else
                                                     (progn, tag, nil)                      if _ir_effects(tag) else
                                                     nil)
-        def lower(tag, *body):    return _ir_cl_module_call("_do_catch", tag, (lambda_, ()) + body)
+        def lower(tag, *body):    return _rewritten(_ir_cl_module_call("_do_catch", tag, (lambda_, ()) + body))
         def effects(tag, *body):  return _ir_effects(tag) or _py.any(_ir_effects(f) for f in body)
         def affected(tag, *body): return _ir_affected(tag) or _py.any(_ir_affected(f) for f in body)
 
@@ -8013,7 +8012,7 @@ def throw():
         def nvalues(_, value):            return _ir_nvalues(value)
         def nth_value(n, orig, _, value): return ((progn, tag, _ir_nth_value(value)) if _ir_effects(tag) else
                                                   _ir_nth_value(value))
-        def lower(tag, value):            return _ir_cl_module_call("_throw", tag, value)
+        def lower(tag, value):            return _rewritten(_ir_cl_module_call("_throw", tag, value))
         def effects(tag, value):          return _ir_effects(tag) or _ir_effects(value)
         def affected(tag, value):         return _ir_affected(tag) or _ir_affected(value)
 
@@ -8136,8 +8135,8 @@ when EVAL-WHEN appears as a top level form."""
                 ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
                 ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
                 ## so that they're never seen at this level.)
-                return (((progn,) + body) if exec else
-                        _lower(nil))
+                return _rewritten(((progn,) + body) if exec else
+                                  nil)
 
 # THE
 #         :PROPERTIES:
@@ -8270,13 +8269,14 @@ def ref():
         def lower(name):
                 def pyref_p(x): return typep(x, (pytuple, (eql, quote), (homotuple, string)))
                 if pyref_p(name):
-                        return ([],
-                                _attr_chain_atree(name[1]))
+                        return _lowered([],
+                                        _attr_chain_atree(name[1]))
                 else:
                         check_type(name, symbol)
-                        _compilation_note_symbol(name)
-                        return ([],
-                                ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
+                        if not symbol_value(_no_symbols_for_prologue_):
+                                _compilation_note_symbol(name)
+                        return _lowered([],
+                                        ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
         def effects(name):         return nil
         def affected(name):        return not _name_defined_as_constant_p(name)
 
@@ -8297,7 +8297,7 @@ def nth_value():
                         nil                  if n != form_n and not _ir_effects(form)  else
                         (progn, form, nil)   if n != form_n                            else
                         _ir_nth_value(n, form)) ## We don't risque unbounded recursion here, so let's further analysis..
-        def lower(n, form):    return _ir_cl_module_call("_values_frame_project", n, form)
+        def lower(n, form):    return _lowered(_ir_cl_module_call("_values_frame_project", n, form))
         def effects(n, form):  return _ir_effects(n) or _ir_effects(form)
         def affected(n, form): return _ir_affected(n) or _ir_affected(form)
 
@@ -8354,13 +8354,13 @@ def def_():
                                         if pro_deco:
                                                 error("in DEF %s: decorators must lower to python expressions.", name)
                                         deco_vals.append(val_deco)
-                                return ([("FunctionDef", _frost.full_symbol_name_python_name(name), compiled_lambda_list,
-                                          (body_pro +
-                                           [("Return", body_val)]),
-                                          deco_vals),
-                                         # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
-                                         ],
-                                        _lower(name)[1])
+                                return _lowered([("FunctionDef", _frost.full_symbol_name_python_name(name), compiled_lambda_list,
+                                                  (body_pro +
+                                                   [("Return", body_val)]),
+                                                  deco_vals),
+                                                 # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
+                                                 ],
+                                                _lower(name)[1])
                         ## Xtnls feedback loop stabilisation scheme.
                         ##
                         ## This looks fairly ridiculous, but this is reality for you:
@@ -8396,10 +8396,10 @@ def def_():
 def lambda_():
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def binds(lambda_list, *body, dont_delay_defaults = nil):
+        def binds(lambda_list, *body, evaluate_defaults_early = nil):
                 total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA")
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
-        def lower(lambda_list, *body, dont_delay_defaults = nil):
+        def lower(lambda_list, *body, evaluate_defaults_early = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
@@ -8412,15 +8412,17 @@ def lambda_():
                         (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
                         if not (optional or keys):
                                 _compiler_debug_printf(" -- LAMBDA: simple")
-                                return ([],
-                                        ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
+                                return _lowered([],
+                                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)),
+                                                 preliminary_body_pve[1]))
                         elif rest or restkey:
                                 _not_implemented("rest/restkey-ful defaulting lambda list")
-                        elif dont_delay_defaults:
+                        elif evaluate_defaults_early:
                                 # duplicate code here, but the checking "issue" is not understood well-enough..
-                                _compiler_debug_printf(" -- LAMBDA: undelayed defaults")
-                                return ([],
-                                        ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)), preliminary_body_pve[1]))
+                                _compiler_debug_printf(" -- LAMBDA: early evaluation of default value forms")
+                                return _lowered([],
+                                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)),
+                                                 preliminary_body_pve[1]))
                         else:
                                 ## Delay evaluation of default values.
                                 def defaulting_expr(arg, default):
@@ -8428,17 +8430,17 @@ def lambda_():
                                                      default,
                                                      arg)
                                 _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
-                                return (lambda_, _py.tuple(fixed + [_optional] + optional + keys),
-                                         (let, _py.tuple((arg, defaulting_expr(arg, default))
-                                                         for arg, default in _py.zip(optional + keys,
-                                                                                     optdefs + keydefs))) +
-                                           body)
+                                return _rewritten((lambda_, _py.tuple(fixed + [_optional] + optional + keys),
+                                                   (let, _py.tuple((arg, defaulting_expr(arg, default))
+                                                                   for arg, default in _py.zip(optional + keys,
+                                                                                               optdefs + keydefs))) +
+                                                   body))
 
                 else:
                         _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
                         func_name = _gensym("LET-BODY-")[0]
-                        return (flet, ((func_name, lambda_list) + body,),
-                                 (function, func_name))
+                        return _rewritten(flet, ((func_name, lambda_list) + body,),
+                                          (function, func_name))
         def effects(*_):            return nil
         def affected(*_):           return nil
 
@@ -8477,9 +8479,10 @@ def apply():
                         arg_pvs = mapcar(_lower, fixed + (rest,))
                 if every(_tuple_expression_p, arg_pvs):
                         _compiler_debug_printf(" -- APPLY: simple case")
-                        return (func_pro,
-                                ("Call", func_val, mapcar(second, arg_pvs[:-1]), [], (arg_pvs[-1] if not no_varargs else
-                                                                                      None)))
+                        return _lowered(func_pro,
+                                        ("Call", func_val, mapcar(second, arg_pvs[:-1]), [], (arg_pvs[-1]
+                                                                                              if not no_varargs else
+                                                                                              None)))
                 else:
                         _compiler_debug_printf(" -- APPLY: complex LET + APPLY")
                         func_binding, func_expr = (((),                     func) if func_pro else
@@ -8487,8 +8490,8 @@ def apply():
                                                      (((func_name, func),), (ref, func_name)))(gensym("APPLY-FUNCNAME")))
                         temp_names = _py.tuple(_gensyms(n = _py.len(arg_pvs) - no_varargs, x = "APPLY-ARG"))
                         arg_exprs = temp_names + ((nil,) if no_varargs else ())
-                        return (let, func_binding + _py.tuple(_py.zip(temp_names, (arg,) + args)),
-                                 (apply, func_expr) + arg_exprs)
+                        return _rewritten((let, func_binding + _py.tuple(_py.zip(temp_names, (arg,) + args)),
+                                           (apply, func_expr) + arg_exprs))
         def effects(func, arg, *args):
                 return (_py.any(_ir_effects(arg) for arg in (func, arg) + args) or
                         _ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
@@ -8536,9 +8539,6 @@ def _lower(form):
                 _debug_printf_if(_debugging_compiler(), ";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
                 if listp(x): ## nil or _tuplep
                         def noisep(x): return x in [symbol]
-                        def puntedp(x):
-                                "Whether the primitive compiler handled by rewriting."
-                                return x and _tuplep(x) and symbolp(x[0])
                         def maybe_call_primitive_compiler(name, forms, args):
                                 known = _find_known(name)
                                 if not known:
@@ -8546,17 +8546,22 @@ def _lower(form):
                                 _debug_printf_if(_debugging_compiler() and not noisep(name),
                                                  "%s>>> %s\n%s%s", _sex_space(), name, _sex_space(), ("\n" + _sex_space()).join(_pp_sex(f) for f in forms))
                                 ret = known.lower(*forms, **_alist_hash_table(args))
-                                if puntedp(ret):
+                                if _rewritep(ret):
+                                        form, scope = ret
                                         _debug_printf_if(_debugging_compiler() and not noisep(name),
-                                                         "%s===========================\n"
-                                                         "%s\n%s-------- rewrote --------->\n%s\n"
-                                                         "%s...........................",
+                                                         "%s======================================================\n"
+                                                         "%s\n%s--------------------- rewrote ------------------------>\n%s\n"
+                                                         "%s......................................................",
                                                          _sex_space(),
                                                          _sex_space() + _pp_sex((name,) + forms),
                                                          _sex_space(),
-                                                         _sex_space() + _pp_sex(ret),
+                                                         _sex_space() + _pp_sex(form),
                                                          _sex_space())
-                                        return _sex_deeper(4, lambda: _rec(ret)), t
+                                        if scope:
+                                                with progv(scope):
+                                                        return _sex_deeper(4, lambda: _rec(form)), t
+                                        else:
+                                                return _sex_deeper(4, lambda: _rec(form)), t
                                 else:
                                         not noisep(name) and _compiler_debug_printf("=== %s done", name)
                                         return ret, t
