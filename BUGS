@@ -727,3 +727,10 @@ KeyError: 'gfun'
 Issue GLOBALS-SPECIFIED-TO-REFER-TO-THE-CONTAINING-MODULE-NOT-THE-CALLING-ONE
 
 Issue SYMBOLS-MUST-BE-SHARED (wtf was this supposed to mean?)
+
+Issue UNCLEAR-APPLY-FAILURE-MODE
+
+Commit 813e621083cad339d96eed2c318955b49b82e265 fixes such a case:
+ def _ir_cl_module_call(name, *ir_args):
+-        return (apply, (quote, _ir_cl_module_name(name))) + ir_args
++        return (apply, (quote, _ir_cl_module_name(name))) + ir_args + (nil,)
