@@ -8346,7 +8346,7 @@ def def_():
                                 compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
                                 with _tail_position():
                                         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                                        pve = body_ret, _ = _lower((block, name) + body)
+                                        body_pro, body_val = _lower((block, name) + body)
                                 # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                                 # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                                 deco_vals = []
@@ -8355,8 +8355,9 @@ def def_():
                                                 error("in DEF %s: decorators must lower to python expressions.", name)
                                         deco_vals.append(val_deco)
                                 return ([("FunctionDef", _frost.full_symbol_name_python_name(name), compiled_lambda_list,
-                                                         body_ret,
-                                                         deco_vals),
+                                          (body_pro +
+                                           [("Return", body_val)]),
+                                          deco_vals),
                                          # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
                                          ],
                                         _lower(name)[1])
