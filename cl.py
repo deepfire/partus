@@ -7480,7 +7480,7 @@ def _ir_cl_module_name(name):
         return ("cl", name)
 
 def _ir_cl_module_call(name, *ir_args):
-        return (apply, (quote, _ir_cl_module_name(name))) + ir_args
+        return (apply, (quote, _ir_cl_module_name(name))) + ir_args + (nil,)
 
 # SETQ
 #         :PROPERTIES:
