@@ -7234,11 +7234,11 @@ def macroexpand_all(sex, env = nil, compilerp = t):
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
         return (eval_when, (_compile_toplevel, _load_toplevel, _execute),
-                 (apply, (quote, ("cl", "_set_macro_definition")),
-                         ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
-                         # (function, (def_, name, lambda_list) + body),
-                         (fdefinition, (def_, name, lambda_list) + body),
-                         nil))
+                ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
+                # (function, (def_, name, lambda_list) + body),
+                 (_ir_args,
+                  (def_, name, lambda_list) + body,
+                  ("decorators", [(ref, _set_macro_definition)])))
 
 # Tuple intermediate IR
 
