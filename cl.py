@@ -7330,6 +7330,7 @@ _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_DEBUG_P_ = t)),
                                    lambda *_: _dynamic_scope_pop())
 
+## Any uses, since _ir_prologue_p() obsoleted the only usage at time?
 _string_set("*NO-SYMBOLS-FOR-PROLOGUE*", nil)
 _no_symbols_for_prologue = _defwith("_no_symbols_for_prologue",
                                    lambda *_: _dynamic_scope_push(_py.dict(_no_symbols_for_prologue_ = t)),
