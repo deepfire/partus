@@ -5631,13 +5631,17 @@ def _try_atreeify_list(xs):
                         return None, None
                 ret.append(atree)
         return ret, t
-__atreeifier_map__ = { _py.str:     (nil, lambda x: ("Str", x)),
-                       _py.int:     (nil, lambda x: ("Num", x)),
-                       _py.bool:    (nil, lambda x: ("Name", ("True" if x else "False"), ("Load",))),
-                       _NoneType:   (nil, lambda x: ("Name", "None", ("Load",))),
-                       _py.list:    (t,   lambda x: ("List", x, ("Load",))),
-                       _py.tuple:   (t,   lambda x: ("Tuple", x, ("Load",))),
-                       _py.set:     (t,   lambda x: ("Set", x)),
+__atreeifier_map__ = { _py.str:            (nil, lambda x: ("Str", x)),
+                       _py.int:            (nil, lambda x: ("Num", x)),
+                       _py.bool:           (nil, lambda x: ("Name", ("True" if x else "False"), ("Load",))),
+                       _NoneType:          (nil, lambda x: ("Name", "None", ("Load",))),
+                       _py.list:           (t,   lambda x: ("List", x, ("Load",))),
+                       _py.tuple:          (t,   lambda x: ("Tuple", x, ("Load",))),
+                       _py.set:            (t,   lambda x: ("Set", x)),
+                       ## Note: this relies on the corresponding name to be made available by some means --
+                       ## e.g. QUOTE does _compilaiton_note_symbol(), which arranges the name to be initialised in the
+                       ## prologue.
+                       symbol.python_type: (nil, lambda x: ("Name", _frost.full_symbol_name_python_name(x), ("Load",)))
                        ## symbol: see below
                      }
 def _register_atreeifier_for_type(type, recurse, atreeifier):
