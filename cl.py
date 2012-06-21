@@ -6256,8 +6256,9 @@ Examples:
                                 summarize_compilation_unit(not succeeded_p)
 
 def _compilation_note_symbol(x):
-        _symbol_value(_symbols_).add(the(symbol, x))
-        return t
+        if not symbol_value(_no_symbols_for_prologue_):
+                _symbol_value(_symbols_).add(the(symbol, x))
+                return t
 
 def _compilation_symbols():
         return _symbol_value(_symbols_)
@@ -8318,8 +8319,7 @@ def ref():
                                         _attr_chain_atree(name[1]))
                 else:
                         check_type(name, symbol)
-                        if not symbol_value(_no_symbols_for_prologue_):
-                                _compilation_note_symbol(name)
+                        _compilation_note_symbol(name)
                         return _lowered([],
                                         ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
         def effects(name):         return nil
