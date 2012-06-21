@@ -8670,9 +8670,23 @@ def _lower(form):
         return pv
 
 def _do_compile(form, lexenv = nil):
-        _debug_printf_if(_debugging_compiler(), ";;;%s compiling:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
-        macroexpanded = macroexpand_all(form, env = lexenv)
-        _debug_printf_if(_debugging_compiler(), ";;;%s macroexpanded:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(macroexpanded))
+        _debug_printf_if(_debugging_compiler(),
+                         ";;;%s compiling:\n%s%s",
+                         _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
+        qq_expanded = _expand_quasiquotation(form)
+        if _debugging_compiler():
+                if form != qq_expanded:
+                        _debug_printf(";;;%s quasiquotation expanded to:\n%s%s",
+                                      _sex_space(-3, ";"), _sex_space(), _pp_sex(qq_expanded))
+                else:
+                        _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
+        macroexpanded = macroexpand_all(qq_expanded, env = lexenv)
+        if _debugging_compiler():
+                if form != macroexpanded:
+                        _debug_printf(";;;%s macroexpanded:\n%s%s",
+                                      _sex_space(-3, ";"), _sex_space(), _pp_sex(macroexpanded))
+                else:
+                        _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
         return _lower(macroexpanded)
 
 def function_lambda_expression(function_):
