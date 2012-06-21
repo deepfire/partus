@@ -7519,7 +7519,7 @@ def _lower_name(name, ctx = "Load"):
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
         return ("Name", _frost.full_symbol_name_python_name(name[1] if _tuplep(name) else name), (ctx,))
 
-@defknown((intern("SETQ")[0], " ", _name, " ", _form))
+@defknown((intern("SETQ")[0], " ", (_typep, symbol), " ", _form))
 def setq():
         def nvalues(_, __):               return 1
         def nth_value(n, orig, _, value): return orig if n is 0 else (progn, orig, nil)
