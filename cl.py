@@ -6283,10 +6283,11 @@ def _compilation_unit_prologue():
                         return mapcan((lambda s: _lower((setq, s,
                                                          (apply, (quote, ("cl", "intern")),
                                                           symbol_name(s),
-                                                          ((apply, (quote, ("cl", "find_package")), package_name(symbol_package(s)), nil)
-                                                           if symbol_package(s) else
-                                                           (ref, (quote, ("cl", "nil")))),
-                                                          nil)))[0]),
+                                                          (apply, (quote, ("cl", "find_package")), package_name(symbol_package(s)), nil),
+                                                          nil)
+                                                         if symbol_package(s) else
+                                                         (apply, (quote, ("cl", "make_symbol")),
+                                                          symbol_name(s), nil)))[0]),
                                       symbols)
         def cl_prologue():
                 return [("Import", [("alias", "cl")])]
