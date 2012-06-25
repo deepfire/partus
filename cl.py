@@ -7845,8 +7845,9 @@ def flet():
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(kind_funcframe =
                                                            { function: { _function_binding(name, function,
-                                                                                           _fn.python_type(name))
-                                                                         for name, _, *__ in bindings } }) })
+                                                                                           _fn.python_type(name,
+                                                                                                           lambda_list))
+                                                                         for name, lambda_list, *__ in bindings } }) })
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -8576,7 +8577,7 @@ def lambda_():
 
                 else:
                         _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
-                        func_name = _gensym("LET-BODY-")[0]
+                        func_name = gensym("LET-BODY-")
                         return _rewritten((flet, ((func_name, lambda_list) + body,),
                                            (function, func_name)))
         def effects(*_):            return nil
@@ -9058,14 +9059,6 @@ def fdefinition(name):
 # _debug_compiler()
 
 @lisp
-def FOO():
-        (defmacro, foo, (x,),
-          (quasiquote, (eval_when, (_execute,),
-                        (comma, x))))
-
-@lisp
-# ((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
-#    1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFUN(name, lambda_list, *body):
         (defmacro, defun, (name, lambda_list, _body, body),
           (quasiquote,
