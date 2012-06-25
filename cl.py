@@ -1197,9 +1197,10 @@ def the(type, x):
         mismatch = _type_mismatch(x, type)
         return (x if not mismatch else
                 error(simple_type_error,
-                      format_control = "The value %s is not of type %s%s.",
-                      format_arguments = (x, type, ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
-                                                    (", specifically, the value %s is not of type %s" % (princ_to_string(mismatch[0]), mismatch[1]))))))
+                      format_control = "The value %s (of type %s) is not of type %s%s.",
+                      format_arguments = (x, type_of(x), type,
+                                          ("" if (not _type_specifier_complex_p(type)) or type is mismatch[1] else
+                                              (", specifically, the value %s is not of type %s" % (princ_to_string(mismatch[0]), mismatch[1]))))))
 
 @boot_defun
 def check_type(x, type):
@@ -1764,9 +1765,9 @@ def _py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys)
                 filename = filename,
                 **keys)
 
-def _ast_compiled_name(name, *body, **keys):
+def _ast_compiled_name(name, *body, function = nil, **keys):
         mod, globals, locals = _py_compile_and_load(*body, **keys)
-        return locals[name]
+        return locals[function or name]
 
 # Python frames
 
@@ -2154,6 +2155,16 @@ def _alist_hash_table(xs):
         return _py.dict(xs)
 
 # %CACHE
+
+def _define_simple_cache(filler):
+        backing_dict = _py.dict()
+        def cache_accessor(x):
+                val, therep = gethash(x, backing_dict)
+                if therep:
+                        return val
+                val = backing_dict[x] = filler(x)
+                return val
+        return cache_accessor, backing_dict
 
 class _cache(_collections.UserDict):
         def __init__(self, filler):
@@ -5623,6 +5634,12 @@ def _ast_alias(name:    string,
 
 # Python value -> Atree
 
+def _atree_attribute_chain(xs, writep = nil):
+        return reduce((lambda acc, attr: ("Attribute", attr, acc,
+                                                       ("Store" if writep else "Load",))),
+                      xs[1:],
+                      ("Name", xs[0], ("Store" if writep else "Load",)))
+
 def _try_atreeify_list(xs):
         ret = []
         for x in xs:
@@ -5641,7 +5658,7 @@ __atreeifier_map__ = { _py.str:            (nil, lambda x: ("Str", x)),
                        ## Note: this relies on the corresponding name to be made available by some means --
                        ## e.g. QUOTE does _compilaiton_note_symbol(), which arranges the name to be initialised in the
                        ## prologue.
-                       symbol.python_type: (nil, lambda x: ("Name", _frost.full_symbol_name_python_name(x), ("Load",)))
+                       symbol.python_type: (nil, lambda x: _lower_name(_frost.full_symbol_name_python_name(x)))
                        ## symbol: see below
                      }
 def _register_atreeifier_for_type(type, recurse, atreeifier):
@@ -6046,6 +6063,32 @@ def _match(matcher, exp, pat):
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
         return matcher.match(_py.dict(), name, exp, prepped, (True, False), None, -1)
 
+# Namespace separation name maps
+
+## These are needed to store symbol<->gensymname maps
+_safe_namespace_separation = t
+_function_filler, _symbol_filler = ((lambda sym: _gensymname("FUN_" + _py.str(sym)),
+                                     lambda sym: _gensymname("SYM_" + _py.str(sym)))
+                                    if _safe_namespace_separation else
+                                    (_py.str,
+                                     _py.str))
+_function_name, _function_name_map = _define_simple_cache(_function_filler)
+_symbol_name,   _symbol_name_map   = _define_simple_cache(_symbol_filler)
+
+## Any uses, since _ir_prologue_p() obsoleted the only usage at time?
+_string_set("*NO-SYMBOLS-FOR-PROLOGUE*", nil)
+_no_symbols_for_prologue = _defwith("_no_symbols_for_prologue",
+                                   lambda *_: _dynamic_scope_push(_py.dict(_no_symbols_for_prologue_ = t)),
+                                   lambda *_: _dynamic_scope_pop())
+
+def _compilation_note_symbol(x):
+        if not symbol_value(_no_symbols_for_prologue_):
+                _symbol_value(_symbols_).add(the(symbol, x))
+                return t
+
+def _compilation_symbols():
+        return _symbol_value(_symbols_)
+
 # Functions (in the sense of result of compilation)
 
 _fns = make_hash_table()
@@ -6259,14 +6302,6 @@ Examples:
                                                     _symbol_value(_aborted_compilation_unit_count_) + 1)
                                 summarize_compilation_unit(not succeeded_p)
 
-def _compilation_note_symbol(x):
-        if not symbol_value(_no_symbols_for_prologue_):
-                _symbol_value(_symbols_).add(the(symbol, x))
-                return t
-
-def _compilation_symbols():
-        return _symbol_value(_symbols_)
-
 def _top_compilation_unit_p():
         return _symbol_value(_top_compilation_unit_p_)
 
@@ -6280,14 +6315,15 @@ def _compilation_unit_prologue():
                         #         _debug_printf("++++++++++++++++++++++++++++++++++++ emitting init for %s:\n%s\n\n",
                         #                       s, _lower((setq, s, (intern, symbol_name(s), package_name(symbol_package(s))))))
                         ## So, it becomes evident, that we need multiple values.
-                        return mapcan((lambda s: _lower((setq, s,
-                                                         (apply, (quote, ("cl", "intern")),
-                                                          symbol_name(s),
-                                                          (apply, (quote, ("cl", "find_package")), package_name(symbol_package(s)), nil),
-                                                          nil)
-                                                         if symbol_package(s) else
-                                                         (apply, (quote, ("cl", "make_symbol")),
-                                                          symbol_name(s), nil)))[0]),
+                        return mapcan((lambda s: _lower(_ir(setq, s,
+                                                            (apply, (quote, ("cl", "intern")),
+                                                             symbol_name(s),
+                                                             (apply, (quote, ("cl", "find_package")), package_name(symbol_package(s)), nil),
+                                                             nil)
+                                                            if symbol_package(s) else
+                                                            (apply, (quote, ("cl", "make_symbol")),
+                                                             symbol_name(s), nil),
+                                                            symbol_scope = t))[0]),
                                       symbols)
         def cl_prologue():
                 return [("Import", [("alias", "cl")])]
@@ -7288,6 +7324,22 @@ def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((pyt
 
 # Compiler state and miscellanea
 
+#
+###
+## The Symbol Model
+##
+## - symbols denoting constants (keywords, t, nil, pi, etc.): fully printed symbol names
+##   - will be protected from trivial attempts of being assigned to
+##   - (SETF SYMBOL-VALUE) ought to be dealt with by different means
+## - names in the value namespace: fully printed symbol names
+##   - lexical scope handled by Python's lexical scope
+## - other symbols as constants (i.e. quoted symbols): global symbol -> gensym map, based off symbol name
+##   - symbols as symbols are, technically, a different namespace, so separation
+## - bound names in the function namespace: global symbol -> gensym map, based off symbol name
+##   - an obvious way to do namespace separation
+###
+#
+
 ## Should, probably, be bound by the compiler itself.
 _string_set("*COMPILER-TOPLEVEL-P*", t)
 _string_set("*COMPILER-DEF*",        nil)
@@ -7334,12 +7386,6 @@ _no_tail_position    = _defwith("_no_tail_position",
 
 _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_DEBUG_P_ = t)),
-                                   lambda *_: _dynamic_scope_pop())
-
-## Any uses, since _ir_prologue_p() obsoleted the only usage at time?
-_string_set("*NO-SYMBOLS-FOR-PROLOGUE*", nil)
-_no_symbols_for_prologue = _defwith("_no_symbols_for_prologue",
-                                   lambda *_: _dynamic_scope_push(_py.dict(_no_symbols_for_prologue_ = t)),
                                    lambda *_: _dynamic_scope_pop())
 
 def _lowered(pro, val):                   return pro, val
@@ -7457,16 +7503,19 @@ def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, 
                 (fixed, optional, rest, keys, restkey),
                 (optdefs, keydefs))
 
-def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_defaults, key_defaults):
+def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_defaults, key_defaults,
+                             function_scope = nil):
         assert _py.len(optional) == _py.len(opt_defaults)
         assert _py.len(keys) == _py.len(key_defaults)
+        assert not function_scope or not (optional or rest or keys or restkey)
         ((odef_pros, odef_vals),
          (kdef_pros, kdef_vals)) = mapcar(lambda x: _recombine((_py.list, _py.list), _lower, x),
                                           [opt_defaults, key_defaults])
         if odef_pros or kdef_pros:
                 _compiler_error("In LAMBDA %s: invariant failed: target lambda lists must have expressible defaults: %s.", context)
         return ("arguments",
-                mapcar(lambda x: ("arg", _frost.full_symbol_name_python_name(x)), fixed + optional),
+                mapcar(lambda x: ("arg", (_function_name if function_scope else
+                                          _frost.full_symbol_name_python_name)(x)), fixed + optional),
                 rest and _frost.full_symbol_name_python_name(rest) or None, None,
                 mapcar(lambda x: ("arg", _frost.full_symbol_name_python_name(x)), keys),
                 restkey and _frost.full_symbol_name_python_name(restkey) or None, None,
@@ -7514,23 +7563,31 @@ def _ir_cl_module_call(name, *ir_args):
 #         :END:
 
 def _lower_name(name, ctx = "Load"):
-        check_type(name, (or_, symbol, (pytuple, (eql, symbol), symbol)))
+        check_type(name, (or_, string, symbol, (pytuple, (eql, symbol), symbol)))
         if _tuplep(name) and ctx != "Load":
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
-        return ("Name", _frost.full_symbol_name_python_name(name[1] if _tuplep(name) else name), (ctx,))
+        return ("Name", (name if stringp(name) else
+                         _frost.full_symbol_name_python_name(name[1] if _tuplep(name) else name)),
+                (ctx,))
 
 @defknown((intern("SETQ")[0], " ", (_typep, symbol), " ", _form))
 def setq():
-        def nvalues(_, __):               return 1
-        def nth_value(n, orig, _, value): return orig if n is 0 else (progn, orig, nil)
+        def nvalues(_, __):                                               return 1
+        def nth_value(n, orig, _, value):                                 return orig if n is 0 else (progn, orig, nil)
+        def binds(name, value, *_, function_scope = nil, symbol_scope = nil):
+                assert(not _)
+                return _py.dict()
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
         def prologuep(*_): return t
-        def lower(name, value):
+        def lower(name, value, *_, function_scope = nil, symbol_scope = nil):
+                assert(not _)
                 # Urgent Issue SETQ-BROKEN-WRT-SPECIAL-VARIABLES
                 # Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 pro, val = _lower(value)
-                return _lowered(pro + [("Assign", [_lower_name(name, "Store")], val)],
+                return _lowered(pro + [("Assign", [_lower_name((_function_name if function_scope else
+                                                                _symbol_name   if symbol_scope else
+                                                                identity)(name), "Store")], val)],
                                 _lower_name(name))
         def effects(name, value):         return t
         def affected(name, value):        return _ir_affected(value)
@@ -7552,8 +7609,10 @@ def quote():
         def lower(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if symbolp(x) and not constantp(x):
-                        return _rewritten(nil if x is nil else
-                                          (ref, x))
+                        if symbolp(x):
+                                _compilation_note_symbol(x)
+                        return _lowered([],
+                                        _lower_name(_symbol_name(x)))
                 else:
                         atree, successp = _try_atreeify_constant(x)
                         if successp:
@@ -7708,13 +7767,13 @@ def if_():
 def let():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
-        def binds(bindings, *body):
+        def binds(bindings, *body, function_scope = nil):
                 bindings = (((b,    None) if symbolp(b) else
                              (b[0], b[1])) for b in bindings)
                 return { variable: { _variable_binding(name, variable, None) for name, _ in bindings } }
         def prologuep(bindings, *body):
                 return not not bindings or _ir_body_prologuep(body)
-        def lower(bindings, *body):
+        def lower(bindings, *body, function_scope = nil):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (_tuplep(bindings) and
                         every(_of_type((or_, symbol, (pytuple, symbol, t))))):
@@ -7725,7 +7784,8 @@ def let():
                 if _py.all(not _ir_prologue_p(x) for x in values):
                         _compiler_debug_printf(" -- LET: simple all-expression LAMBDA case")
                         form = (apply, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
-                                           evaluate_defaults_early = t),
+                                           evaluate_defaults_early = t,
+                                           function_scope = function_scope),
                                 nil)
                 else:
                         _compiler_debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
@@ -7734,9 +7794,11 @@ def let():
                         temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
                         # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                         form = ((progn,) +
-                                _py.tuple((setq, n, v) for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
+                                _py.tuple((_ir_args, (setq, n, v), ("function_scope", function_scope))
+                                          for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
                                 (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
-                                     evaluate_defaults_early = t),))
+                                     evaluate_defaults_early = t,
+                                     function_scope = function_scope),))
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
                                                                                          for name, form in bindings } }) })
@@ -7773,11 +7835,13 @@ def flet():
                         error("FLET: malformed bindings: %s.", bindings)
                 # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
                 tempnames = [ gensym(string(name)) for name, _, *__ in bindings ]
-                form = ((let, _py.tuple((name, (progn,
-                                                 (def_, tempname, lambda_list) + _py.tuple(fbody),
-                                                 (ref, tempname)))
+                form = (_ir_args,
+                        (let, _py.tuple((name, (progn,
+                                                (def_, tempname, lambda_list) + _py.tuple(fbody),
+                                                (function, tempname)))
                                         for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings))) +
-                        body)
+                        body,
+                        ("function_scope", t))
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(kind_funcframe =
                                                            { function: { _function_binding(name, function,
@@ -7850,7 +7914,8 @@ def function():
                 binding = symbol_value(_lexenv_).lookup_func(the(symbol, name))
                 if not (binding or name.function):
                         simple_style_warning("undefined function: %s", name)
-                return _rewritten((ref, name))
+                return _lowered([],
+                                _lower_name(_function_name(name)))
         def effects(name):         return nil
         def affected(name):        return not symbol_value(_lexenv_).funcscope_binds_p(name)
 """function name => function
@@ -8324,7 +8389,6 @@ def ref():
                                         _attr_chain_atree(name[1]))
                 else:
                         check_type(name, symbol)
-                        _compilation_note_symbol(name)
                         return _lowered([],
                                         ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
         def effects(name):         return nil
@@ -8406,13 +8470,13 @@ def def_():
                                         if pro_deco:
                                                 error("in DEF %s: decorators must lower to python expressions.", name)
                                         deco_vals.append(val_deco)
-                                return _lowered([("FunctionDef", _frost.full_symbol_name_python_name(name), compiled_lambda_list,
+                                return _lowered([("FunctionDef", _function_name(name), compiled_lambda_list,
                                                   (body_pro +
                                                    [("Return", body_val)]),
                                                   deco_vals),
                                                  # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
                                                  ],
-                                                _lower(name)[1])
+                                                _lower((quote, name))[1])
                         ## Xtnls feedback loop stabilisation scheme.
                         ##
                         ## This looks fairly ridiculous, but this is reality for you:
@@ -8448,9 +8512,11 @@ def def_():
 def lambda_():
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def binds(lambda_list, *body, evaluate_defaults_early = nil):
+        def binds(lambda_list, *body, evaluate_defaults_early = nil, function_scope = nil):
                 total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA")
-                return { variable: { _variable_binding(name, variable, None) for name in total } }
+                return ({ function: { _function_binding(name, function, None) for name in total } }
+                        if function_scope else
+                        { variable: { _variable_binding(name, variable, None) for name in total } })
         def prologuep(lambda_list, *body):
                 if _ir_body_prologuep(body):
                         return t
@@ -8464,7 +8530,7 @@ def lambda_():
                         return nil
                 else:
                         return t
-        def lower(lambda_list, *body, evaluate_defaults_early = nil):
+        def lower(lambda_list, *body, evaluate_defaults_early = nil, function_scope = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
@@ -8476,7 +8542,8 @@ def lambda_():
                         if not (optional or keys):
                                 _compiler_debug_printf(" -- LAMBDA: simple")
                                 return _lowered([],
-                                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)),
+                                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
+                                                                                    function_scope = function_scope),
                                                  _lower((progn,) + body)[1]))
                         elif rest or restkey:
                                 _not_implemented("rest/restkey-ful defaulting lambda list")
@@ -8484,7 +8551,8 @@ def lambda_():
                                 # duplicate code here, but the checking "issue" is not understood well-enough..
                                 _compiler_debug_printf(" -- LAMBDA: early evaluation of default value forms")
                                 return _lowered([],
-                                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults)),
+                                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
+                                                                                    function_scope = function_scope),
                                                  _lower((progn,) + body)[1]))
                         else:
                                 ## Delay evaluation of default values.
@@ -8493,11 +8561,18 @@ def lambda_():
                                                      default,
                                                      arg)
                                 _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
-                                return _rewritten((lambda_, _py.tuple(fixed + [_optional] + optional + keys),
-                                                   (let, _py.tuple((arg, defaulting_expr(arg, default))
-                                                                   for arg, default in _py.zip(optional + keys,
-                                                                                               optdefs + keydefs))) +
-                                                   body))
+                                def let():
+                                        return (let, _py.tuple((arg, defaulting_expr(arg, default))
+                                                               for arg, default in _py.zip(optional + keys,
+                                                                                           optdefs + keydefs)))
+                                def lambda_(let):
+                                        return (lambda_, _py.tuple(fixed + [_optional] + optional + keys),
+                                                let + body)
+                                return _rewritten(_ir(lambda_(_ir(let(),
+                                                                  function_scope = t)),
+                                                      function_scope = t)
+                                                  if function_scope else
+                                                  lambda_(let()))
 
                 else:
                         _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
@@ -8551,7 +8626,8 @@ def apply():
                         func_binding, func_expr = (((),                     func) if (pycall_p(func) or
                                                                                       not _ir_prologue_p(func)) else
                                                    (lambda func_name:
-                                                     (((func_name, func),), (ref, func_name)))(gensym("APPLY-FUNCNAME")))
+                                                     (((func_name, func),),
+                                                      (function, func_name)))(gensym("APPLY-FUNCNAME")))
                         temp_names = _py.tuple(_gensyms(n = _py.len(fixed) + 1 - no_varargs, x = "APPLY-ARG"))
                         arg_exprs = temp_names + ((nil,) if no_varargs else ())
                         return _rewritten((let, func_binding + _py.tuple(_py.zip(temp_names, (arg,) + args)),
@@ -8935,6 +9011,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
                 acn = _ast_compiled_name(_frost.full_symbol_name_python_name(name),
                                          *pro_ast,
+                                         function = _function_name(name),
                                          globals = _py.globals(),
                                          locals  = _py.locals())
                 sym = the(symbol, acn)
@@ -8982,9 +9059,9 @@ def fdefinition(name):
 
 @lisp
 def FOO():
-        (defmacro, foo, (),
-          (eval_when, (_execute,),
-            nil))
+        (defmacro, foo, (x,),
+          (quasiquote, (eval_when, (_execute,),
+                        (comma, x))))
 
 @lisp
 # ((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
@@ -11246,6 +11323,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                     ,
                     lineno   = 0 # lineno
                     ,
+                    function = _function_name(function_name),
                     globals  = env,
                     locals   = env)
 
