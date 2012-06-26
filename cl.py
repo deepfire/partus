@@ -6944,6 +6944,36 @@ def _pp_sex(sex, strict = t, initial_depth = None):
                 error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s", sex, pat, f, _py.repr(r))
         return r or ""
 
+def _mockup_sex(sex, initial_depth = None, max_level = 2):
+        def mock_atom(x):       return _py.str(x)
+        def mock_complexes(xs, new_level):
+                with progv({ _pp_base_depth_: symbol_value(_pp_base_depth_) + 2 }):
+                        return ("\n" + _sex_space()).join(rec(x, new_level) for x in xs)
+        def rec(sex, level):
+                if level > max_level:
+                        return "#"
+                elif atom(sex):
+                        return mock_atom(sex)
+                else:
+                        head, *tail = sex
+                        complex_tail_start = position_if_not(atom, tail)
+                        simple_tail, complex_tail = (tail[0:complex_tail_start],
+                                                     tail[_defaulted(complex_tail_start, _py.len(tail)):])
+                        if atom(head):
+                                return ("(" + " ".join(mock_atom(x)
+                                                 for x in [head] + simple_tail) +
+                                        ("" if not complex_tail else
+                                         ((("\n  " + _sex_space()) if complex_tail else "") +
+                                          (mock_complexes(complex_tail, level + 1) if level < max_level else
+                                                         "..more.."))) +
+                                        ")")
+                        else:
+                                return (mock_complexes(sex, level + 1) if level < max_level else
+                                        "..more..")
+        initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
+        with progv({ _pp_base_depth_: initial_depth }):
+                return rec(sex, 0)
+
 # IR method -based services
 
 def _ir_nvalues(form):
@@ -7287,6 +7317,13 @@ def DEFMACRO(name, lambda_list, *body):
 #     A tuple of:
 #     - prologue
 #     - value, can only contain _ast.expr's
+
+## Compiler messages:
+## - entry        _lower:rec()                             ;* lowering
+##                _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
+## - part listing _lower:maybe_call_primitive_compiler()   >>> parts
+## - rewriting    _lower:maybe_call_primitive_compiler()   ===\n---\n...
+## - result       _lower()                                 ;* compilation atree output\n;;; Prologue\n;;; Value
 
 # Unregistered Issue DEBUG-SCAFFOLDING
 _string_set("*COMPILER-DEBUG-P*",    nil)
@@ -8659,6 +8696,12 @@ print("; APPLYIFICATION: passed")
 
 # Engine and drivers: %LOWER, @LISP and COMPILE
 
+_compiler_trace_forms    = t
+_compiler_trace_subforms = nil
+_compiler_trace_rewrites = nil
+_compiler_trace_result   = nil
+_compiler_pretty_full    = nil
+
 def _dump_form(form):
         _debug_printf("%s\n", "*** " + "\n*** ".join(_pp_sex(form).split("\n")))
 
@@ -8672,53 +8715,64 @@ def _lower(form):
                 _compiler_track_compiled_form(form)
                 # _debug_printf(";;; compiling:\n%s", _pp_sex(form))
                 # _compiler_report_context()
+        pp = _pp_sex if _compiler_pretty_full else _mockup_sex
+        def compiler_note_form(x):
+                if _compiler_trace_forms and _debugging_compiler() and not symbolp(x):
+                        _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), pp(x))
+        def compiler_note_parts(known_name, xs):
+                if _compiler_trace_subforms and _debugging_compiler() and known_name is not symbol:
+                        _debug_printf("%s>>> %s\n%s%s", _sex_space(), name,
+                                      _sex_space(), ("\n" + _sex_space()).join(pp(f) for f in xs))
+        def compiler_note_rewrite(known_name, known_subforms, result_form):
+                if _compiler_trace_rewrites and _debugging_compiler() and known_name is not symbol:
+                        _debug_printf("%s======================================================\n%s\n"
+                                      "%s--------------------- rewrote ------------------------>\n%s\n"
+                                      "%s......................................................",
+                                      _sex_space(), _sex_space() + pp((known_name,) + known_subforms),
+                                      _sex_space(), _sex_space() + pp(result_form),
+                                      _sex_space())
+        def compiler_note_result(form, pv):
+                if (_compiler_trace_result and _debugging_compiler() and
+                    ## Too trivial to take notice
+                    not symbolp(form)):
+                        _debug_printf(";;; compilation atree output for\n%s%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
+                                      _sex_space(), pp(form), *pv)
         def _rec(x):
                 ## XXX: what are the side-effects?
                 ## NOTE: we are going to splice unquoting processing here, as we must be able
                 ## to work in READ-less environment.
-                _debug_printf_if(_debugging_compiler(), ";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
-                if listp(x): ## nil or _tuplep
-                        def noisep(x): return x in [symbol]
-                        def maybe_call_primitive_compiler(name, forms, args):
-                                known = _find_known(name)
-                                if not known:
-                                        return nil, nil
-                                _debug_printf_if(_debugging_compiler() and not noisep(name),
-                                                 "%s>>> %s\n%s%s", _sex_space(), name, _sex_space(), ("\n" + _sex_space()).join(_pp_sex(f) for f in forms))
+                compiler_note_form(x)
+                if listp(x): ## nil, () or _tuplep
+                        def call_primitive_compiler(known, forms, args):
+                                compiler_note_parts(known.name, forms)
                                 ret = known.lower(*forms, **_alist_hash_table(args))
                                 if _rewritep(ret):
                                         form, scope = ret
-                                        _debug_printf_if(_debugging_compiler() and not noisep(name),
-                                                         "%s======================================================\n"
-                                                         "%s\n%s--------------------- rewrote ------------------------>\n%s\n"
-                                                         "%s......................................................",
-                                                         _sex_space(),
-                                                         _sex_space() + _pp_sex((name,) + forms),
-                                                         _sex_space(),
-                                                         _sex_space() + _pp_sex(form),
-                                                         _sex_space())
+                                        compiler_note_rewrite(known.name, forms, form)
                                         if scope:
                                                 with progv(scope):
-                                                        return _sex_deeper(4, lambda: _rec(form)), t
+                                                        return _sex_deeper(4, lambda: _rec(form))
                                         else:
-                                                return _sex_deeper(4, lambda: _rec(form)), t
+                                                return _sex_deeper(4, lambda: _rec(form))
                                 else:
-                                        not noisep(name) and _compiler_debug_printf("=== %s done", name)
-                                        return ret, t
+                                        return ret
                         if not x: ## Either an empty list or NIL itself.
                                 return _rec((ref, nil))
                         if symbolp(x[0]):
                                 argsp, form, args = _maybe_ir_args(x)
                                 # Urgent Issue COMPILER-MACRO-SYSTEM
-                                ret, primitivep = maybe_call_primitive_compiler(form[0], form[1:], args)
-                                if primitivep:
+                                known = _find_known(form[0])
+                                if known:
                                         # Unregistered Issue COMPILE-CANNOT-EVEN-MENTION-KWARGS
-                                        return ret
-                                form, expanded = macroexpand(x)
-                                if expanded:
-                                        return _rec(form)
+                                        return call_primitive_compiler(known, form[1:], args)
+                                ## Macros ought to have been expanded earlier.
+                                # form, expanded = macroexpand(x)
+                                # if expanded:
+                                #         return _rec(form)
                                 # basic function call
-                                return _rec((apply,) + form + (nil,))
+                                ## APPLY-conversion, likewise, is expected to have already happened.
+                                # return _rec((apply,) + form + (nil,))
+                                return _rec(form)
                         elif (_tuplep(x[0]) and x[0] and x[0][0] is lambda_):
                                 return _rec((apply,) + x + (nil,))
                         elif stringp(x[0]): # basic function call
@@ -8738,14 +8792,9 @@ def _lower(form):
                                         atree)
                         else:
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
-
         ## XXX: what about side-effects?
         pv = _rec(form)
-        def form_too_trivial_for_logging(form): return symbolp(form)
-        if not form_too_trivial_for_logging(form):
-                _debug_printf_if(_debugging_compiler(),
-                                 ";;; compilation atree output for\n%s%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
-                                 _sex_space(), _pp_sex(form), *pv)
+        compiler_note_result(form, pv)
         expected_return_type = (pytuple, pylist, (maybe, (partuple, string)))
         if not typep(pv, expected_return_type):
                 error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
