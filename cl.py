@@ -7831,7 +7831,9 @@ def let():
                         temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
                         # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                         form = ((progn,) +
-                                _py.tuple((_ir_args, (setq, n, v), ("function_scope", function_scope))
+                                _py.tuple(_ir_args_when(function_scope,
+                                                        (setq, n, v),
+                                                        function_scope = function_scope)
                                           for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
                                 (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
                                      evaluate_defaults_early = t,
