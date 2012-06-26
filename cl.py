@@ -7461,7 +7461,7 @@ def _ir_args():
         def prologuep(form, **_): return _ir_prologue_p(form)
         def lower(*_):            error("Invariant failed: %s is not meant to be lowered.", _ir_args)
 
-def _maybe_ir_args(x):
+def _destructure_possible_ir_args(x):
         "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
         return ((t, x[1], x[2:]) if _tuplep(x) and x and x[0] is _ir_args else
                 (nil, x, _py.tuple()))
@@ -8759,7 +8759,7 @@ def _lower(form):
                         if not x: ## Either an empty list or NIL itself.
                                 return _rec((ref, nil))
                         if symbolp(x[0]):
-                                argsp, form, args = _maybe_ir_args(x)
+                                argsp, form, args = _destructure_possible_ir_args(x)
                                 # Urgent Issue COMPILER-MACRO-SYSTEM
                                 known = _find_known(form[0])
                                 if known:
