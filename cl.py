@@ -7435,18 +7435,45 @@ def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 ## Lisp-level bound/free
 ## is the value generally side-effect-free?
 
-###                                      (SYMBOL)      <-
-###                                      (SETF VALUES) <-
-###                                      (RETURN)      <-
-###                                      (QUOTE)       <-
-###                 | (empty: SYMBOL) <- (PROGN)       <-
-###      PROGN, RETURN, QUOTE, SYMBOL <- (DEF)         <-
-### LAMBDA | LAMBDA, PROGN, SETQ, LET <- (LET)         <-
-###              | SYMBOL, LET, APPLY <- (APPLY)       <-
-###                          LET, DEF <- (FLET)        <-
-###              PROGN | FLET, SYMBOL <- (LAMBDA)      <-
-###                  FLET, DEF, APPLY <- (LABELS)      <-
-###                 PROGN | LET, LET* <- (LET*)        <-
+### SETQ                 -> ∅
+### QUOTE                -> ∅                       |
+###                         =(APPLY,FUNCTION,QUOTE)
+### MULTIPLE-VALUE-CALL  -> ∅
+### PROGN                -> ∅
+### IF                   -> ∅                    |
+###                         =(FLET,APPLY,REF,IF)
+### LET                  -> APPLY,LAMBDA(e_d_e=t, f_s=f_s)         |
+###                         =(PROGN,SETQ,LAMBDA(e_d_e=t, f_s=f_s))
+### FLET                 -> =(LET,PROGN,DEF,FUNCTION)
+### LABELS               -> =(FLET,DEF,APPLY) ???
+### FUNCTION             -> ∅
+### UNWIND-PROTECT       -> =()            |
+###                         SETQ,PROGN,REF
+### MACROLET             -> =(PROGN)
+### SYMBOL-MACROLET      -> =(PROGN)
+### BLOCK                -> =(CATCH,QUOTE)
+### RETURN-FROM          -> =(THROW,QUOTE)
+### CATCH                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### THROW                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### TAGBODY              -> --not-implemented--
+### GO                   -> --not-implemented--
+### EVAL-WHEN            -> ∅ |
+###                         PROGN
+### THE                  -> --not-implemented--
+### LOAD-TIME-VALUE      -> --not-implemented--
+### LET*                 -> --not-implemented--
+### PROGV                -> --not-implemented--
+### LOCALLY              -> --not-implemented--
+### MULTIPLE-VALUE-PROG1 -> --not-implemented--
+### REF                  -> ∅
+### NTH-VALUE            -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### DEF                  -> BLOCK,QUOTE
+### LAMBDA               -> PROGN                      |
+###                         =(LAMBDA,LET,IF,APPLY,REF) |
+###                         =(FLET,FUNCTION)
+### APPLY                -> ∅                            |
+###                         =(LET,APPLY_                 |
+###                         =(LET,APPLY,LAMBDA,FUNCTION) |
 @defun("NOT")
 def not_(x):        return t if x is nil else nil
 
