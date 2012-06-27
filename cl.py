@@ -7430,25 +7430,37 @@ def _lowered_prepend_prologue(pro, pv):   return (pro + pv[0], pv[1])
 def _rewritten(form, scope = _py.dict()): return form, the(_py.dict, scope)
 def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 
+_compiler_trace_forms    = t
+_compiler_trace_subforms = nil
+_compiler_trace_rewrites = t
+_compiler_trace_result   = nil
+_compiler_trace_choices  = t
+_compiler_pretty_full    = nil
+
+def _compiler_trace_choice(ir_name, choice):
+        if _compiler_trace_choice:
+                _debug_printf("%s-- %s: %s", _sex_space(), ir_name, choice)
+
 #### Issues:
 ## Tail position optimisations
 ## Lisp-level bound/free
 ## is the value generally side-effect-free?
 
 ### SETQ                 -> ∅
-### QUOTE                -> ∅                       |
-###                         =(APPLY,FUNCTION,QUOTE)
+### QUOTE                -> ∅                       |                 NONCONSTANT-SYMBOL
+###                         ∅                       |                 CONSTANT
+###                         =(APPLY,FUNCTION,QUOTE)                   SEX
 ### MULTIPLE-VALUE-CALL  -> ∅
 ### PROGN                -> ∅
-### IF                   -> ∅                    |
-###                         =(FLET,APPLY,REF,IF)
-### LET                  -> APPLY,LAMBDA(e_d_e=t, f_s=f_s)         |
-###                         =(PROGN,SETQ,LAMBDA(e_d_e=t, f_s=f_s))
+### IF                   -> ∅                    |                    EXPR
+###                         =(FLET,APPLY,REF,IF)                      NONEXPR-AS-FLET
+### LET                  -> APPLY,LAMBDA(e_d_e=t, f_s=f_s)         |  EXPR
+###                         =(PROGN,SETQ,LAMBDA(e_d_e=t, f_s=f_s))    NONEXPR-SETQ-LAMBDA
 ### FLET                 -> =(LET,PROGN,DEF,FUNCTION)
 ### LABELS               -> =(FLET,DEF,APPLY) ???
 ### FUNCTION             -> ∅
-### UNWIND-PROTECT       -> =()            |
-###                         SETQ,PROGN,REF
+### UNWIND-PROTECT       -> =()            |                          NO-UNWIND
+###                         SETQ,PROGN,REF                            UNWIND
 ### MACROLET             -> =(PROGN)
 ### SYMBOL-MACROLET      -> =(PROGN)
 ### BLOCK                -> =(CATCH,QUOTE)
@@ -7457,8 +7469,8 @@ def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 ### THROW                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
 ### TAGBODY              -> --not-implemented--
 ### GO                   -> --not-implemented--
-### EVAL-WHEN            -> ∅ |
-###                         PROGN
+### EVAL-WHEN            -> ∅     |                                   EXECUTE
+###                         PROGN                                     NO-EXECUTE
 ### THE                  -> --not-implemented--
 ### LOAD-TIME-VALUE      -> --not-implemented--
 ### LET*                 -> --not-implemented--
@@ -7468,12 +7480,13 @@ def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 ### REF                  -> ∅
 ### NTH-VALUE            -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
 ### DEF                  -> BLOCK,QUOTE
-### LAMBDA               -> PROGN                      |
-###                         =(LAMBDA,LET,IF,APPLY,REF) |
-###                         =(FLET,FUNCTION)
-### APPLY                -> ∅                            |
-###                         =(LET,APPLY_                 |
-###                         =(LET,APPLY,LAMBDA,FUNCTION) |
+### LAMBDA               -> PROGN                      |              EXPR-NO-OPTIONAL-NO-KEYS
+###                         PROGN                      |              EXPR-EARLY-EVALUATED-OPTIONAL-OR-KEYS
+###                         =(LAMBDA,LET,IF,APPLY,REF) |              NONEXPR-REWIND-DELAYED-DEFAULT-VALUES
+###                         =(FLET,FUNCTION)                          NONEXPR-FLET
+### APPLY                -> ∅                     |                   EXPR
+###                         =(LET,APPLY)          |                   NONEXPR-REWIND-AS-LET-APPLY
+###                         =(LET,FUNCTION,APPLY)                     NONEXPR-REWIND-AS-LET-FUNCTION-APPLY
 @defun("NOT")
 def not_(x):        return t if x is nil else nil
 
@@ -7673,6 +7686,7 @@ def quote():
         def lower(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if symbolp(x) and not constantp(x):
+                        _compiler_trace_choice(quote, "NONCONSTANT-SYMBOL")
                         if symbolp(x):
                                 _compilation_note_symbol(x)
                         return _lowered([],
@@ -7680,9 +7694,11 @@ def quote():
                 else:
                         atree, successp = _try_atreeify_constant(x)
                         if successp:
+                                _compiler_trace_choice(quote, "CONSTANT")
                                 return _lowered([],
                                                 atree)
                         else:
+                                _compiler_trace_choice(quote, "SEX")
                                 return _rewritten((apply, (function, list)) + _py.tuple((quote, x) for x in x) + (nil,))
         def effects(x):            return nil
         def affected(x):           return nil
@@ -7800,12 +7816,12 @@ def if_():
                         lo_test = pro_test, val_test = _lower(test)
                 cons_expr_p, ante_expr_p = [not _ir_prologue_p(x) for x in (consequent, antecedent)]
                 if cons_expr_p and ante_expr_p:
-                        _compiler_debug_printf(" -- IF: simple all-expression case")
+                        _compiler_trace_choice(if_, "EXPR")
                         (_, val_cons), (__, val_ante) = mapcar(_lower, [consequent, antecedent])
                         return _lowered(pro_test,
                                         ("IfExp", val_test, val_cons, val_ante))
                 else:
-                        _compiler_debug_printf(" -- IF: complex FLET-based case")
+                        _compiler_trace_choice(if_, "NONEXPR-AS-FLET")
                         ## Unregistered Issue FUNCALL-MISSING
                         name_cons, name_ante = _gensyms(x = "IF-BRANCH", n = 2)
                         cons, cons_fdefn = ((consequent,                     ()) if cons_expr_p else
@@ -7846,13 +7862,13 @@ def let():
                 bindings_thru_defaulting = _py.tuple(_ensure_cons(b, nil) for b in bindings)
                 names, values = _recombine((_py.list, _py.list), identity, bindings_thru_defaulting)
                 if _py.all(not _ir_prologue_p(x) for x in values):
-                        _compiler_debug_printf(" -- LET: simple all-expression LAMBDA case")
+                        _compiler_trace_choice(let, "EXPR")
                         form = (apply, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
                                            evaluate_defaults_early = t,
                                            function_scope = function_scope),
                                 nil)
                 else:
-                        _compiler_debug_printf(" -- LET: complex PROGN + SETQ + LET + LAMBDA case")
+                        _compiler_trace_choice(let, "NONEXPR-SETQ-LAMBDA")
                         last_non_expr_posn = position_if(_ir_prologue_p, values, from_end = t)
                         n_nonexprs = last_non_expr_posn + 1
                         temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
@@ -7944,7 +7960,6 @@ def labels():
                 if not every(_of_type((partuple, symbol, pytuple))):
                         error("LABELS: malformed bindings: %s.", bindings)
                 temp_name = gensym("LABELS")
-                _compiler_debug_printf(" -- LABELS: to DEF + FLET")
                 return _rewritten((flet, ((temp_name, _py.tuple(),
                                            _py.tuple((def_, name, lambda_list, body)
                                                      for name, lambda_list, *body in bindings) +
@@ -8032,7 +8047,9 @@ def unwind_protect():
         def prologuep(*_):                          return t
         def lower(form, *unwind_body):
                 if not unwind_body:
-                        return _rewritten(form)
+                       _compiler_trace_choice(unwind_protect, "NO-UNWIND")
+                       return _rewritten(form)
+                _compiler_trace_choice(unwind_protect, "UNWIND")
                 temp_name = gensym("PROTECTED-FORM-VALUE")
                 pro_form, val_form = _lower((setq, temp_name, form))
                 pro_unwind, val_unwind = _lower((progn,) + unwind_body)
@@ -8310,6 +8327,7 @@ when EVAL-WHEN appears as a top level form."""
                 ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
                 ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
                 ## so that they're never seen at this level.)
+                _compiler_trace_choice(eval_when, "EXECUTE" if exec else "NO-EXECUTE")
                 return _rewritten(((progn,) + body) if exec else
                                   nil)
 
@@ -8555,9 +8573,7 @@ def def_():
                         xtnls_guess, xtnls_actual, try_ = None, _py.set(), 0
                         while xtnls_guess != xtnls_actual:
                                 cdef.xtnls = xtnls_guess = xtnls_actual
-                                _compiler_debug_printf(" -- DEF: try %d", try_)
                                 result = try_compile()
-                                _compiler_debug_printf(" -- DEF: result\n%s", result)
                                 xtnls_actual = _tuple_xtnls(result)
                                 try_ += 1
                         return result
@@ -8606,7 +8622,7 @@ def lambda_():
                         total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                         (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
                         if not (optional or keys):
-                                _compiler_debug_printf(" -- LAMBDA: simple")
+                                _compiler_trace_choice(lambda_, "EXPR-NO-OPTIONAL-NO-KEYS")
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
@@ -8615,7 +8631,7 @@ def lambda_():
                                 _not_implemented("rest/restkey-ful defaulting lambda list")
                         elif evaluate_defaults_early:
                                 # duplicate code here, but the checking "issue" is not understood well-enough..
-                                _compiler_debug_printf(" -- LAMBDA: early evaluation of default value forms")
+                                _compiler_trace_choice(lambda_, "EXPR-EARLY-EVALUATED-OPTIONAL-OR-KEYS")
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
@@ -8626,7 +8642,7 @@ def lambda_():
                                         return (if_, (apply, eq, arg, (_ref, "None"), nil),
                                                      default,
                                                      arg)
-                                _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
+                                _compiler_trace_choice(lambda_, "NONEXPR-REWIND-DELAYED-DEFAULT-VALUES")
                                 return _rewritten(
                                         _ir_when(function_scope,
                                                  (lambda_,
@@ -8640,7 +8656,7 @@ def lambda_():
                                                  function_scope = t))
 
                 else:
-                        _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
+                        _compiler_trace_choice(lambda_, "NONEXPR-FLET")
                         func_name = gensym("LET-BODY-")
                         return _rewritten((flet, ((func_name, lambda_list) + body,),
                                            (function, func_name)))
@@ -8672,7 +8688,7 @@ def apply():
                 ## required to make such type analysis viable.
                 no_varargs = rest == nil
                 if not _py.any(_ir_prologue_p(x) for x in fixed + (rest,)):
-                        _compiler_debug_printf(" -- APPLY: simple case")
+                        _compiler_trace_choice(apply, "EXPR")
                         with _no_tail_position():
                                 func_pro, func_val = (([], _attr_chain_atree(func[1]))
                                                       # Unregistered Issue MAYBE-MOVE-PYCALL-HANDLING-TO-FUNCTION
@@ -8687,9 +8703,9 @@ def apply():
                                                                                               if not no_varargs else
                                                                                               None)))
                 else:
-                        _compiler_debug_printf(" -- APPLY: complex LET + APPLY")
-                        func_binding, func_expr = (((),                     func) if (pycall_p(func) or
-                                                                                      not _ir_prologue_p(func)) else
+                        _compiler_trace_choice(apply, "NONEXPR-REWIND-AS-LET-APPLY" if not _ir_prologue_p(func) else
+                                                      "NONEXPR-REWIND-AS-LET-FUNCTION-APPLY")
+                        func_binding, func_expr = (((),                     func) if not _ir_prologue_p(func) else
                                                    (lambda func_name:
                                                      (((func_name, func),),
                                                       (function, func_name)))(gensym("APPLY-FUNCNAME")))
@@ -8722,12 +8738,6 @@ assert(result_good)
 print("; APPLYIFICATION: passed")
 
 # Engine and drivers: %LOWER, @LISP and COMPILE
-
-_compiler_trace_forms    = t
-_compiler_trace_subforms = nil
-_compiler_trace_rewrites = t
-_compiler_trace_result   = nil
-_compiler_pretty_full    = nil
 
 def _dump_form(form):
         _debug_printf("%s\n", "*** " + "\n*** ".join(_pp_sex(form).split("\n")))
