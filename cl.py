@@ -6963,9 +6963,9 @@ def _mockup_sex(sex, initial_depth = None, max_level = 2):
                                 return ("(" + " ".join(mock_atom(x)
                                                  for x in [head] + simple_tail) +
                                         ("" if not complex_tail else
-                                         ((("\n  " + _sex_space()) if complex_tail else "") +
+                                         ((("\n  " + _sex_space()) if complex_tail and level < max_level else "") +
                                           (mock_complexes(complex_tail, level + 1) if level < max_level else
-                                                         "..more.."))) +
+                                                         " ..more.."))) +
                                         ")")
                         else:
                                 return (mock_complexes(sex, level + 1) if level < max_level else
@@ -7901,13 +7901,12 @@ def flet():
                         error("FLET: malformed bindings: %s.", bindings)
                 # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
                 tempnames = [ gensym(string(name)) for name, _, *__ in bindings ]
-                form = (_ir_args,
-                        (let, _py.tuple((name, (progn,
-                                                (def_, tempname, lambda_list) + _py.tuple(fbody),
-                                                (function, tempname)))
-                                        for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings))) +
-                        body,
-                        ("function_scope", t))
+                form = _ir(let, _py.tuple((name, (progn,
+                                                  (def_, tempname, lambda_list) + _py.tuple(fbody),
+                                                  (function, tempname)))
+                                          for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings)) +
+                           body,
+                           function_scope = t)
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(kind_funcframe =
                                                            { function: { _function_binding(name, function,
@@ -8479,7 +8478,7 @@ def nth_value():
                         (progn, form, nil)   if n != form_n                            else
                         _ir_nth_value(n, form)) ## We don't risque unbounded recursion here, so let's further analysis..
         def prologuep(n, form): return _ir_prologue_p(n) or _ir_prologue_p(form)
-        def lower(n, form):     return _lowered(_ir_cl_module_call("_values_frame_project", n, form))
+        def lower(n, form):     return _rewritten(_ir_cl_module_call("_values_frame_project", n, form))
         def effects(n, form):   return _ir_effects(n) or _ir_effects(form)
         def affected(n, form):  return _ir_affected(n) or _ir_affected(form)
 
@@ -8624,22 +8623,21 @@ def lambda_():
                         else:
                                 ## Delay evaluation of default values.
                                 def defaulting_expr(arg, default):
-                                        return (if_, (eq, arg, (_name, "None")),
+                                        return (if_, (apply, eq, arg, (_ref, "None"), nil),
                                                      default,
                                                      arg)
                                 _compiler_debug_printf(" -- LAMBDA: defaulting LAMBDA + LET")
-                                def let():
-                                        return (let, _py.tuple((arg, defaulting_expr(arg, default))
-                                                               for arg, default in _py.zip(optional + keys,
-                                                                                           optdefs + keydefs)))
-                                def lambda_(let):
-                                        return (lambda_, _py.tuple(fixed + [_optional] + optional + keys),
-                                                let + body)
-                                return _rewritten(_ir(lambda_(_ir(let(),
-                                                                  function_scope = t)),
-                                                      function_scope = t)
-                                                  if function_scope else
-                                                  lambda_(let()))
+                                return _rewritten(
+                                        _ir_when(function_scope,
+                                                 (lambda_,
+                                                  _py.tuple(fixed + [_optional] + optional + keys),
+                                                  _ir_when(function_scope,
+                                                           (let, _py.tuple((arg, defaulting_expr(arg, default))
+                                                                           for arg, default in _py.zip(optional + keys,
+                                                                                                       optdefs + keydefs))),
+                                                                    function_scope = t) +
+                                                           body),
+                                                 function_scope = t))
 
                 else:
                         _compiler_debug_printf(" -- LAMBDA: non-expression FLET")
@@ -8727,7 +8725,7 @@ print("; APPLYIFICATION: passed")
 
 _compiler_trace_forms    = t
 _compiler_trace_subforms = nil
-_compiler_trace_rewrites = nil
+_compiler_trace_rewrites = t
 _compiler_trace_result   = nil
 _compiler_pretty_full    = nil
 
@@ -8801,7 +8799,7 @@ def _lower(form):
                                 # basic function call
                                 ## APPLY-conversion, likewise, is expected to have already happened.
                                 # return _rec((apply,) + form + (nil,))
-                                return _rec(form)
+                                error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
                         elif (_tuplep(x[0]) and x[0] and x[0][0] is lambda_):
                                 return _rec((apply,) + x + (nil,))
                         elif stringp(x[0]): # basic function call
