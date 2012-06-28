@@ -7454,7 +7454,7 @@ def _compiler_trace_choice(ir_name, choice):
 ### PROGN                -> ∅
 ### IF                   -> ∅                    |                    EXPR
 ###                         =(FLET,APPLY,REF,IF)                      NONEXPR-AS-FLET
-### LET                  -> APPLY,LAMBDA(e_d_e=t, f_s=f_s)         |  EXPR
+### LET                  -> APPLY,LAMBDA(e_d_e=t, f_s=f_s)         |  EXPR-BOUND-VALUES
 ###                         =(PROGN,SETQ,LAMBDA(e_d_e=t, f_s=f_s))    NONEXPR-SETQ-LAMBDA
 ### FLET                 -> =(LET,PROGN,DEF,FUNCTION)
 ### LABELS               -> =(FLET,DEF,APPLY) ???
@@ -7484,7 +7484,7 @@ def _compiler_trace_choice(ir_name, choice):
 ###                         PROGN                      |              EXPR-EARLY-EVALUATED-OPTIONAL-OR-KEYS
 ###                         =(LAMBDA,LET,IF,APPLY,REF) |              NONEXPR-REWIND-DELAYED-DEFAULT-VALUES
 ###                         =(FLET,FUNCTION)                          NONEXPR-FLET
-### APPLY                -> ∅                     |                   EXPR
+### APPLY                -> ∅                     |                   EXPR-ARGS
 ###                         =(LET,APPLY)          |                   NONEXPR-REWIND-AS-LET-APPLY
 ###                         =(LET,FUNCTION,APPLY)                     NONEXPR-REWIND-AS-LET-FUNCTION-APPLY
 @defun("NOT")
@@ -7862,7 +7862,7 @@ def let():
                 bindings_thru_defaulting = _py.tuple(_ensure_cons(b, nil) for b in bindings)
                 names, values = _recombine((_py.list, _py.list), identity, bindings_thru_defaulting)
                 if _py.all(not _ir_prologue_p(x) for x in values):
-                        _compiler_trace_choice(let, "EXPR")
+                        _compiler_trace_choice(let, "EXPR-BOUND-VALUES")
                         form = (apply, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
                                            evaluate_defaults_early = t,
                                            function_scope = function_scope),
@@ -7957,13 +7957,14 @@ def labels():
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-                if not every(_of_type((partuple, symbol, pytuple))):
+                if not every(_of_type((partuple, symbol, pytuple)), bindings):
                         error("LABELS: malformed bindings: %s.", bindings)
                 temp_name = gensym("LABELS")
-                return _rewritten((flet, ((temp_name, _py.tuple(),
-                                           _py.tuple((def_, name, lambda_list, body)
+                ## Rewrite as a function, to avoid scope pollution.  Actually, is it that important?
+                return _rewritten((flet, ((temp_name, _py.tuple()) +
+                                          _py.tuple((def_, name, lambda_list, body)
                                                      for name, lambda_list, *body in bindings) +
-                                           body)),
+                                           body,),
                                    (apply, temp_name, nil)))
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
@@ -8688,7 +8689,7 @@ def apply():
                 ## required to make such type analysis viable.
                 no_varargs = rest == nil
                 if not _py.any(_ir_prologue_p(x) for x in fixed + (rest,)):
-                        _compiler_trace_choice(apply, "EXPR")
+                        _compiler_trace_choice(apply, "EXPR-ARGS")
                         with _no_tail_position():
                                 func_pro, func_val = (([], _attr_chain_atree(func[1]))
                                                       # Unregistered Issue MAYBE-MOVE-PYCALL-HANDLING-TO-FUNCTION
@@ -8705,7 +8706,7 @@ def apply():
                 else:
                         _compiler_trace_choice(apply, "NONEXPR-REWIND-AS-LET-APPLY" if not _ir_prologue_p(func) else
                                                       "NONEXPR-REWIND-AS-LET-FUNCTION-APPLY")
-                        func_binding, func_expr = (((),                     func) if not _ir_prologue_p(func) else
+                        func_binding, func_expr = (((), func) if not _ir_prologue_p(func) else
                                                    (lambda func_name:
                                                      (((func_name, func),),
                                                       (function, func_name)))(gensym("APPLY-FUNCNAME")))
