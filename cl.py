@@ -7480,9 +7480,9 @@ def _compiler_trace_choice(ir_name, choice):
 ### REF                  -> ∅
 ### NTH-VALUE            -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
 ### DEF                  -> BLOCK,QUOTE
-### LAMBDA               -> PROGN                      |              EXPR-NO-OPTIONAL-NO-KEYS
-###                         PROGN                      |              EXPR-EARLY-EVALUATED-OPTIONAL-OR-KEYS
-###                         =(LAMBDA,LET,IF,APPLY,REF) |              NONEXPR-REWIND-DELAYED-DEFAULT-VALUES
+### LAMBDA               -> PROGN                      |              EXPR-BODY-NO-OPTIONAL-NO-KEYS
+###                         PROGN                      |              EXPR-BODY-EARLY-EVALUATED-OPTIONAL-OR-KEYS
+###                         =(LAMBDA,LET,IF,APPLY,REF) |              EXPR-BODY-REWIND-DELAYED-DEFAULT-VALUES
 ###                         =(FLET,FUNCTION)                          NONEXPR-FLET
 ### APPLY                -> ∅                     |                   EXPR-ARGS
 ###                         =(LET,APPLY)          |                   NONEXPR-REWIND-AS-LET-APPLY
