@@ -8623,7 +8623,7 @@ def lambda_():
                         total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                         (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
                         if not (optional or keys):
-                                _compiler_trace_choice(lambda_, "EXPR-NO-OPTIONAL-NO-KEYS")
+                                _compiler_trace_choice(lambda_, "EXPR-BODY-NO-OPTIONAL-NO-KEYS")
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
@@ -8632,7 +8632,7 @@ def lambda_():
                                 _not_implemented("rest/restkey-ful defaulting lambda list")
                         elif evaluate_defaults_early:
                                 # duplicate code here, but the checking "issue" is not understood well-enough..
-                                _compiler_trace_choice(lambda_, "EXPR-EARLY-EVALUATED-OPTIONAL-OR-KEYS")
+                                _compiler_trace_choice(lambda_, "EXPR-BODY-EARLY-EVALUATED-OPTIONAL-OR-KEYS")
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
@@ -8643,7 +8643,7 @@ def lambda_():
                                         return (if_, (apply, eq, arg, (_ref, "None"), nil),
                                                      default,
                                                      arg)
-                                _compiler_trace_choice(lambda_, "NONEXPR-REWIND-DELAYED-DEFAULT-VALUES")
+                                _compiler_trace_choice(lambda_, "EXPR-BODY-REWIND-DELAYED-DEFAULT-VALUES")
                                 return _rewritten(
                                         _ir_when(function_scope,
                                                  (lambda_,
