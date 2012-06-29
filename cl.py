@@ -7500,7 +7500,8 @@ def _compiler_trace_choice(ir_name, choice):
 ###                         SETQ,PROGN,REF                            UNWIND
 ### MACROLET             -> =(PROGN)
 ### SYMBOL-MACROLET      -> =(PROGN)
-### BLOCK                -> =(CATCH,QUOTE)
+### BLOCK                -> =(PROGN)       |                          NO-RETURN-FROM
+###                         =(CATCH,QUOTE)                            HAS-RETURN-FROM
 ### RETURN-FROM          -> =(THROW,QUOTE)
 ### CATCH                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
 ### THROW                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
@@ -8173,8 +8174,21 @@ def block():
         def prologuep(name, *body):          return _ir_body_prologuep(body)
         def lower(name, *body):
                 nonce = gensym("BLOCK-" + string(name))
-                return _rewritten((catch, (quote, nonce)) + body,
-                                  { _lexenv_: _make_lexenv(name_blockframe = { name: _block_binding(name, nonce) }) })
+                catch_target = (catch, (quote, nonce)) + body
+                has_return_from = nil
+                def update_has_return_from(sex):
+                        nonlocal has_return_from
+                        if consp(sex) and sex[0] is return_from:
+                                has_return_from = t
+                _map_sex(update_has_return_from, catch_target)
+                if has_return_from:
+                        _compiler_trace_choice(quote, "HAS-RETURN-FROM")
+                        return _rewritten(catch_target,
+                                          { _lexenv_: _make_lexenv(name_blockframe = { name: _block_binding(name, nonce) }) })
+                else:
+                        _compiler_trace_choice(quote, "NO-RETURN-FROM")
+                        return _rewritten((progn,) +
+                                          body)
         def effects(name, *body):            return _py.any(_ir_effects(f) for f in body)
         def affected(name, *body):           return _py.any(_ir_affected(f) for f in body)
 
