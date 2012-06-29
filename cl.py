@@ -9147,7 +9147,6 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 more_ast.assign_meaningful_locations(pro_ast)
                 if _debugging_compiler():
                         import more_ast
-                        _debug_printf("cu_pro: %s\n", cu_pro)
                         _debug_printf(";;; In C-T-D-I-L: Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
                                       _pp_sex(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
                                                                for x in pro_ast))
@@ -9279,6 +9278,8 @@ def _do_eval(exp, tlf_index, source_info, lexenv):
                     _eval_tlf_index_:      tlf_index,
                     _eval_source_info_:    source_info}):
                 return _eval_in_lexenv(exp, lexenv)
+
+_string_set("*SOURCE-INFO*", nil) ## XXX: this was not there!
 
 def _eval_tlf(original_exp, tlf_index, lexenv = None):
         return _do_eval(original_exp, tlf_index, _symbol_value(_source_info_),
@@ -9516,6 +9517,9 @@ def _load_as_source(stream, verbose = nil, print = nil):
                                         form = next()
         return with_simple_restart("ABORT", ("Abort loading file %s.", _file_name(stream)),
                                    with_abort_restart_body)
+
+_string_set("*LOAD-PATHNAME*", nil)
+_string_set("*LOAD-TRUENAME*", nil)
 
 _string_set("*FASL-FILE-TYPE*", "vpfas")
 
