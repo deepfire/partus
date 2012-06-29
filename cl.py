@@ -6065,11 +6065,21 @@ def _match(matcher, exp, pat):
 
 # Namespace separation name maps
 
+_compiler_safe_namespace_separation = t
+
+_compiler_trace_forms      = t
+_compiler_trace_subforms   = nil
+_compiler_trace_rewrites   = t
+_compiler_trace_result     = nil
+_compiler_trace_choices    = t
+
+_compiler_pretty_full      = nil
+_compiler_max_mockup_level = 3
+
 ## These are needed to store symbol<->gensymname maps
-_safe_namespace_separation = t
 _function_filler, _symbol_filler = ((lambda sym: _gensymname("FUN_" + _py.str(sym)),
                                      lambda sym: _gensymname("SYM_" + _py.str(sym)))
-                                    if _safe_namespace_separation else
+                                    if _compiler_safe_namespace_separation else
                                     (_py.str,
                                      _py.str))
 _function_name, _function_name_map = _define_simple_cache(_function_filler)
@@ -6982,7 +6992,8 @@ def _pp_sex(sex, strict = t, initial_depth = None):
                 error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s", sex, pat, f, _py.repr(r))
         return r or ""
 
-def _mockup_sex(sex, initial_depth = None, max_level = 2):
+def _mockup_sex(sex, initial_depth = None, max_level = None):
+        max_level = _defaulted(max_level, _compiler_max_mockup_level)
         def mock_atom(x):       return _py.str(x)
         def mock_complexes(xs, new_level):
                 with progv({ _pp_base_depth_: symbol_value(_pp_base_depth_) + 2 }):
@@ -7468,13 +7479,6 @@ def _lowered(pro, val):                   return pro, val
 def _lowered_prepend_prologue(pro, pv):   return (pro + pv[0], pv[1])
 def _rewritten(form, scope = _py.dict()): return form, the(_py.dict, scope)
 def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
-
-_compiler_trace_forms    = t
-_compiler_trace_subforms = nil
-_compiler_trace_rewrites = t
-_compiler_trace_result   = nil
-_compiler_trace_choices  = t
-_compiler_pretty_full    = nil
 
 def _compiler_trace_choice(ir_name, choice):
         if _compiler_trace_choice:
