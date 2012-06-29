@@ -5959,7 +5959,7 @@ class _matcher():
                        0)
                 if ((end and end > _py.len(exp)) or ## All legitimate splits failed.
                     end is None):                   ## A constant pattern was missing, likewise.
-                        _debug_printf("   FAILing seg: %s", pat)
+                        # _debug_printf("   FAILing seg: %s", pat)
                         return _r(exp, pat, m.fail(bound, exp, pat))
                 ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
                 cut = end if rest_pat else len(exp)
@@ -5987,10 +5987,10 @@ class _matcher():
                                  lambda: m.segment(bound, name,      exp,      pat, orifst,   None,  limit,
                                                    end + 1),
                                  combine_fail = (lambda e0, p0, eR, pR, _:
-                                                         _debug_printf("    SEGFAIL %s   %s:\nef0: %s  %s\nefR: %s  %s\nret: %s",
-                                                                       pat, seg_pat, e0, p0, eR, pR,
-                                                                       ((e0, p0) if pR == pat else
-                                                                        (eR, pR))) or
+                                                         # _debug_printf("    SEGFAIL %s   %s:\nef0: %s  %s\nefR: %s  %s\nret: %s",
+                                                         #               pat, seg_pat, e0, p0, eR, pR,
+                                                         #               ((e0, p0) if pR == pat else
+                                                         #                (eR, pR))) or
                                                  ((e0, p0) if pR == pat else
                                                   (eR, pR)))),
                           pat[0])
@@ -6713,7 +6713,8 @@ def _combine_t_or_None(f0, fR, orig_tuple_p):
         f0r = f0()
         if f0r is not None:
                 fRr = fR()
-                return t
+                if fRr is not None:
+                        return t
 
 class _metasex_matcher(_matcher):
         def __init__(m):
@@ -7315,7 +7316,8 @@ class _macroexpander_matcher(_metasex_matcher):
                 f0r = f0()
                 if f0r is not None:
                         fRr = fR()
-                        return _r(f0r, fRr, f0r + fRr)
+                        if fRr is not None:
+                                return _r(f0r, fRr, f0r + fRr)
         @staticmethod
         def comr(f0, fR, orig_tuple_p):
                 f0r = f0()
@@ -7622,7 +7624,7 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
                              function_scope = nil):
         assert _py.len(optional) == _py.len(opt_defaults)
         assert _py.len(keys) == _py.len(key_defaults)
-        assert not function_scope or not (optional or rest or keys or restkey)
+        assert not function_scope or not (rest or keys or restkey)
         ((odef_pros, odef_vals),
          (kdef_pros, kdef_vals)) = mapcar(lambda x: _recombine((_py.list, _py.list), _lower, x),
                                           [opt_defaults, key_defaults])
@@ -7894,7 +7896,7 @@ def let():
         def lower(bindings, *body, function_scope = nil):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (_tuplep(bindings) and
-                        every(_of_type((or_, symbol, (pytuple, symbol, t))))):
+                        every(_of_type((pytuple, symbol, t)))):
                         error("LET: malformed bindings: %s.", bindings)
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
                 bindings_thru_defaulting = _py.tuple(_ensure_cons(b, nil) for b in bindings)
@@ -7958,8 +7960,8 @@ def flet():
                 form = _ir(let, _py.tuple((name, (progn,
                                                   (def_, tempname, lambda_list) + _py.tuple(fbody),
                                                   (function, tempname)))
-                                          for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings)) +
-                           body,
+                                          for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings)),
+                           *body,
                            function_scope = t)
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(kind_funcframe =
@@ -8702,9 +8704,9 @@ def lambda_():
                                                   _ir_when(function_scope,
                                                            (let, _py.tuple((arg, defaulting_expr(arg, default))
                                                                            for arg, default in _py.zip(optional + keys,
-                                                                                                       optdefs + keydefs))),
-                                                                    function_scope = t) +
-                                                           body),
+                                                                                                       optdefs + keydefs))) +
+                                                           body,
+                                                           function_scope = t)),
                                                  function_scope = t))
 
                 else:
