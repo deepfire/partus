@@ -9001,16 +9001,18 @@ def lisp(body):
         ## What should it be like?
         ##  - COMPILE-FILE + LOAD
         ##  - COMPILE-TOPLEVEL-FORM + ?
-        symbol, symbol_name, _ = read_python_toplevel_name(body)
+        symbol, sym_name, pyname = read_python_toplevel_name(body)
+        _frost.setf_global(symbol, pyname.lower(),
+                           globals())
         args_ast, body_ast = _function_ast(body)
         if _py.len(body_ast) > 1:
                 error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
                       "No more than one toplevel form is allowed per definition.", symbol)
         form = _read_ast(body_ast[0])
-        __def_allowed_toplevels__ = _py.set([defun, defmacro])
-        if form[0] not in __def_allowed_toplevels__:
+        __def_allowed_toplevels__ = { "DEFUN", "DEFMACRO" }
+        if not (symbolp(form[0]) and symbol_name(form[0]) in __def_allowed_toplevels__):
                 error("In LISP %s: only toplevels in %s are allowed.",
-                      form[0], __def_allowed_toplevels__)
+                      _py.repr(form[0]), __def_allowed_toplevels__)
         name, warnedp, failedp, _ = _compile_toplevel_def_in_lexenv(symbol, form, _make_null_lexenv(),
                                                                     globalp = t,
                                                                     macrop = form[0] is defmacro,
