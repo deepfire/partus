@@ -6931,6 +6931,43 @@ def _match_sex(sex, pattern = None):
 _string_set("*SETSPEC-SCOPE*", nil)
 _setspec = _defscope("_setspec", _setspec_scope_)
 
+def _combine_identity(f0, fR):
+        f0r = f0()
+        if f0r is not None:
+                fRr = fR()
+                if fRr is not None:
+                        return (f0r,) + fRr
+
+_string_set("*MAPPER-FN*", nil)
+
+class _metasex_mapper(_metasex_matcher):
+        def __init__(m):
+                _metasex_matcher.__init__(m)
+                m.register_simplex_matcher(_form, m.form)
+        @staticmethod
+        def prod(x, _):      return x
+        @staticmethod
+        def comh(f0, fR, _): return _combine_identity(f0, fR)
+        @staticmethod
+        def comr(f0, fR, _): return _combine_identity(f0, fR)
+        def form(m, bound, name, form, pat, orifst, ignore_args = None):
+                "Used as a simplex matcher in _macroexpander_matcher."
+                # _debug_printf("%%MXER-INNER: -->\n%s", exp)
+                ## 1. Expose the knowns and implicit funcalls:
+                handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
+                if handled:
+                        return m.succ(bound, ret)
+                b, r, f = _metasex_matcher.form(m, bound, name, form, pat, orifst, ignore_args = ignore_args)
+                if f:
+                        return b, r, f
+                return b, symbol_value(_mapper_fn_)(r), f
+
+_mapper = _metasex_mapper()
+
+def _map_sex(fn, sex):
+        with progv({ _mapper_fn_: fn }):
+                return _match(_mapper, sex, _form_metasex(sex))
+
 # Pretty-printing
 
 def _pp_sex(sex, strict = t, initial_depth = None):
