@@ -7143,7 +7143,7 @@ def _results():
 #                                                               (_typep, _py.str))],)})
 # bound_good, result_good, nofail = _runtest(alternates,
 #                                            { 'whole': (1, "a") },
-#                                            "(1a)")
+#                                            '(1"a")')
 # _results()
 # assert(nofail)
 # assert(bound_good)
