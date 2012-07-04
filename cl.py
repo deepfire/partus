@@ -7398,7 +7398,7 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
                         nil)
         def knownifier_and_maybe_compiler_macroexpander(form, known):
                 if not known: ## ..then it's a funcall, because all macros
-                        xformed = (apply, (function, form[0])) + form[1:] + (nil,)
+                        xformed = (apply, (function, form[0])) + form[1:] + ((quote, nil),)
                         return lambda *_: (find_compiler_macroexpander(xformed) or identity)(xformed)
                 else:
                         return (find_compiler_macroexpander(form) if known.name is apply else
@@ -7848,7 +7848,7 @@ def _ir_cl_module_name(name):
         return ("cl", name)
 
 def _ir_cl_module_call(name, *ir_args):
-        return (apply, (quote, _ir_cl_module_name(name))) + ir_args + (nil,)
+        return (apply, (function, (quote, _ir_cl_module_name(name)))) + ir_args + ((quote, nil),)
 
 # SETQ
 #         :PROPERTIES:
@@ -7925,7 +7925,8 @@ def quote():
                                                 atree)
                         else:
                                 _compiler_trace_choice(quote, "SEX")
-                                return _rewritten((apply, (function, list)) + _py.tuple((quote, x) for x in x) + (nil,))
+                                return _rewritten((apply, (function, list)) + _py.tuple((quote, x) for x in x) +
+                                                  ((quote, nil),))
         def effects(x):            return nil
         def affected(x):           return nil
 
@@ -8051,9 +8052,9 @@ def if_():
                         ## Unregistered Issue FUNCALL-MISSING
                         name_cons, name_ante = _gensyms(x = "IF-BRANCH", n = 2)
                         cons, cons_fdefn = ((consequent,                     ()) if cons_expr_p else
-                                            ((apply, (ref, name_cons), nil), ((name_cons, ()) + (consequent,),)))
+                                            ((apply, (ref, name_cons), (quote, nil)), ((name_cons, ()) + (consequent,),)))
                         ante, ante_fdefn = ((antecedent,                     ()) if ante_expr_p else
-                                            ((apply, (ref, name_ante), nil), ((name_ante, ()) + (antecedent,),)))
+                                            ((apply, (ref, name_ante), (quote, nil)), ((name_ante, ()) + (antecedent,),)))
                         return _rewritten((flet, cons_fdefn + ante_fdefn,
                                            (if_, test, cons, ante)))
         def effects(*tca):  return _py.any(_ir_effects(f)  for f in tca)
@@ -8093,7 +8094,7 @@ def let():
                         form = (apply, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
                                            evaluate_defaults_early = t,
                                            function_scope = function_scope),
-                                nil)
+                                (quote, nil))
                 else:
                         _compiler_trace_choice(let, "NONEXPR-SETQ-LAMBDA")
                         last_non_expr_posn = position_if(_ir_prologue_p, values, from_end = t)
@@ -8192,7 +8193,7 @@ def labels():
                                           _py.tuple((def_, name, lambda_list, body)
                                                      for name, lambda_list, *body in bindings) +
                                            body,),
-                                   (apply, temp_name, nil)))
+                                   (apply, temp_name, (quote, nil))))
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -8211,8 +8212,7 @@ def labels():
 
 _intern_and_bind_pynames("SETF")
 
-@defknown((intern("FUNCTION")[0], " ", (or_, _name,
-                                             (setf, _name))))
+@defknown
 def function():
         ## A purely marker known, for now.
         ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
@@ -8896,7 +8896,7 @@ def lambda_():
                         else:
                                 ## Delay evaluation of default values.
                                 def defaulting_expr(arg, default):
-                                        return (if_, (apply, eq, arg, (_ref, "None"), nil),
+                                        return (if_, (apply, eq, arg, (_ref, "None"), (quote, nil)),
                                                      default,
                                                      arg)
                                 _compiler_trace_choice(lambda_, "EXPR-BODY-REWIND-DELAYED-DEFAULT-VALUES")
@@ -8960,7 +8960,7 @@ def apply():
                                                      (((func_name, func),),
                                                       (function, func_name)))(gensym("APPLY-FUNCNAME")))
                         temp_names = _py.tuple(_gensyms(n = _py.len(fixed) + 1 - no_varargs, x = "APPLY-ARG"))
-                        arg_exprs = temp_names + ((nil,) if no_varargs else ())
+                        arg_exprs = temp_names + (((quote, nil),) if no_varargs else ())
                         return _rewritten((let, func_binding + _py.tuple(_py.zip(temp_names, (arg,) + args)),
                                            (apply, func_expr) + arg_exprs))
         def effects(func, arg, *args):
@@ -8980,7 +8980,7 @@ def applyification():
                                     (None, None))
 bound_good, result_good, nofail = _runtest(applyification,
                                            {},
-                                           (apply, (function, cond), nil))
+                                           (apply, (function, cond), (quote, nil)))
 # _results()
 assert(nofail)
 assert(bound_good)
@@ -9062,9 +9062,9 @@ def _lower(form):
                                 # return _rec((apply,) + form + (nil,))
                                 error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
                         elif (_tuplep(x[0]) and x[0] and x[0][0] is lambda_):
-                                return _rec((apply,) + x + (nil,))
+                                return _rec((apply,) + x + ((quote, nil),))
                         elif stringp(x[0]): # basic function call
-                                return _rec((apply,) + x + (nil,))
+                                return _rec((apply,) + x + ((quote, nil),))
                         else:
                                 error("Invalid form: %s.", princ_to_string(x))
                 elif symbolp(x) and not constantp(x):
@@ -9416,9 +9416,9 @@ def DEFUN(name, lambda_list, *body):
             (progn,
               ## SBCL has a :COMPILE-TOPLEVEL part, but it's not very clear what we need in this respect.
               (eval_when, (_load_toplevel, _execute),
-                (apply, (apply, (quote, ("cl", "_set_function_definition")), (comma, name), nil),
+                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (comma, name), (quote, nil)),
                         (lambda_, (comma, lambda_list), (splice, body)),
-                        nil)))))
+                        (quote, nil))))))
 
 @lisp
 def cond(*clauses):
