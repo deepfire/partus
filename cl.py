@@ -1860,25 +1860,28 @@ def _print_function_arglist(f):
                          (["*" + argspec.varargs]   if argspec.varargs  else []) +
                          (["**" + argspec.keywords] if argspec.keywords else []))
 
-def _pp_frame(f, align = None, handle_overflow = None, lineno = None):
+def _pp_frame(f, align = None, handle_overflow = None, lineno = None, frame_id = None):
         fun = _frame_fun(f)
         fun_name, fun_params, filename = _fun_info(fun)[:3]
         align = ((align or 10) if handle_overflow else
                  _defaulted(align, 0))
-        return ("%s%s %s(%s)" % (filename + ("" if align else ":") + (" " * (align - (_py.len(filename) % align if align else 0))),
-                                 ("%d:" % _frame_lineno(f)) if lineno else "",
-                                 fun_name, ", ".join(fun_params)))
+        return ("%s%s%s %s(%s)" % (((_frame_id(f)[:4] + " ") if frame_id else ""),
+                                   filename + ("" if align else ":") + (" " * (align - (_py.len(filename) % align if align else 0))),
+                                   ("%d:" % _frame_lineno(f)) if lineno else "",
+                                   fun_name, ", ".join(fun_params)))
 
 def _print_frame(f, stream = None, **keys):
         write_string(_pp_frame(f, **keys), _defaulted_to_var(stream, _debug_io_))
 
-def _print_frames(fs, stream = None):
-        mapc(lambda i, f: format(_defaulted_to_var(stream, _debug_io_), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
+def _print_frames(fs, stream = None, frame_ids = None):
+        mapc(lambda i, f: format(_defaulted_to_var(stream, _debug_io_), "%2d: %s\n" %
+                                 (i, _pp_frame(f, lineno = True, frame_id = frame_ids))),
              *_py.zip(*_py.enumerate(fs)))
 
-def _backtrace(x = -1, stream = None):
+def _backtrace(x = -1, stream = None, frame_ids = None):
         _print_frames(_frames_calling(_this_frame())[1:x],
-                      _defaulted_to_var(stream, _debug_io_))
+                      _defaulted_to_var(stream, _debug_io_),
+                      frame_ids = frame_ids)
 
 def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_line = None):
         def _pp_frame_in_chain(f, pretty = None):
@@ -5859,6 +5862,19 @@ def _trace_printf(tracespec, control, *args):
                 _debug_printf(control, *(args if not (_py.len(args) == 1 and functionp(args[0])) else
                                          args[0]()))
 
+__enable_livelock_detector__           = False
+__livelock_detector_frames__           = _collections.defaultdict(lambda: 0)
+__frame_livelock_suspicion_threshold__ = 1000
+def _trace_frame():
+        if not __enable_livelock_detector__:
+                return
+        f = _caller_frame(0)
+        fid = id(f)
+        __livelock_detector_frames__[fid] += 1
+        if __livelock_detector_frames__[fid] > __frame_livelock_suspicion_threshold__:
+                _debug_printf(" *** frame %s exceeded livelock suspicion threshold:", _frame_id(f)[:4])
+                _backtrace(frame_ids = True)
+
 def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "complex", "simplex"]), id_frames = False):
         def pp_frame(f):
                 return ("%s_%s" % (_frame_fun_name(f),
@@ -5870,6 +5886,24 @@ def _r(x, y, retval, q = "", n = 20, ignore_callers = _py.set(["<lambda>", "comp
                         q, retval, x, y)
         _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s", trace_args)
         return retval
+
+__enable_matcher_tracing__ = False
+_string_set("*MATCHER-DEPTH*", 0)
+
+def _matcher_deeper(x):
+        depth = symbol_value(_matcher_depth_)
+        _debug_printf("%s%s    %s", " " * depth, _caller_name(1).upper(), x or "")
+        _dynamic_scope_push({ _matcher_depth_: depth + 1 })
+
+def _make_ml(_, x = None, **args):
+        o = object.__new__(_, **args)
+        o.x = x
+        return o
+
+_match_level = _defwith("_match_level",
+                        lambda self: __enable_matcher_tracing__ and _matcher_deeper(self.x),
+                        lambda *_:   __enable_matcher_tracing__ and _dynamic_scope_pop(),
+                        __new__ = _make_ml)
 
 class _matcher():
         @staticmethod
@@ -5893,25 +5927,31 @@ class _matcher():
         def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
         @staticmethod
         def post_fail(x, pat):
-                if x[2] is not None:
-                        _debug_printf("replacing fail %s ---> %s", x[2], pat)
-                return                           x if x[2] is None else (x[0], x[1], pat)
+                # if x[2] is not None:
+                #         _debug_printf("replacing fail %s ---> %s", x[2], pat)
+                return x if x[2] is None else (x[0], x[1], pat)
         ###
         def test(m, test, bound, name, resf:"() -> result", exp, fail_pat, if_exists:{error, replace} = error):
-                return _r(test, "", (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
-                                     m.fail(bound, exp, fail_pat)))
+                with _match_level():
+                        # _debug_printf("test: %s", exp)
+                        _trace_frame()
+                        return _r(test, "", (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
+                                             m.fail(bound, exp, fail_pat)))
         def equo(m, name, exp, x):
                 "Apply result binding, if any."
                 b, r, f = x
                 return ((m.bind(exp, b, name), r, f) if f is None else
                         x) # propagate failure as-is
         def coor(m, l0ret, lR, orig_tuple_p = False, combine_fail = None):
-                l0b, l0r, l0f = l0ret
-                if l0f is None: return m.succ(l0b, l0r)
-                lRb, lRr, lRf = lR()
-                if lRf is None: return m.succ(lRb, lRr)
-                return m.fail(l0b, *combine_fail(l0r, l0f, lRr, lRf, orig_tuple_p))
+                with _match_level():
+                        _trace_frame()
+                        l0b, l0r, l0f = l0ret
+                        if l0f is None: return m.succ(l0b, l0r)
+                        lRb, lRr, lRf = lR()
+                        if lRf is None: return m.succ(lRb, lRr)
+                        return m.fail(l0b, *combine_fail(l0r, l0f, lRr, lRf, orig_tuple_p))
         def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
+                _trace_frame()
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 b0, bR, fx0, fxR, fp0, fpR  = None, None, None, None, None, None
                 def try_0():
@@ -5922,14 +5962,15 @@ class _matcher():
                         nonlocal bR, fxR, fpR
                         bR, fxR, fpR = lR(b0)
                         if fpR is None: return fxR
-                result = (m.comh if horisontal else
-                          m.comr)(try_0, try_R, orig_tuple_p)
-                _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
-                              lambda: (exp, orig_tuple_p, _caller_name(2), _caller_name(1), result))
-                return _r(exp, [fx0, fxR],
-                          m.succ(bR, result) if fp0 is None and fpR is None else
-                          m.fail(*((b0, fx0, fp0) if fp0 is not None else
-                                   (bR, fxR, fpR))))
+                with _match_level():
+                        result = (m.comh if horisontal else
+                                  m.comr)(try_0, try_R, orig_tuple_p)
+                        _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
+                                      lambda: (exp, orig_tuple_p, _caller_name(2), _caller_name(1), result))
+                        return _r(exp, [fx0, fxR],
+                                  m.succ(bR, result) if fp0 is None and fpR is None else
+                                  m.fail(*((b0, fx0, fp0) if fp0 is not None else
+                                           (bR, fxR, fpR))))
         ###
         def register_simplex_matcher(m, name, matcher):
                 __metasex_words__.add(name)
@@ -5940,12 +5981,14 @@ class _matcher():
         def simplex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
         def complex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
         def simplex(m, bound, name, exp, pat, orifst):
+                _trace_frame()
                 _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s",
                               lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                                        name, bound, exp, pat))
                 return _r(exp, pat[0],
                           m.__simplex_patterns__[pat[0]](bound, name, exp, pat, orifst))
         def complex(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_frame()
                 _trace_printf("complex", "complex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  %s  %s",
                               lambda: (pat[0][0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                                        name, bound, exp, pat, orifst, aux, limit))
@@ -5961,13 +6004,18 @@ class _matcher():
         def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
                 raise Exception("Not yet capable of matching simplex patterns of type %s.", pat[0])
         def identity(m, bound, name, exp, pat, orifst, aux, limit):
-                ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
-                return m.complex(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+                with _match_level():
+                        _trace_frame()
+                        ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
+                        return m.complex(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
         def simplex_identity(m, bound, name, exp, pat, orifst):
-                ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
-                return m.simplex(bound, name, exp, pat[1], orifst)
+                with _match_level():
+                        _trace_frame()
+                        ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
+                        return m.simplex(bound, name, exp, pat[1], orifst)
         def ignore(m, bound, name, exp, pat, orifst, aux, limit):
-                return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
+                with _match_level():
+                        return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
         ###
         # Methods to be implemented:
         # 
@@ -5976,6 +6024,7 @@ class _matcher():
         # def nonliteral_atom_p(exp) -- XXX: abstraction leak!
         ###
         def segment(m, bound, name, exp, pat, orifst, aux, limit, end = None):
+                _trace_frame()
                 def position(x, xs):
                         for i, ix in enumerate(xs):
                                 if x == ix: return i
@@ -5990,76 +6039,82 @@ class _matcher():
                 ## 2. Memoize the tuple being iteratively matched upon.
                 aux = ((seg_pat + ((some,) + seg_pat,)) if aux is None    else
                         aux)
-                _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
-                              lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
-                ## 3. (Re-)establish and check the boundary.
-                end = (end                        if end is not None                          else
-                       position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
-                       0)
-                if ((end and end > _py.len(exp)) or ## All legitimate splits failed.
-                    end is None):                   ## A constant pattern was missing, likewise.
-                        # _debug_printf("   FAILing seg: %s", pat)
-                        return _r(exp, pat, m.fail(bound, exp, pat))
-                ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
-                cut = end if rest_pat else len(exp)
-                seg_exp, rest_exp = (exp[0:cut], exp[len(exp) if cut is None else cut:])
-                _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
-                ## 5. Recursion and alternate length attempts.
-                return _r(exp, pat,
-                          m.coor(m.crec(exp,
-                                        lambda:
-                                                ((lambda seg_bound, seg_r, seg_fail_pat:
-                                                          m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
-                                                                 if_exists = replace))
-                                                 (*(## Test for success -- segment piece exhausted.
-                                                    m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
-                                                    ## Test specific for bounded matching.
-                                                    m.fail(bound, exp, pat)                                if limit == 0    else
-                                                    ## Try biting one more iteration off seg_exp:
-                                                            m.match(bound, name,  seg_exp,     aux,  (False,
-                                                                                                      firstp), aux, limit - 1)))),
-                                        lambda seg_bound:
-                                                m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
-                                        orig_tuple_p = firstp and orifst[0] and seg_exp != (),
-                                        horisontal = t),
-                                 ## Retry with a longer part of expression allotted to this segment.
-                                 lambda: m.segment(bound, name,      exp,      pat, orifst,   None,  limit,
-                                                   end + 1),
-                                 combine_fail = (lambda e0, p0, eR, pR, _:
-                                                         # _debug_printf("    SEGFAIL %s   %s:\nef0: %s  %s\nefR: %s  %s\nret: %s",
-                                                         #               pat, seg_pat, e0, p0, eR, pR,
-                                                         #               ((e0, p0) if pR == pat else
-                                                         #                (eR, pR))) or
-                                                 ((e0, p0) if pR == pat else
-                                                  (eR, pR)))),
-                          pat[0])
+                with _match_level([exp, pat]):
+                        _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
+                                      lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
+                        ## 3. (Re-)establish and check the boundary.
+                        end = (end                        if end is not None                          else
+                               position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
+                               0)
+                        if ((end and end > _py.len(exp)) or ## All legitimate splits failed.
+                            end is None):                   ## A constant pattern was missing, likewise.
+                                # _debug_printf("   FAILing seg: %s", pat)
+                                return _r(exp, pat, m.fail(bound, exp, pat))
+                        ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
+                        cut = end if rest_pat else len(exp)
+                        seg_exp, rest_exp = (exp[0:cut], exp[len(exp) if cut is None else cut:])
+                        _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
+                        ## 5. Recursion and alternate length attempts.
+                        return _r(exp, pat,
+                                  m.coor(m.crec(exp,
+                                                lambda:
+                                                        ((lambda seg_bound, seg_r, seg_fail_pat:
+                                                                  m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
+                                                                         if_exists = replace))
+                                                         (*(## Test for success -- segment piece exhausted.
+                                                            m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
+                                                            ## Test specific for bounded matching.
+                                                            m.fail(bound, exp, pat)                                if limit == 0    else
+                                                            ## Try biting one more iteration off seg_exp:
+                                                                    m.match(bound, name,  seg_exp,     aux,  (False,
+                                                                                                              firstp), aux, limit - 1)))),
+                                                lambda seg_bound:
+                                                        m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
+                                                orig_tuple_p = firstp and orifst[0] and seg_exp != (),
+                                                horisontal = t),
+                                         ## Retry with a longer part of expression allotted to this segment.
+                                         lambda: m.segment(bound, name,      exp,      pat, orifst,   None,  limit,
+                                                           end + 1),
+                                         combine_fail = (lambda e0, p0, eR, pR, _:
+                                                                 # _debug_printf("    SEGFAIL %s   %s:\nef0: %s  %s\nefR: %s  %s\nret: %s",
+                                                                 #               pat, seg_pat, e0, p0, eR, pR,
+                                                                 #               ((e0, p0) if pR == pat else
+                                                                 #                (eR, pR))) or
+                                                         ((e0, p0) if pR == pat else
+                                                          (eR, pR)))),
+                                  pat[0])
         def maybe(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_frame()
                 ## The semantics of aux are painfully unclear here:
                 ##  - we need to perform aux pass-through, for any potential surrounding segment match
                 ##  - we need a clean slate for this segment..
                 ## So, do we need a separate stack for aux here?  Sounds like an in inevitability..
                 ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
-                return _r(exp, pat,
-                          m.segment(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
+                with _match_level():
+                        return _r(exp, pat,
+                                  m.segment(bound, name, exp, ((some,) + pat[0][1:],) + pat[1:], orifst, None, 1))
         def or_(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_frame()
                 alternatives = pat[0][1:]
                 def fail(): return m.fail(bound, exp, pat[0])
-                def rec(head, tail):
-                        return m.coor(m.match(bound, name, exp, (head,) + pat[1:], orifst, None, -1),
+                def rec(current, other_options):
+                        return m.coor(m.match(bound, name, exp, (current,) + pat[1:], orifst, None, -1),
                                       ## Unregistered Issue MATCHER-OR-FAILED-EXPRESSION-TOO-UNSPECIFIC
-                                      lambda: (fail() if not tail else
-                                               rec(tail[0], tail[1:])),
+                                      lambda: (fail() if not other_options else
+                                               rec(other_options[0], other_options[1:])),
                                       combine_fail = lambda e0, p0, eR, pR, _: (exp, pat))
-                return (fail() if not alternatives else
-                        _r(exp, pat,
-                           m.post_fail(rec(alternatives[0], alternatives[1:]),
-                                       pat[0])))
+                with _match_level():
+                        return (fail() if not alternatives else
+                                _r(exp, pat,
+                                   m.post_fail(rec(alternatives[0], alternatives[1:]),
+                                               pat[0])))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
         ## 0. mostly is already done
         ## 1. type narrows down the case analysis chain (of which there is a lot)
         ## 2. expressions also need typing..
         def match(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_frame()
                 def maybe_get0Rname(pat):
                         ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                         (name, pat0), patR = _maybe_destructure_binding(pat[0]), pat[1:]
@@ -6075,7 +6130,8 @@ class _matcher():
                                        atomp, null,
                                        (not (atom or null)) and m.complex_pat_p(pat[0]),
                                        (not (atom or null)) and m.simplex_pat_p(pat[0])))
-                return \
+                with _match_level([exp, pat]):
+                 return \
                     _r(exp, pat,
                        (m.test((m.atom(exp, pat) if atomp else
                                 exp == ()),
@@ -6857,14 +6913,16 @@ class _metasex_matcher(_matcher):
                 return x == _name
         @staticmethod
         def atom(exp, pat):
-                result = ((symbolp(exp) and not keywordp(exp)) if pat is _name else
-                           exp is pat                          if symbolp(pat) else
-                           exp == pat)
-                _trace_printf("atom", "%% atom: e:%s/%s/%s p:%s/%s/%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
-                              lambda: (exp, symbol_name(exp), symbol_package(exp),
-                                       pat, symbol_name(pat), symbol_package(pat), result,
-                                       pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp)))
-                return _r(exp, pat, result)
+                _trace_frame()
+                with _match_level():
+                        result = ((symbolp(exp) and not keywordp(exp)) if pat is _name else
+                                   exp is pat                          if symbolp(pat) else
+                                   exp == pat)
+                        _trace_printf("atom", "%% atom: e:%s/%s/%s p:%s/%s/%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
+                                      lambda: (exp, symbol_name(exp), symbol_package(exp),
+                                               pat, symbol_name(pat), symbol_package(pat), result,
+                                               pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), _py.type(exp)))
+                        return _r(exp, pat, result)
         def process_formpat_arguments(m, form, pat):
                 arg_handlers = { _for_matchers_xform:     (lambda arg: m in arg[1:],
                                                            lambda arg: arg[0](form)),
@@ -6884,21 +6942,27 @@ class _metasex_matcher(_matcher):
                                         return True, ret
                 return None, None
         def form(m, bound, name, form, pat, orifst, ignore_args = None):
-                ## This is actually a filter.
-                # _debug_printf("\n\nFORM -- %s -- %s", form, pat)
-                handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
-                if handled:
-                        return _r(form, pat, ret)
-                form_pat = _form_metasex(form)
-                # _trace_printf("form", "=== form for %s:\n    %s", lambda: (_py.repr(form), form_pat))
-                return _r(form, form_pat, m.match(bound, name, form, form_pat, (_tuplep(form), orifst[1]), None, -1))
+                with _match_level(form):
+                        _trace_frame()
+                        ## This is actually a filter.
+                        # _debug_printf("\n\nFORM -- %s -- %s", form, pat)
+                        handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
+                        if handled:
+                                return _r(form, pat, ret)
+                        form_pat = _form_metasex(form)
+                        _trace_printf("form", "=== form for %s:\n    %s", lambda: (_py.repr(form), form_pat))
+                        return _r(form, form_pat, m.match(bound, name, form, form_pat, (_tuplep(form), orifst[1]), None, -1))
         def symbol(m, bound, name, form, pat, orifst):
-                return m.test(form is pat[1], bound, name, lambda: m.prod(form, orifst),
-                              form, pat)
+                with _match_level():
+                        _trace_frame()
+                        return m.test(form is pat[1], bound, name, lambda: m.prod(form, orifst),
+                                      form, pat)
         def typep(m, bound, name, form, pat, orifst):
-                return _r(form, pat,
-                          m.test(typep(form, pat[1]), bound, name, lambda: m.prod(form, orifst),
-                                 form, pat))
+                with _match_level():
+                        _trace_frame()
+                        return _r(form, pat,
+                                  m.test(typep(form, pat[1]), bound, name, lambda: m.prod(form, orifst),
+                                         form, pat))
 
 _string_set("*PP-BASE-DEPTH*", 0)
 _string_set("*PP-DEPTH*", 0)
@@ -6931,6 +6995,7 @@ class _metasex_matcher_pp(_metasex_matcher):
                 m.register_complex_matcher(_nottail,     m.nottail)
         @staticmethod
         def prod(x, orig_tuple_p):
+                _trace_frame()
                 result = (""            if not (orig_tuple_p or x or (orig_tuple_p and x == ()) or x is nil) else
                           '"' + x + '"' if stringp(x)                         else
                           _py.str(x))
@@ -6941,6 +7006,7 @@ class _metasex_matcher_pp(_metasex_matcher):
         @staticmethod
         def comr(f0, fR, orig_tuple_p): return _combine_pp(f0, fR, orig_tuple_p)
         def newline(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_frame()
                 n, tail = pat[0][1], pat[1:]
                 new_base = _pp_base_depth() + n
                 with progv({ _pp_depth_:      new_base,
@@ -6948,12 +7014,14 @@ class _metasex_matcher_pp(_metasex_matcher):
                         return m.post(m.match(m.bind(new_base, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: "\n" + (" " * new_base) + r)
         def indent(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_frame()
                 n, tail = pat[0][1], pat[1:]
                 new_depth = _pp_depth() + n
                 with progv({ _pp_depth_: new_depth }):
                         return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: (" " * n) + r)
         def lead(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_frame()
                 maybe_pat = pat[0][1]
                 _trace_printf("lead", "!!! lead: first:%s %s %s", orifst[1], pat, exp)
                 if not orifst[1]:
@@ -6961,6 +7029,7 @@ class _metasex_matcher_pp(_metasex_matcher):
                 ############## act as identity
                 return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
         def notlead(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_frame()
                 maybe_pat = pat[0][1]
                 _trace_printf("notlead", "!!! notlead: first:%s %s %s", orifst[1], pat, exp)
                 if orifst[1]:
@@ -6968,6 +7037,7 @@ class _metasex_matcher_pp(_metasex_matcher):
                 ############## act as identity
                 return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
         def nottail(m, bound, name, exp, pat, orifst, aux, limit):
+                _trace_frame()
                 maybe_pat = pat[0][1]
                 before_end = exp == ()
                 _trace_printf("nottail", "!!! nottail: before-end:%s %s %s", before_end, pat, exp)
@@ -7086,6 +7156,7 @@ def _map_sex(fn, sex):
 # Pretty-printing
 
 def _pp_sex(sex, strict = t, initial_depth = None):
+        # _debug_printf("\n   pretty-printing:\n%s", sex)
         ## Unregistered Issue RELAXED-METASEX-PRETTY-PRINTER-MODE-NEEDED
         initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
         with progv({ _pp_depth_:      initial_depth,
