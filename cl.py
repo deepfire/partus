@@ -5004,6 +5004,16 @@ def _ast_bound_free(astxs):
                 return ast_rec(the((or_, _ast.AST, (pylist, _ast.AST)),
                                    astxs))
 
+def _atree_validate(atree):
+        if stringp(atree) or integerp(atree):
+                return
+        check_type(atree, pytuple)
+        kind, args = atree[0], atree[1:]
+        info = _find_ast_info(_coerce_to_ast_type(kind))
+        _ast_info_check_args_type(info, args, atreep = t)
+        for xxs in args:
+                _atree_validate(xxs)
+
 def _atree_bound_free(atreexs):
         def atree_rec(atreexs):
                 def bound_free(atree):
@@ -7654,8 +7664,20 @@ _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
                                    lambda *_: _dynamic_scope_pop())
 
-def _lowered(pro, val):                   return pro, val
-def _lowered_prepend_prologue(pro, pv):   return (pro + pv[0], pv[1])
+__validate_atrees_upon_emission__ = t
+
+def _lowered(pro, val):
+        if __validate_atrees_upon_emission__:
+                def validate():
+                        for stmt in [val] + pro:
+                                _atree_validate(stmt)
+                handler_case(validate,
+                             (error,
+                              lambda cond: _debug_printf(" *** invalid atree emitted:\n ***  P: %s\n ***  V: %s\n *** %s",
+                                                         pro, val, cond) or error(cond)))
+        return pro, val
+def _lowered_prepend_prologue(pro, pv):
+        return (pro + pv[0], pv[1])
 def _rewritten(form, scope = _py.dict()): return form, the(_py.dict, scope)
 def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 
