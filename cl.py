@@ -1017,7 +1017,9 @@ def _set_condition_handler(fn):
 
 @boot_defun
 def signal(cond):
-        for cluster in reversed(_symbol_value(_handler_clusters_)):
+        handler_clusters = _symbol_value(_handler_clusters_)
+        for n, cluster in _py.enumerate(_py.reversed(handler_clusters)):
+                ## Unregistered Issue CLUSTERS-NOT-PROPERLY-UNWOUND-FOR-HANDLERS
                 for type, handler in cluster:
                         if not stringp(type):
                                 if typep(cond, type):
@@ -1026,7 +1028,8 @@ def signal(cond):
                                                 frame = assoc("__frame__", cluster)
                                                 assert(frame)
                                                 hook(cond, frame, hook)
-                                        handler(cond)
+                                        with progv({ _handler_clusters_: handler_clusters[:-(n + 1)]}):
+                                                handler(cond)
         return nil
 
 def _run_hook(variable, condition):
