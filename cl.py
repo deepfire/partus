@@ -5747,6 +5747,58 @@ def _attr_chain_atree(xs):
 
 # Code
 
+_intern_and_bind_pynames("VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO", "BLOCK")
+                         ## "FUNCTION"
+
+class _nameuse():
+        name, kind, type = None, None, None
+        def __init__(self, name, kind, type, **attributes):
+                _attrify_args(self, locals(), "name", "kind", "type")
+def _nameusep(x):
+        return _py.isinstance(x, _nameuse)
+
+class _binding():
+        value, shadows = None, None
+        def __init__(self, value, shadows = nil, **attributes):
+                _attrify_args(self, locals(), "value", "shadows")
+def _bindingp(x):
+        return _py.isinstance(x, _binding)
+
+class _variable(_nameuse):
+        def __init__(self, name, kind, type = t, dynamic_extent = nil, **attributes):
+                check_type(kind, (member, variable, constant, special, symbol_macro)) # constant | special | symbol-macro | variable
+                _nameuse.__init__(self, name, kind, type, **attributes)
+                _attrify_args(self, locals(), "dynamic_extent") # t | nil
+class _function(_nameuse):
+        def __init__(self, name, kind, type = t, lambda_expression = None, **attributes):
+                check_type(kind, (member, function, macro, compiler_macro)) # macro | compiler-macro | function
+                _nameuse.__init__(self, name, kind, type, **attributes)
+                _attrify_args(self, locals(), "lambda_expression") # None | cons
+class _block(_nameuse):
+        def __init__(self, name, **attributes):
+                _nameuse.__init__(self, name, block, t, **attributes)
+
+def _nameuse_variablep(x): return _py.isinstance(x, _variable)
+def _nameuse_functionp(x): return _py.isinstance(x, _function)
+def _nameuse_blockp(x): return _py.isinstance(x, _block)
+
+class _variable_binding(_variable, _binding):
+        def __init__(self, name, kind, value, **attributes):
+                _variable.__init__(self, name, kind, **attributes)
+                _binding.__init__(self, value, **attributes)
+class _function_binding(_function, _binding):
+        def __init__(self, name, kind, value, **attributes):
+                _function.__init__(self, name, kind, **attributes)
+                _binding.__init__(self, value, **attributes)
+class _block_binding(_block, _binding):
+        def __init__(self, name, value, **attributes):
+                _block.__init__(self, name, **attributes)
+                _binding.__init__(self, value, **attributes)
+
+def _variable_bindingp(x): return _py.isinstance(x, _variable_binding)
+def _function_bindingp(x): return _py.isinstance(x, _function_binding)
+def _block_bindingp(x):    return _py.isinstance(x, _block_binding)
+
 # Global scope
 class _scope(): pass
 class _variable_scope(_scope, _collections.UserDict):
@@ -6506,58 +6558,7 @@ def _compilation_unit_prologue():
 
 # Code
 
-_intern_and_bind_pynames("*LEXENV*",
-                         "VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO", "BLOCK")
-                         ## "FUNCTION"
-
-class _nameuse():
-        name, kind, type = None, None, None
-        def __init__(self, name, kind, type, **attributes):
-                _attrify_args(self, locals(), "name", "kind", "type")
-def _nameusep(x):
-        return _py.isinstance(x, _nameuse)
-
-class _binding():
-        value, shadows = None, None
-        def __init__(self, value, shadows = nil, **attributes):
-                _attrify_args(self, locals(), "value", "shadows")
-def _bindingp(x):
-        return _py.isinstance(x, _binding)
-
-class _variable(_nameuse):
-        def __init__(self, name, kind, type = t, dynamic_extent = nil, **attributes):
-                check_type(kind, (member, variable, constant, special, symbol_macro)) # constant | special | symbol-macro | variable
-                _nameuse.__init__(self, name, kind, type, **attributes)
-                _attrify_args(self, locals(), "dynamic_extent") # t | nil
-class _function(_nameuse):
-        def __init__(self, name, kind, type = t, lambda_expression = None, **attributes):
-                check_type(kind, (member, function, macro, compiler_macro)) # macro | compiler-macro | function
-                _nameuse.__init__(self, name, kind, type, **attributes)
-                _attrify_args(self, locals(), "lambda_expression") # None | cons
-class _block(_nameuse):
-        def __init__(self, name, **attributes):
-                _nameuse.__init__(self, name, block, t, **attributes)
-
-def _nameuse_variablep(x): return _py.isinstance(x, _variable)
-def _nameuse_functionp(x): return _py.isinstance(x, _function)
-def _nameuse_blockp(x): return _py.isinstance(x, _block)
-
-class _variable_binding(_variable, _binding):
-        def __init__(self, name, kind, value, **attributes):
-                _variable.__init__(self, name, kind, **attributes)
-                _binding.__init__(self, value, **attributes)
-class _function_binding(_function, _binding):
-        def __init__(self, name, kind, value, **attributes):
-                _function.__init__(self, name, kind, **attributes)
-                _binding.__init__(self, value, **attributes)
-class _block_binding(_block, _binding):
-        def __init__(self, name, value, **attributes):
-                _block.__init__(self, name, **attributes)
-                _binding.__init__(self, value, **attributes)
-
-def _variable_bindingp(x): return _py.isinstance(x, _variable_binding)
-def _function_bindingp(x): return _py.isinstance(x, _function_binding)
-def _block_bindingp(x):    return _py.isinstance(x, _block_binding)
+_intern_and_bind_pynames("*LEXENV*",)
 
 @defclass(intern("%LEXENV")[0])
 class _lexenv():
