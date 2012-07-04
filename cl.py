@@ -6173,13 +6173,13 @@ _compiler_max_mockup_level = 3
 ## Namespace separation.
 def _ensure_function_pyname(symbol):
         if symbol.function_pyname is not None:
-                return name
+                return symbol
         symbol.function_pyname = (_gensymname("FUN_" + _py.str(symbol)) if _compiler_safe_namespace_separation else
                                   _py.str(symbol))
         return symbol.function_pyname
 def _ensure_symbol_pyname(symbol):
         if symbol.symbol_pyname is not None:
-                return name
+                return symbol
         symbol.symbol_pyname = (_gensymname("SYM_" + _py.str(symbol)) if _compiler_safe_namespace_separation else
                                 _py.str(symbol))
         return symbol.symbol_pyname
@@ -7635,7 +7635,7 @@ def _compiler_report_context():
                                       _compiler_tailp_]))
 
 _tail_position       = _defwith("_tail_position",
-                                   lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_TAILP_ = t)),
+                                   lambda *_: _dynamic_scope_push({ _compiler_tailp_: t }),
                                    lambda *_: _dynamic_scope_pop())
 
 _maybe_tail_position = _defwith("_maybe_tail_position", # This is just a documentation feature.
@@ -7643,11 +7643,11 @@ _maybe_tail_position = _defwith("_maybe_tail_position", # This is just a documen
                                    lambda *_: None)
 
 _no_tail_position    = _defwith("_no_tail_position",
-                                   lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_TAILP_ = nil)),
+                                   lambda *_: _dynamic_scope_push({ _compiler_tailp_: nil }),
                                    lambda *_: _dynamic_scope_pop())
 
 _compiler_debug         = _defwith("_compiler_debug",
-                                   lambda *_: _dynamic_scope_push(_py.dict(_COMPILER_DEBUG_P_ = t)),
+                                   lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
                                    lambda *_: _dynamic_scope_pop())
 
 def _lowered(pro, val):                   return pro, val
