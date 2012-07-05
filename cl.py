@@ -207,10 +207,10 @@ def _interpret_toplevel_value(name_or_obj, objness_predicate):
                      error("Bad cold object definition: %s", name_or_obj))
         ####### Thought paused here:
         # ..delay symbol computation!
-        sym, pyname = ((_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if _py.isinstance(name, _py.str) else
-                       (name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name)                 else
-                       error("In cold definition of %s: bad name %s for a cold object.", name, _py.repr(name)))
-        return obj, sym, pyname
+        sym, inmod_name = ((_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if _py.isinstance(name, _py.str) else
+                           (name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name)                 else
+                           error("In cold definition of %s: bad name %s for a cold object.", name, _py.repr(name)))
+        return obj, sym, inmod_name
 
 class _storyteller(_collections.UserDict):
         def __init__(self):           self.__dict__.update(_py.dict(__call__ = lambda self, x: self.advance(x),
@@ -295,7 +295,7 @@ def consp(x):       return _tuplep(x) and x != ()
 @boot_defun # Unregistered Issue LIST-CONSNESS
 def listp(x):       return x is nil or _tuplep(x) ## covers x == ()
 @boot_defun # Unregistered Issue LIST-CONSNESS
-def list(*xs):      return xs
+def list(*xs):      return _py.tuple(xs)
 @boot_defun # Unregistered Issue LIST-CONSNESS
 def append(*xs):    return _py.sum(xs, xs[0].__class__()) or _py.tuple()
 # def append(*xs): return reduce(lambda x, y: x + y, xs) if (xs and xs[0]) else []
@@ -369,17 +369,17 @@ def _symbol_value(name):
         return (frame[name] if frame else
                 error(AttributeError, "Unbound variable: %s." % name))
 
-def _do_bind_symbol_pyname(symbol, globals):
-        pyname = _frost.lisp_symbol_name_python_name(symbol_name(symbol))
-        _frost.setf_global(symbol, pyname, globals)
+def _do_pyimport_symbol(symbol, globals):
+        inmod_name = _frost.lisp_symbol_name_python_name(symbol_name(symbol))
+        _frost.setf_global(symbol, inmod_name, globals)
 
-def _bind_symbol_pyname(symbol_, globals = None):
-        _do_bind_symbol_pyname(_boot_check_type(symbolp, symbol_), globals = _defaulted(globals, _py.globals()))
+def _pyimport_symbol(symbol_, globals = None):
+        _do_pyimport_symbol(_boot_check_type(symbolp, symbol_), globals = _defaulted(globals, _py.globals()))
 
-def _intern_and_bind_pynames(*names, globals = None):
+def _intern_and_bind_names_in_module(*names, globals = None):
         globals = _defaulted(globals, _py.globals())
         for name in names:
-                _bind_symbol_pyname(_intern(name)[0], globals)
+                _pyimport_symbol(_intern(name)[0], globals)
 
 def _boot_symbolicate_global_dynamic_scope():
         def upgrade_scope(xs):
@@ -388,7 +388,7 @@ def _boot_symbolicate_global_dynamic_scope():
                         del xs[k]
                         sym = _intern_in_package(k, __cl)[0]
                         xs[sym] = v
-                        _do_bind_symbol_pyname(sym, _py.globals())
+                        _do_pyimport_symbol(sym, _py.globals())
         assert not __tls__.dynamic_scope
         upgrade_scope(__global_scope__)
 
@@ -403,7 +403,7 @@ def _string_set(symbol_name, value, force_toplevel = None, symbolicp = True):
         stringp(symbol_name) or error("The first argument to %%STRING-SET must be a string, was: %s.", symbol_name.__repr__())
         name = _intern(symbol_name)[0] if symbolicp else symbol_name
         _do_set(name, value, force_toplevel)
-        symbolicp and _bind_symbol_pyname(name)
+        symbolicp and _pyimport_symbol(name)
         return value
 
 @boot("typep", lambda _, __, ___: error("A violent faecal odour hung in the air.."))
@@ -1047,7 +1047,7 @@ def _funcall_with_debug_io_syntax(function, *args, **keys):
         _warn_not_implemented()
         return function(*args, **keys)
 
-_intern_and_bind_pynames("*DEBUG-CONDITION*", "*DEBUG-RESTARTS*", "*NESTED-DEBUG-CONDITION*")
+_intern_and_bind_names_in_module("*DEBUG-CONDITION*", "*DEBUG-RESTARTS*", "*NESTED-DEBUG-CONDITION*")
 
 def _show_restarts(restarts, stream):
         _warn_not_implemented()
@@ -1450,7 +1450,7 @@ class simple_package_error(simple_error.python_type, package_error.python_type):
 #     The implemented version of NTH-VALUES is a soft one, which doesn't fail on values not
 #     participating in the M-V frame protocol.
 
-_intern_and_bind_pynames("%MV-MARKER")
+_intern_and_bind_names_in_module("%MV-MARKER")
 
 def _values_frame(*xs):
         return (_mv_marker,) + xs
@@ -1512,7 +1512,7 @@ def copy_readtable(x):
 __standard_pprint_dispatch__ = make_hash_table() # XXX: this is crap!
 __standard_readtable__       = make_instance(readtable) # XXX: this is crap!
 
-_intern_and_bind_pynames("*PRINT-ARRAY*", "*PRINT-BASE*", "*PRINT-CASE*", "*PRINT-CIRCLE*",
+_intern_and_bind_names_in_module("*PRINT-ARRAY*", "*PRINT-BASE*", "*PRINT-CASE*", "*PRINT-CIRCLE*",
                          "*PRINT-ESCAPE*", "*PRINT-GENSYM*", "*PRINT-LENGTH*", "*PRINT-LEVEL*",
                          "*PRINT-LINES*", "*PRINT-MISER-WIDTH*", "*PRINT-PPRINT-DISPATCH*",
                          "*PRINT-PRETTY*", "*PRINT-RADIX*", "*PRINT-READABLY*", "*PRINT-RIGHT-MARGIN*",
@@ -1608,7 +1608,6 @@ _set_settable_standard_globals()
 
 _NoneType         = _py.type(None)
 
-pi                = _math.pi
 reduce            = _functools.reduce
 sort              = _py.sorted
 _curry            = _functools.partial
@@ -1670,7 +1669,7 @@ def _cold_constantp(form):
         return (_py.isinstance(form, (_py.int, _py.float, _py.complex, _py.str)) or
                 (type_of(form).__name__ == "symbol" and
                  ((form.package.name == "KEYWORD") or
-                  (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL", "PI"]))) or
+                  (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
                 (_tuplep(form) and
                  ((not form) or
                   (_py.len(form) == 2                    and
@@ -3079,7 +3078,7 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 #  MULTIPLE-VALUE-CALL
 #  MULTIPLE-VALUE-PROG1
 
-_intern_and_bind_pynames("DEFMACRO")
+_intern_and_bind_names_in_module("DEFMACRO")
 
 @defun(intern("_set_function_definition")[0])
 def _set_function_definition(x):
@@ -3473,7 +3472,7 @@ class windows_host(pathname_host.python_type):
 _system_pathname_host = make_instance(windows_host if _platform.system() == 'Windows' else
                                       unix_host)
 
-_intern_and_bind_pynames("*DEFAULT-PATHNAME-DEFAULTS*")
+_intern_and_bind_names_in_module("*DEFAULT-PATHNAME-DEFAULTS*")
 
 @defclass
 class pathname():
@@ -4235,7 +4234,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
 __not_even_conditions__ = _py.frozenset([_py.GeneratorExit, _py.SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
-_intern_and_bind_pynames("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")
+_intern_and_bind_names_in_module("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")
 
 def __cl_condition_handler__(condspec, frame):
         backtrace_printed = nil
@@ -4987,7 +4986,7 @@ def _ast_ensure_stmt(x):
 
 # AST/Atree bound/free calculation
 
-_intern_and_bind_pynames("*BOUND-FREE-RECURSOR*")
+_intern_and_bind_names_in_module("*BOUND-FREE-RECURSOR*")
 
 def _bound_free_recursor():
         return _symbol_value(_bound_free_recursor_)
@@ -5005,14 +5004,15 @@ def _ast_bound_free(astxs):
                                    astxs))
 
 def _atree_validate(atree):
-        if stringp(atree) or integerp(atree):
+        if stringp(atree) or integerp(atree) or atree is None:
                 return
-        check_type(atree, pytuple)
+        check_type(atree, (partuple, string))
         kind, args = atree[0], atree[1:]
         info = _find_ast_info(_coerce_to_ast_type(kind))
         _ast_info_check_args_type(info, args, atreep = t)
         for xxs in args:
-                _atree_validate(xxs)
+                for xs in _ensure_list(xxs):
+                        _atree_validate(xs)
 
 def _atree_bound_free(atreexs):
         def atree_rec(atreexs):
@@ -5760,7 +5760,7 @@ def _attr_chain_atree(xs):
 
 # Code
 
-_intern_and_bind_pynames("VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO", "BLOCK")
+_intern_and_bind_names_in_module("VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO", "BLOCK")
                          ## "FUNCTION"
 
 class _nameuse():
@@ -5843,8 +5843,9 @@ def _do_defvar(name, value):
         if not _find_global_variable(name):
                 _do_defparameter(name, value)
 
+_intern_and_bind_names_in_module("SETF")
 def _do_defun(name, lambda_expression):
-        x = _function(the((or_, symbol, (_pytuple, (eql, setf), symbol)), name),
+        x = _function(the((or_, symbol, (pytuple, (eql, setf), symbol)), name),
                       function, lambda_expression = lambda_expression)
         _function_scope[name] = x
 
@@ -5865,10 +5866,6 @@ def _do_defconstant(name, value):
         var = _variable(the(symbol, name), constant, value = value)
         _variable_scope[name] = var
 
-_do_defconstant(t,   t)
-_do_defconstant(nil, nil)
-_do_defconstant(intern("PI")[0],  pi)
-
 def _check_no_locally_rebound_constants(locals, use = "local variable"):
         constant_rebound = find_if(_global_variable_constant_p, locals)
         if constant_rebound:
@@ -5882,12 +5879,27 @@ def constantp(form):
                 (symbolp(form) and _global_variable_constant_p(form))            or
                 (_tuplep(form) and (not form or (_py.len(form) is 2 and form[0] is quote))))
 
+## Intern globals
+def _sync_global_scopes_to_package(package):
+        for sym in package.own:
+                if sym.function:
+                        _do_defun(sym, nil)
+                value, gvarp = gethash(sym, __global_scope__)
+                if gvarp:
+                        _do_defvar(sym, value)
+
+_sync_global_scopes_to_package(__cl)
+
+_do_defconstant(t,   t)
+_do_defconstant(nil, nil)
+
+
 # Matcher
 
 #       A large part of work is development of a calling convention.  Multiple values, as a
 #       concept, is an important, but basic step in the general direction.
 
-_intern_and_bind_pynames("%NAME", "%MAYBE")
+_intern_and_bind_names_in_module("%NAME", "%MAYBE")
 
 def _maybe_destructure_binding(pat):
         return ((None, pat)               if not typep(pat, _py.dict) else
@@ -5897,7 +5909,7 @@ def _maybe_destructure_binding(pat):
 def _error_bad_pattern(pat):
         raise Exception("Bad pattern: %s." % (pat,))
 
-_intern_and_bind_pynames("%CALL", "%RETURN")
+_intern_and_bind_names_in_module("%CALL", "%RETURN")
 
 _trace_table = _py.dict()
 def _do_tracep(*props):
@@ -6226,11 +6238,11 @@ def _match(matcher, exp, pat):
 # Namespace separation name maps
 _compiler_safe_namespace_separation = t
 
-_compiler_trace_forms      = t
+_compiler_trace_forms      = nil
 _compiler_trace_subforms   = nil
-_compiler_trace_rewrites   = t
+_compiler_trace_rewrites   = nil
 _compiler_trace_result     = nil
-_compiler_trace_choices    = t
+_compiler_trace_choices    = nil
 
 _compiler_pretty_full      = nil
 _compiler_max_mockup_level = 3
@@ -6238,13 +6250,13 @@ _compiler_max_mockup_level = 3
 ## Namespace separation.
 def _ensure_function_pyname(symbol):
         if symbol.function_pyname is not None:
-                return symbol
+                return symbol.function_pyname
         symbol.function_pyname = (_gensymname("FUN_" + _py.str(symbol)) if _compiler_safe_namespace_separation else
                                   _py.str(symbol))
         return symbol.function_pyname
 def _ensure_symbol_pyname(symbol):
         if symbol.symbol_pyname is not None:
-                return symbol
+                return symbol.symbol_pyname
         symbol.symbol_pyname = (_gensymname("SYM_" + _py.str(symbol)) if _compiler_safe_namespace_separation else
                                 _py.str(symbol))
         return symbol.symbol_pyname
@@ -6268,37 +6280,40 @@ def _get_symbol_pyname(symbol):
 ## Function       fop                    fop
 
 ### Global compiler state carry-over, and module state initialisation.
+def _fop_make_symbol_available(globals, package_name, symbol_name,
+                               function_pyname, symbol_pyname,
+                               gfunp, gvarp):
+        package = find_package(package_name)
+        symbol = (intern(symbol_name, package)[0] if package_name is not nil else
+                  make_symbol(symbol_name))
+        if function_pyname is not None:
+                symbol.function_pyname = function_pyname
+                if gfunp:
+                        if _find_global_function(symbol):
+                                fun = symbol_function(symbol)
+                                assert(fun)
+                                globals[function_pyname] = fun
+                        else:
+                                globals[function_pyname] = lambda *_, **__: error("Function not defined: %s.", symbol)
+        if gvarp:
+                if _find_global_variable(symbol):
+                        value = symbol_value(symbol)
+                        assert(value is not None)
+                        globals[_unit_variable_pyname(symbol)] = value
+                else:
+                        ## Unregistered Issue UNDEFINED-GLOBAL-REFERENCE-ERROR-DETECTION
+                        pass # This will fail obscurely.
+        if symbol_pyname is not None:
+                symbol.symbol_pyname = symbol_pyname
+                globals[symbol_pyname] = symbol
+
 def _fop_make_symbols_available(globals, package_names, symbol_names,
                                 function_pynames, symbol_pynames,
                                 gfunps, gvarps):
-        for (pkg_name, name,
-             fun_name, sym_name,
-             gfunp, gvarp) in _py.zip(package_names, symbol_names,
+        for fop_msa_args in _py.zip(package_names, symbol_names,
                                       function_pynames, symbol_pynames,
                                       gfunps, gvarps):
-                package = find_package(pkg_name)
-                symbol = (intern(name, package)[0] if pkg_name is not nil else
-                          make_symbol(name))
-                if fun_name is not None:
-                        symbol.function_pyname = fun_name
-                        if gfunp:
-                                if _find_global_function(symbol):
-                                        fun = symbol_function(symbol)
-                                        assert(fun)
-                                        globals[fun_name] = fun
-                                else:
-                                        globals[fun_name] = lambda *_, **__: error("Function not defined: %s.", symbol)
-                if gvarp:
-                        if _find_global_variable(symbol):
-                                value = symbol_value(symbol)
-                                assert(value is not None)
-                                globals[_unit_variable_pyname(symbol)] = value
-                        else:
-                                ## Unregistered Issue UNDEFINED-GLOBAL-REFERENCE-ERROR-DETECTION
-                                pass # This will fail obscurely.
-                if sym_name is not None:
-                        symbol.symbol_pyname = sym_name
-                        globals[sym_name] = symbol
+                _fop_make_symbol_available(globals, *fop_msa_args)
 
 # Functions (in the sense of result of compilation)
 
@@ -6413,6 +6428,15 @@ def _process_decls(decls, vars, fvars):
 def _self_evaluating_form_p(x):
         return _py.isinstance(x, (_py.int, _py.str, _py.float)) or x in [t, nil]
 
+def _ir_funcall(func, *args):
+        return (apply, (function, func)) + args + ((quote, nil),)
+
+def _ir_cl_module_name(name):
+        return ("cl", name)
+
+def _ir_cl_module_call(name, *ir_args):
+        return _ir_funcall((quote, _ir_cl_module_name(name)), *ir_args)
+
 # Compiler conditions
 
 @defclass
@@ -6430,7 +6454,7 @@ def _compiler_error(control, *args):
 # Compilation environment
 
 _string_set("*IN-COMPILATION-UNIT*", nil)
-_intern_and_bind_pynames("*ABORTED-COMPILATION-UNIT-COUNT*",
+_intern_and_bind_names_in_module("*ABORTED-COMPILATION-UNIT-COUNT*",
                          "*COMPILER-ERROR-COUNT*",
                          "*COMPILER-WARNINGS-COUNT*",
                          "*COMPILER-STYLE-WARNINGS-COUNT*",
@@ -6548,30 +6572,41 @@ def _compilation_unit_prologue():
         def symbol_prologue():
                 fun_names = symbol_value(_unit_functions_)
                 sym_names = symbol_value(_unit_symbols_)
-                total = _py.sorted(fun_names | sym_names)
-                return _lower(_ir_cl_module_call("_fop_make_symbols_available",
-                                                 [ package_name(symbol_package(sym)) if symbol_package(sym) else nil
-                                                   for sym in total ],
-                                                 [ symbol_name(sym) for sym in total ],
-                                                 [ sym.function_name for sym in total ],
-                                                 [ sym.symbol_name for sym in total ],
-                                                 [ t for sym in total
-                                                   if _unit_symbol_gfun_p(sym) ],
-                                                 [ t for sym in total
-                                                   if _unit_symbol_gvar_p(sym) ]))
+                total = _py.sorted(fun_names | sym_names, key = _py.str)
+                def wrap(x):
+                        return _defaulted(x, (ref, (quote, ("None",))))
+                return _lower(
+                        (progn,
+                         _ir_cl_module_call(
+                                        "_fop_make_symbol_available",
+                                        _ir_funcall((quote, ("globals",))),
+                                        "COMMON-LISP", "LIST", _ensure_function_pyname(list), (ref, (quote, ("None",))),
+                                        True, False),
+                         _ir_cl_module_call(
+                                        "_fop_make_symbols_available",
+                                        _ir_funcall((quote, ("globals",))),
+                                        _ir_funcall(list, *_py.tuple(package_name(symbol_package(sym)) if symbol_package(sym) else nil
+                                                                                               for sym in total )),
+                                        _ir_funcall(list, *_py.tuple(symbol_name(sym)          for sym in total )),
+                                        _ir_funcall(list, *_py.tuple(wrap(sym.function_pyname) for sym in total )),
+                                        _ir_funcall(list, *_py.tuple(wrap(sym.symbol_pyname)   for sym in total )),
+                                        _ir_funcall(list, *_py.tuple(_unit_symbol_gfun_p(sym)  for sym in total )),
+                                        _ir_funcall(list, *_py.tuple(_unit_symbol_gvar_p(sym)  for sym in total )))))
         def cl_prologue():
                 return [("Import", [("alias", "cl")])]
         # _debug_printf("\n\n===\nGenerating prologue -- top compilation unit: %s, symprog: %s",
         #               _top_compilation_unit_p(), symbol_prologue())
+        sym_pro, sym_val = symbol_prologue()
         with _no_compiler_debugging():
                 return ((cl_prologue() +
-                         symbol_prologue())
+                         sym_pro +
+                         [sym_val])
                         if _top_compilation_unit_p() else
                         cl_prologue())
 
 # Code
 
-_intern_and_bind_pynames("*LEXENV*",)
+_intern_and_bind_names_in_module("*LEXENV*",)
 
 @defclass(intern("%LEXENV")[0])
 class _lexenv():
@@ -6689,7 +6724,7 @@ def _make_lexenv(parent = nil, **initial_content):
 ## If the backquote syntax is nested, the innermost backquoted form should be expanded first. This means that if several
 ## commas occur in a row, the leftmost one belongs to the innermost backquote.
 
-_intern_and_bind_pynames("QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
+_intern_and_bind_names_in_module("QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
 
 ## Unregistered Issue COMPLIANCE-BACKQUOTE-EXPANSION-DOTTED-LIST-HANDLING
 
@@ -6760,7 +6795,7 @@ print("; QUASIQUOTATION-NESTED: passed")
 
 # DEFKNOWN
 
-_intern_and_bind_pynames("%NAME", "%MAYBE", "%LEAD", "%NOTLEAD", "%NOTTAIL",
+_intern_and_bind_names_in_module("%NAME", "%MAYBE", "%LEAD", "%NOTLEAD", "%NOTTAIL",
                          "%NEWLINE", "%INDENT", "%FORM", "%BOUND", "%SYMBOL", "%TYPEP", "%COUNT-SCOPE",
                          "%MAYBE-ONCE", "%ONCE",
                          "%SET-MINUS",
@@ -7060,7 +7095,7 @@ class _metasex_matcher_pp(_metasex_matcher):
                 ############## act as identity
                 return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
 
-_intern_and_bind_pynames("%LAX")
+_intern_and_bind_names_in_module("%LAX")
 
 class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
         def __init__(m):
@@ -7248,7 +7283,7 @@ def _results():
                 _debug_printf("%15s bound: %s", fun.__name__, b)
                 _debug_printf("%15s res: %s", fun.__name__, r)
 
-# _intern_and_bind_pynames("LET", "FIRST", "SECOND", "CAR", "&BODY")
+# _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "&BODY")
 # def just_match():
 #         return _match(_metasex,
 #                       (let, ((first, ()),
@@ -7339,7 +7374,7 @@ def _results():
 # assert(result_good)
 # print("; ALTERNATES: passed")
 
-# _intern_and_bind_pynames("PI")
+# _intern_and_bind_names_in_module("PI")
 # def simplex():
 #         pat = ({'head':[()]}, {'tail':_name})
 #         exp = ((), pi)
@@ -7411,7 +7446,7 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
                         nil)
         def knownifier_and_maybe_compiler_macroexpander(form, known):
                 if not known: ## ..then it's a funcall, because all macros
-                        xformed = (apply, (function, form[0])) + form[1:] + ((quote, nil),)
+                        xformed = _ir_funcall(form[0], *form[1:])
                         return lambda *_: (find_compiler_macroexpander(xformed) or identity)(xformed)
                 else:
                         return (find_compiler_macroexpander(form) if known.name is apply else
@@ -7549,7 +7584,7 @@ def DEFMACRO(name, lambda_list, *body):
                 # (function, (def_, name, lambda_list) + body),
                  (_ir_args,
                   (def_, name, lambda_list) + body,
-                  ("decorators", [_ir_cl_module_call("_set_macro_definition", name)])))
+                  ("decorators", [_ir_cl_module_call("_set_macro_definition", (quote, name))])))
 
 # Tuple intermediate IR
 
@@ -7682,7 +7717,7 @@ def _rewritten(form, scope = _py.dict()): return form, the(_py.dict, scope)
 def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 
 def _compiler_trace_choice(ir_name, choice):
-        if _compiler_trace_choice:
+        if _compiler_trace_choices:
                 _debug_printf("%s-- %s: %s", _sex_space(), ir_name, choice)
 
 #### Issues:
@@ -7766,6 +7801,7 @@ def _ir_args_when(when, ir, **parameters):
 # Lambda list facilities
 
 def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, default_expr = None):
+        ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
         default_expr = _defaulted(default_expr, (_name, "None"))
         if not _tuplep(lambda_list_):
                 error("In %s: lambda list must be a tuple, was: %s.", context, lambda_list_)
@@ -7869,12 +7905,6 @@ def _ir_function_form_nth_value_form(n, func, orig_form):
 
 # Python calls
 
-def _ir_cl_module_name(name):
-        return ("cl", name)
-
-def _ir_cl_module_call(name, *ir_args):
-        return (apply, (function, (quote, _ir_cl_module_name(name)))) + ir_args + ((quote, nil),)
-
 # SETQ
 #         :PROPERTIES:
 #         :K:        [X]
@@ -7950,8 +7980,7 @@ def quote():
                                                 atree)
                         else:
                                 _compiler_trace_choice(quote, "SEX")
-                                return _rewritten((apply, (function, list)) + _py.tuple((quote, x) for x in x) +
-                                                  ((quote, nil),))
+                                return _rewritten(_ir_funcall(list, *_py.tuple((quote, x) for x in x)))
         def effects(x):            return nil
         def affected(x):           return nil
 
@@ -8235,7 +8264,7 @@ def labels():
 
 #         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST.
 
-_intern_and_bind_pynames("SETF")
+_intern_and_bind_names_in_module("SETF")
 
 @defknown
 def function():
@@ -8921,7 +8950,7 @@ def lambda_():
                         else:
                                 ## Delay evaluation of default values.
                                 def defaulting_expr(arg, default):
-                                        return (if_, (apply, eq, arg, (_ref, "None"), (quote, nil)),
+                                        return (if_, (apply, (function, eq), arg, (_ref, "None"), (quote, nil)),
                                                      default,
                                                      arg)
                                 _compiler_trace_choice(lambda_, "EXPR-BODY-REWIND-DELAYED-DEFAULT-VALUES")
@@ -8967,14 +8996,14 @@ def apply():
                 ## the comparison against a literal NIL is much weaker than a NULL type membership test.
                 ## Therefore, the important evolutionary question, is what kind of preparations are
                 ## required to make such type analysis viable.
-                no_varargs = rest == nil
+                no_varargs = rest is nil or rest == (quote, nil)
                 if not _py.any(_ir_prologue_p(x) for x in fixed + (rest,)):
                         _compiler_trace_choice(apply, "EXPR-ARGS")
                         with _no_tail_position():
                                 func_pro, func_val = _lower(func)
                                 arg_pvs = mapcar(_lower, fixed + (rest,))
                         return _lowered(func_pro,
-                                        ("Call", func_val, mapcar(second, arg_pvs[:-1]), [], (arg_pvs[-1]
+                                        ("Call", func_val, mapcar(second, arg_pvs[:-1]), [], (arg_pvs[-1][1]
                                                                                               if not no_varargs else
                                                                                               None)))
                 else:
@@ -8996,7 +9025,7 @@ def apply():
                         _ir_depending_on_function_properties(func, lambda fn, affected: affected, "affected"))
 # Known tests
 
-_intern_and_bind_pynames("COND")
+_intern_and_bind_names_in_module("COND")
 
 def applyification():
         return _macroexpander_inner(_macroexpander, dict(), None,
@@ -9029,7 +9058,7 @@ def _lower(form):
                 # _compiler_report_context()
         pp = _pp_sex if _compiler_pretty_full else _mockup_sex
         def compiler_note_form(x):
-                if (_compiler_trace_forms and _debugging_compiler() and not symbolp(x) and
+                if (_compiler_trace_forms and _debugging_compiler() and not _py.isinstance(x, (symbol.python_type, _py.bool)) and
                     not (consp(x) and x[0] in [ref, function])):
                         _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), pp(x))
         def compiler_note_parts(known_name, xs):
@@ -9376,7 +9405,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
                 acn = _ast_compiled_name(_frost.full_symbol_name_python_name(name),
                                          *pro_ast,
-                                         function = _get_function_name(name), ## No name map population here.
+                                         function = _get_function_pyname(name), ## No name map population here.
                                          globals = _py.globals(),
                                          locals  = _py.locals())
                 sym = the(symbol, acn)
