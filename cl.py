@@ -6235,17 +6235,15 @@ def _match(matcher, exp, pat):
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
         return matcher.match(_py.dict(), name, exp, prepped, (True, False), None, -1)
 
-# Namespace separation name maps
 _compiler_safe_namespace_separation = t
-
-_compiler_trace_forms      = nil
-_compiler_trace_subforms   = nil
-_compiler_trace_rewrites   = nil
-_compiler_trace_result     = nil
-_compiler_trace_choices    = nil
-
-_compiler_pretty_full      = nil
 _compiler_max_mockup_level = 3
+
+_string_set("*COMPILER-TRACE-FORMS*",    nil)
+_string_set("*COMPILER-TRACE-SUBFORMS*", nil)
+_string_set("*COMPILER-TRACE-REWRITES*", t)
+_string_set("*COMPILER-TRACE-CHOICES*",  t)
+_string_set("*COMPILER-TRACE-RESULT*",   t)
+_string_set("*COMPILER-PRETTY-FULL*",    t)
 
 ## Namespace separation.
 def _ensure_function_pyname(symbol):
@@ -6575,7 +6573,13 @@ def _compilation_unit_prologue():
                 total = _py.sorted(fun_names | sym_names, key = _py.str)
                 def wrap(x):
                         return _defaulted(x, (ref, (quote, ("None",))))
-                return _lower(
+                with progv({ _compiler_pretty_full_:    nil,
+                             _compiler_trace_forms_:    nil,
+                             _compiler_trace_choices_:  nil,
+                             _compiler_trace_subforms_: nil,
+                             _compiler_trace_rewrites_: nil,
+                             _compiler_trace_result_:   nil }):
+                 return _lower(
                         (progn,
                          _ir_cl_module_call(
                                         "_fop_make_symbol_available",
@@ -6585,7 +6589,7 @@ def _compilation_unit_prologue():
                          _ir_cl_module_call(
                                         "_fop_make_symbols_available",
                                         _ir_funcall((quote, ("globals",))),
-                                        _ir_funcall(list, *_py.tuple(package_name(symbol_package(sym)) if symbol_package(sym) else nil
+                                        _ir_funcall(list, *_py.tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
                                                                                                for sym in total )),
                                         _ir_funcall(list, *_py.tuple(symbol_name(sym)          for sym in total )),
                                         _ir_funcall(list, *_py.tuple(wrap(sym.function_pyname) for sym in total )),
@@ -7717,7 +7721,7 @@ def _rewritten(form, scope = _py.dict()): return form, the(_py.dict, scope)
 def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 
 def _compiler_trace_choice(ir_name, choice):
-        if _compiler_trace_choices:
+        if symbol_value(_compiler_trace_choices_):
                 _debug_printf("%s-- %s: %s", _sex_space(), ir_name, choice)
 
 #### Issues:
@@ -9056,27 +9060,30 @@ def _lower(form):
                 _compiler_track_compiled_form(form)
                 # _debug_printf(";;; compiling:\n%s", _pp_sex(form))
                 # _compiler_report_context()
-        pp = _pp_sex if _compiler_pretty_full else _mockup_sex
+        pp = _pp_sex if symbol_value(_compiler_pretty_full_) else _mockup_sex
         def compiler_note_form(x):
-                if (_compiler_trace_forms and _debugging_compiler() and not _py.isinstance(x, (symbol.python_type, _py.bool)) and
+                if (symbol_value(_compiler_trace_forms_) and _debugging_compiler() and
+                    not _py.isinstance(x, (symbol.python_type, _py.bool)) and
                     not (consp(x) and x[0] in [ref, function])):
                         _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), pp(x))
         def compiler_note_parts(known_name, xs):
-                if _compiler_trace_subforms and _debugging_compiler() and known_name is not symbol:
+                if symbol_value(_compiler_trace_subforms_) and _debugging_compiler() and known_name is not symbol:
                         _debug_printf("%s>>> %s\n%s%s", _sex_space(), name,
                                       _sex_space(), ("\n" + _sex_space()).join(pp(f) for f in xs))
         def compiler_note_rewrite(known_name, known_subforms, result_form):
-                if _compiler_trace_rewrites and _debugging_compiler() and known_name is not symbol:
+                if symbol_value(_compiler_trace_rewrites_) and _debugging_compiler() and known_name is not symbol:
                         _debug_printf("%s======================================================\n%s\n"
                                       "%s--------------------- rewrote ------------------------>\n%s\n"
+                                      # "%s--------------------- rewrote ------------------------>",
                                       "%s......................................................",
                                       _sex_space(), _sex_space() + pp((known_name,) + known_subforms),
                                       _sex_space(), _sex_space() + pp(result_form),
                                       _sex_space())
         def compiler_note_result(form, pv):
-                if (_compiler_trace_result and _debugging_compiler() and
+                if (symbol_value(_compiler_trace_result_) and _debugging_compiler() and
                     ## Too trivial to take notice
-                    not symbolp(form)):
+                    not typep(form, (or_, symbol, (pytuple, (member, quote, function, ref), (or_, symbol,
+                                                                                             (partuple, (eql, quote))))))):
                         _debug_printf(";;; compilation atree output for\n%s%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
                                       _sex_space(), pp(form), *pv)
         def _rec(x):
