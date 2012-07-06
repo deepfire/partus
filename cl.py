@@ -6273,8 +6273,7 @@ def _get_symbol_pyname(symbol):
 def _fop_make_symbol_available(globals, package_name, symbol_name,
                                function_pyname, symbol_pyname,
                                gfunp, gvarp):
-        package = find_package(package_name)
-        symbol = (intern(symbol_name, package)[0] if package_name is not nil else
+        symbol = (intern(symbol_name, find_package(package_name))[0] if package_name is not None else
                   make_symbol(symbol_name))
         if function_pyname is not None:
                 symbol.function_pyname = function_pyname
@@ -6624,7 +6623,7 @@ class _lexenv():
                         return res
                 def complete_kind_frame(framespec):
                         res = _py.dict(framespec)
-                        res["names"] = names = _py.dict()
+                        res["name"] = names = _py.dict()
                         for set in framespec.values():
                                 for binding in set:
                                         names[binding.name] = binding
@@ -7721,7 +7720,8 @@ def _compiler_trace_choice(ir_name, choice):
 ## Lisp-level bound/free
 ## is the value generally side-effect-free?
 
-### SETQ                 -> ∅
+### SETQ                 -> ∅                           |             LEXICAL
+###                         +(APPLY,FUNCTION,QUOTE,REF)               GLOBAL
 ### QUOTE                -> ∅                       |                 NONCONSTANT-SYMBOL
 ###                         ∅                       |                 CONSTANT
 ###                         =(APPLY,FUNCTION,QUOTE)                   SEX
@@ -7756,9 +7756,9 @@ def _compiler_trace_choice(ir_name, choice):
 ### REF                  -> ∅
 ### NTH-VALUE            -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
 ### DEF                  -> BLOCK,QUOTE
-### LAMBDA               -> PROGN                      |              EXPR-BODY-NO-OPTIONAL-NO-KEYS
-###                         PROGN                      |              EXPR-BODY-EARLY-EVALUATED-OPTIONAL-OR-KEYS
-###                         =(LAMBDA,LET,IF,APPLY,REF) |              EXPR-BODY-REWIND-DELAYED-DEFAULT-VALUES
+### LAMBDA               -> PROGN                      |              EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS
+###                         PROGN                      |              EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS
+###                         =(LAMBDA,LET,IF,APPLY,REF) |              EXPR-BODY/DEFAULTS-REWIND-DELAYED-DEFAULT-VALUES
 ###                         =(FLET,FUNCTION)                          NONEXPR-FLET
 ### APPLY                -> ∅                     |                   EXPR-ARGS
 ###                         =(LET,APPLY)          |                   NONEXPR-REWIND-AS-LET-APPLY
@@ -7933,6 +7933,7 @@ def setq():
                 # Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 lexical_binding = symbol_value(_lexenv_).lookup_var(the(symbol, name))
                 if not lexical_binding or lexical_binding.kind is special:
+                        _compiler_trace_choice(setq, "GLOBAL")
                         gvar = _find_global_variable(name)
                         if gvar and gvar.kind is constant:
                                 simple_program_error("%s is a constant and thus can't be set.", name)
@@ -7940,6 +7941,7 @@ def setq():
                                 simple_style_warning("undefined variable: %s", name)
                                 _do_defvar_without_actually_defvar(name, value)
                         return _rewritten(_ir_cl_module_call("_do_set", (quote, name), value, (ref, (quote, ("None",)))))
+                _compiler_trace_choice(setq, "LEXICAL")
                 pro, val = _lower(value)
                 return _lowered(pro + [("Assign", [_lower_name((_unit_function_pyname if function_scope else
                                                                 _unit_symbol_pyname   if symbol_scope else
@@ -8102,9 +8104,9 @@ def if_():
                         ## Unregistered Issue FUNCALL-MISSING
                         name_cons, name_ante = _gensyms(x = "IF-BRANCH", n = 2)
                         cons, cons_fdefn = ((consequent,                     ()) if cons_expr_p else
-                                            ((apply, (ref, name_cons), (quote, nil)), ((name_cons, ()) + (consequent,),)))
+                                            (_ir_funcall(name_cons), ((name_cons, ()) + (consequent,),)))
                         ante, ante_fdefn = ((antecedent,                     ()) if ante_expr_p else
-                                            ((apply, (ref, name_ante), (quote, nil)), ((name_ante, ()) + (antecedent,),)))
+                                            (_ir_funcall(name_ante), ((name_ante, ()) + (antecedent,),)))
                         return _rewritten((flet, cons_fdefn + ante_fdefn,
                                            (if_, test, cons, ante)))
         def effects(*tca):  return _py.any(_ir_effects(f)  for f in tca)
@@ -8145,23 +8147,27 @@ def let():
                                            evaluate_defaults_early = t,
                                            function_scope = function_scope),
                                 (quote, nil))
+                        aux_bindings = ()
                 else:
                         _compiler_trace_choice(let, "NONEXPR-SETQ-LAMBDA")
                         last_non_expr_posn = position_if(_ir_prologue_p, values, from_end = t)
-                        n_nonexprs = last_non_expr_posn + 1
+                        n_exprs = last_non_expr_posn + 1
+                        orig_expr_bindings = bindings[_py.len(bindings) - n_exprs:]
                         temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
                         # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
+                        aux_bindings = _py.tuple(_py.zip(temp_names, values[:-n_exprs or None]))
                         form = ((progn,) +
                                 _py.tuple(_ir_args_when(function_scope,
                                                         (setq, n, v),
                                                         function_scope = function_scope)
-                                          for n, v in _py.zip(temp_names, values[:n_nonexprs])) +
-                                (_ir(lambda_, (_optional,) + _py.tuple(_py.zip(names, temp_names + values[n_nonexprs:])), *body,
+                                          for n, v in aux_bindings) +
+                                (_ir(lambda_, (_optional,) + aux_bindings + orig_expr_bindings, *body,
                                      evaluate_defaults_early = t,
                                      function_scope = function_scope),))
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
-                                                                                         for name, form in bindings } }) })
+                                                                                         for name, form in bindings +
+                                                                                         aux_bindings} }) })
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
                 return _py.any(_ir_effects(f) for f in _py.tuple(x[1] for x in bindings) + body)
@@ -8195,18 +8201,20 @@ def flet():
                         error("FLET: malformed bindings: %s.", bindings)
                 # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
                 tempnames = [ gensym(string(name)) for name, _, *__ in bindings ]
-                form = _ir(let, _py.tuple((name, (progn,
-                                                  (def_, tempname, lambda_list) + _py.tuple(fbody),
-                                                  (function, tempname)))
-                                          for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings)),
-                           *body,
-                           function_scope = t)
+                thunk_name = gensym("THUNK")
+                form = (progn,
+                        (def_, thunk_name, ()) +
+                        _py.tuple((def_, tempname, lambda_list) + _py.tuple(fbody)
+                                  for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings)) +
+                         body,
+                        _ir_funcall(thunk_name))
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(kind_funcframe =
                                                            { function: { _function_binding(name, function,
                                                                                            _fn.python_type(name,
                                                                                                            lambda_list))
-                                                                         for name, lambda_list, *__ in bindings } }) })
+                                                                         for name, lambda_list, *__ in
+                                                                         bindings + ((thunk_name, ()),) } }) })
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -8329,20 +8337,26 @@ def unwind_protect():
         def nvalues(form, *unwind_body):            return _ir_nvalues(form)
         def nth_value(n, orig, form, *unwind_body): return (unwind_protect, _ir_nth_value(n, form)) + unwind_body
         def prologuep(*_):                          return t
-        def lower(form, *unwind_body):
+        def lower(form, *unwind_body, values_var = nil):
                 if not unwind_body:
                        _compiler_trace_choice(unwind_protect, "NO-UNWIND")
                        return _rewritten(form)
-                _compiler_trace_choice(unwind_protect, "UNWIND")
-                temp_name = gensym("PROTECTED-FORM-VALUE")
-                pro_form, val_form = _lower((setq, temp_name, form))
+                if not values_var:
+                        _compiler_trace_choice(unwind_protect, "UNWIND-LEXICAL-LESS")
+                        values_var = gensym("PROTECTED-FORM-VALUE")
+                        return _rewritten((let, ((values_var, nil),),
+                                           (unwind_protect,
+                                            (setq, values_var,
+                                             (multiple_value_call, (function, list), (lambda_, (), form)))) +
+                                           unwind_body))
+                _compiler_trace_choice(unwind_protect, "UNWIND-WITH-LEXICAL")
+                ## Unregistered Issue UNWIND-PROTECT-MISCOMPILED-TO-GLOBAL-SETQ
+                pro_form, val_form = _lower(form)
                 pro_unwind, val_unwind = _lower((progn,) + unwind_body)
                 return _lowered([("TryFinally",
-                                  # It's the SETQ's value we're discarding here, which is known to be safe -- a name reference.
-                                  pro_form, # Unregistered Issue COMPILER-VALUE-DISCARDABILITY-POLICY
-                                  # ..in contrast, here, barring analysis, we have no idea about discardability of val_unwind
+                                  pro_form + [("Expr", val_form)],
                                   pro_unwind + [("Expr", val_unwind)])],
-                                _lower((ref, temp_name))[1])
+                                _lower((ref, values_var))[1])
         def effects(form, *unwind_body):
                 return _py.any(_ir_effects(f) for f in (form,) + body)
         def affected(form, *unwind_body):
@@ -8850,9 +8864,18 @@ def def_():
                                 total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
                                 _check_no_locally_rebound_constants(total)
                                 compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
-                                with _tail_position():
-                                        # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                                        body_pro, body_val = _lower((block, name) + body)
+                                fixed, optional, rest, keys, restkey = args
+                                optdefs, keydefs = defaults
+                                defmap = _py.dict(_py.zip(optional + keys, optdefs + keydefs))
+                                with progv({ _lexenv_: _make_lexenv(kind_varframe =
+                                                                    { variable: { _variable_binding(name, variable,
+                                                                                                    (defmap[name]
+                                                                                                     if name in defmap else
+                                                                                                     None))
+                                                                                  for name in total } }) }):
+                                        with _tail_position():
+                                                # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+                                                body_pro, body_val = _lower((block, name) + body)
                                 # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                                 # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                                 deco_vals = []
@@ -8924,12 +8947,12 @@ def lambda_():
                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
                 # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
                 # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
-                if not _ir_body_prologuep(body):
-                        total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
+                total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
+                if not _py.any( _ir_body_prologuep(x) for x in body + _py.tuple(defaults[0]) + _py.tuple(defaults[1])):
                         _check_no_locally_rebound_constants(total)
                         (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
                         if not (optional or keys):
-                                _compiler_trace_choice(lambda_, "EXPR-BODY-NO-OPTIONAL-NO-KEYS")
+                                _compiler_trace_choice(lambda_, "EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS")
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
@@ -8938,7 +8961,7 @@ def lambda_():
                                 _not_implemented("rest/restkey-ful defaulting lambda list")
                         elif evaluate_defaults_early:
                                 # duplicate code here, but the checking "issue" is not understood well-enough..
-                                _compiler_trace_choice(lambda_, "EXPR-BODY-EARLY-EVALUATED-OPTIONAL-OR-KEYS")
+                                _compiler_trace_choice(lambda_, "EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS")
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
@@ -8949,7 +8972,7 @@ def lambda_():
                                         return (if_, (apply, (function, eq), arg, (_ref, "None"), (quote, nil)),
                                                      default,
                                                      arg)
-                                _compiler_trace_choice(lambda_, "EXPR-BODY-REWIND-DELAYED-DEFAULT-VALUES")
+                                _compiler_trace_choice(lambda_, "EXPR-BODY/DEFAULTS-REWIND-DELAYED-DEFAULT-VALUES")
                                 return _rewritten(
                                         _ir_when(function_scope,
                                                  (lambda_,
