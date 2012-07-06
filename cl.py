@@ -932,14 +932,6 @@ with progv(foovar = 3.14,
 
 # CATCH, THROW, BLOCK, RETURN-FROM
 
-@boot_defun
-def unwind_protect(form, fn):
-        "For the times, when statements won't do."
-        try:
-                return form()
-        finally:
-                fn()
-
 # WARNING: non-specific try/except clauses and BaseException handlers break this!
 class __catcher_throw__(_cold_condition_type):
         def __init__(self, ball, value, reenable_pytracer = nil):
