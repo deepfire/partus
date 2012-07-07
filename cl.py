@@ -7807,45 +7807,46 @@ def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, 
                                  if allow_defaults else
                                  (valid_parameter_specifier_p, "In %s: lambda list must consist of non-keyword symbols: %s.  Default values are forbidden in this context."))
         ### 0. locate lambda list keywords
-        lambda_words = [_optional, _rest, _key, _restkey]
-        optpos,  restpos,  keypos,  restkeypos = lambda_posns = mapcar(lambda x: position(x, lambda_list_), lambda_words)
+        lambda_words = [_optional, _rest, _body, _key]
+        optpos,  restpos,  bodypos,  keypos  = posns = mapcar(lambda x: position(x, lambda_list_), lambda_words)
         ### 1. ensure proper order of provided lambda list keywords
-        optposp, restposp, keyposp, restkeyposp = mapcar(complement(_nonep), lambda_posns)
+        optposp, restposp, bodyposp, keyposp = mapcar(complement(_nonep), posns)
         def test_lambda_list_word_order():
                 toptpos     = optpos or 0
                 trestpos    = restpos or toptpos
+                tbodypos    = bodypos or toptpos
                 tkeypos     = keypos or trestpos
-                trestkeypos = restkeypos or tkeypos
-                if not toptpos <= trestpos <= tkeypos <= trestkeypos:
+                if restposp and bodyposp:
+                        error("In %s: &BODY and &REST cannot coexist in a single lambda list.")
+                if not toptpos <= trestpos <= tkeypos:
                         error("In %s: %s, %s, %s and %s must appear in that order in the lambda list, when specified.",
                               context, *lambda_words)
         test_lambda_list_word_order()
         # _locals_printf(_py.locals(),
-        #                "optpos",  "restpos",  "keypos",  "restkeypos",
-        #                "optposp", "restposp", "keyposp", "restkeyposp",
-        #                "toptpos", "trestpos", "tkeypos", "trestkeypos")
+        #                "optpos",  "restpos",  "keypos",
+        #                "optposp", "restposp", "keyposp",
+        #                "toptpos", "trestpos", "tkeypos")
         ### 2. ensure correct amount of names for provided lambda list keywords
-        if (restposp and keyposp and (keypos - restpos != 1) or
-            restposp and (not keyposp) and restkeyposp and (restkeypos - restpos != 1) or
-            restkeyposp and (_py.len(lambda_list_) - restkeypos != 2)):
+        if (restposp or bodyposp) and (keyposp and (keypos - restpos != 1)):
                 error("In %s: found garbage instead of a lambda list: %s", context, lambda_list_)
         ### 3. compute argument specifier sets, as determined by provided lambda list keywords
-        restkey = restkeyposp and lambda_list_[restkeypos + 1] or None
-        _keys = _py.list(lambda_list_[keypos + 1:restkeypos or None]) if keypos else _py.tuple()
+        _keys = _py.list(lambda_list_[keypos + 1:]) if keypos else _py.tuple()
         keys, keydefs = (_py.list(_ensure_car(x) for x in _keys),
                          _py.list((x[1] if _tuplep(x) else default_expr)
                                   for x in _keys))
-        rest = restposp and lambda_list_[restpos + 1] or None
-        optional = _py.list(lambda_list_[optpos + 1:restpos or keypos or restkeypos or None]) if optposp else []
+        rest_or_body = (lambda_list_[restpos + 1] if restposp else
+                        lambda_list_[bodypos + 1] if bodyposp else
+                        None)
+        optional = _py.list(lambda_list_[optpos + 1:bodypos or restpos or keypos or None]) if optposp else []
         optional, optdefs = (_py.list(_ensure_car(x) for x in optional),
                              _py.list((x[1] if _tuplep(x) else default_expr)
                                       for x in optional))
         fixed = _py.list(lambda_list_[0:_defaulted(optpos, (restpos    if restposp    else
-                                                            keypos     if keyposp     else
-                                                            restkeypos if restkeyposp else None))])
+                                                            bodypos    if bodyposp    else
+                                                            keypos     if keyposp     else None))])
         if not every(symbolp, fixed):
                 error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, find_if_not(symbolp, fixed))
-        total = fixed + optional + ([rest] if rest else []) + keys + ([restkey] if restkey else [])
+        total = fixed + optional + ([rest_or_body] if rest_or_body else []) + keys
         ### 4. validate syntax of the provided individual argument specifiers
         if not every(valid_parameter_specifier_p, total):
                 error(failure_message, context, lambda_list_)
@@ -7853,14 +7854,14 @@ def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, 
         if _py.len(total) != _py.len(_py.set(total)):
                 error("In %s: duplicate parameter names in lambda list: %s.", context, lambda_list_)
         return (total,
-                (fixed, optional, rest, keys, restkey),
+                (fixed, optional, rest_or_body, keys),
                 (optdefs, keydefs))
 
-def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_defaults, key_defaults,
+def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_defaults,
                              function_scope = nil):
         assert _py.len(optional) == _py.len(opt_defaults)
         assert _py.len(keys) == _py.len(key_defaults)
-        assert not function_scope or not (rest or keys or restkey)
+        assert not function_scope or not (rest or keys)
         ((odef_pros, odef_vals),
          (kdef_pros, kdef_vals)) = mapcar(lambda x: _recombine((_py.list, _py.list), _lower, x),
                                           [opt_defaults, key_defaults])
@@ -7871,7 +7872,7 @@ def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, restkey, opt_
                        fixed + optional),
                 rest and _frost.full_symbol_name_python_name(rest) or None, None,
                 mapcar(lambda x: ("arg", _frost.full_symbol_name_python_name(x)), keys),
-                restkey and _frost.full_symbol_name_python_name(restkey) or None, None,
+                None, None,
                 odef_vals,
                 kdef_vals)
 
@@ -8863,7 +8864,7 @@ def def_():
                                 total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
                                 _check_no_locally_rebound_constants(total)
                                 compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
-                                fixed, optional, rest, keys, restkey = args
+                                fixed, optional, rest, keys = args
                                 optdefs, keydefs = defaults
                                 defmap = _py.dict(_py.zip(optional + keys, optdefs + keydefs))
                                 with progv({ _lexenv_: _make_lexenv(kind_varframe =
@@ -8931,11 +8932,11 @@ def lambda_():
                 if _ir_body_prologuep(body):
                         return t
                 total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
-                (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
+                (fixed, optional, rest, keys), (optdefs, keydefs) = args, defaults
                 if not (optional or keys):
                         return nil
-                elif rest or restkey:
-                        _not_implemented("rest/restkey-ful defaulting lambda list")
+                elif rest:
+                        _not_implemented("REST-ful defaulting lambda list")
                 elif evaluate_defaults_early:
                         return nil
                 else:
@@ -8949,15 +8950,15 @@ def lambda_():
                 total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 if not _py.any( _ir_body_prologuep(x) for x in body + _py.tuple(defaults[0]) + _py.tuple(defaults[1])):
                         _check_no_locally_rebound_constants(total)
-                        (fixed, optional, rest, keys, restkey), (optdefs, keydefs) = args, defaults
+                        (fixed, optional, rest, keys), (optdefs, keydefs) = args, defaults
                         if not (optional or keys):
                                 _compiler_trace_choice(lambda_, "EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS")
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
                                                  _lower((progn,) + body)[1]))
-                        elif rest or restkey:
-                                _not_implemented("rest/restkey-ful defaulting lambda list")
+                        elif rest:
+                                _not_implemented("REST-ful defaulting lambda list")
                         elif evaluate_defaults_early:
                                 # duplicate code here, but the checking "issue" is not understood well-enough..
                                 _compiler_trace_choice(lambda_, "EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS")
