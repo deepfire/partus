@@ -709,6 +709,7 @@ def _cold_make_nil():
          nil.compiler_macro_function,
          nil.symbol_macro_expansion,
          nil.known) = "NIL", __cl, nil, nil, nil, None, nil
+        nil.symbol_pyname, nil.function_pyname = None, None
         return _do_intern_symbol(nil, __cl)
 
 NIL = nil = _cold_make_nil()
@@ -845,6 +846,7 @@ def _init_package_system_0():
         nil.__length__     = lambda _: 0
         nil.__iter__       = lambda _: None
         nil.__reversed__   = lambda _: None
+        __global_scope__.update({ "T": t, "NIL": nil })
         export([t, nil] + [_intern(n[0] if _tuplep(n) else n, __cl)[0]
                            for n in __core_symbol_names__ + __more_symbol_names__],
                __cl)
@@ -5655,11 +5657,8 @@ __atreeifier_map__ = { _py.str:            (nil, lambda x: ("Str", x)),
                        _py.list:           (t,   lambda x: ("List", x, ("Load",))),
                        _py.tuple:          (t,   lambda x: ("Tuple", x, ("Load",))),
                        _py.set:            (t,   lambda x: ("Set", x)),
-                       ## Note: this relies on the corresponding name to be made available by some means --
-                       ## e.g. QUOTE does _compilaiton_note_symbol(), which arranges the name to be initialised in the
-                       ## prologue.
-                       symbol.python_type: (nil, lambda x: _lower_name(_frost.full_symbol_name_python_name(x)))
-                       ## symbol: see below
+                       ## Note: this relies on the corresponding name to be made available by some means.
+                       symbol.python_type: (nil, lambda x: _lower_name(_unit_symbol_pyname(x)))
                      }
 def _register_atreeifier_for_type(type, recurse, atreeifier):
         "Please, list the added atreeifiers above."
