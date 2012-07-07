@@ -6229,12 +6229,16 @@ def _match(matcher, exp, pat):
 _compiler_safe_namespace_separation = t
 _compiler_max_mockup_level = 3
 
+_string_set("*COMPILER-TRACE-ENTRY-FORMS*",    nil)
+_string_set("*COMPILER-TRACE-QQEXPANSION*",    nil)
+_string_set("*COMPILER-TRACE-MACROEXPANSION*", nil)
+
 _string_set("*COMPILER-TRACE-FORMS*",    nil)
 _string_set("*COMPILER-TRACE-SUBFORMS*", nil)
 _string_set("*COMPILER-TRACE-REWRITES*", t)
-_string_set("*COMPILER-TRACE-CHOICES*",  t)
-_string_set("*COMPILER-TRACE-RESULT*",   t)
-_string_set("*COMPILER-PRETTY-FULL*",    t)
+_string_set("*COMPILER-TRACE-CHOICES*",  nil)
+_string_set("*COMPILER-TRACE-RESULT*",   nil)
+_string_set("*COMPILER-PRETTY-FULL*",    nil)
 
 ## Namespace separation.
 def _ensure_function_pyname(symbol):
@@ -9164,19 +9168,26 @@ def _lower(form):
                 error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
         return pv
 
+_string_set("*COMPILE-PRINT*",   t) ## Not implemented.
+_string_set("*COMPILE-VERBOSE*", t) ## Partially implemented.
+
 def _do_compile(form, lexenv = nil):
-        _debug_printf_if(_debugging_compiler(),
-                         ";;;%s compiling:\n%s%s",
-                         _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
+        if symbol_value(_compile_verbose_):
+                kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
+                _debug_printf("; compiling %s %s", kind, maybe_name)
+        if symbol_value(_compiler_trace_entry_forms_):
+                _debug_printf(_debugging_compiler(),
+                              ";;;%s compiling:\n%s%s",
+                              _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
         qq_expanded = _expand_quasiquotation(form)
-        if _debugging_compiler():
+        if symbol_value(_compiler_trace_qqexpansion_):
                 if form != qq_expanded:
                         _debug_printf(";;;%s quasiquotation expanded to:\n%s%s",
                                       _sex_space(-3, ";"), _sex_space(), _pp_sex(qq_expanded))
                 else:
                         _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
         macroexpanded = macroexpand_all(qq_expanded, env = lexenv)
-        if _debugging_compiler():
+        if symbol_value(_compiler_trace_macroexpansion_):
                 if form != macroexpanded:
                         _debug_printf(";;;%s macroexpanded:\n%s%s",
                                       _sex_space(-3, ";"), _sex_space(), _pp_sex(macroexpanded))
