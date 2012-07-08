@@ -9528,7 +9528,9 @@ def DEFUN(name, lambda_list, *body):
         (defmacro, defun, (name, lambda_list, _body, body),
           (quasiquote,
             (progn,
-              ## SBCL has a :COMPILE-TOPLEVEL part, but it's not very clear what we need in this respect.
+              (eval_when, (_compile_toplevel,),
+                ## _compile_toplevel_def_in_lexenv() expectes the compiler-level part of function to be present.
+                (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
               (eval_when, (_load_toplevel, _execute),
                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
                         (lambda_, (comma, lambda_list), (splice, body)),
