@@ -6681,7 +6681,7 @@ class _lexenv():
                 return (b and b.kind is kind and b) or default
 def _lexenvp(x):         return _py.isinstance(x, _lexenv.python_type)
 def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
-def _make_lexenv(parent = nil, **initial_content):
+def _make_lexenv(parent = None, **initial_content):
         ## just a dumb pass-through
         return _lexenv.python_type(parent, **initial_content)
 
