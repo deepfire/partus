@@ -9181,6 +9181,21 @@ def _lower(form):
                 error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
         return pv
 
+#
+## High-level users of %LOWER
+#
+## eval, _eval_tlf
+##   _do_eval
+##     _eval_in_lexenv        <-_
+##       _simple_eval_in_lexenv /
+##         _simple_eval -> _compile_in_lexenv
+## @lisp, _compile_in_lexenv (<- macro_function, _simple_eval), _compile_lambda_as_named_toplevel (<- _compile)
+##   _compile_toplevel_def_in_lexenv
+##     _compilation_unit_prologue -> _lower
+##     _do_compile -> _lower
+## @defknown -> _lower
+#
+
 _string_set("*COMPILE-PRINT*",   t) ## Not implemented.
 _string_set("*COMPILE-VERBOSE*", t) ## Partially implemented.
 
