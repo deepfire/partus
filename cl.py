@@ -6236,6 +6236,7 @@ def _match(matcher, exp, pat):
 _compiler_safe_namespace_separation = t
 _compiler_max_mockup_level = 3
 
+_string_set("*COMPILER-TRACE-TOPLEVELS*",      nil)
 _string_set("*COMPILER-TRACE-ENTRY-FORMS*",    nil)
 _string_set("*COMPILER-TRACE-QQEXPANSION*",    nil)
 _string_set("*COMPILER-TRACE-MACROEXPANSION*", nil)
@@ -6248,7 +6249,7 @@ _string_set("*COMPILER-TRACE-RESULT*",         nil)
 _string_set("*COMPILER-TRACE-PRETTY-FULL*",    nil)
 
 def _compiler_config_tracing(**keys):
-        known_trace_args = {"entry_forms", "qqexpansion", "macroexpansion",
+        known_trace_args = {"toplevels", "entry_forms", "qqexpansion", "macroexpansion",
                             "forms", "subforms", "rewrites", "choices", "result", "pretty_full"}
         def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
         for namespec, value in keys.items():
@@ -9442,7 +9443,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(final_pv))
                 import more_ast
                 more_ast.assign_meaningful_locations(pro_ast)
-                if _debugging_compiler():
+                if symbol_value(_compiler_trace_toplevels_):
                         import more_ast
                         _debug_printf(";;; In C-T-D-I-L: Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
                                       _pp_sex(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
