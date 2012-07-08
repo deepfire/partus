@@ -137,10 +137,6 @@ def _fprintf(stream, format_control, *format_args):
 def _debug_printf(format_control, *format_args):
         _fprintf(_sys.stderr, format_control + "\n", *format_args)
 
-def _debug_printf_if(condition, format_control, *format_args):
-        if condition:
-                _debug_printf(format_control, *format_args)
-
 # First-class namespaces
 
 class _namespace(_collections.UserDict):
@@ -9193,8 +9189,7 @@ def _do_compile(form, lexenv = nil):
                 kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
                 _debug_printf("; compiling %s %s", kind, maybe_name)
         if symbol_value(_compiler_trace_entry_forms_):
-                _debug_printf(_debugging_compiler(),
-                              ";;;%s compiling:\n%s%s",
+                _debug_printf(";;;%s compiling:\n%s%s",
                               _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
         qq_expanded = _expand_quasiquotation(form)
         if symbol_value(_compiler_trace_qqexpansion_):
