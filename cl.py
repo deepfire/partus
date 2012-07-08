@@ -9515,7 +9515,7 @@ def DEFUN(name, lambda_list, *body):
             (progn,
               ## SBCL has a :COMPILE-TOPLEVEL part, but it's not very clear what we need in this respect.
               (eval_when, (_load_toplevel, _execute),
-                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (comma, name), (quote, nil)),
+                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
                         (lambda_, (comma, lambda_list), (splice, body)),
                         (quote, nil))))))
 
