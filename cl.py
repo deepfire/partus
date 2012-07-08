@@ -6240,12 +6240,19 @@ _string_set("*COMPILER-TRACE-ENTRY-FORMS*",    nil)
 _string_set("*COMPILER-TRACE-QQEXPANSION*",    nil)
 _string_set("*COMPILER-TRACE-MACROEXPANSION*", nil)
 
-_string_set("*COMPILER-TRACE-FORMS*",    nil)
-_string_set("*COMPILER-TRACE-SUBFORMS*", nil)
-_string_set("*COMPILER-TRACE-REWRITES*", t)
-_string_set("*COMPILER-TRACE-CHOICES*",  nil)
-_string_set("*COMPILER-TRACE-RESULT*",   nil)
-_string_set("*COMPILER-PRETTY-FULL*",    nil)
+_string_set("*COMPILER-TRACE-FORMS*",          nil)
+_string_set("*COMPILER-TRACE-SUBFORMS*",       nil)
+_string_set("*COMPILER-TRACE-REWRITES*",       nil)
+_string_set("*COMPILER-TRACE-CHOICES*",        nil)
+_string_set("*COMPILER-TRACE-RESULT*",         nil)
+_string_set("*COMPILER-TRACE-PRETTY-FULL*",    nil)
+
+def _compiler_config_tracing(**keys):
+        known_trace_args = {"entry_forms", "qqexpansion", "macroexpansion",
+                            "forms", "subforms", "rewrites", "choices", "result", "pretty_full"}
+        def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
+        for namespec, value in keys.items():
+                _string_set(control_var_name(namespec), value)
 
 ## Namespace separation.
 def _ensure_function_pyname(symbol):
@@ -6574,12 +6581,12 @@ def _compilation_unit_prologue():
                 total = _py.sorted(fun_names | sym_names, key = _py.str)
                 def wrap(x):
                         return _defaulted(x, (ref, (quote, ("None",))))
-                with progv({ _compiler_pretty_full_:    nil,
-                             _compiler_trace_forms_:    nil,
-                             _compiler_trace_choices_:  nil,
-                             _compiler_trace_subforms_: nil,
-                             _compiler_trace_rewrites_: nil,
-                             _compiler_trace_result_:   nil }):
+                with progv({ _compiler_trace_pretty_full_: nil,
+                             _compiler_trace_forms_:       nil,
+                             _compiler_trace_choices_:     nil,
+                             _compiler_trace_subforms_:    nil,
+                             _compiler_trace_rewrites_:    nil,
+                             _compiler_trace_result_:      nil }):
                  return _lower(
                         (progn,
                          _ir_cl_module_call(
@@ -9088,7 +9095,7 @@ def _lower(form):
                 _compiler_track_compiled_form(form)
                 # _debug_printf(";;; compiling:\n%s", _pp_sex(form))
                 # _compiler_report_context()
-        pp = _pp_sex if symbol_value(_compiler_pretty_full_) else _mockup_sex
+        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
         def compiler_note_form(x):
                 if (symbol_value(_compiler_trace_forms_) and _debugging_compiler() and
                     not _py.isinstance(x, (symbol.python_type, _py.bool)) and
@@ -9886,7 +9893,8 @@ class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
 
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
-# _debug_compiler()
+_compiler_config_tracing(rewrites = t)
+
 load("vpcl.lisp", verbose = t)
 
 # REQUIRE
