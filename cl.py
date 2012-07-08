@@ -358,6 +358,9 @@ def _find_dynamic_frame(name):
         if name in __global_scope__:
                 return __global_scope__
 
+def _list_dynamic_frames():
+        return __tls__.dynamic_scope
+
 def _dynamic_frame_for_set(name, force_toplevel = None):
         return (__global_scope__ if force_toplevel else
                 (_find_dynamic_frame(name) or
@@ -5790,10 +5793,14 @@ class _variable_binding(_variable, _binding):
         def __init__(self, name, kind, value, **attributes):
                 _variable.__init__(self, name, kind, **attributes)
                 _binding.__init__(self, value, **attributes)
+        def __repr__(self):
+                return "#<bind %s %s: %s>" % (self.kind, self.name, self.value)
 class _function_binding(_function, _binding):
         def __init__(self, name, kind, value, **attributes):
                 _function.__init__(self, name, kind, **attributes)
                 _binding.__init__(self, value, **attributes)
+        def __repr__(self):
+                return "#<bind %s %s: %s>" % (self.kind, self.name, self.value)
 class _block_binding(_block, _binding):
         def __init__(self, name, value, **attributes):
                 _block.__init__(self, name, **attributes)
@@ -6611,6 +6618,8 @@ class _lexenv():
         """Chains variable and function scope pieces together.  Scope pieces map binding kinds
            to binding sets and bound names to bindings."""
         varscope, funcscope = nil, nil
+        def __repr__(self):
+                return "#<lexenv vars: %s, funs: %s>" % (self.varscope, self.funcscope)
         def __init__(self, parent = None,
                      name_varframe = None, name_funcframe = None, name_blockframe = None,
                      kind_varframe = None, kind_funcframe = None, kind_blockframe = None,
