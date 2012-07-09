@@ -6440,6 +6440,9 @@ def _ir_cl_module_name(name):
 def _ir_cl_module_call(name, *ir_args):
         return _ir_funcall((quote, _ir_cl_module_name(name)), *ir_args)
 
+def _ir_lambda_to_defun(name, lambda_expression):
+        return (defun, the(symbol, name)) + lambda_expression[1:]
+
 # Compiler conditions
 
 @defclass
@@ -9196,7 +9199,7 @@ def _lower(form):
 ##       _simple_eval_in_lexenv /
 ##         _simple_eval -> _compile_in_lexenv
 ## @lisp, _compile_in_lexenv (<- macro_function, _simple_eval), _compile_lambda_as_named_toplevel (<- _compile)
-##   _compile_toplevel_def_in_lexenv
+##   _compile_named_as_loadable_unit
 ##     _compilation_unit_prologue -> _lower
 ##     _expand_and_lower_in_lexenv -> _lower
 ## @defknown -> _lower
@@ -9327,7 +9330,7 @@ def lisp(body):
         if not (symbolp(form[0]) and symbol_name(form[0]) in __def_allowed_toplevels__):
                 error("In LISP %s: only toplevels in %s are allowed.",
                       _py.repr(form[0]), __def_allowed_toplevels__)
-        name, warnedp, failedp, _ = _compile_toplevel_def_in_lexenv(symbol, form, _make_null_lexenv(),
+        name, warnedp, failedp, _ = _compile_named_as_loadable_unit(symbol, form, _make_null_lexenv(),
                                                                     globalp = t,
                                                                     macrop = form[0] is defmacro,
                                                                     lambda_expression = (lambda_,) + form[2:])
@@ -9416,10 +9419,8 @@ and true otherwise."""
                                                  macrop = name and not not macro_function(name))
 
 def _compile_in_lexenv(name, lambda_expression, lexenv):
-        def _convert_lambda_to_defun(name, lambda_expression):
-                return (defun, the(symbol, name)) + lambda_expression[1:]
-        final_name = the(symbol, name) or gensym("compiled_lambda")
-        return _compile_toplevel_def_in_lexenv(final_name, _convert_lambda_to_defun(final_name, lambda_expression), lexenv,
+        final_name = the(symbol, name) or gensym("COMPILED-LAMBDA")
+        return _compile_named_as_loadable_unit(final_name, _ir_lambda_to_defun(final_name, lambda_expression), lexenv,
                                                lambda_expression = lambda_expression)
 
 def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
@@ -9432,7 +9433,7 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
                              globalp = globalp)
         ## fn.clear_dependencies() -- not needed, for as long as we create functions anew (HAR, um, HAR, I suppose..)
         with progv({ _compiler_fn_: fn }):
-                return _compile_toplevel_def_in_lexenv(
+                return _compile_named_as_loadable_unit(
                         ## This decorator-passing scheme is fairly archaic -- we would be better served by macros.
                         name, _ir_args_when(globalp, _convert_lambda_to_def(name, lambda_expression),
                                             decorators = [_ir_cl_module_call("_set_macro_definition", name)
@@ -9442,7 +9443,8 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
                         globalp = globalp, macrop = globalp and macrop,
                         lambda_expression = lambda_expression)
 
-def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = nil, lambda_expression = None):
+def _compile_named_as_loadable_unit(name, form, lexenv, globalp = nil, macrop = nil, lambda_expression = None):
+        "Here, a unit, is something, that has enough environment set up to be functioning on its own."
         ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
         def _in_compilation_unit():
                 pro, value = _expand_and_lower_in_lexenv(form, lexenv) # We're only interested in the resulting DEF.
