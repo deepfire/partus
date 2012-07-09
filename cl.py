@@ -6569,7 +6569,7 @@ Examples:
 def _top_compilation_unit_p():
         return _symbol_value(_top_compilation_unit_p_)
 
-def _compilation_unit_prologue():
+def _compilation_unit_prologue(lexenv = nil):
         """This sets up the runtime environment for the module.
            Supposed to be called once, at the end of all processing."""
         def symbol_prologue():
@@ -9446,7 +9446,7 @@ def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = 
         ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
         def _in_compilation_unit():
                 pro, value = _expand_and_lower_in_lexenv(form, lexenv) # We're only interested in the resulting DEF.
-                cu_pro = _compilation_unit_prologue()
+                cu_pro = _compilation_unit_prologue(lexenv = lexenv)
                 pro = cu_pro + pro
                 final_pv = pro, value
                 if _py.len(pro) < 1:   # The FunctionDef and the symbol Assign
