@@ -6615,7 +6615,11 @@ def _compilation_unit_prologue():
 
 # Code
 
-_intern_and_bind_names_in_module("*LEXENV*",)
+_intern_and_bind_names_in_module("*LEXENV*", "NULL")
+
+def _coerce_to_lexenv(x):
+        return (nil if x is null else
+                (x or _symbol_value(_lexenv_)))
 
 @defclass(intern("%LEXENV")[0])
 class _lexenv():
@@ -6624,7 +6628,7 @@ class _lexenv():
         varscope, funcscope = nil, nil
         def __repr__(self):
                 return "#<lexenv vars: %s, funs: %s>" % (self.varscope, self.funcscope)
-        def __init__(self, parent = None,
+        def __init__(self, parent = nil,
                      name_varframe = None, name_funcframe = None, name_blockframe = None,
                      kind_varframe = None, kind_funcframe = None, kind_blockframe = None,
                      full_varframe = None, full_funcframe = None, full_blockframe = None):
@@ -6650,7 +6654,7 @@ class _lexenv():
                                 complete_kind_frame(kind) if kind else
                                 None)
                 def compute_scope(parent, sname, frame):
-                        parent = parent if _specifiedp(parent) else _symbol_value(_lexenv_)
+                        parent = _coerce_to_lexenv(parent)
                         pscope = _py.getattr(parent, sname) if parent else nil
                         return (pscope if not frame else
                                 ((frame, (nil if parent is nil else
@@ -6684,9 +6688,10 @@ class _lexenv():
                 b = self.do_lookup_scope(self.varscope, x, None)
                 return (b and b.kind is kind and b) or default
 def _lexenvp(x):         return _py.isinstance(x, _lexenv.python_type)
-def _make_null_lexenv(): return make_instance(_lexenv, parent = nil)
-def _make_lexenv(parent = None, **initial_content):
-        ## just a dumb pass-through
+def _make_null_lexenv(): return make_instance(_lexenv, parent = null)
+def _make_lexenv(parent = nil, **initial_content):
+        """ :PARENT - NULL for a null lexenv, nil for the value of *LEXENV*.
+            :{NAME,KIND,FULL}-{VAR,FUNC,BLOCK}FRAME - constituents."""
         return _lexenv.python_type(parent, **initial_content)
 
 # Quasiquotation
@@ -9529,7 +9534,7 @@ def DEFUN(name, lambda_list, *body):
           (quasiquote,
             (progn,
               (eval_when, (_compile_toplevel,),
-                ## _compile_toplevel_def_in_lexenv() expectes the compiler-level part of function to be present.
+                ## _compile_named_as_loadable_unit() expectes the compiler-level part of function to be present.
                 (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
               (eval_when, (_load_toplevel, _execute),
                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
@@ -9603,9 +9608,9 @@ def _do_eval(exp, tlf_index, source_info, lexenv):
 
 _string_set("*SOURCE-INFO*", nil) ## XXX: this was not there!
 
-def _eval_tlf(original_exp, tlf_index, lexenv = None):
+def _eval_tlf(original_exp, tlf_index, lexenv = nil):
         return _do_eval(original_exp, tlf_index, _symbol_value(_source_info_),
-                        _defaulted(lexenv, _make_null_lexenv()))
+                        lexenv or _make_null_lexenv())
 
 def eval(original_exp):
         return _do_eval(original_exp, nil, nil, _make_null_lexenv())
