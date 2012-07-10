@@ -7579,7 +7579,7 @@ class _macroexpander_matcher(_metasex_matcher):
 
 _macroexpander = _macroexpander_matcher()
 
-def macroexpand_all(sex, env = nil, compilerp = t):
+def macroexpand_all(sex, lexenv = nil, compilerp = t):
         _, r, f = _macroexpander_inner(_macroexpander, dict(), None,
                                        sex,
                                        nil,  ## The pattern will be discarded out of hand, anyway.
@@ -9197,14 +9197,14 @@ def _lower(form):
 ## @lisp, _compile_in_lexenv (<- macro_function, _simple_eval), _compile_lambda_as_named_toplevel (<- _compile)
 ##   _compile_toplevel_def_in_lexenv
 ##     _compilation_unit_prologue -> _lower
-##     _do_compile -> _lower
+##     _expand_and_lower_in_lexenv -> _lower
 ## @defknown -> _lower
 #
 
 _string_set("*COMPILE-PRINT*",   t) ## Not implemented.
 _string_set("*COMPILE-VERBOSE*", t) ## Partially implemented.
 
-def _do_compile(form, lexenv = nil):
+def _expand_and_lower_in_lexenv(form, lexenv = nil):
         check_type(lexenv, (or_, null, _lexenv))
         if symbol_value(_compile_verbose_):
                 kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
@@ -9219,7 +9219,7 @@ def _do_compile(form, lexenv = nil):
                                       _sex_space(-3, ";"), _sex_space(), _pp_sex(qq_expanded))
                 else:
                         _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
-        macroexpanded = macroexpand_all(qq_expanded, env = lexenv)
+        macroexpanded = macroexpand_all(qq_expanded, lexenv = lexenv)
         if symbol_value(_compiler_trace_macroexpansion_):
                 if form != macroexpanded:
                         _debug_printf(";;;%s macroexpanded:\n%s%s",
@@ -9444,7 +9444,7 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
 def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = nil, lambda_expression = None):
         ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
         def _in_compilation_unit():
-                pro, value = _do_compile(form, lexenv) # We're only interested in the resulting DEF.
+                pro, value = _expand_and_lower_in_lexenv(form, lexenv) # We're only interested in the resulting DEF.
                 cu_pro = _compilation_unit_prologue()
                 pro = cu_pro + pro
                 final_pv = pro, value
