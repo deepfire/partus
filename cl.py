@@ -6603,7 +6603,8 @@ def _compilation_unit_prologue(lexenv = nil):
                                         _ir_funcall(list, *_py.tuple(wrap(sym.function_pyname) for sym in total )),
                                         _ir_funcall(list, *_py.tuple(wrap(sym.symbol_pyname)   for sym in total )),
                                         _ir_funcall(list, *_py.tuple(_unit_symbol_gfun_p(sym)  for sym in total )),
-                                        _ir_funcall(list, *_py.tuple(_unit_symbol_gvar_p(sym)  for sym in total )))))
+                                        _ir_funcall(list, *_py.tuple(_unit_symbol_gvar_p(sym)  for sym in total )))),
+                        lexenv = lexenv)
         def cl_prologue():
                 return [("Import", [("alias", "cl")])]
         # _debug_printf("\n\n===\nGenerating prologue -- top compilation unit: %s, symprog: %s",
@@ -9092,7 +9093,7 @@ def _dump_form(form):
         _debug_printf("%s\n", "*** " + "\n*** ".join(_pp_sex(form).split("\n")))
 
 # Urgent Issue COMPILER-MACRO-SYSTEM
-def _lower(form):
+def _lower(form, lexenv = nil):
         # - tail position tracking
         # - scopes
         # - symbols not terribly clear
@@ -9183,12 +9184,13 @@ def _lower(form):
                         else:
                                 error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
         ## XXX: what about side-effects?
-        pv = _rec(form)
-        compiler_note_result(form, pv)
-        expected_return_type = (pytuple, pylist, (maybe, (partuple, string)))
-        if not typep(pv, expected_return_type):
-                error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
-        return pv
+        with progv({ _lexenv_: _coerce_to_lexenv(lexenv) }):
+                pv = _rec(form)
+                compiler_note_result(form, pv)
+                expected_return_type = (pytuple, pylist, (maybe, (partuple, string)))
+                if not typep(pv, expected_return_type):
+                        error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
+                return pv
 
 #
 ## High-level users of %LOWER
@@ -9230,7 +9232,7 @@ def _expand_and_lower_in_lexenv(form, lexenv = nil):
                                       _sex_space(-3, ";"), _sex_space(), _pp_sex(macroexpanded))
                 else:
                         _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
-        return _lower(macroexpanded)
+        return _lower(macroexpanded, lexenv = lexenv)
 
 def function_lambda_expression(function_):
         """function-lambda-expression function
@@ -9435,7 +9437,7 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
         with progv({ _compiler_fn_: fn }):
                 return _compile_named_as_loadable_unit(
                         ## This decorator-passing scheme is fairly archaic -- we would be better served by macros.
-                        name, _ir_args_when(globalp, _convert_lambda_to_def(name, lambda_expression),
+                        name, _ir_args_when(globalp, _ir_lambda_to_defun(name, lambda_expression),
                                             decorators = [_ir_cl_module_call("_set_macro_definition", name)
                                                           if macrop else
                                                           _ir_cl_module_call("_set_function_definition", name)]),
@@ -9500,8 +9502,7 @@ def _compile_named_as_loadable_unit(name, form, lexenv, globalp = nil, macrop = 
                         warnedp,
                         failedp,
                         pro)
-        with progv({_lexenv_: lexenv}):
-                return with_compilation_unit(_in_compilation_unit)
+        return with_compilation_unit(_in_compilation_unit)
 
 @defun
 def fdefinition(name):
