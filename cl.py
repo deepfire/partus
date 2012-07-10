@@ -7580,11 +7580,12 @@ class _macroexpander_matcher(_metasex_matcher):
 _macroexpander = _macroexpander_matcher()
 
 def macroexpand_all(sex, lexenv = nil, compilerp = t):
-        _, r, f = _macroexpander_inner(_macroexpander, dict(), None,
-                                       sex,
-                                       nil,  ## The pattern will be discarded out of hand, anyway.
-                                       (None, None),
-                                       compilerp = t)
+        with progv({ _macroexpander_env_: _coerce_to_lexenv(lexenv)}):
+                _, r, f = _macroexpander_inner(_macroexpander, dict(), None,
+                                               sex,
+                                               nil,  ## The pattern will be discarded out of hand, anyway.
+                                               (None, None),
+                                               compilerp = t)
         if f is not None:
                 error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", sex, f, _py.repr(r))
         return r
