@@ -8901,8 +8901,7 @@ def def_():
                                                                                                      None))
                                                                                   for name in total } }) }):
                                         with _tail_position():
-                                                # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                                                body_pro, body_val = _lower((block, name) + body)
+                                                body_pro, body_val = _lower((progn,) + body)
                                 # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                                 # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                                 deco_vals = []
@@ -9544,7 +9543,9 @@ def DEFUN(name, lambda_list, *body):
                 (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
               (eval_when, (_load_toplevel, _execute),
                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
-                        (lambda_, (comma, lambda_list), (splice, body)),
+                        (lambda_, (comma, lambda_list),
+                          (block, (comma, name),
+                            (splice, body))),
                         (quote, nil))))))
 
 @lisp
