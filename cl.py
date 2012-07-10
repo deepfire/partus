@@ -8227,8 +8227,8 @@ def flet():
                 if not every(_of_type((partuple, symbol, pytuple)), bindings):
                         error("FLET: malformed bindings: %s.", bindings)
                 # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
-                tempnames = [ gensym(string(name)) for name, _, *__ in bindings ]
-                thunk_name = gensym("THUNK")
+                tempnames = [ gensym(string(name) + "-") for name, _, *__ in bindings ]
+                thunk_name = gensym("FLET-THUNK")
                 form = (progn,
                         (def_, thunk_name, ()) +
                         _py.tuple((def_, tempname, lambda_list) + _py.tuple(fbody)
@@ -8461,7 +8461,7 @@ def block():
                 return { block: { _block_binding(name, t) } }
         def prologuep(name, *body):          return _ir_body_prologuep(body)
         def lower(name, *body):
-                nonce = gensym("BLOCK-" + string(name))
+                nonce = gensym("BLOCK-" + string(name) + "-")
                 catch_target = (catch, (quote, nonce)) + body
                 has_return_from = nil
                 def update_has_return_from(sex):
@@ -9414,7 +9414,7 @@ and true otherwise."""
                 if not definition:
                         # Not much we can do, but return the original function.
                         return fun, nil, nil, nil
-        final_name = the(symbol, name) or gensym("compiled_lambda")
+        final_name = the(symbol, name) or gensym("COMPILED-LAMBDA")
         # Must has a name, for two reasons:
         #  - _ast_compiled_name() requires one
         #  - THERE-EXIST lambdas non-expressible in Python
