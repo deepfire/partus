@@ -6255,13 +6255,13 @@ def _compiler_config_tracing(**keys):
 def _ensure_function_pyname(symbol):
         if symbol.function_pyname is not None:
                 return symbol.function_pyname
-        symbol.function_pyname = (_gensymname("FUN_" + _py.str(symbol)) if _compiler_safe_namespace_separation else
+        symbol.function_pyname = (_gensymname("FUN_" + _py.str(symbol) + "-") if _compiler_safe_namespace_separation else
                                   _py.str(symbol))
         return symbol.function_pyname
 def _ensure_symbol_pyname(symbol):
         if symbol.symbol_pyname is not None:
                 return symbol.symbol_pyname
-        symbol.symbol_pyname = (_gensymname("SYM_" + _py.str(symbol)) if _compiler_safe_namespace_separation else
+        symbol.symbol_pyname = (_gensymname("SYM_" + _py.str(symbol) + "-") if _compiler_safe_namespace_separation else
                                 _py.str(symbol))
         return symbol.symbol_pyname
 
