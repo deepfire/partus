@@ -2933,7 +2933,7 @@ Exceptional Situations:
 The consequences are undefined if ENVIRONMENT is non-NIL in a use of
 SETF of MACRO-FUNCTION."""
         b_or_res = (the(_lexenv, environment).lookup_func_kind(macro, symbol_, nil) if environment else
-                    the(symbol, symbol_).macro_function)
+                    nil) or the(symbol, symbol_).macro_function
         if b_or_res and _bindingp(b_or_res) and _tuplep(b_or_res.value):
                lambda_list, body = b_or_res.value
                b_or_res = the(function, _compile_in_lexenv(nil,
