@@ -8189,7 +8189,7 @@ def let():
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
                                                                                          for name, form in bindings +
-                                                                                         aux_bindings} }) })
+                                                                                         aux_bindings } }) })
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
                 return _py.any(_ir_effects(f) for f in _py.tuple(x[1] for x in bindings) + body)
@@ -9205,6 +9205,7 @@ _string_set("*COMPILE-PRINT*",   t) ## Not implemented.
 _string_set("*COMPILE-VERBOSE*", t) ## Partially implemented.
 
 def _do_compile(form, lexenv = nil):
+        check_type(lexenv, (or_, null, _lexenv))
         if symbol_value(_compile_verbose_):
                 kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
                 _debug_printf("; compiling %s %s", kind, maybe_name)
@@ -9911,7 +9912,7 @@ class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
 
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
-_compiler_config_tracing(rewrites = t)
+_compiler_config_tracing(entry_forms = t, macroexpansion = t, rewrites = t, pretty_full = t)
 
 load("vpcl.lisp", verbose = t)
 
