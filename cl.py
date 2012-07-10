@@ -9199,18 +9199,20 @@ def _lower(form, lexenv = nil):
 ##   _do_eval
 ##     _eval_in_lexenv        <-_
 ##       _simple_eval_in_lexenv /
-##         _simple_eval -> _compile_in_lexenv
-## @lisp, _compile_in_lexenv (<- macro_function, _simple_eval), _compile_lambda_as_named_toplevel (<- _compile)
-##   _compile_named_as_loadable_unit
-##     _compilation_unit_prologue -> _lower
-##     _expand_and_lower_in_lexenv -> _lower
+##         _simple_eval =-> _compile_in_lexenv
+## @lisp, _compile_in_lexenv (<-= macro_function, _simple_eval), _compile_lambda_as_named_toplevel (<-= _compile)
+##   _compile_and_load_function
+##     _compile_loadable_unit :: form -> code-object
+##       _expand_and_lower_in_lexenv =-> _lower
+##       _compilation_unit_prologue =-> _lower
 ## @defknown -> _lower
 #
 
 _string_set("*COMPILE-PRINT*",   t) ## Not implemented.
 _string_set("*COMPILE-VERBOSE*", t) ## Partially implemented.
 
-def _expand_and_lower_in_lexenv(form, lexenv = nil):
+def _expand_and_lower_in_lexenv(form, lexenv = nil, toplevelp = nil):
+        ## Consistency: LEXENV must only bind macros, when TOPLEVELP is non-NIL
         check_type(lexenv, (or_, null, _lexenv))
         if symbol_value(_compile_verbose_):
                 kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
@@ -9218,6 +9220,9 @@ def _expand_and_lower_in_lexenv(form, lexenv = nil):
         if symbol_value(_compiler_trace_entry_forms_):
                 _debug_printf(";;;%s compiling:\n%s%s",
                               _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
+        ## The quasiquote expansion ought to be done by the reader.
+        ## Alas, we don't have it this early.
+        ## We might rid of it, if we don't plan to use lisp-in-python-syntax much.
         qq_expanded = _expand_quasiquotation(form)
         if symbol_value(_compiler_trace_qqexpansion_):
                 if form != qq_expanded:
@@ -9332,15 +9337,13 @@ def lisp(body):
         if not (symbolp(form[0]) and symbol_name(form[0]) in __def_allowed_toplevels__):
                 error("In LISP %s: only toplevels in %s are allowed.",
                       _py.repr(form[0]), __def_allowed_toplevels__)
-        name, warnedp, failedp, _ = _compile_named_as_loadable_unit(symbol, form, _make_null_lexenv(),
-                                                                    globalp = t,
-                                                                    macrop = form[0] is defmacro,
-                                                                    lambda_expression = (lambda_,) + form[2:])
+        function, failedp, warnedp = _compile_and_load_function(symbol, form, _make_null_lexenv(),
+                                                                lambda_expression = (lambda_,) + form[2:])
         if failedp:
                 error("Compilation failed: errors while compiling %s.", name)
         elif warnedp:
                 pass # Unregistered Issue LISP-TOPLEVEL-PROCESSOR-IGNORES-WARNINGS
-        return name
+        return function.name
 
 def compile(name, definition = None):
         # Multiple values would have reduced, if not obviated, the need for such..
@@ -9422,8 +9425,8 @@ and true otherwise."""
 
 def _compile_in_lexenv(name, lambda_expression, lexenv):
         final_name = the(symbol, name) or gensym("COMPILED-LAMBDA")
-        return _compile_named_as_loadable_unit(final_name, _ir_lambda_to_defun(final_name, lambda_expression), lexenv,
-                                               lambda_expression = lambda_expression)
+        return _compile_and_load_function(final_name, _ir_lambda_to_defun(final_name, lambda_expression), lexenv,
+                                          lambda_expression = lambda_expression)
 
 def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
         "There really is no other way.  Trust me.  Please."
@@ -9435,19 +9438,17 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
                              globalp = globalp)
         ## fn.clear_dependencies() -- not needed, for as long as we create functions anew (HAR, um, HAR, I suppose..)
         with progv({ _compiler_fn_: fn }):
-                return _compile_named_as_loadable_unit(
+                return _compile_and_load_function(
                         ## This decorator-passing scheme is fairly archaic -- we would be better served by macros.
                         name, _ir_args_when(globalp, _ir_lambda_to_defun(name, lambda_expression),
                                             decorators = [_ir_cl_module_call("_set_macro_definition", name)
                                                           if macrop else
                                                           _ir_cl_module_call("_set_function_definition", name)]),
                         lexenv,
-                        globalp = globalp, macrop = globalp and macrop,
                         lambda_expression = lambda_expression)
 
-def _compile_named_as_loadable_unit(name, form, lexenv, globalp = nil, macrop = nil, lambda_expression = None):
+def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil):
         "Here, a unit, is something, that has enough environment set up to be functioning on its own."
-        ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
         def _in_compilation_unit():
                 pro, value = _expand_and_lower_in_lexenv(form, lexenv) # We're only interested in the resulting DEF.
                 cu_pro = _compilation_unit_prologue(lexenv = lexenv)
@@ -9464,29 +9465,15 @@ def _compile_named_as_loadable_unit(name, form, lexenv, globalp = nil, macrop = 
                 pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(final_pv))
                 import more_ast
                 more_ast.assign_meaningful_locations(pro_ast)
-                if symbol_value(_compiler_trace_toplevels_):
-                        import more_ast
-                        _debug_printf(";;; In C-T-D-I-L: Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
+                if print_xform:
+                        _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
                                       _pp_sex(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
                                                                for x in pro_ast))
                         ############################ This is an excess newline, so it is a bug workaround.
                         ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
                         if typep(pro_ast[0], _ast.FunctionDef):
                                 _debug_printf("type of ast: %s\ndecorators: %s", type_of(pro_ast[0]), pro_ast[0].decorator_list)
-                # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
-                acn = _ast_compiled_name(_frost.full_symbol_name_python_name(name),
-                                         *pro_ast,
-                                         function = _get_function_pyname(name), ## No name map population here.
-                                         globals = _py.globals(),
-                                         locals  = _py.locals())
-                sym = the(symbol, acn)
-                func = the(function, symbol_function(sym))
-                # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
-                # Feed FUNCTION-LAMBDA-EXPRESSION:
-                if _specifiedp(lambda_expression):
-                        func.lambda_expression = lambda_expression
-                func.closure_p         = nil
-                func.name              = name # Debug name, as per F-L-E spec.
+                bytecode = _py.compile(_ast.fix_missing_locations(_ast_module(pro_ast)), filename, "exec")
                 warnings, style_warnings, errors = [], [], []
                 ## XXX: was too lazy to fix compilation unit stuff, so commented out..
                 # for cond in _compilation_unit_get("conditions"):
@@ -9496,13 +9483,27 @@ def _compile_named_as_loadable_unit(name, form, lexenv, globalp = nil, macrop = 
                 #                 style_warnings.append(cond)
                 #         elif typep(cond, warning):
                 #                 warnings.append(cond)
+                ## Those are as per standard.
                 warnedp, failedp = (not not (errors or warnings or style_warnings),
                                     not not (errors or warnings))
-                return ((name if globalp else func),
-                        warnedp,
-                        failedp,
-                        pro)
+                return bytecode, warnedp, failedp
         return with_compilation_unit(_in_compilation_unit)
+
+def _compile_and_load_function(name, form, lexenv, lambda_expression = None):
+        (bytecode,
+         warnedp,
+         failedp) = _compile_loadable_unit(name, form, lexenv, print_xform = symbol_value(_compiler_trace_toplevels_))
+        _, __, locals = _load_code_object_as_module("", bytecode, register = nil,
+                                                    globals = _py.globals(),
+                                                    locals  = _py.locals())
+        sym = the(symbol, locals[_get_function_pyname(name)])
+        func = the(function, symbol_function(sym))
+        # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
+        # Feed FUNCTION-LAMBDA-EXPRESSION:
+        if _specifiedp(lambda_expression):
+                func.lambda_expression = lambda_expression
+        func.name              = name # Debug name, as per F-L-E spec.
+        return func, warnedp, failedp
 
 @defun
 def fdefinition(name):
@@ -9539,7 +9540,7 @@ def DEFUN(name, lambda_list, *body):
           (quasiquote,
             (progn,
               (eval_when, (_compile_toplevel,),
-                ## _compile_named_as_loadable_unit() expectes the compiler-level part of function to be present.
+                ## _compile_and_load_function() expectes the compiler-level part of function to be present.
                 (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
               (eval_when, (_load_toplevel, _execute),
                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
@@ -9916,7 +9917,11 @@ class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
 
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
-_compiler_config_tracing(entry_forms = t, macroexpansion = t, rewrites = t, pretty_full = t)
+_compiler_config_tracing(toplevels = t,
+                         # entry_forms = t,
+                         macroexpansion = t,
+                         rewrites = t,
+                         pretty_full = t)
 
 load("vpcl.lisp", verbose = t)
 
