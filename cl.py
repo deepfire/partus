@@ -8177,20 +8177,28 @@ def let():
                         aux_bindings = ()
                 else:
                         _compiler_trace_choice(let, "NONEXPR-SETQ-LAMBDA")
-                        last_non_expr_posn = position_if(_ir_prologue_p, values, from_end = t)
-                        n_exprs = last_non_expr_posn + 1
-                        orig_expr_bindings = bindings[_py.len(bindings) - n_exprs:]
-                        temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
+                        thunk_name = gensym("LET-THUNK")
                         # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
-                        aux_bindings = _py.tuple(_py.zip(temp_names, values[:-n_exprs or None]))
-                        form = ((progn,) +
-                                _py.tuple(_ir_args_when(function_scope,
-                                                        (setq, n, v),
-                                                        function_scope = function_scope)
-                                          for n, v in aux_bindings) +
-                                (_ir(lambda_, (_optional,) + aux_bindings + orig_expr_bindings, *body,
-                                     evaluate_defaults_early = t,
-                                     function_scope = function_scope),))
+                        form = (progn,
+                                (def_, thunk_name, (),) +
+                                  _py.tuple((setq, name, value)
+                                            for name, value in _py.zip(names, values)) +
+                                  body,
+                                _ir_funcall(thunk_name))
+                        aux_bindings = ()
+                        # last_non_expr_posn = position_if(_ir_prologue_p, values, from_end = t)
+                        # n_exprs = last_non_expr_posn + 1
+                        # orig_expr_bindings = bindings[_py.len(bindings) - n_exprs:]
+                        # temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
+                        # aux_bindings = _py.tuple(_py.zip(temp_names, values[:-n_exprs or None]))
+                        # form = ((progn,) +
+                        #         _py.tuple(_ir_args_when(function_scope,
+                        #                                 (setq, n, v),
+                        #                                 function_scope = function_scope)
+                        #                   for n, v in aux_bindings) +
+                        #         (_ir(lambda_, (_optional,) + aux_bindings + orig_expr_bindings, *body,
+                        #              evaluate_defaults_early = t,
+                        #              function_scope = function_scope),))
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
                                                                                          for name, form in bindings +
@@ -8227,12 +8235,14 @@ def flet():
                 if not every(_of_type((partuple, symbol, pytuple)), bindings):
                         error("FLET: malformed bindings: %s.", bindings)
                 # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
-                tempnames = [ gensym(string(name) + "-") for name, _, *__ in bindings ]
+                # tempnames = [ gensym(string(name) + "-") for name, _, *__ in bindings ]
+                # Unregistered Issue FLET-IS-ACTUALLY-LABELS
+                # Unregistered Issue FLET-CAN-HAVE-EXPRESSION-REWRITE
                 thunk_name = gensym("FLET-THUNK")
                 form = (progn,
                         (def_, thunk_name, ()) +
-                        _py.tuple((def_, tempname, lambda_list) + _py.tuple(fbody)
-                                  for tempname, (name, lambda_list, *fbody) in _py.zip(tempnames, bindings)) +
+                        _py.tuple((def_, name, lambda_list) + _py.tuple(fbody)
+                                  for (name, lambda_list, *fbody) in bindings) +
                          body,
                         _ir_funcall(thunk_name))
                 return _rewritten(form,
