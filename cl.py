@@ -8182,7 +8182,7 @@ def let():
                         thunk_name = gensym("LET-THUNK")
                         # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                         form = (progn,
-                                (def_, thunk_name, (),) +
+                                (def_, thunk_name, ()) +
                                   _py.tuple((setq, name, value)
                                             for name, value in _py.zip(names, values)) +
                                   body,
@@ -9225,12 +9225,13 @@ _string_set("*COMPILE-VERBOSE*", t) ## Partially implemented.
 def _expand_and_lower_in_lexenv(form, lexenv = nil, toplevelp = nil):
         ## Consistency: LEXENV must only bind macros, when TOPLEVELP is non-NIL
         check_type(lexenv, (or_, null, _lexenv))
+        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
         if symbol_value(_compile_verbose_):
                 kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
                 _debug_printf("; compiling %s %s", kind, maybe_name)
         if symbol_value(_compiler_trace_entry_forms_):
                 _debug_printf(";;;%s compiling:\n%s%s",
-                              _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
+                              _sex_space(-3, ";"), _sex_space(), pp(form))
         ## The quasiquote expansion ought to be done by the reader.
         ## Alas, we don't have it this early.
         ## We might rid of it, if we don't plan to use lisp-in-python-syntax much.
@@ -9238,14 +9239,14 @@ def _expand_and_lower_in_lexenv(form, lexenv = nil, toplevelp = nil):
         if symbol_value(_compiler_trace_qqexpansion_):
                 if form != qq_expanded:
                         _debug_printf(";;;%s quasiquotation expanded to:\n%s%s",
-                                      _sex_space(-3, ";"), _sex_space(), _pp_sex(qq_expanded))
+                                      _sex_space(-3, ";"), _sex_space(), pp(qq_expanded))
                 else:
                         _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
         macroexpanded = macroexpand_all(qq_expanded, lexenv = lexenv)
         if symbol_value(_compiler_trace_macroexpansion_):
                 if form != macroexpanded:
                         _debug_printf(";;;%s macroexpanded:\n%s%s",
-                                      _sex_space(-3, ";"), _sex_space(), _pp_sex(macroexpanded))
+                                      _sex_space(-3, ";"), _sex_space(), pp(macroexpanded))
                 else:
                         _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
         return _lower(macroexpanded, lexenv = lexenv)
@@ -9460,6 +9461,7 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
 
 def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil, print_disasm = nil):
         "Here, a unit, is something, that has enough environment set up to be functioning on its own."
+        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
         def _in_compilation_unit():
                 pro, value = _expand_and_lower_in_lexenv(form, lexenv) # We're only interested in the resulting DEF.
                 cu_pro = _compilation_unit_prologue(lexenv = lexenv)
@@ -9478,8 +9480,8 @@ def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil,
                 more_ast.assign_meaningful_locations(pro_ast)
                 if print_xform:
                         _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
-                                      _pp_sex(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
-                                                               for x in pro_ast))
+                                      pp(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
+                                                          for x in pro_ast))
                         ############################ This is an excess newline, so it is a bug workaround.
                         ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
                         if typep(pro_ast[0], _ast.FunctionDef):
