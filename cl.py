@@ -9518,9 +9518,7 @@ def _compile_and_load_function(name, form, lexenv, lambda_expression = None):
          failedp) = _compile_loadable_unit(name, form, lexenv,
                                            print_xform = symbol_value(_compiler_trace_toplevels_),
                                            print_disasm = symbol_value(_compiler_trace_toplevels_disasm_))
-        _, __, locals = _load_code_object_as_module("", bytecode, register = nil,
-                                                    globals = _py.globals(),
-                                                    locals  = _py.locals())
+        _, __, locals = _load_code_object_as_module("", bytecode, register = nil)
         sym = the(symbol, locals[_get_function_pyname(name)])
         func = the(function, symbol_function(sym))
         # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
