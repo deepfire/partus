@@ -6232,17 +6232,18 @@ def _match(matcher, exp, pat):
 _compiler_safe_namespace_separation = t
 _compiler_max_mockup_level = 3
 
-_string_set("*COMPILER-TRACE-TOPLEVELS*",      nil)
-_string_set("*COMPILER-TRACE-ENTRY-FORMS*",    nil)
-_string_set("*COMPILER-TRACE-QQEXPANSION*",    nil)
-_string_set("*COMPILER-TRACE-MACROEXPANSION*", nil)
+_string_set("*COMPILER-TRACE-TOPLEVELS*",        nil)
+_string_set("*COMPILER-TRACE-TOPLEVELS-DISASM*", nil)
+_string_set("*COMPILER-TRACE-ENTRY-FORMS*",      nil)
+_string_set("*COMPILER-TRACE-QQEXPANSION*",      nil)
+_string_set("*COMPILER-TRACE-MACROEXPANSION*",   nil)
 
-_string_set("*COMPILER-TRACE-FORMS*",          nil)
-_string_set("*COMPILER-TRACE-SUBFORMS*",       nil)
-_string_set("*COMPILER-TRACE-REWRITES*",       nil)
-_string_set("*COMPILER-TRACE-CHOICES*",        nil)
-_string_set("*COMPILER-TRACE-RESULT*",         nil)
-_string_set("*COMPILER-TRACE-PRETTY-FULL*",    nil)
+_string_set("*COMPILER-TRACE-FORMS*",            nil)
+_string_set("*COMPILER-TRACE-SUBFORMS*",         nil)
+_string_set("*COMPILER-TRACE-REWRITES*",         nil)
+_string_set("*COMPILER-TRACE-CHOICES*",          nil)
+_string_set("*COMPILER-TRACE-RESULT*",           nil)
+_string_set("*COMPILER-TRACE-PRETTY-FULL*",      nil)
 
 def _compiler_config_tracing(**keys):
         known_trace_args = {"toplevels", "entry_forms", "qqexpansion", "macroexpansion",
@@ -9457,7 +9458,7 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
                         lexenv,
                         lambda_expression = lambda_expression)
 
-def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil):
+def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil, print_disasm = nil):
         "Here, a unit, is something, that has enough environment set up to be functioning on its own."
         def _in_compilation_unit():
                 pro, value = _expand_and_lower_in_lexenv(form, lexenv) # We're only interested in the resulting DEF.
@@ -9484,6 +9485,16 @@ def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil)
                         if typep(pro_ast[0], _ast.FunctionDef):
                                 _debug_printf("type of ast: %s\ndecorators: %s", type_of(pro_ast[0]), pro_ast[0].decorator_list)
                 bytecode = _py.compile(_ast.fix_missing_locations(_ast_module(pro_ast)), filename, "exec")
+                if print_disasm:
+                        _debug_printf(";;; Bytecode ================\n")
+                        import dis
+                        def rec(x):
+                                dis.dis(x)
+                                for sub in x.co_consts:
+                                        if _py.isinstance(sub, _types.CodeType):
+                                                _debug_printf(";;; child code -------------\n")
+                                                rec(sub)
+                        rec(bytecode)
                 warnings, style_warnings, errors = [], [], []
                 ## XXX: was too lazy to fix compilation unit stuff, so commented out..
                 # for cond in _compilation_unit_get("conditions"):
@@ -9502,7 +9513,9 @@ def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil)
 def _compile_and_load_function(name, form, lexenv, lambda_expression = None):
         (bytecode,
          warnedp,
-         failedp) = _compile_loadable_unit(name, form, lexenv, print_xform = symbol_value(_compiler_trace_toplevels_))
+         failedp) = _compile_loadable_unit(name, form, lexenv,
+                                           print_xform = symbol_value(_compiler_trace_toplevels_),
+                                           print_disasm = symbol_value(_compiler_trace_toplevels_disasm_))
         _, __, locals = _load_code_object_as_module("", bytecode, register = nil,
                                                     globals = _py.globals(),
                                                     locals  = _py.locals())
@@ -9930,6 +9943,7 @@ class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
 _compiler_config_tracing(toplevels = t,
+                         toplevels_disasm = t,
                          # entry_forms = t,
                          macroexpansion = t,
                          rewrites = t,
