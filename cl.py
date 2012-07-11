@@ -6432,7 +6432,8 @@ def _self_evaluating_form_p(x):
         return _py.isinstance(x, (_py.int, _py.str, _py.float)) or x in [t, nil]
 
 def _ir_funcall(func, *args):
-        return (apply, (function, func)) + args + ((quote, nil),)
+        return (apply, (function, ((quote, (func,)) if stringp(func) else
+                                   func))) + args + ((quote, nil),)
 
 def _ir_cl_module_name(name):
         return ("cl", name)
@@ -6591,12 +6592,12 @@ def _compilation_unit_prologue(lexenv = nil):
                         (progn,
                          _ir_cl_module_call(
                                         "_fop_make_symbol_available",
-                                        _ir_funcall((quote, ("globals",))),
+                                        _ir_funcall("globals"),
                                         "COMMON-LISP", "LIST", _ensure_function_pyname(list), (ref, (quote, ("None",))),
                                         True, False),
                          _ir_cl_module_call(
                                         "_fop_make_symbols_available",
-                                        _ir_funcall((quote, ("globals",))),
+                                        _ir_funcall("globals"),
                                         _ir_funcall(list, *_py.tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
                                                                                                for sym in total )),
                                         _ir_funcall(list, *_py.tuple(symbol_name(sym)          for sym in total )),
