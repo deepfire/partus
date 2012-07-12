@@ -9261,6 +9261,9 @@ def _expand_and_lower_in_lexenv(form, lexenv = nil, toplevelp = nil):
                                       _sex_space(-3, ";"), _sex_space(), pp(macroexpanded))
                 else:
                         _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
+        if toplevelp:
+                ## This is done, essentially, to execute all compile-time EVAL-WHEN's.
+                _process_toplevel(macroexpanded)
         return _lower(macroexpanded, lexenv = lexenv)
 
 def function_lambda_expression(function_):
