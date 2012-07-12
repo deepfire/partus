@@ -8930,7 +8930,11 @@ def def_():
                                                 error("in DEF %s: decorators must lower to python expressions.", name)
                                         deco_vals.append(val_deco)
                                 return _lowered([("FunctionDef", _unit_function_pyname(name), compiled_lambda_list,
-                                                  (body_pro +
+                                                  (# [_atree_import("pdb", "cl"),
+                                                   #  ("Expr",
+                                                   #   _atree_funcall(_atree_ref("cl", "_without_condition_system"),
+                                                   #                  _atree_ref("pdb", "set_trace")))] +
+                                                   body_pro +
                                                    [("Return", body_val)]),
                                                   deco_vals),
                                                  # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
@@ -9357,8 +9361,11 @@ def lisp(body):
         if not (symbolp(form[0]) and symbol_name(form[0]) in __def_allowed_toplevels__):
                 error("In LISP %s: only toplevels in %s are allowed.",
                       _py.repr(form[0]), __def_allowed_toplevels__)
-        function, failedp, warnedp = _compile_and_load_function(symbol, form, _make_null_lexenv(),
-                                                                lambda_expression = (lambda_,) + form[2:])
+        function, gls, failedp, warnedp = _compile_and_load_function(symbol, form, _make_null_lexenv(),
+                                                                         lambda_expression = (lambda_,) + form[2:])
+        ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
+        for k, v in gls.items():
+                function.__globals__[k] = v
         if failedp:
                 error("Compilation failed: errors while compiling %s.", name)
         elif warnedp:
@@ -9520,21 +9527,32 @@ def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil,
                 return bytecode, warnedp, failedp
         return with_compilation_unit(_in_compilation_unit)
 
+def _peek_func_globals(x, desc = "FUNC"):
+        func = the(function, (x if functionp(x) else
+                              symbol_function(x) or macro_function(x)))
+        _debug_printf("\n  %s %s (0x%x): globals %x (of type %s)\n%s",
+                      desc, func.__name__, _py.id(func),
+                      id(func.__globals__), type_of(func.__globals__),
+                      { k:v for k,v in func.__globals__.items() if k != '__builtins__' })
+        _backtrace(15, frame_ids = t, offset = 1)
+
 def _compile_and_load_function(name, form, lexenv, lambda_expression = None):
         (bytecode,
          warnedp,
          failedp) = _compile_loadable_unit(name, form, lexenv,
                                            print_xform = symbol_value(_compiler_trace_toplevels_),
                                            print_disasm = symbol_value(_compiler_trace_toplevels_disasm_))
-        _, __, locals = _load_code_object_as_module("", bytecode, register = nil)
-        sym = the(symbol, locals[_get_function_pyname(name)])
+        mod, globals, locals = _load_code_object_as_module("", bytecode, register = nil)
+        sym = the(symbol, # globals[_get_function_pyname(name)]
+                  mod.__dict__[_get_function_pyname(name)])
         func = the(function, symbol_function(sym))
+        # _without_condition_system(_pdb.set_trace) # { k:v for k,v in func.__globals__.items() if k != '__builtins__' }
         # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
         # Feed FUNCTION-LAMBDA-EXPRESSION:
         if _specifiedp(lambda_expression):
                 func.lambda_expression = lambda_expression
         func.name              = name # Debug name, as per F-L-E spec.
-        return func, warnedp, failedp
+        return func, _py.dict(globals), warnedp, failedp
 
 @defun
 def fdefinition(name):
