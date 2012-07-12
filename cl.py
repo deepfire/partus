@@ -1874,8 +1874,8 @@ def _print_frames(fs, stream = None, frame_ids = None):
                                  (i, _pp_frame(f, lineno = True, frame_id = frame_ids))),
              *_py.zip(*_py.enumerate(fs)))
 
-def _backtrace(x = -1, stream = None, frame_ids = None):
-        _print_frames(_frames_calling(_this_frame())[1:x],
+def _backtrace(x = -1, stream = None, frame_ids = None, offset = 0):
+        _print_frames(_frames_calling(_this_frame())[1 + offset:x],
                       _defaulted_to_var(stream, _debug_io_),
                       frame_ids = frame_ids)
 
