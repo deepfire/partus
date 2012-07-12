@@ -5635,11 +5635,22 @@ def _ast_alias(name:    string,
 
 # Python value -> Atree
 
-def _atree_attribute_chain(xs, writep = nil):
-        return reduce((lambda acc, attr: ("Attribute", attr, acc,
-                                                       ("Store" if writep else "Load",))),
+def _atree_import(*names):
+        return ("Import", [("alias", name) for name in names])
+
+def _atree_setq(name, value):
+        return ("Assign", [_lower_name(name, writep = t)], value)
+
+def _attr_chain_atree(xs, writep = nil):
+        return reduce((lambda acc, attr: ("Attribute", acc, attr, ("Store" if writep else "Load",))),
                       xs[1:],
                       ("Name", xs[0], ("Store" if writep else "Load",)))
+
+def _atree_ref(*xs):
+        return _attr_chain_atree(xs)
+
+def _atree_funcall(fn, *args):
+        return ("Call", fn, _py.list(args), [])
 
 def _try_atreeify_list(xs):
         ret = []
@@ -5742,11 +5753,6 @@ all AST-trees .. except for the case of tuples."""
         return ret
 
 # Atree tools
-
-def _attr_chain_atree(xs):
-        return reduce((lambda acc, attr: ("Attribute", acc, attr, ("Load",))),
-                      xs[1:],
-                      ("Name", xs[0], ("Load",)))
 
 # Code
 
@@ -7939,13 +7945,13 @@ def _ir_function_form_nth_value_form(n, func, orig_form):
 #         :CL:       [X]
 #         :END:
 
-def _lower_name(name, ctx = "Load"):
+def _lower_name(name, writep = nil):
         check_type(name, (or_, string, symbol, (pytuple, (eql, symbol), symbol)))
-        if _tuplep(name) and ctx != "Load":
-                error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
+        if _tuplep(name) and writep:
+                error("COMPILE-NAME: write access disallowed while lowering (SYMBOL ..) forms.")
         return ("Name", (name if stringp(name) else
                          _frost.full_symbol_name_python_name(name[1] if _tuplep(name) else name)),
-                (ctx,))
+                ("Store" if writep else "Load",))
 
 @defknown((intern("SETQ")[0], " ", (_typep, symbol), " ", _form))
 def setq():
@@ -7972,9 +7978,10 @@ def setq():
                         return _rewritten(_ir_cl_module_call("_do_set", (quote, name), value, (ref, (quote, ("None",)))))
                 _compiler_trace_choice(setq, "LEXICAL")
                 pro, val = _lower(value)
-                return _lowered(pro + [("Assign", [_lower_name((_unit_function_pyname if function_scope else
-                                                                _unit_symbol_pyname   if symbol_scope else
-                                                                identity)(name), "Store")], val)],
+                return _lowered(pro + [_atree_setq((_unit_function_pyname if function_scope else
+                                                    _unit_symbol_pyname   if symbol_scope else
+                                                    identity)(name),
+                                                   val)],
                                 _lower_name(name))
         def effects(name, value):         return t
         def affected(name, value):        return _ir_affected(value)
@@ -8037,16 +8044,16 @@ def multiple_value_call():
                 ## We have no choice, but to lower immediately, and by hand.
                 ## No further processing, also.  At least as far as is observable now.
                 (fn_p, fn_v, fn_n), *arg_pvns = [ _lower(x) + (_gensymname(),) for x in (fn,) + arg_forms ]
-                pro = fn_p + [("Assign", [ _lower_name(fn_n, "Store") ], fn_v)]
+                pro = fn_p + [_atree_setq(fn_n, fn_v)]
                 for p, v, n in arg_pvns:
                         pro.extend(p)
-                        pro.append(("Assign", [_lower_name(n, "Store")], v))
+                        pro.append(_atree_setq(n, v))
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
                 return _lowered(pro,
-                                ("Call", fn_n, [("Subscript", _lower_name(n),
-                                                 ("Slice", ("Num", 1)),
-                                                 ("Load",))
-                                                for _, __, n in arg_pvns], []))
+                                _atree_funcall(fn_n, *[("Subscript", _lower_name(n),
+                                                        ("Slice", ("Num", 1)),
+                                                        ("Load",))
+                                                       for _, __, n in arg_pvns]))
         def effects(fn, *arg_forms):
                 return (_py.any(_ir_effects(arg) for arg in arg_forms) or
                         _ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
