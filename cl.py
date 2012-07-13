@@ -9237,6 +9237,31 @@ _string_set("*COMPILE-VERBOSE*", t) ## Partially implemented.
 def _expand_process_and_lower_in_lexenv(form, lexenv = nil, toplevelp = nil):
         ## Consistency: LEXENV must only bind macros, when TOPLEVELP is non-NIL
         check_type(lexenv, (or_, null, _lexenv))
+        ##
+        def _execute_compile_time_effects(form):
+                if not consp(form):
+                        return
+                def make_processor(skip_subforms, doc_and_decls):
+                        def processor(*forms):
+                                relevant = forms[skip_subforms:]
+                                body = _parse_body(relevant)[0]
+                                for f in body: rec(f)
+                        return processor
+                def process_eval_when(_, situations, *body):
+                        ct, lt, e = _parse_eval_when_situations(situations)
+                        if ct:
+                                eval((progn,) + body)
+                actions = {
+                        progn:           make_processor(skip_subforms = 1, doc_and_decls = nil),
+                        macrolet:        make_processor(skip_subforms = 2, doc_and_decls = t),
+                        symbol_macrolet: make_processor(skip_subforms = 2, doc_and_decls = t),
+                        locally:         make_processor(skip_subforms = 1, doc_and_decls = t),
+                        eval_when:       process_eval_when,
+                        }
+                def rec(form):
+                        actions.get(form[0], lambda _: None)(*form)
+                rec(form)
+        ## _expand_process_and_lower_in_lexenv():
         pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
         if symbol_value(_compile_verbose_):
                 kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
@@ -9263,7 +9288,9 @@ def _expand_process_and_lower_in_lexenv(form, lexenv = nil, toplevelp = nil):
                         _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
         if toplevelp:
                 ## This is done, essentially, to execute all compile-time EVAL-WHEN's.
-                _process_toplevel(macroexpanded)
+                ## Note, how the lexenv is irrelevant here (is it?).
+                ## As a doubt: what if the compile-time code wishes to access lexical macro definitions?
+                _execute_compile_time_effects(macroexpanded)
         return _lower(macroexpanded, lexenv = lexenv)
 
 ##
