@@ -6412,7 +6412,7 @@ def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
 
 # Generic pieces
 
-def _parse_body(body, doc_string_allowed = t, toplevel = nil):
+def _parse_body(body, doc_string_allowed = t):
         doc = nil
         def doc_string_p(x, remaining_forms):
                 return ((error("duplicate doc string %s", x) if doc else t)
@@ -6432,6 +6432,13 @@ def _parse_body(body, doc_string_allowed = t, toplevel = nil):
         return (forms,
                 decls,
                 doc)
+
+_eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
+_eval_when_keywords = _py.set(_eval_when_ordered_keywords)
+def _parse_eval_when_situations(situ_form):
+        if not (_tuplep(situ_form) and not (_py.set(situ_form) - _eval_when_keywords)):
+                error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
+        return [x in situ_form for x in _eval_when_ordered_keywords]
 
 def _process_decls(decls, vars, fvars):
         _warn_not_implemented()
@@ -8629,13 +8636,6 @@ def go():
 #         :CL:       [X]
 #         :END:
 
-_eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
-_eval_when_keywords = _py.set(_eval_when_ordered_keywords)
-def _parse_eval_when_situations(situ_form):
-        if not (_tuplep(situ_form) and not (_py.set(situ_form) - _eval_when_keywords)):
-                error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
-        return [x in situ_form for x in _eval_when_ordered_keywords]
-
 ## Unregistered Issue EVAL-WHEN-LACKING-SPACE-BETWEEN-KEYWORDS-WHEN-PRINTED
 @defknown((intern("EVAL-WHEN")[0], " ", ([(_notlead, " "),
                                           (or_, _compile_toplevel,
@@ -9223,10 +9223,10 @@ def _lower(form, lexenv = nil):
 ##     _eval_in_lexenv        <-_
 ##       _simple_eval_in_lexenv /
 ##         _simple_eval =-> _compile_in_lexenv
-## @lisp, _compile_in_lexenv (<-= macro_function, _simple_eval), _compile_lambda_as_named_toplevel (<-= _compile)
+## _read_function_object_ast_compile_load_and_pymport, _compile_lambda_as_named_toplevel (<-= _compile), _compile_in_lexenv (<-= macro_function, _simple_eval)
 ##   _compile_and_load_function
 ##     _compile_loadable_unit :: form -> code-object
-##       _expand_and_lower_in_lexenv =-> _lower
+##       _expand_process_and_lower_in_lexenv =-> _lower
 ##       _compilation_unit_prologue =-> _lower
 ## @defknown -> _lower
 #
@@ -9234,7 +9234,7 @@ def _lower(form, lexenv = nil):
 _string_set("*COMPILE-PRINT*",   t) ## Not implemented.
 _string_set("*COMPILE-VERBOSE*", t) ## Partially implemented.
 
-def _expand_and_lower_in_lexenv(form, lexenv = nil, toplevelp = nil):
+def _expand_process_and_lower_in_lexenv(form, lexenv = nil, toplevelp = nil):
         ## Consistency: LEXENV must only bind macros, when TOPLEVELP is non-NIL
         check_type(lexenv, (or_, null, _lexenv))
         pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
@@ -9266,50 +9266,8 @@ def _expand_and_lower_in_lexenv(form, lexenv = nil, toplevelp = nil):
                 _process_toplevel(macroexpanded)
         return _lower(macroexpanded, lexenv = lexenv)
 
-def function_lambda_expression(function_):
-        """function-lambda-expression function
-
-=> LAMBDA-EXPRESSION, CLOSURE-P, NAME
-
-Arguments and Values:
-
-FUNCTION---a function.
-
-LAMBDA-EXPRESSION---a lambda expression or NIL.
-
-CLOSURE-P---a generalized boolean.
-
-NAME---an object.
-
-Description:
-
-Returns information about function as follows:
-
-The primary value, LAMBDA-EXPRESSION, is function's defining lambda
-expression, or NIL if the information is not available.  The lambda
-expression may have been pre-processed in some ways, but it should
-remain a suitable argument to COMPILE or FUNCTION.  Any implementation
-may legitimately return NIL as the LAMBDA-EXPRESSION of any FUNCTION.
-
-The secondary value, CLOSURE-P, is NIL if FUNCTION's definition was
-enclosed in the null lexical environment or something non-NIL if
-FUNCTION's definition might have been enclosed in some non-null
-lexical environment.  Any implementation may legitimately return true
-as the CLOSURE-P of any function.
-
-The tertiary value, NAME, is the ``name'' of FUNCTION.  The name is
-intended for debugging only and is not necessarily one that would be
-valid for use as a name in DEFUN or FUNCTION, for example.  By
-convention, NIL is used to mean that FUNCTION has no name.  Any
-implementation may legitimately return NIL as the name of any
-FUNCTION."""
-        return _values_frame(*(gethash(slot, the(function, function_).__dict__, default)[0]
-                               for slot, default in [("lambda_expression", nil),
-                                                     ("closure_p",         t),
-                                                     ("name",              nil)]))
-
 ##
-### What is the status of this?
+### What is the status of this?  (unused, as it seems at the moment..)
 def _make_compilation_unit():
         unit = _py.dict(conditions = [])
         return unit
@@ -9323,28 +9281,78 @@ def _compilation_unit_set(k, v):
 def _compilation_unit_get(k):
         return _symbol_value(_compilation_unit_)[k]
 
-# getsource
-#   getsourcelines
-#     findsource
-#       file = fn.__code__.co_filename
-#       sourcefile = getsourcefile = f(fn.__code__.co_filename)
-#       file = sourcefile or file
-#       module = getmodule()
-#       linecache.getlines(file)
-#     getblock
-#       <boring>
-__def_sources__ = _without_condition_system(lambda: _collections.OrderedDict())
-__def_sources__[""] = "" # placeholder
-__def_sources_filename__ = "<lisp>"
-def _lisp_add_def(name, source):
-        if name in __def_sources__:
-                del __def_sources__[name]
-        __def_sources__[name] = source
-        total = "\n".join(__def_sources__.values())
-        linecache.cache[__def_sources_filename__] = _py.len(total), _py.int(time.time()), total.split("\n"), __def_sources_filename__
+def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil, print_disasm = nil):
+        "Here, a unit, is something, that has enough environment set up to be functioning on its own."
+        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
+        def _in_compilation_unit():
+                pro, value = _expand_process_and_lower_in_lexenv(form, lexenv) # We're only interested in the resulting DEF.
+                cu_pro = _compilation_unit_prologue(lexenv = lexenv)
+                pro = cu_pro + pro
+                final_pv = pro, value
+                if _py.len(pro) < 1:   # The FunctionDef and the symbol Assign
+                        _debug_printf("*** invariant failed - %s prologue - while compiling form:", ("no" if not pro else
+                                                                                                     "long"))
+                        _dump_form(form)
+                        if pro:
+                                _debug_printf("*** prologue:")
+                                mapc(_dump_form, pro)
+                        assert(_py.len(pro) == 1)
+                pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(final_pv))
+                import more_ast
+                more_ast.assign_meaningful_locations(pro_ast)
+                if print_xform:
+                        _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
+                                      pp(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
+                                                          for x in pro_ast))
+                        ############################ This is an excess newline, so it is a bug workaround.
+                        ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
+                        if typep(pro_ast[0], _ast.FunctionDef):
+                                _debug_printf("type of ast: %s\ndecorators: %s", type_of(pro_ast[0]), pro_ast[0].decorator_list)
+                bytecode = _py.compile(_ast.fix_missing_locations(_ast_module(pro_ast)), filename, "exec")
+                if print_disasm:
+                        _debug_printf(";;; Bytecode ================\n")
+                        import dis
+                        def rec(x):
+                                dis.dis(x)
+                                for sub in x.co_consts:
+                                        if _py.isinstance(sub, _types.CodeType):
+                                                _debug_printf(";;; child code -------------\n")
+                                                rec(sub)
+                        rec(bytecode)
+                warnings, style_warnings, errors = [], [], []
+                ## XXX: was too lazy to fix compilation unit stuff, so commented out..
+                # for cond in _compilation_unit_get("conditions"):
+                #         if typep(cond, error):
+                #                 errors.append(cond)
+                #         elif typep(cond, style_warning):
+                #                 style_warnings.append(cond)
+                #         elif typep(cond, warning):
+                #                 warnings.append(cond)
+                ## Those are as per standard.
+                warnedp, failedp = (not not (errors or warnings or style_warnings),
+                                    not not (errors or warnings))
+                return bytecode, warnedp, failedp
+        return with_compilation_unit(_in_compilation_unit)
 
+def _compile_and_load_function(name, form, lexenv, lambda_expression = None):
+        (bytecode,
+         warnedp,
+         failedp) = _compile_loadable_unit(name, form, lexenv,
+                                           print_xform = symbol_value(_compiler_trace_toplevels_),
+                                           print_disasm = symbol_value(_compiler_trace_toplevels_disasm_))
+        mod, globals, locals = _load_code_object_as_module("", bytecode, register = nil)
+        sym = the(symbol, # globals[_get_function_pyname(name)]
+                  mod.__dict__[_get_function_pyname(name)])
+        func = the(function, symbol_function(sym))
+        # _without_condition_system(_pdb.set_trace) # { k:v for k,v in func.__globals__.items() if k != '__builtins__' }
+        # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
+        # Feed FUNCTION-LAMBDA-EXPRESSION:
+        if _specifiedp(lambda_expression):
+                func.lambda_expression = lambda_expression
+        func.name              = name # Debug name, as per F-L-E spec.
+        return func, _py.dict(globals), warnedp, failedp
 
-def lisp(body):
+def _read_function_object_ast_compile_load_and_pymport(body):
         def read_python_toplevel_name(f):
                 symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
                 symbol = _intern(symbol_name)[0]
@@ -9365,20 +9373,38 @@ def lisp(body):
                 error("In LISP %s: only toplevels in %s are allowed.",
                       _py.repr(form[0]), __def_allowed_toplevels__)
         function, gls, failedp, warnedp = _compile_and_load_function(symbol, form, _make_null_lexenv(),
-                                                                         lambda_expression = (lambda_,) + form[2:])
+                                                                     lambda_expression = (lambda_,) + form[2:])
         ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
         for k, v in gls.items():
                 function.__globals__[k] = v
-        if failedp:
-                error("Compilation failed: errors while compiling %s.", name)
-        elif warnedp:
-                pass # Unregistered Issue LISP-TOPLEVEL-PROCESSOR-IGNORES-WARNINGS
         return function.name
 
-def compile(name, definition = None):
-        # Multiple values would have reduced, if not obviated, the need for such..
-        # Research Issue COMPLIANCE-SPECIFIED-FUNCTIONS-RETURNING-ADDITIONAL-VALUES
-        return _compile(name, definition)[:3]
+def lisp(function):
+        return _read_function_object_ast_compile_load_and_pymport(function)
+
+def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
+        "There really is no other way.  Trust me.  Please."
+        def _convert_lambda_to_def(name, lambda_expression):
+                return (def_, the(symbol, name)) + lambda_expression[1:]
+        _, arglist, *body = lambda_expression
+        fn = _fn.python_type(name = name,
+                             arglist = arglist, body = body,
+                             globalp = globalp)
+        ## fn.clear_dependencies() -- not needed, for as long as we create functions anew (HAR, um, HAR, I suppose..)
+        with progv({ _compiler_fn_: fn }):
+                return _compile_and_load_function(
+                        ## This decorator-passing scheme is fairly archaic -- we would be better served by macros.
+                        name, _ir_args_when(globalp, _ir_lambda_to_defun(name, lambda_expression),
+                                            decorators = [_ir_cl_module_call("_set_macro_definition", name)
+                                                          if macrop else
+                                                          _ir_cl_module_call("_set_function_definition", name)]),
+                        lexenv,
+                        lambda_expression = lambda_expression)
+
+def _compile_in_lexenv(name, lambda_expression, lexenv):
+        final_name = the(symbol, name) or gensym("COMPILED-LAMBDA")
+        return _compile_and_load_function(final_name, _ir_lambda_to_defun(final_name, lambda_expression), lexenv,
+                                          lambda_expression = lambda_expression)
 
 def _compile(name, definition = None):
         """compile name &optional definition => FUNCTION, WARNINGS-P, FAILURE-P
@@ -9453,82 +9479,69 @@ and true otherwise."""
                                                  globalp = not not name,
                                                  macrop = name and not not macro_function(name))
 
-def _compile_in_lexenv(name, lambda_expression, lexenv):
-        final_name = the(symbol, name) or gensym("COMPILED-LAMBDA")
-        return _compile_and_load_function(final_name, _ir_lambda_to_defun(final_name, lambda_expression), lexenv,
-                                          lambda_expression = lambda_expression)
+################################################################################
 
-def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
-        "There really is no other way.  Trust me.  Please."
-        def _convert_lambda_to_def(name, lambda_expression):
-                return (def_, the(symbol, name)) + lambda_expression[1:]
-        _, arglist, *body = lambda_expression
-        fn = _fn.python_type(name = name,
-                             arglist = arglist, body = body,
-                             globalp = globalp)
-        ## fn.clear_dependencies() -- not needed, for as long as we create functions anew (HAR, um, HAR, I suppose..)
-        with progv({ _compiler_fn_: fn }):
-                return _compile_and_load_function(
-                        ## This decorator-passing scheme is fairly archaic -- we would be better served by macros.
-                        name, _ir_args_when(globalp, _ir_lambda_to_defun(name, lambda_expression),
-                                            decorators = [_ir_cl_module_call("_set_macro_definition", name)
-                                                          if macrop else
-                                                          _ir_cl_module_call("_set_function_definition", name)]),
-                        lexenv,
-                        lambda_expression = lambda_expression)
+def function_lambda_expression(function_):
+        """function-lambda-expression function
 
-def _compile_loadable_unit(name, form, lexenv, filename = "", print_xform = nil, print_disasm = nil):
-        "Here, a unit, is something, that has enough environment set up to be functioning on its own."
-        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
-        def _in_compilation_unit():
-                pro, value = _expand_and_lower_in_lexenv(form, lexenv) # We're only interested in the resulting DEF.
-                cu_pro = _compilation_unit_prologue(lexenv = lexenv)
-                pro = cu_pro + pro
-                final_pv = pro, value
-                if _py.len(pro) < 1:   # The FunctionDef and the symbol Assign
-                        _debug_printf("*** invariant failed - %s prologue - while compiling form:", ("no" if not pro else
-                                                                                                     "long"))
-                        _dump_form(form)
-                        if pro:
-                                _debug_printf("*** prologue:")
-                                mapc(_dump_form, pro)
-                        assert(_py.len(pro) == 1)
-                pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(final_pv))
-                import more_ast
-                more_ast.assign_meaningful_locations(pro_ast)
-                if print_xform:
-                        _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
-                                      pp(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
-                                                          for x in pro_ast))
-                        ############################ This is an excess newline, so it is a bug workaround.
-                        ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
-                        if typep(pro_ast[0], _ast.FunctionDef):
-                                _debug_printf("type of ast: %s\ndecorators: %s", type_of(pro_ast[0]), pro_ast[0].decorator_list)
-                bytecode = _py.compile(_ast.fix_missing_locations(_ast_module(pro_ast)), filename, "exec")
-                if print_disasm:
-                        _debug_printf(";;; Bytecode ================\n")
-                        import dis
-                        def rec(x):
-                                dis.dis(x)
-                                for sub in x.co_consts:
-                                        if _py.isinstance(sub, _types.CodeType):
-                                                _debug_printf(";;; child code -------------\n")
-                                                rec(sub)
-                        rec(bytecode)
-                warnings, style_warnings, errors = [], [], []
-                ## XXX: was too lazy to fix compilation unit stuff, so commented out..
-                # for cond in _compilation_unit_get("conditions"):
-                #         if typep(cond, error):
-                #                 errors.append(cond)
-                #         elif typep(cond, style_warning):
-                #                 style_warnings.append(cond)
-                #         elif typep(cond, warning):
-                #                 warnings.append(cond)
-                ## Those are as per standard.
-                warnedp, failedp = (not not (errors or warnings or style_warnings),
-                                    not not (errors or warnings))
-                return bytecode, warnedp, failedp
-        return with_compilation_unit(_in_compilation_unit)
+=> LAMBDA-EXPRESSION, CLOSURE-P, NAME
+
+Arguments and Values:
+
+FUNCTION---a function.
+
+LAMBDA-EXPRESSION---a lambda expression or NIL.
+
+CLOSURE-P---a generalized boolean.
+
+NAME---an object.
+
+Description:
+
+Returns information about function as follows:
+
+The primary value, LAMBDA-EXPRESSION, is function's defining lambda
+expression, or NIL if the information is not available.  The lambda
+expression may have been pre-processed in some ways, but it should
+remain a suitable argument to COMPILE or FUNCTION.  Any implementation
+may legitimately return NIL as the LAMBDA-EXPRESSION of any FUNCTION.
+
+The secondary value, CLOSURE-P, is NIL if FUNCTION's definition was
+enclosed in the null lexical environment or something non-NIL if
+FUNCTION's definition might have been enclosed in some non-null
+lexical environment.  Any implementation may legitimately return true
+as the CLOSURE-P of any function.
+
+The tertiary value, NAME, is the ``name'' of FUNCTION.  The name is
+intended for debugging only and is not necessarily one that would be
+valid for use as a name in DEFUN or FUNCTION, for example.  By
+convention, NIL is used to mean that FUNCTION has no name.  Any
+implementation may legitimately return NIL as the name of any
+FUNCTION."""
+        return _values_frame(*(gethash(slot, the(function, function_).__dict__, default)[0]
+                               for slot, default in [("lambda_expression", nil),
+                                                     ("closure_p",         t),
+                                                     ("name",              nil)]))
+
+# getsource
+#   getsourcelines
+#     findsource
+#       file = fn.__code__.co_filename
+#       sourcefile = getsourcefile = f(fn.__code__.co_filename)
+#       file = sourcefile or file
+#       module = getmodule()
+#       linecache.getlines(file)
+#     getblock
+#       <boring>
+__def_sources__ = _without_condition_system(lambda: _collections.OrderedDict())
+__def_sources__[""] = "" # placeholder
+__def_sources_filename__ = "<lisp>"
+def _lisp_add_def(name, source):
+        if name in __def_sources__:
+                del __def_sources__[name]
+        __def_sources__[name] = source
+        total = "\n".join(__def_sources__.values())
+        linecache.cache[__def_sources_filename__] = _py.len(total), _py.int(time.time()), total.split("\n"), __def_sources_filename__
 
 def _peek_func_globals(x, desc = "FUNC"):
         func = the(function, (x if functionp(x) else
@@ -9538,24 +9551,6 @@ def _peek_func_globals(x, desc = "FUNC"):
                       id(func.__globals__), type_of(func.__globals__),
                       { k:v for k,v in func.__globals__.items() if k != '__builtins__' })
         _backtrace(15, frame_ids = t, offset = 1)
-
-def _compile_and_load_function(name, form, lexenv, lambda_expression = None):
-        (bytecode,
-         warnedp,
-         failedp) = _compile_loadable_unit(name, form, lexenv,
-                                           print_xform = symbol_value(_compiler_trace_toplevels_),
-                                           print_disasm = symbol_value(_compiler_trace_toplevels_disasm_))
-        mod, globals, locals = _load_code_object_as_module("", bytecode, register = nil)
-        sym = the(symbol, # globals[_get_function_pyname(name)]
-                  mod.__dict__[_get_function_pyname(name)])
-        func = the(function, symbol_function(sym))
-        # _without_condition_system(_pdb.set_trace) # { k:v for k,v in func.__globals__.items() if k != '__builtins__' }
-        # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
-        # Feed FUNCTION-LAMBDA-EXPRESSION:
-        if _specifiedp(lambda_expression):
-                func.lambda_expression = lambda_expression
-        func.name              = name # Debug name, as per F-L-E spec.
-        return func, _py.dict(globals), warnedp, failedp
 
 @defun
 def fdefinition(name):
