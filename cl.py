@@ -6301,13 +6301,6 @@ def _get_symbol_pyname(symbol):
         return symbol.symbol_pyname
 
 ## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
-## Maybe a symbol name map population FOP?
-
-## Load-time situation breakdown:
-##
-## Sym-name map:  Did not exist          Existed
-## Symbol         intern+fop             intern+fop           ##  The beauty of it!
-## Function       fop                    fop
 
 ### Global compiler state carry-over, and module state initialisation.
 def _fop_make_symbol_available(globals, package_name, symbol_name,
@@ -7718,9 +7711,7 @@ def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((pyt
 #
 
 ## Should, probably, be bound by the compiler itself.
-_string_set("*COMPILER-TOPLEVEL-P*", t)
-_string_set("*COMPILER-DEF*",        nil)
-_string_set("*COMPILER-TAILP*",      nil)
+_string_set("*COMPILER-TAILP*", nil)
 
 def _sex_space(delta = None, char = " "):
         return char * (_pp_base_depth() + _defaulted(delta, 0))
@@ -7728,39 +7719,16 @@ def _sex_deeper(n, body):
         with progv({ _pp_base_depth_: _pp_base_depth() + n }):
                 return body()
 
-__compiler_form_record__ = _collections.defaultdict(lambda: 0)
-__compiler_form_record_threshold__ = 5
-def _compiler_track_compiled_form(form):
-        cur = __compiler_form_record__[_py.id(form)]
-        ## Unregistered Issue NONTERMINATION-SAFETY-CHECK-BUGGY
-        # if cur > __compiler_form_record_threshold__:
-        #         error("Apparent non-termination while compiling %s (happened over %d times).",
-        #               form, __compiler_form_record_threshold__)
-        __compiler_form_record__[_py.id(form)] += 1
-
-class _compiler_def(_servile):
-        pass
-
-def _compiling_def():     return _symbol_value(_compiler_def_)
-def _tail_position_p():   return _symbol_value(_compiler_tailp_)
-
-def _compiler_report_context():
-        _here("def %s\n      tailp: %s",
-              *mapcar(_symbol_value, [_compiler_def_,
-                                      _compiler_tailp_]))
 
 _tail_position       = _defwith("_tail_position",
                                    lambda *_: _dynamic_scope_push({ _compiler_tailp_: t }),
                                    lambda *_: _dynamic_scope_pop())
-
-_maybe_tail_position = _defwith("_maybe_tail_position", # This is just a documentation feature.
+_maybe_tail_position    = _defwith("_maybe_tail_position", # This is just a documentation feature.
                                    lambda *_: None,
                                    lambda *_: None)
-
-_no_tail_position    = _defwith("_no_tail_position",
+_no_tail_position       = _defwith("_no_tail_position",
                                    lambda *_: _dynamic_scope_push({ _compiler_tailp_: nil }),
                                    lambda *_: _dynamic_scope_pop())
-
 _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
                                    lambda *_: _dynamic_scope_pop())
@@ -8903,15 +8871,6 @@ def nth_value():
 #         :CL:       [ ]
 #         :END:
 
-# 1. I'd rather much separate:
-#    - named lambda compilation
-#        def thunk():
-#                def named(<lambda-list>):
-#                        <body>
-#                return named
-#        thunk()
-#    - installation of such named lambdas as global function definitions
-#        emit a decorator? install_fdefinition
 @defknown((intern("DEF_")[0], " ", _name, " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), (_bound, _form)]),
           name = intern("DEF_")[0])
@@ -8927,63 +8886,58 @@ def def_():
                 ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 # This is NOT a Lisp form, but rather an acknowledgement of the
                 # need to represent a building block from the underlying system.
-                cdef = _compiler_def(name   = name,
-                                     parent = _compiling_def())
-                toplevelp = _symbol_value(_compiler_toplevel_p_)
-                with progv({_compiler_def_:        cdef,
-                            _compiler_toplevel_p_: nil}):
-                        check_type(name, (and_, symbol, (not_, keyword)))
-                        # check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
-                        def try_compile():
-                                # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                                total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
-                                _check_no_locally_rebound_constants(total)
-                                compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
-                                fixed, optional, rest, keys = args
-                                optdefs, keydefs = defaults
-                                defmap = _py.dict(_py.zip(optional + keys, optdefs + keydefs))
-                                with progv({ _lexenv_: _make_lexenv(kind_varframe =
-                                                                    { variable: { _variable_binding(name, variable,
-                                                                                                    (defmap[name]
-                                                                                                     if name in defmap else
-                                                                                                     None))
-                                                                                  for name in total } }) }):
-                                        with _tail_position():
-                                                body_pro, body_val = _lower((progn,) + body)
-                                # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
-                                # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
-                                deco_vals = []
-                                for pro_deco, val_deco in (_lower(d) for d in decorators):
-                                        if pro_deco:
-                                                error("in DEF %s: decorators must lower to python expressions.", name)
-                                        deco_vals.append(val_deco)
-                                return _lowered([("FunctionDef", _unit_function_pyname(name), compiled_lambda_list,
-                                                  (# [_atree_import("pdb", "cl"),
-                                                   #  ("Expr",
-                                                   #   _atree_funcall(_atree_ref("cl", "_without_condition_system"),
-                                                   #                  _atree_ref("pdb", "set_trace")))] +
-                                                   body_pro +
-                                                   [("Return", body_val)]),
-                                                  deco_vals),
-                                                 # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
-                                                 ],
-                                                _lower((quote, name))[1])
-                        ## Xtnls feedback loop stabilisation scheme.
-                        ##
-                        ## This looks fairly ridiculous, but this is reality for you:
-                        ##  - it's impossible to know externals before compilation
-                        ##    - determined by walking the resulting atree
-                        ##  - you need to know externals before compilation
-                        ##    - at least one optimisation (LET) depends on this
-                        ##
-                        ## Quietly hoped to be the only parameter requiring such beforehand knowledge.
-                        xtnls_guess, xtnls_actual, try_ = None, _py.set(), 0
-                        while xtnls_guess != xtnls_actual:
-                                cdef.xtnls = xtnls_guess = xtnls_actual
-                                result = try_compile()
-                                xtnls_actual = _tuple_xtnls(result)
-                                try_ += 1
-                        return result
+                check_type(name, (and_, symbol, (not_, keyword)))
+                # check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
+                def try_compile():
+                        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
+                        total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
+                        _check_no_locally_rebound_constants(total)
+                        compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
+                        fixed, optional, rest, keys = args
+                        optdefs, keydefs = defaults
+                        defmap = _py.dict(_py.zip(optional + keys, optdefs + keydefs))
+                        with progv({ _lexenv_: _make_lexenv(kind_varframe =
+                                                            { variable: { _variable_binding(name, variable,
+                                                                                            (defmap[name]
+                                                                                             if name in defmap else
+                                                                                             None))
+                                                                          for name in total } }) }):
+                                with _tail_position():
+                                        body_pro, body_val = _lower((progn,) + body)
+                        # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
+                        # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
+                        deco_vals = []
+                        for pro_deco, val_deco in (_lower(d) for d in decorators):
+                                if pro_deco:
+                                        error("in DEF %s: decorators must lower to python expressions.", name)
+                                deco_vals.append(val_deco)
+                        return _lowered([("FunctionDef", _unit_function_pyname(name), compiled_lambda_list,
+                                          (# [_atree_import("pdb", "cl"),
+                                           #  ("Expr",
+                                           #   _atree_funcall(_atree_ref("cl", "_without_condition_system"),
+                                           #                  _atree_ref("pdb", "set_trace")))] +
+                                           body_pro +
+                                           [("Return", body_val)]),
+                                          deco_vals),
+                                         # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
+                                         ],
+                                        _lower((quote, name))[1])
+                ## Xtnls feedback loop stabilisation scheme.
+                ##
+                ## This looks fairly ridiculous, but this is reality for you:
+                ##  - it's impossible to know externals before compilation
+                ##    - determined by walking the resulting atree
+                ##  - you need to know externals before compilation
+                ##    - at least one optimisation (LET) depends on this
+                ##
+                ## Quietly hoped to be the only parameter requiring such beforehand knowledge.
+                xtnls_guess, xtnls_actual, try_ = None, _py.set(), 0
+                while xtnls_guess != xtnls_actual:
+                        cdef.xtnls = xtnls_guess = xtnls_actual
+                        result = try_compile()
+                        xtnls_actual = _tuple_xtnls(result)
+                        try_ += 1
+                return result
         def effects(name):         return t
         def affected(name):        return nil
 
@@ -9149,10 +9103,6 @@ def _lower(form, lexenv = nil):
         # - scopes
         # - symbols not terribly clear
         # - proper quote processing
-        if _debugging_compiler():
-                _compiler_track_compiled_form(form)
-                # _debug_printf(";;; compiling:\n%s", _pp_sex(form))
-                # _compiler_report_context()
         pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
         def compiler_note_form(x):
                 if (symbol_value(_compiler_trace_forms_) and _debugging_compiler() and
@@ -9878,11 +9828,12 @@ class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
 _compiler_config_tracing(toplevels = t,
-                         toplevels_disasm = t,
+                         # toplevels_disasm = t,
                          # entry_forms = t,
                          macroexpansion = t,
-                         rewrites = t,
-                         pretty_full = t)
+                         # rewrites = t,
+                         # pretty_full = t
+                         )
 
 load(compile_file("vpcl.lisp"))
 
