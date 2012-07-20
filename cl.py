@@ -96,6 +96,7 @@ import types       as _types
 import socket      as _socket
 import hashlib     as _hashlib
 import inspect     as _inspect
+import marshal     as _marshal
 import operator    as _operator
 import platform    as _platform
 import functools   as _functools
@@ -3204,7 +3205,7 @@ def file_write_date(pathspec):
         """Returns a universal time representing the time
 at which the file specified by PATHSPEC was last written
 (or created), or returns NIL if such a time cannot be determined. """
-        f = namestring(pathname(stream))
+        f = namestring(pathname(pathspec))
         # XXX: doesn't conform terribly well:
         # 1. NIL isn't returned if the time cannot be determined: python will,
         #    in most likelihood, raise an error.
@@ -3332,6 +3333,7 @@ def finish_output(stream = t):
 def force_output(*args, **keys):
         finish_output(*args, **keys)
 
+@defun
 def format(destination, control_string, *args):
         """FORMAT produces formatted output by outputting the characters
 of CONTROL-STRING and observing that a tilde introduces a
@@ -4096,11 +4098,29 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
         def read_inner():
                 skip_whitespace()
                 char = read_char(stream)
+                # char = read_char_maybe_eof()
+                # if char is nil:
+                #         if not eof_error_p:
+                #                 return_from(_cold_read, eof_value)
+                #         else:
+                #                 read_char(stream)
                 unread_char(char, stream)
                 # _here("> \"%s\", by \"%s\"" % (string[pos:], char))
                 if   char == _py.chr(40):  obj = read_list() # Org is a bit too picky
                 elif char == "\"":         obj = read_string()
                 elif char == "'":          obj = read_quote()
+                elif char == "`":
+                        read_char(stream);
+                        obj = (quasiquote, read_list())
+                elif char == ",":
+                        ## This is a simplified take, but it'll do for bootstrapping purposes.
+                        read_char(stream);
+                        char = read_char(stream)
+                        if char == "@":
+                                obj = (splice, read_inner())
+                        else:
+                                unread_char(char, stream)
+                                obj = (comma, read_inner())
                 else:
                         # handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
@@ -4183,7 +4203,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                             lambda c: error(c) if eof_error_p else
                                       return_from(_cold_read, eof_value)))
         # _here("lastly %s" % (ret,))
-        return ret
+        return _expand_quasiquotation(ret)
 read = _cold_read
 
 # Condition system
@@ -6310,6 +6330,8 @@ def _fop_make_symbol_available(globals, package_name, symbol_name,
                   make_symbol(symbol_name))
         if function_pyname is not None:
                 symbol.function_pyname = function_pyname
+                # _debug_printf("   c-t %%U-S-G-F-P %s FUN: %s  - %s, %s %s",
+                #               "G" if gfunp else "l", symbol_name, function_pyname, symbol.function, symbol.macro_function)
                 if gfunp:
                         if _find_global_function(symbol):
                                 fun = symbol_function(symbol)
@@ -6503,8 +6525,8 @@ _intern_and_bind_names_in_module("*ABORTED-COMPILATION-UNIT-COUNT*",
                          ##
                          "*UNIT-FUNCTIONS*",
                          "*UNIT-SYMBOLS*",
-                         "*UNIT-GFUN-REFERENCES*",
-                         "*UNIT-GVAR-REFERENCES*",
+                         "*UNIT-GFUNS*",
+                         "*UNIT-GVARS*",
                          ##
                          "*TOP-COMPILATION-UNIT-P*")
 
@@ -6518,15 +6540,26 @@ def _unit_symbol_pyname(x):
         return _ensure_symbol_pyname(x)
 
 def _unit_note_gfun_reference(x):
-        symbol_value(_unit_gfun_references_).add(x)
+        symbol_value(_unit_gfuns_).add(x)
 def _unit_note_gvar_reference(x):
-        symbol_value(_unit_gvar_references_).add(x)
-def _unit_symbol_gfun_p(x):
-        return x in symbol_value(_unit_gfun_references_)
-def _unit_symbol_gvar_p(x):
-        return x in symbol_value(_unit_gvar_references_)
+        symbol_value(_unit_gvars_).add(x)
 
-def with_compilation_unit(fn, override = nil):
+def _compilation_unit_symbols():
+        """Return a function names and plain symbols, referred by the current compilation unit."""
+        return (symbol_value(_unit_functions_),
+                symbol_value(_unit_symbols_),
+                symbol_value(_unit_gfuns_),
+                symbol_value(_unit_gvars_))
+
+def _compilation_unit_adjoin_symbols(funs, syms, gfuns, gvars):
+        symbol_value(_unit_functions_).update(funs)
+        symbol_value(_unit_symbols_).update(syms)
+        symbol_value(_unit_gfuns_).update(gfuns)
+        symbol_value(_unit_gvars_).update(gvars)
+
+_string_set("*COMPILATION-UNIT-ID*", nil)
+
+def with_compilation_unit(fn, override = nil, id = "UNIT-"):
         """Affects compilations that take place within its dynamic extent. It is
 intended to be eg. wrapped around the compilation of all files in the same system.
 
@@ -6578,6 +6611,8 @@ Examples:
                                 _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
                                             _symbol_value(_aborted_compilation_unit_count_) + 1)
         else:
+                parent_id = symbol_value(_compilation_unit_id_)
+                id = gensym(id)
                 with progv({_aborted_compilation_unit_count_: 0, # What is this for?
                             _compiler_error_count_: 0,
                             _compiler_warnings_count_: 0,
@@ -6587,13 +6622,16 @@ Examples:
                             ##
                             _unit_functions_: _py.set(),
                             _unit_symbols_: _py.set(),
-                            _unit_gfun_references_: _py.set(),
-                            _unit_gvar_references_: _py.set(),
+                            _unit_gfuns_: _py.set(),
+                            _unit_gvars_: _py.set(),
                             ##
                             _in_compilation_unit_: t,
                             _top_compilation_unit_p_: t,
+                            _compilation_unit_id_: id,
                             }):
                         try:
+                                # _debug_printf("############################################ Entered %s%s",
+                                #               id, (" parent: %s" % parent_id) if parent_id else "")
                                 ret = fn()
                                 succeeded_p = t
                                 return ret
@@ -6602,16 +6640,9 @@ Examples:
                                         _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
                                                     _symbol_value(_aborted_compilation_unit_count_) + 1)
                                 summarize_compilation_unit(not succeeded_p)
+                                # _debug_printf("############################################  ..left %s", id)
 
-def _compilation_unit_symbols():
-        """Return a function names and plain symbols, referred by the current compilation unit."""
-        return symbol_value(_unit_functions_), symbol_value(_unit_symbols_)
-
-def _compilation_unit_adjoin_symbols(fun_names, sym_names):
-        symbol_value(_unit_functions_).update(fun_names)
-        symbol_value(_unit_symbols_).update(sym_names)
-
-def _compilation_unit_prologue(fun_names, sym_names):
+def _compilation_unit_prologue(funs, syms, gfuns, gvars):
         """Emit a prologue for a standalone unit referring to SYMBOLS."""
         def import_prologue():
                 return [("Import", [("alias", "cl")])]
@@ -6624,7 +6655,7 @@ def _compilation_unit_prologue(fun_names, sym_names):
                              _compiler_trace_subforms_:    nil,
                              _compiler_trace_rewrites_:    nil,
                              _compiler_trace_result_:      nil }):
-                 symbols = _py.sorted(fun_names | sym_names, key = _py.str)
+                 symbols = _py.sorted(funs | syms, key = _py.str)
                  return _lower(
                         (progn,
                          _ir_cl_module_call(
@@ -6640,8 +6671,8 @@ def _compilation_unit_prologue(fun_names, sym_names):
                                         _ir_funcall(list, *_py.tuple(symbol_name(sym)          for sym in symbols )),
                                         _ir_funcall(list, *_py.tuple(wrap(sym.function_pyname) for sym in symbols )),
                                         _ir_funcall(list, *_py.tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                                        _ir_funcall(list, *_py.tuple(_unit_symbol_gfun_p(sym)  for sym in symbols )),
-                                        _ir_funcall(list, *_py.tuple(_unit_symbol_gvar_p(sym)  for sym in symbols )))),
+                                        _ir_funcall(list, *_py.tuple(sym in gfuns              for sym in symbols )),
+                                        _ir_funcall(list, *_py.tuple(sym in gvars              for sym in symbols )))),
                         lexenv = _make_null_lexenv())
         with _no_compiler_debugging():
                 return (import_prologue() +
@@ -7276,7 +7307,7 @@ def _pp_sex(sex, strict = t, initial_depth = None):
 
 def _mockup_sex(sex, initial_depth = None, max_level = None):
         max_level = _defaulted(max_level, _compiler_max_mockup_level)
-        def mock_atom(x):       return _py.str(x)
+        def mock_atom(x):       return '"' + x + '"' if stringp(x) else _py.str(x)
         def mock_complexes(xs, new_level):
                 with progv({ _pp_base_depth_: symbol_value(_pp_base_depth_) + 2 }):
                         return ("\n" + _sex_space()).join(rec(x, new_level) for x in xs)
@@ -7659,7 +7690,15 @@ def DEFMACRO(name, lambda_list, *body):
 ## - result       _lower()                                 ;* compilation atree output\n;;; Prologue\n;;; Value
 
 # Unregistered Issue DEBUG-SCAFFOLDING
-_string_set("*COMPILER-DEBUG-P*",    nil)
+_string_set("*COMPILER-DEBUG-P*",           nil)
+_string_set("*COMPILER-TRAPPED-FUNCTIONS*", _py.set()) ## Emit a debug entry for those functions.
+
+def _compiler_trap_function(name):
+        symbol_value(_compiler_trapped_functions_).add(name)
+
+def _compiler_function_trapped_p(name):
+        return name in symbol_value(_compiler_trapped_functions_)
+
 def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
 def _debugging_compiler():
@@ -7719,8 +7758,9 @@ def _sex_deeper(n, body):
         with progv({ _pp_base_depth_: _pp_base_depth() + n }):
                 return body()
 
+def _tail_position_p(): return _symbol_value(_compiler_tailp_)
 
-_tail_position       = _defwith("_tail_position",
+_tail_position          = _defwith("_tail_position",
                                    lambda *_: _dynamic_scope_push({ _compiler_tailp_: t }),
                                    lambda *_: _dynamic_scope_pop())
 _maybe_tail_position    = _defwith("_maybe_tail_position", # This is just a documentation feature.
@@ -8912,10 +8952,11 @@ def def_():
                                         error("in DEF %s: decorators must lower to python expressions.", name)
                                 deco_vals.append(val_deco)
                         return _lowered([("FunctionDef", _unit_function_pyname(name), compiled_lambda_list,
-                                          (# [_atree_import("pdb", "cl"),
-                                           #  ("Expr",
-                                           #   _atree_funcall(_atree_ref("cl", "_without_condition_system"),
-                                           #                  _atree_ref("pdb", "set_trace")))] +
+                                          (([_atree_import("pdb", "cl"),
+                                             ("Expr",
+                                              _atree_funcall(_atree_ref("cl", "_without_condition_system"),
+                                                             _atree_ref("pdb", "set_trace")))]
+                                            if _compiler_function_trapped_p(name) else []) +
                                            body_pro +
                                            [("Return", body_val)]),
                                           deco_vals),
@@ -8933,7 +8974,7 @@ def def_():
                 ## Quietly hoped to be the only parameter requiring such beforehand knowledge.
                 xtnls_guess, xtnls_actual, try_ = None, _py.set(), 0
                 while xtnls_guess != xtnls_actual:
-                        cdef.xtnls = xtnls_guess = xtnls_actual
+                        xtnls_guess = xtnls_actual
                         result = try_compile()
                         xtnls_actual = _tuple_xtnls(result)
                         try_ += 1
@@ -9244,11 +9285,13 @@ def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
                 sym = the(symbol, # globals[_get_function_pyname(name)]
                           mod.__dict__[_get_function_pyname(func_name)])
                 func = the(function, symbol_function(sym))
-                # _without_condition_system(_pdb.set_trace) # { k:v for k,v in func.__globals__.items() if k != '__builtins__' }
+                # _without_condition_system(_pdb.set_trace) # { k:v for k,v in globals.items() if k != '__builtins__' }
                 func.name = func_name # Debug name, as per F-L-E spec.
         else:
                 func = nil
-        return func, _py.dict(globals)
+        # _debug_printf("; L-M-B globals: %x, content: %s",
+        #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
+        return func, globals, _py.dict(globals)
 
 def _compile_in_lexenv(form, lexenv = nil):
         "Is this for COMPILE?"
@@ -9274,7 +9317,7 @@ def _process_top_level(form, lexenv = nil):
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
                 kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
-                _debug_printf("; compiling %s %s", kind, maybe_name)
+                _debug_printf("; compiling (%s %s%s)", kind, maybe_name, "..." if _py.len(form) > 2 else "")
         if symbol_value(_compiler_trace_entry_forms_):
                 _debug_printf(";;;%s compiling:\n%s%s",
                               _sex_space(-3, ";"), _sex_space(), pp(form))
@@ -9307,18 +9350,22 @@ def _process_top_level(form, lexenv = nil):
                 ## ..but re-walking it.. who would care?  CLtL2 environments?
                 def in_compilation_unit():
                         stmts = _atree_linearise(*_lower(form, lexenv = lexenv))
-                        funs, syms = _compilation_unit_symbols()
-                        return stmts, funs, syms
+                        return (stmts,) + _compilation_unit_symbols()
                 if process or eval:
-                        stmts, funs, syms = with_compilation_unit(in_compilation_unit,
-                                                                  override = t)
+                        stmts, *unit_data = with_compilation_unit(in_compilation_unit,
+                                                                  override = t, id = "PROCESS-TOPLEVEL-")
                 if process:
                         run_time_results.extend(stmts)
-                        _compilation_unit_adjoin_symbols(funs, syms)
+                        _compilation_unit_adjoin_symbols(*unit_data)
                 if eval:
-                        prologue = _compilation_unit_prologue(funs, syms)
+                        prologue = _compilation_unit_prologue(*unit_data)
                         bytecode = _atree_assemble(prologue + stmts, form = form)
-                        _load_module_bytecode(bytecode)
+                        _debug_printf(";; ..compile-time code object execution")
+                        _, broken_globals, good_globals = _load_module_bytecode(bytecode)
+                        ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
+                        broken_globals.update(good_globals)
+                        # _debug_printf("; D-P: globals: %x, content: %s",
+                        #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
         actions = {
                 progn:           make_processor(skip_subforms = 1, doc_and_decls = nil),
                 locally:         make_processor(skip_subforms = 1, doc_and_decls = t),
@@ -9334,8 +9381,12 @@ def _process_top_level(form, lexenv = nil):
         rec(nil, t, nil, macroexpanded)
         return run_time_results
 
-def compile_file(input_file, output_file = nil, trace_file = nil):
+def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None, print = None):
         pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
+        verbose = _defaulted_to_var(verbose, _compile_verbose_)
+        print   = _defaulted_to_var(verbose, _compile_print_)
+        if verbose:
+                format(t, "; compiling file \"%s\" (written %s):\n", input_file, file_write_date(input_file))
         ## input/output file conformance is bad here..
         abort_p, warnings_p, failure_p = nil, nil, nil
         with _py.open(input_file, "r") as input:
@@ -9347,7 +9398,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil):
                                 trace_file = _py.open(trace_filename, "w")
                         try:
                                 stmts = []
-                                form = read(input, eof_value = input_file)
+                                form = read(input, eof_value = input_file, eof_error_p = nil)
                                 while form is not input_file:
                                         form_stmts = _process_top_level(form, lexenv = _make_null_lexenv())
                                         stmts.extend(form_stmts)
@@ -9356,7 +9407,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil):
                                                 for stmt in form_stmts:
                                                         trace_file.write(_py.str(stmt))
                                                         trace_file.write("\n")
-                                        form = read(input)
+                                        form = read(input, eof_value = input_file, eof_error_p = nil)
                                 return (_compilation_unit_prologue(*_compilation_unit_symbols()) +
                                         stmts)
                         finally:
@@ -9364,10 +9415,11 @@ def compile_file(input_file, output_file = nil, trace_file = nil):
                                         trace_file.close()
                 atree = with_compilation_unit(in_compilation_unit,
                                               ## Unregistered Issue POSSIBLE-COMPILATION-UNIT-USE-VIOLATION-HERE
-                                              override = t)
+                                              override = t, id = "COMPILE-FILE-")
         output_file = output_file or input_file.replace(".lisp", "." + symbol_value(_fasl_file_type_))
         with _py.open(output_file, "wb") as f:
-                _compiler_mumble("; writing %s..\n", output_file)
+                if verbose:
+                        format(t, "; writing %s..\n", output_file)
                 f.write(symbol_value(_fasl_file_magic_))
                 bytecode = _atree_assemble(atree)
                 _marshal.dump(bytecode, f)
@@ -9399,12 +9451,9 @@ def _read_function_object_ast_qqexpand_compile_load_and_pymport(body):
                 return (_compilation_unit_prologue(*_compilation_unit_symbols()) +
                         stmts)
         atree = with_compilation_unit(in_compilation_unit,
-                                      override = t)
+                                      override = t, id = "LISP-")
         bytecode = _atree_assemble(atree, form = form)
-        function, gls = _load_module_bytecode(bytecode, func_name = symbol, filename = "<lisp core>")
-        ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
-        for k, v in gls.items():
-                function.__globals__[k] = v
+        function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = symbol, filename = "<lisp core>")
         return function.name
 
 def lisp(function):
@@ -9604,7 +9653,6 @@ def fdefinition(name):
 # _pp_sex((defmacro, defun, ("name", lambda_list, _body, "body"),
 #           (quasiquote,
 #             (progn,
-#               ## SBCL has a :COMPILE-TOPLEVEL part, but it's not very clear what we need in this respect.
 #               (eval_when, (_load_toplevel, _execute),
 #                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (comma, "name"), (quote, nil)),
 #                         (lambda_, (comma, lambda_list), (splice, "body")),
@@ -9622,6 +9670,11 @@ def DEFUN(name, lambda_list, *body):
                 (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
               (eval_when, (_load_toplevel, _execute),
                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
+                        # (progn,
+                        #   (def_, (comma, name), (comma, lambda_list),
+                        #    (block, (comma, name),
+                        #     (splice, body))),
+                        #   (function, (comma, name))),
                         (lambda_, (comma, lambda_list),
                           (block, (comma, name),
                             (splice, body))),
@@ -9796,7 +9849,7 @@ def load(pathspec, verbose = None, print = None,
                 real = probe_file(stream)
                 should_be_fasl_p = real and string_equal(pathname_type(real), _symbol_value(_fasl_file_type_))
                 if ((should_be_fasl_p or file_length(stream)) and
-                    fasl_header_p(stream, errorp = should_be_fasl_p)):
+                    _fasl_header_p(stream, errorp = should_be_fasl_p)):
                         return_from(load, load_stream(stream, t))
         def typeless_pathname_branch():
                 nonlocal pathname_
@@ -9806,8 +9859,9 @@ def load(pathspec, verbose = None, print = None,
                         return open(pathname_, if_does_not_exist = (_keyword("ERROR") if if_does_not_exist else
                                                                     nil),
                                     element_type = (unsigned_byte, 8))
-        with_open_stream((open(pathspec, element_type = (unsigned_byte, 8),
-                               if_does_not_exist = nil) or
+        with_open_stream(((pathspec                 if streamp(pathspec)                          else
+                           _py.open(pathspec, "rb") if stringp(pathspec) and probe_file(pathspec) else
+                           nil) or
                           (null(pathname_type(pathspec)) and typeless_pathname_branch()) or
                           (if_does_not_exist and
                            error(simple_file_error, pathname = pathspec,
@@ -9834,6 +9888,8 @@ _compiler_config_tracing(toplevels = t,
                          # rewrites = t,
                          # pretty_full = t
                          )
+
+# _compiler_trap_function(intern("DEFPACKAGE")[0])
 
 load(compile_file("vpcl.lisp"))
 
