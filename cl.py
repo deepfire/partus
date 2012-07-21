@@ -239,7 +239,6 @@ _cold_condition_type   = _py.BaseException
 _cold_error_type       = _py.Exception
 _cold_hash_table_type  = _py.dict
 _cold_stream_type      = __io._IOBase
-_cold_file_stream_type = __io.TextIOWrapper
 _cold_function_type    = _types.FunctionType.__mro__[0]
 _cold_tuple_type       = _py.tuple
 _cold_string_type      = _py.str
@@ -987,7 +986,8 @@ of nonce-ing is to be handled manually."""
 
 @boot_defun
 def return_from(nonce, value):
-        nonce = ((_py.getattr(nonce, "ball", None) or
+        nonce = ((_py.getattr((symbol_function(nonce) if symbolp(nonce) else
+                               nonce), "ball", None) or
                   error("RETURN-FROM was handed a function %s, but it is not cooperating in the "
                         "__BLOCK__ nonce passing syntax.", nonce)) if functionp(nonce) else
                  ## This can mean either the @defun-ned function, or absent a function definition, the symbol itself.
@@ -1134,7 +1134,6 @@ _define_python_type_map("SERIOUS-CONDITION", _py.Exception)
 _define_python_type_map("END-OF-FILE",       _py.EOFError)
 
 ## non-standard type names
-_define_python_type_map("FILE-STREAM", _cold_file_stream_type)
 _define_python_type_map("PYBOOL",      _py.bool)
 _define_python_type_map("PYLIST",      _py.list)
 _define_python_type_map("PYTUPLE",     _py.tuple)
@@ -3144,7 +3143,7 @@ class base_char(): pass
 @defun
 def streamp(x):                     return typep(x, stream)
 
-def _file_stream_p(x):              return typep(x, file_stream)
+def _file_stream_p(x):              return typep(x, (or_, __io._TextIOBase, __io._BufferedIOBase))
 
 @defun
 def with_open_stream(stream, fn):
@@ -3218,8 +3217,8 @@ at which the file specified by PATHSPEC was last written
         # os.path.getmtime() returns microseconds..
         return _py.int(_os.path.getmtime(f))
 
-def _file_name(x):
-        return _values_frame_project(0, parse_namestring(the(file_stream, x).name))
+def _file_stream_name(x):
+        return _values_frame_project(0, parse_namestring(x.name))
 
 # Stream types and functions
 
@@ -3306,6 +3305,7 @@ def write_char(c, stream = t):
         write_string(c, stream)
         return c
 
+@defun
 def terpri(stream = t):
         write_string("\n", stream)
 
@@ -3567,9 +3567,9 @@ a file stream after it is closed as it did when it was open.
 
 If the PATHSPEC designator is a file stream created by opening a
 logical pathname, a logical pathname is returned."""
-        return (x                                             if pathnamep(x)          else
-                _values_frame_project(0, parse_namestring(x)) if stringp(x)            else
-                _file_name(x)                                 if typep(x, file_stream) else
+        return (x                                             if pathnamep(x)      else
+                _values_frame_project(0, parse_namestring(x)) if stringp(x)        else
+                _file_stream_name(x)                          if _file_stream_p(x) else
                 error("PATHNAME only accepts pathnames, namestrings and file streams, was given: %s.", x))
 
 @defun
@@ -6270,11 +6270,11 @@ def _match(matcher, exp, pat):
 _compiler_safe_namespace_separation = t
 _compiler_max_mockup_level = 3
 
-_string_set("*COMPILER-TRACE-TOPLEVELS*",        t)
+_string_set("*COMPILER-TRACE-TOPLEVELS*",        nil)
 _string_set("*COMPILER-TRACE-TOPLEVELS-DISASM*", nil)
-_string_set("*COMPILER-TRACE-ENTRY-FORMS*",      t)
+_string_set("*COMPILER-TRACE-ENTRY-FORMS*",      nil)
 _string_set("*COMPILER-TRACE-QQEXPANSION*",      nil)
-_string_set("*COMPILER-TRACE-MACROEXPANSION*",   t)
+_string_set("*COMPILER-TRACE-MACROEXPANSION*",   nil)
 
 _string_set("*COMPILER-TRACE-FORMS*",            nil)
 _string_set("*COMPILER-TRACE-SUBFORMS*",         nil)
@@ -6444,7 +6444,7 @@ def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
         return None
 
 # Generic pieces
-
+_intern_and_bind_names_in_module("DECLARE")
 def _parse_body(body, doc_string_allowed = t):
         doc = nil
         def doc_string_p(x, remaining_forms):
@@ -9660,38 +9660,38 @@ def fdefinition(name):
 #         # (1, 1, (1, 1, 1, 1),
 #         #     (function, (quote, ("cl", "_set_function_definition"))))
 #         )
-@lisp
-def DEFUN(name, lambda_list, *body):
-        (defmacro, defun, (name, lambda_list, _body, body),
-          (quasiquote,
-            (progn,
-              (eval_when, (_compile_toplevel,),
-                ## _compile_and_load_function() expectes the compiler-level part of function to be present.
-                (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
-              (eval_when, (_load_toplevel, _execute),
-                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
-                        # (progn,
-                        #   (def_, (comma, name), (comma, lambda_list),
-                        #    (block, (comma, name),
-                        #     (splice, body))),
-                        #   (function, (comma, name))),
-                        (lambda_, (comma, lambda_list),
-                          (block, (comma, name),
-                            (splice, body))),
-                        (quote, nil))))))
+# @lisp
+# def DEFUN(name, lambda_list, *body):
+#         (defmacro, defun, (name, lambda_list, _body, body),
+#           (quasiquote,
+#             (progn,
+#               (eval_when, (_compile_toplevel,),
+#                 ## _compile_and_load_function() expectes the compiler-level part of function to be present.
+#                 (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
+#               (eval_when, (_load_toplevel, _execute),
+#                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
+#                         # (progn,
+#                         #   (def_, (comma, name), (comma, lambda_list),
+#                         #    (block, (comma, name),
+#                         #     (splice, body))),
+#                         #   (function, (comma, name))),
+#                         (lambda_, (comma, lambda_list),
+#                           (block, (comma, name),
+#                             (splice, body))),
+#                         (quote, nil))))))
 
-@lisp
-def cond(*clauses):
-        (defmacro, cond, (_rest, clauses),
-         (if_, (not_, clauses),
-          nil,
-          (let, ((clause, (first, clauses)),
-                 (rest, (rest, clauses))),
-           (let, ((test, (first, clause)),
-                  (body, (rest, clause))),
-            (quasiquote, (if_, (unquote, test),
-                         (progn, (splice, body)),
-                         (cond, (splice, rest))))))))
+# @lisp
+# def cond(*clauses):
+#         (defmacro, cond, (_rest, clauses),
+#          (if_, (not_, clauses),
+#           nil,
+#           (let, ((clause, (first, clauses)),
+#                  (rest, (rest, clauses))),
+#            (let, ((test, (first, clause)),
+#                   (body, (rest, clause))),
+#             (quasiquote, (if_, (unquote, test),
+#                          (progn, (splice, body)),
+#                          (cond, (splice, rest))))))))
 
 # Source info (rudimentary)
 
@@ -9765,7 +9765,7 @@ _string_set("*LOAD-VERBOSE*", nil)
 _string_set("*LOAD-PRINT*", nil)
 
 def _load_as_source(stream, verbose = nil, print = nil):
-        pathname = _file_name(stream)
+        pathname = _file_stream_name(stream)
         verbose and format(t, "; loading %s\n", _py.repr(pathname))
         def with_abort_restart_body():
                 def eval_form(form, index):
@@ -9796,7 +9796,7 @@ def _load_as_source(stream, verbose = nil, print = nil):
                                 while form != stream:
                                         eval_form(form, nil)
                                         form = next()
-        return with_simple_restart("ABORT", ("Abort loading file %s.", _file_name(stream)),
+        return with_simple_restart("ABORT", ("Abort loading file %s.", _file_stream_name(stream)),
                                    with_abort_restart_body)
 
 _string_set("*LOAD-PATHNAME*", nil)
@@ -9881,10 +9881,10 @@ class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
 
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
-_compiler_config_tracing(toplevels = t,
+_compiler_config_tracing(# toplevels = t,
                          # toplevels_disasm = t,
                          # entry_forms = t,
-                         macroexpansion = t,
+                         # macroexpansion = t,
                          # rewrites = t,
                          # pretty_full = t
                          )
