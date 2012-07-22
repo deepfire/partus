@@ -9881,6 +9881,13 @@ class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
 
 # LOAD-able things
 
+def _configure_recursion_limit(new_limit):
+        _debug_printf("; current recursion limit is: %s;  setting it to %s",
+                      _sys.getrecursionlimit(), new_limit)
+        _sys.setrecursionlimit(new_limit)
+
+_configure_recursion_limit(262144)
+
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
 _compiler_config_tracing(# toplevels = t,
