@@ -268,8 +268,7 @@ def stringp(x):        return _py.isinstance(x, _cold_string_type)
 @boot("symbol", lambda _, o: (_py.isinstance(o, _cold_function_type) or
                               _py.isinstance(o, symbol) and o.function))
 @boot_defun ## Unregistered Issue COMPLIANCE-EVALUATION-MODEL-FUNCTIONP
-def functionp(o):      return (_py.isinstance(o, _cold_function_type) or
-                               _py.isinstance(o, symbol.python_type) and o.function)
+def functionp(o):      return _py.isinstance(o, _cold_function_type)
 
 def _symbol_type_specifier_p(x):
         return _py.hasattr(x, "python_type")
@@ -2937,9 +2936,10 @@ SETF of MACRO-FUNCTION."""
                     nil) or the(symbol, symbol_).macro_function
         if b_or_res and _bindingp(b_or_res) and _tuplep(b_or_res.value):
                lambda_list, body = b_or_res.value
-               b_or_res = the(function, _compile_in_lexenv(nil,
-                                                           (lambda_, lambda_list) + body,
-                                                           environment))
+               _not_implemented("compilation of lambda expression form of macro function")
+               # b_or_res = the(function, _compile_in_lexenv(nil,
+               #                                             (lambda_, lambda_list) + body,
+               #                                             environment))
         return the((or_, function, null),
                    (b_or_res.value if _bindingp(b_or_res) else b_or_res) or nil)
 
@@ -4956,7 +4956,25 @@ def _read_ast(x):
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
         with progv(# {_read_case_: _keyword("preserve")}
                    ):
-                return rec(x)
+                return _expand_quasiquotation(rec(x))
+
+def _read_python_toplevel_as_lisp(fn, allowed_toplevels = { "DEFUN", "DEFMACRO" }):
+        def read_python_toplevel_name(f):
+                symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
+                symbol = _intern(symbol_name)[0]
+                return symbol, symbol_name, f.__name__
+        name, sym_name, pyname = read_python_toplevel_name(fn)
+        _frost.setf_global(name, pyname.lower(),
+                           globals())
+        args_ast, body_ast = _function_ast(fn)
+        if _py.len(body_ast) > 1:
+                error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
+                      "No more than one toplevel form is allowed per definition.", name)
+        form = _read_ast(body_ast[0])
+        if not (symbolp(form[0]) and symbol_name(form[0]) in allowed_toplevels):
+                error("In LISP %s: only toplevels in %s are allowed.",
+                      _py.repr(form[0]), __def_allowed_toplevels__)
+        return name, form
 
 # Rich AST definition machinery
 
@@ -5667,6 +5685,9 @@ def _atree_linearise_add(pro, val):
         pro.append(("Expr", val))
         return pro
 
+def _linearise_processor(processor):
+        return lambda form, **keys: _atree_linearise(*processor(form, **keys))
+
 def _atree_import(*names):
         return ("Import", [("alias", name) for name in names])
 
@@ -5904,8 +5925,55 @@ def _check_no_locally_rebound_constants(locals, use = "local variable"):
                 simple_program_error("%s names a defined constant, and cannot be used as a %s.", constant_rebound, use)
 
 @defun
-def constantp(form):
-        ## See also: %COLD-CONSTANTP
+def constantp(form, environment = None):
+        """constantp form &optional environment => generalized-boolean
+
+Arguments and Values:
+
+FORM---a form.
+
+environment---an environment object. The default is nil.
+
+GENERALIZED-BOOLEAN---a generalized boolean.
+
+Description:
+
+Returns true if FORM can be determined by the implementation to be a
+constant form in the indicated ENVIRONMENT;  otherwise, it returns
+false indicating either that the form is not a constant form or that
+it cannot be determined whether or not FORM is a constant form.
+
+The following kinds of forms are considered constant forms:
+
+ * Self-evaluating objects (such as numbers, characters, and the
+   various kinds of arrays) are always considered constant forms and
+   must be recognized as such by CONSTANTP.
+
+ * Constant variables, such as keywords, symbols defined by Common Lisp
+   as constant (such as NIL, T, and PI), and symbols declared as
+   constant by the user in the indicated ENVIRONMENT using DEFCONSTANT
+   are always considered constant forms and must be recognized as such
+   by CONSTANTP.
+
+ * QUOTE forms are always considered constant forms and must be
+   recognized as such by CONSTANTP.
+
+ * An implementation is permitted, but not required, to detect
+   additional constant forms.  If it does, it is also permitted, but
+   not required, to make use of information in the
+   ENVIRONMENT.  Examples of constant forms for which CONSTANTP might or
+   might not return true are: (SQRT PI), (+ 3 2), (LENGTH '(A B C)),
+   and (LET ((X 7)) (ZEROP X)).
+
+If an implementation chooses to make use of the environment
+information, such actions as expanding macros or performing function
+inlining are permitted to be used, but not required; however,
+expanding compiler macros is not permitted.
+
+Affected By:
+
+The state of the global environment (e.g., which symbols have been
+declared to be the names of constant variables)."""
         return (_py.isinstance(form, (_py.int, _py.float, _py.complex, _py.str)) or
                 keywordp(form)                                                   or
                 (symbolp(form) and _global_variable_constant_p(form))            or
@@ -6598,7 +6666,8 @@ Examples:
         ## ...
         ## N-1. Warning/error summaries.
         def summarize_compilation_unit(failurep):
-                _warn_not_implemented()
+                # _warn_not_implemented()
+                ...
         succeeded_p = nil
         if _symbol_value(_in_compilation_unit_) and not override:
                 try:
@@ -9234,6 +9303,22 @@ def _lower(form, lexenv = nil):
                         error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
                 return pv
 
+def _compile(form, lexenv = nil):
+        "Same as %LOWER, but also macroexpand."
+        check_type(lexenv, (or_, null, _lexenv))
+        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
+        macroexpanded = macroexpand_all(form, lexenv = lexenv, compilerp = t)
+        if symbol_value(_compiler_trace_macroexpansion_):
+                if form != macroexpanded:
+                        _debug_printf(";;;%s macroexpanded:\n%s%s",
+                                      _sex_space(-3, ";"), _sex_space(), pp(macroexpanded))
+                else:
+                        _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
+        if symbol_value(_compiler_trace_entry_forms_):
+                _debug_printf(";;;%s compiling:\n%s%s",
+                              _sex_space(-3, ";"), _sex_space(), pp(form))
+        return _lower(macroexpanded, lexenv = lexenv)
+
 #
 ## High-level users of %LOWER
 #
@@ -9252,6 +9337,16 @@ def _lower(form, lexenv = nil):
 
 _string_set("*COMPILE-PRINT*",    t)   ## Not implemented.
 _string_set("*COMPILE-VERBOSE*",  t)   ## Partially implemented.
+
+def _process_as_compilation_unit(processor, form, lexenv = nil, standalone = nil, id = "UNIT-"):
+        def in_compilation_unit():
+                stmts = processor(form, lexenv = lexenv)
+                check_type(stmts, _py.list)
+                unit_data = _compilation_unit_symbols()
+                return ((_compilation_unit_prologue(*unit_data) if standalone else []) +
+                        stmts,) + _py.tuple(unit_data)
+        return with_compilation_unit(in_compilation_unit,
+                                     override = t, id = id)
 
 def _atree_assemble(stmts, form = nil, filename = ""):
         ast = mapcar(_atree_ast, stmts)
@@ -9279,12 +9374,17 @@ def _atree_assemble(stmts, form = nil, filename = ""):
                 rec(bytecode)
         return bytecode
 
+def _process_as_loadable(processor, form, lexenv = nil, id = "PROCESSED-"):
+        stmts, *_ =_process_as_compilation_unit(processor, form,
+                                                lexenv = lexenv, standalone = t, id = id)
+        return _atree_assemble(stmts, form = form)
+
 def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
         mod, globals, locals = _load_code_object_as_module(filename, bytecode, register = nil)
         if func_name:
-                sym = the(symbol, # globals[_get_function_pyname(name)]
-                          mod.__dict__[_get_function_pyname(func_name)])
-                func = the(function, symbol_function(sym))
+                sf = the((or_, symbol, function), # globals[_get_function_pyname(name)]
+                         mod.__dict__[_get_function_pyname(func_name)])
+                func = sf if functionp(sf) else symbol_function(sf)
                 # _without_condition_system(_pdb.set_trace) # { k:v for k,v in globals.items() if k != '__builtins__' }
                 func.name = func_name # Debug name, as per F-L-E spec.
         else:
@@ -9292,22 +9392,6 @@ def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
         # _debug_printf("; L-M-B globals: %x, content: %s",
         #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
         return func, globals, _py.dict(globals)
-
-def _compile_in_lexenv(form, lexenv = nil):
-        "Is this for COMPILE?"
-        check_type(lexenv, (or_, null, _lexenv))
-        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
-        macroexpanded = macroexpand_all(form, lexenv = lexenv, compilerp = t)
-        if symbol_value(_compiler_trace_macroexpansion_):
-                if form != macroexpanded:
-                        _debug_printf(";;;%s macroexpanded:\n%s%s",
-                                      _sex_space(-3, ";"), _sex_space(), pp(macroexpanded))
-                else:
-                        _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
-        if symbol_value(_compiler_trace_entry_forms_):
-                _debug_printf(";;;%s compiling:\n%s%s",
-                              _sex_space(-3, ";"), _sex_space(), pp(form))
-        return _lower(macroexpanded, lexenv = lexenv)
 
 def _process_top_level(form, lexenv = nil):
         "A, hopefully, faithful implementation of CLHS 3.2.3.1."
@@ -9317,7 +9401,7 @@ def _process_top_level(form, lexenv = nil):
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
                 kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
-                _debug_printf("; compiling (%s %s%s)", kind, maybe_name, "..." if _py.len(form) > 2 else "")
+                _debug_printf("; compiling (%s %s%s)", kind, maybe_name, " ..." if _py.len(form) > 2 else "")
         if symbol_value(_compiler_trace_entry_forms_):
                 _debug_printf(";;;%s compiling:\n%s%s",
                               _sex_space(-3, ";"), _sex_space(), pp(form))
@@ -9348,19 +9432,18 @@ def _process_top_level(form, lexenv = nil):
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-ARGUMENT-HANDLING
                 ## This is where LEXENV isn't true, as it's always empty.
                 ## ..but re-walking it.. who would care?  CLtL2 environments?
-                def in_compilation_unit():
-                        stmts = _atree_linearise(*_lower(form, lexenv = lexenv))
-                        return (stmts,) + _compilation_unit_symbols()
+                ## Additional note: this is %PROCESS, split in half, due to cases.
                 if process or eval:
-                        stmts, *unit_data = with_compilation_unit(in_compilation_unit,
-                                                                  override = t, id = "PROCESS-TOPLEVEL-")
+                        stmts, *unit_data = _process_as_compilation_unit(_linearise_processor(_lower), form,
+                                                                         lexenv = lexenv, id = "PROCESS-TOPLEVEL-")
                 if process:
                         run_time_results.extend(stmts)
                         _compilation_unit_adjoin_symbols(*unit_data)
                 if eval:
-                        prologue = _compilation_unit_prologue(*unit_data)
-                        bytecode = _atree_assemble(prologue + stmts, form = form)
-                        _debug_printf(";; ..compile-time code object execution")
+                        bytecode = _atree_assemble(_compilation_unit_prologue(*unit_data) +
+                                                   stmts,
+                                                   form = form)
+                        # _debug_printf(";; ..compile-time code object execution")
                         _, broken_globals, good_globals = _load_module_bytecode(bytecode)
                         ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
                         broken_globals.update(good_globals)
@@ -9380,6 +9463,15 @@ def _process_top_level(form, lexenv = nil):
                 actions.get(form[0], default_processor)(compile_time_too, process, eval, *form)
         rec(nil, t, nil, macroexpanded)
         return run_time_results
+
+_string_set("*COMPILE-PRINT*", t)
+_string_set("*COMPILE-VERBOSE*", t)
+
+_string_set("*COMPILE-FILE-PATHNAME*", nil)
+_string_set("*COMPILE-FILE-TRUENAME*", nil)
+
+_string_set("*COMPILE-OBJECT*", nil)
+_string_set("*COMPILE-TOPLEVEL-OBJECT*", nil)
 
 def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None, print = None):
         pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
@@ -9417,47 +9509,38 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                                               ## Unregistered Issue POSSIBLE-COMPILATION-UNIT-USE-VIOLATION-HERE
                                               override = t, id = "COMPILE-FILE-")
         output_file = output_file or input_file.replace(".lisp", "." + symbol_value(_fasl_file_type_))
-        with _py.open(output_file, "wb") as f:
-                if verbose:
-                        format(t, "; writing %s..\n", output_file)
-                f.write(symbol_value(_fasl_file_magic_))
-                bytecode = _atree_assemble(atree)
-                _marshal.dump(bytecode, f)
-                return output_file
+        try:
+                with _py.open(output_file, "wb") as f:
+                        f.write(symbol_value(_fasl_file_magic_))
+                        bytecode = _atree_assemble(atree)
+                        _marshal.dump(bytecode, f)
+                        return output_file
+        finally:
+                verbose and format(t, "; %s written\n", output_file)
 
-def _read_function_object_ast_qqexpand_compile_load_and_pymport(body):
-        def read_python_toplevel_name(f):
-                symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
-                symbol = _intern(symbol_name)[0]
-                return symbol, symbol_name, f.__name__
+def _read_function_as_toplevel_compile_and_load(body):
         ## What should it be like?
         ##  - COMPILE-FILE + LOAD
         ##  - COMPILE-TOPLEVEL-FORM + ?
-        symbol, sym_name, pyname = read_python_toplevel_name(body)
-        _frost.setf_global(symbol, pyname.lower(),
-                           globals())
-        args_ast, body_ast = _function_ast(body)
-        if _py.len(body_ast) > 1:
-                error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
-                      "No more than one toplevel form is allowed per definition.", symbol)
-        maybe_qq_form = _read_ast(body_ast[0])
-        form = _expand_quasiquotation(maybe_qq_form)
-        __def_allowed_toplevels__ = { "DEFUN", "DEFMACRO" }
-        if not (symbolp(form[0]) and symbol_name(form[0]) in __def_allowed_toplevels__):
-                error("In LISP %s: only toplevels in %s are allowed.",
-                      _py.repr(form[0]), __def_allowed_toplevels__)
-        def in_compilation_unit():
-                stmts = _process_top_level(form, lexenv = _make_null_lexenv())
-                return (_compilation_unit_prologue(*_compilation_unit_symbols()) +
-                        stmts)
-        atree = with_compilation_unit(in_compilation_unit,
-                                      override = t, id = "LISP-")
-        bytecode = _atree_assemble(atree, form = form)
-        function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = symbol, filename = "<lisp core>")
+        name, form = _read_python_toplevel_as_lisp(body)
+        bytecode = _process_as_loadable(_process_top_level, form, lexenv = _make_null_lexenv(), id = "LISP-")
+        function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         return function.name
 
 def lisp(function):
-        return _read_function_object_ast_qqexpand_compile_load_and_pymport(function)
+        return _read_function_as_toplevel_compile_and_load(function)
+
+def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
+        "There really is no other way.  Trust me.  Please."
+        form = _ir_args_when(globalp, _ir_lambda_to_def(name, lambda_expression),
+                             decorators = [_ir_cl_module_call("_set_macro_definition", name)
+                                           if macrop else
+                                           _ir_cl_module_call("_set_function_definition", name)])
+        bytecode = _process_as_loadable(_linearise_processor(_compile), form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
+        function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
+        bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
+        ## Doesn't this make %READ-FUNCTION-AS-TOPLEVEL-COMPILE-AND-LOAD somewhat of an excess?
+        return function
 
 ##
 #
@@ -9466,27 +9549,8 @@ def lisp(function):
 ###
 #
 ##
-
-def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
-        "There really is no other way.  Trust me.  Please."
-        def _convert_lambda_to_def(name, lambda_expression):
-                return (def_, the(symbol, name)) + lambda_expression[1:]
-        _, arglist, *body = lambda_expression
-        fn = _fn.python_type(name = name,
-                             arglist = arglist, body = body,
-                             globalp = globalp)
-        ## fn.clear_dependencies() -- not needed, for as long as we create functions anew (HAR, um, HAR, I suppose..)
-        with progv({ _compiler_fn_: fn }):
-                return _compile_and_load_function(
-                        ## This decorator-passing scheme is fairly archaic -- we would be better served by macros.
-                        name, _ir_args_when(globalp, _ir_lambda_to_def(name, lambda_expression),
-                                            decorators = [_ir_cl_module_call("_set_macro_definition", name)
-                                                          if macrop else
-                                                          _ir_cl_module_call("_set_function_definition", name)]),
-                        lexenv,
-                        lambda_expression = lambda_expression)
-
-def _compile(name, definition = None):
+        
+def compile(name, definition = None):
         """compile name &optional definition => FUNCTION, WARNINGS-P, FAILURE-P
 
 Arguments and Values:
@@ -9558,6 +9622,9 @@ and true otherwise."""
         return _compile_lambda_as_named_toplevel(final_name, lambda_expression, _make_null_lexenv(),
                                                  globalp = not not name,
                                                  macrop = name and not not macro_function(name))
+
+def eval(form):
+        return compile(nil, (lambda_, (), form))()
 
 ################################################################################
 
@@ -9660,25 +9727,25 @@ def fdefinition(name):
 #         # (1, 1, (1, 1, 1, 1),
 #         #     (function, (quote, ("cl", "_set_function_definition"))))
 #         )
-# @lisp
-# def DEFUN(name, lambda_list, *body):
-#         (defmacro, defun, (name, lambda_list, _body, body),
-#           (quasiquote,
-#             (progn,
-#               (eval_when, (_compile_toplevel,),
-#                 ## _compile_and_load_function() expectes the compiler-level part of function to be present.
-#                 (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
-#               (eval_when, (_load_toplevel, _execute),
-#                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
-#                         # (progn,
-#                         #   (def_, (comma, name), (comma, lambda_list),
-#                         #    (block, (comma, name),
-#                         #     (splice, body))),
-#                         #   (function, (comma, name))),
-#                         (lambda_, (comma, lambda_list),
-#                           (block, (comma, name),
-#                             (splice, body))),
-#                         (quote, nil))))))
+@lisp
+def DEFUN(name, lambda_list, *body):
+        (defmacro, defun, (name, lambda_list, _body, body),
+          (quasiquote,
+            (progn,
+              (eval_when, (_compile_toplevel,),
+                ## _compile_and_load_function() expectes the compiler-level part of function to be present.
+                (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
+              (eval_when, (_load_toplevel, _execute),
+                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
+                        # (progn,
+                        #   (def_, (comma, name), (comma, lambda_list),
+                        #    (block, (comma, name),
+                        #     (splice, body))),
+                        #   (function, (comma, name))),
+                        (lambda_, (comma, lambda_list),
+                          (block, (comma, name),
+                            (splice, body))),
+                        (quote, nil))))))
 
 # @lisp
 # def cond(*clauses):
@@ -9693,91 +9760,26 @@ def fdefinition(name):
 #                          (progn, (splice, body)),
 #                          (cond, (splice, rest))))))))
 
-# Source info (rudimentary)
-
-@defclass
-class _source_info():
-        def __init__(self, pathname):
-                self.pathname = pathname
-
-# EVAL (incl. %EVAL-TLF)
-
-_string_set("*EVAL-SOURCE-CONTEXT*", nil)
-_string_set("*EVAL-TLF-INDEX*", nil)
-_string_set("*EVAL-SOURCE-INFO*", nil)
-
-def _simple_eval_in_lexenv(original_exp, lexenv):
-        exp = macroexpand(original_exp, lexenv)
-        if symbolp(exp):
-                return symbol_value(exp)
-        elif _tuplep(exp):
-                name = car(exp)
-                n_args = _py.len(exp) - 1
-                if   name is function:        _not_implemented("%SIMPLE-EVAL-IN-LEXENV FUNCTION case")
-                elif name is quote:           return the((pytuple, symbol, t), exp)[1]
-                elif name is setq:            _not_implemented("%SIMPLE-EVAL-IN-LEXENV SETQ case")
-                elif name is progn:           _not_implemented("%SIMPLE-EVAL-IN-LEXENV PROGN case")
-                elif name is eval_when:       _not_implemented("%SIMPLE-EVAL-IN-LEXENV EVAL-WHEN case")
-                elif name is locally:         _not_implemented("%SIMPLE-EVAL-IN-LEXENV LOCALLY case")
-                elif name is macrolet:        _not_implemented("%SIMPLE-EVAL-IN-LEXENV MACROLET case")
-                elif name is symbol_macrolet: _not_implemented("%SIMPLE-EVAL-IN-LEXENV SYMBOL-MACROLET case")
-                elif name is if_:             return _eval_in_lexenv((exp[2] if _eval_in_lexenv(exp[1], lexenv) else
-                                                                      nil    if _py.len(exp) == 3               else
-                                                                      exp[3]), lexenv)
-                elif name in [let, let_]:     return _simple_eval(exp, lexenv)
-                else:                         return _simple_eval(exp, lexenv) # This directly invoked a function, whenever
-                                                                               # it was already in the FNDB.  We just punt.
-        else:
-                return exp
-
-def _eval_in_lexenv(exp, lexenv):
-        return _simple_eval_in_lexenv(exp, lexenv)
-
-def _do_eval(exp, tlf_index, source_info, lexenv):
-        with progv({_eval_source_context_: exp,
-                    _eval_tlf_index_:      tlf_index,
-                    _eval_source_info_:    source_info}):
-                return _eval_in_lexenv(exp, lexenv)
-
-_string_set("*SOURCE-INFO*", nil) ## XXX: this was not there!
-
-def _eval_tlf(original_exp, tlf_index, lexenv = nil):
-        return _do_eval(original_exp, tlf_index, _symbol_value(_source_info_),
-                        lexenv or _make_null_lexenv())
-
-def eval(original_exp):
-        return _do_eval(original_exp, nil, nil, _make_null_lexenv())
-
-# File compiler, as stolen from SBCL (%EVAL-COMPILE-TOPLEVEL / %PROCESS-TOPLEVEL-FORM and COMPILE-FILE)
-
-_string_set("*COMPILE-PRINT*", t)
-_string_set("*COMPILE-VERBOSE*", t)
-
-_string_set("*COMPILE-FILE-PATHNAME*", nil)
-_string_set("*COMPILE-FILE-TRUENAME*", nil)
-
-_string_set("*COMPILE-OBJECT*", nil)
-_string_set("*COMPILE-TOPLEVEL-OBJECT*", nil)
-
 # LOAD (+ stray stream_type_error)
 
 _string_set("*LOAD-VERBOSE*", nil)
 _string_set("*LOAD-PRINT*", nil)
+_string_set("*SOURCE-INFO*", nil)
 
 def _load_as_source(stream, verbose = nil, print = nil):
         pathname = _file_stream_name(stream)
         verbose and format(t, "; loading %s\n", _py.repr(pathname))
         def with_abort_restart_body():
+                pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
                 def eval_form(form, index):
                         spref = "; evaluating "
-                        print and format(t, spref + "%s\n", _pp_sex(form, initial_depth = length(spref)))
+                        print and format(t, spref + "%s\n", pp(form, initial_depth = length(spref)))
                         def with_continue_restart_body():
                                 while t:
                                         def with_retry_restart_body():
-                                                results = _eval_tlf(form, index)
+                                                results = eval(form)
                                                 results = (results,) if not _tuplep(results) else results
-                                                if print:
-                                                        format(t, "%s\n", ", ".join(_py.repr(x) for x in results))
+                                                print and format(t, "%s\n", ", ".join(_py.repr(x) for x in results))
                                         with_simple_restart("RETRY", ("Retry EVAL of current toplevel form.",),
                                                             with_retry_restart_body)
                                         return
@@ -9787,7 +9789,8 @@ def _load_as_source(stream, verbose = nil, print = nil):
                 def next(): return read(stream, eof_error_p = nil, eof_value = stream)
                 form = next()
                 if pathname:
-                        with progv({ _source_info_: _source_info.python_type(pathname = pathname) }):
+                        with progv({ _source_info_: nil # _source_info.python_type(pathname = pathname)
+                                     }):
                                 while form != stream:
                                         eval_form(form, nil)
                                         form = next()
@@ -9819,8 +9822,7 @@ def _load_as_fasl(stream, verbose = None, print = None):
         verbose = _defaulted_to_var(verbose, _load_verbose_)
         print   = _defaulted_to_var(verbose, _load_print_)
         filename = truename(stream)
-        if verbose:
-                format(t, "; loading %s...\n", filename)
+        verbose and format(t, "; loading %s...\n", filename)
         bytecode = _marshal.load(stream)
         _load_module_bytecode(bytecode, filename = filename)
 
@@ -10038,62 +10040,6 @@ def describe(object, stream_designator = None):
         stream_designator = _defaulted(stream_designator, _symbol_value(_standard_output_))
         with progv({_print_right_margin_: 72}):
                 describe_object(object, stream_designator)
-
-# Functions: FUNCTION, CONSTANTP
-
-@defun
-def constantp(form, environment = None):
-        """constantp form &optional environment => generalized-boolean
-
-Arguments and Values:
-
-FORM---a form.
-
-environment---an environment object. The default is nil.
-
-GENERALIZED-BOOLEAN---a generalized boolean.
-
-Description:
-
-Returns true if FORM can be determined by the implementation to be a
-constant form in the indicated ENVIRONMENT;  otherwise, it returns
-false indicating either that the form is not a constant form or that
-it cannot be determined whether or not FORM is a constant form.
-
-The following kinds of forms are considered constant forms:
-
- * Self-evaluating objects (such as numbers, characters, and the
-   various kinds of arrays) are always considered constant forms and
-   must be recognized as such by CONSTANTP.
-
- * Constant variables, such as keywords, symbols defined by Common Lisp
-   as constant (such as NIL, T, and PI), and symbols declared as
-   constant by the user in the indicated ENVIRONMENT using DEFCONSTANT
-   are always considered constant forms and must be recognized as such
-   by CONSTANTP.
-
- * QUOTE forms are always considered constant forms and must be
-   recognized as such by CONSTANTP.
-
- * An implementation is permitted, but not required, to detect
-   additional constant forms.  If it does, it is also permitted, but
-   not required, to make use of information in the
-   ENVIRONMENT.  Examples of constant forms for which CONSTANTP might or
-   might not return true are: (SQRT PI), (+ 3 2), (LENGTH '(A B C)),
-   and (LET ((X 7)) (ZEROP X)).
-
-If an implementation chooses to make use of the environment
-information, such actions as expanding macros or performing function
-inlining are permitted to be used, but not required; however,
-expanding compiler macros is not permitted.
-
-Affected By:
-
-The state of the global environment (e.g., which symbols have been
-declared to be the names of constant variables)."""
-        return (typep(form, (or_, integer, float, complex, string)) or
-                keywordp(form) or form in [t, nil, pi]                 or
-                (_tuplep(form) and _py.len(form) == 2 and form[0] is quote_))
 
 # STANDARD-OBJECT and basic protocols
 
