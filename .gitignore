@@ -3,6 +3,9 @@
 \#*
 .\#*
 
+*.fasl
+*.vpfas
+
 __pycache__
 *.pyc
 
