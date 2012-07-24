@@ -942,8 +942,6 @@ class __catcher_throw__(_cold_condition_type):
 
 def _do_catch(ball, body):
         "This seeks the stack like mad, like the real one."
-        if not _py.isinstance(ball, symbol.python_type):
-                error("In %DO-CATCH: first argument must be a symbol, was: %s.", _py.repr(ball))
         try:
                 return body()
         except __catcher_throw__ as ct:
@@ -961,7 +959,6 @@ def catch(ball, body):
 @boot_defun
 def _throw(ball, value):
         "Stack this seeks, like mad, like the real one."
-        check_type(ball, symbol)
         raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp(_signalling_frame_))
 
 def __block__(fn):
