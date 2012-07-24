@@ -9992,7 +9992,7 @@ def LOOPTEST():
                   (format, t, "re: %s\n", re)),
             (go, re)))
 
-LOOPTEST()
+LOOPTEST(0)
 
 load(compile_file("vpcl.lisp"))
 
