@@ -2510,6 +2510,13 @@ def mapcan(f, *xs):
         return reduce(append, [ f(*x) for x in _py.zip(*xs) ]) if (xs and xs[0]) else []
 
 @defun
+def mapcon(f, *xs):
+        acc = []
+        for i in _py.range(_py.min(_py.len(x) for x in xs)):
+                acc.extend(f(*(x[i:] for x in xs)))
+        return acc
+
+@defun
 def mapc(f, *xs):
         for x in _py.zip(*xs):
                 f(*x)
@@ -5809,7 +5816,7 @@ all AST-trees .. except for the case of tuples."""
 
 # Code
 
-_intern_and_bind_names_in_module("VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO", "BLOCK")
+_intern_and_bind_names_in_module("VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO", "BLOCK", "GOTAG")
                          ## "FUNCTION"
 
 class _nameuse():
@@ -5823,6 +5830,8 @@ class _binding():
         value, shadows = None, None
         def __init__(self, value, shadows = nil, **attributes):
                 _attrify_args(self, locals(), "value", "shadows")
+        def __repr__(self):
+                return "#<bind %s %s: %s>" % (self.kind, self.name, self.value)
 def _bindingp(x):
         return _py.isinstance(x, _binding)
 
@@ -5839,6 +5848,9 @@ class _function(_nameuse):
 class _block(_nameuse):
         def __init__(self, name, **attributes):
                 _nameuse.__init__(self, name, block, t, **attributes)
+class _gotag(_nameuse):
+        def __init__(self, name, **attributes):
+                _nameuse.__init__(self, name, gotag, t, **attributes)
 
 def _nameuse_variablep(x): return _py.isinstance(x, _variable)
 def _nameuse_functionp(x): return _py.isinstance(x, _function)
@@ -5848,17 +5860,17 @@ class _variable_binding(_variable, _binding):
         def __init__(self, name, kind, value, **attributes):
                 _variable.__init__(self, name, kind, **attributes)
                 _binding.__init__(self, value, **attributes)
-        def __repr__(self):
-                return "#<bind %s %s: %s>" % (self.kind, self.name, self.value)
 class _function_binding(_function, _binding):
         def __init__(self, name, kind, value, **attributes):
                 _function.__init__(self, name, kind, **attributes)
                 _binding.__init__(self, value, **attributes)
-        def __repr__(self):
-                return "#<bind %s %s: %s>" % (self.kind, self.name, self.value)
 class _block_binding(_block, _binding):
         def __init__(self, name, value, **attributes):
                 _block.__init__(self, name, **attributes)
+                _binding.__init__(self, value, **attributes)
+class _gotag_binding(_gotag, _binding):
+        def __init__(self, name, value, **attributes):
+                _gotag.__init__(self, name, **attributes)
                 _binding.__init__(self, value, **attributes)
 
 def _variable_bindingp(x): return _py.isinstance(x, _variable_binding)
@@ -6338,9 +6350,9 @@ def _match(matcher, exp, pat):
 _compiler_safe_namespace_separation = t
 _compiler_max_mockup_level = 3
 
-_string_set("*COMPILER-TRACE-TOPLEVELS*",        nil)
+_string_set("*COMPILER-TRACE-TOPLEVELS*",        t)
 _string_set("*COMPILER-TRACE-TOPLEVELS-DISASM*", nil)
-_string_set("*COMPILER-TRACE-ENTRY-FORMS*",      nil)
+_string_set("*COMPILER-TRACE-ENTRY-FORMS*",      t)
 _string_set("*COMPILER-TRACE-QQEXPANSION*",      nil)
 _string_set("*COMPILER-TRACE-MACROEXPANSION*",   nil)
 
@@ -6763,9 +6775,9 @@ class _lexenv():
         def __repr__(self):
                 return "#<lexenv vars: %s, funs: %s>" % (self.varscope, self.funcscope)
         def __init__(self, parent = nil,
-                     name_varframe = None, name_funcframe = None, name_blockframe = None,
-                     kind_varframe = None, kind_funcframe = None, kind_blockframe = None,
-                     full_varframe = None, full_funcframe = None, full_blockframe = None):
+                     name_varframe = None, name_funcframe = None, name_blockframe = None, name_gotagframe = None,
+                     kind_varframe = None, kind_funcframe = None, kind_blockframe = None, kind_gotagframe = None,
+                     full_varframe = None, full_funcframe = None, full_blockframe = None, full_gotagframe = None):
                 # for k, v in self.data.items():
                 #         symbolp(k)   or error("Lexenv scope keys must be symbols, found: %s.",    k.__repr__())
                 #         _bindingp(k) or error("Lexenv scopt values must be bindings, found: %s.", v.__repr__())
@@ -6795,12 +6807,15 @@ class _lexenv():
                                           pscope))))
                 (self.varscope,
                  self.funcscope,
-                 self.blockscope) = (compute_scope(parent,  "varscope",
-                                                   complete_frame(name_varframe, kind_varframe, full_varframe)),
+                 self.blockscope,
+                 self.gotagscope) = (compute_scope(parent,  "varscope",
+                                                   complete_frame(name_varframe,   kind_varframe,   full_varframe)),
                                      compute_scope(parent, "funcscope",
-                                                   complete_frame(name_funcframe, kind_funcframe, full_funcframe)),
+                                                   complete_frame(name_funcframe,  kind_funcframe,  full_funcframe)),
                                      compute_scope(parent, "blockscope",
-                                                   complete_frame(name_funcframe, kind_blockframe, full_blockframe)))
+                                                   complete_frame(name_blockframe, kind_blockframe, full_blockframe)),
+                                     compute_scope(parent, "gotagscope",
+                                                   complete_frame(name_gotagframe, kind_gotagframe, full_gotagframe)))
         @staticmethod
         def do_lookup_scope(scope, x, default):
                 while scope:
@@ -6811,10 +6826,12 @@ class _lexenv():
         def lookup_func(self, x, default = None):         return self.do_lookup_scope(self.funcscope, x, default)
         def lookup_var(self, x, default = None):          return self.do_lookup_scope(self.varscope, x, default)
         def lookup_block(self, x, default = None):        return self.do_lookup_scope(self.blockscope, x, default)
+        def lookup_gotag(self, x, default = None):        return self.do_lookup_scope(self.gotagscope, x, default)
         def lookup_scope(self, sname, x, default = None): return self.do_lookup_scope(getattr(self, sname), x, default)
         def funcscope_binds_p(self, x):   return self.lookup_func(x)  is not None
         def varscope_binds_p(self, x):    return self.lookup_var(x)   is not None
         def blockscope_binds_p(self, x):  return self.lookup_block(x) is not None
+        def gotagscope_binds_p(self, x):  return self.lookup_gotag(x) is not None
         def lookup_func_kind(self, kind, x, default = None):
                 b = self.do_lookup_scope(self.funcscope, x, None)
                 return (b and b.kind is kind and b) or default
@@ -8515,7 +8532,7 @@ def unwind_protect():
                 return _lowered([("TryFinally",
                                   pro_form + [("Expr", val_form)],
                                   pro_unwind + [("Expr", val_unwind)])],
-                                _lower((ref, values_var))[1])
+                                _lower_value((ref, values_var)))
         def effects(form, *unwind_body):
                 return _py.any(_ir_effects(f) for f in (form,) + body)
         def affected(form, *unwind_body):
@@ -8646,9 +8663,10 @@ def return_from():
 @defknown((intern("CATCH")[0], " ", _form,
            1, [(_notlead, "\n"), (_bound, _form)]))
 def catch():
-        def nvalues(_, *body):              return 1 if not body else _ir_nvalues(body[-1])
-        def nth_value(n, orig, tag, *body): return (_ir_nth_valueify_last_subform(n, orig) if body             else
-                                                    (progn, tag, nil)                      if _ir_effects(tag) else
+        ## Critical Issue CATCH-MULTIPLE-VALUES-NOT-IMPLEMENTED
+        def nvalues(_, *body):              return 1 if not body else _not_implemented()
+        def nth_value(n, orig, tag, *body): return (_not_implemented() if body             else
+                                                    (progn, tag, nil)  if _ir_effects(tag) else
                                                     nil)
         ## Unregistered Issue DOUBT-WHETHER-LAMBDA-CAN-LOWER-PROLOGUESSLY-DUE-TO-C-L-A-N-T
         def prologuep(tag, *body_):         return _ir_prologue_p(tag) or _ir_body_prologuep(body)
@@ -8686,25 +8704,61 @@ def throw():
 
 #         Implementation strategy:
 
+#         - Henry Baker's '92 "TAGBODY/GO" EMULATED BY "CATCH/THROW"
 #         - bytecode patching, for function-internal jumps
 #         - THROW, plus bytecode patching, for jumps outward of a lexically contained function
 #           definition
 
-@defknown((intern("TAGBODY")[0], (["\n", (or_, (_name,), (_bound, _form))],)))
+_intern_and_bind_names_in_module("NXT-LABEL")
+
+## Unregistered Issue COMPLIANCE-TAGBODY-TAGS-EXEMPT-FROM-MACROEXPANSION
+@defknown((intern("TAGBODY")[0], ["\n", (or_, (_name,), (_bound, _form))],))
 def tagbody():
         def nvalues(*tags_and_forms):            return 1
         def nth_value(_, orig, *tags_and_forms): return (nil if not _py.any(_ir_effects(f) for f in tags_and_forms
                                                                             if not symbolp(f)) else
                                                          (progn, orig, nil))
-        def binds(*tags_and_forms):              return { tag: { _tag_binding(name, t) for name in tags_and_forms
-                                                                 if symbolp(name) } }
+        ## Unregistered Issue TAGBODY-BINDS-METHOD-IMPRECISE-AND-CANNOT-BE-SO-MADE-EASILY
+        def binds(*tags_and_forms):              return { tag: t for tag in remove_if_not(symbolp, tags_and_forms) }
         def prologuep(*tags_and_forms):          return not not tags_and_forms
         def lower(*tags_and_forms):
-                with progv({ _lexenv_: _make_lexenv(name_gotagframe = { name: _gotag_binding(name, t)
-                                                                        for name in tags_and_forms
-                                                                        if symbolp(name) }) }):
-                        _lower((progn,) + body)
-                return _not_implemented()
+                (init_tag,
+                 go_tag,
+                 return_tag) = (gensym(x + "-TAG-") for x in ["INIT", "GO", "RETURN"])
+                body         = (init_tag,) + tags_and_forms
+                tags         = remove_if_not(symbolp, body)
+                fun_names    = { tag: gensym("TAG-%s-" % symbol_name(tag)) for tag in tags }
+                def lam_(seq):
+                        label, s = seq[0], seq[1:]
+                        if not atom(label):
+                                return ()
+                        p = position_if(atom, s)
+                        return ((fun_names[label], ()) + s[:p if p is not None else _py.len(s)] +
+                                (_ir_funcall(fun_names[s[p]]) if p is not None else
+                                 (throw, return_tag, nil),),)
+                funs        = mapcon(lam_, body)
+                _debug_printf("  funs:")
+                for n, f in _py.zip(fun_names, funs):
+                        _debug_printf("       %s -- %s", n, f)
+                # (mapcon #'(lambda (seq &aux (label (car seq) (s (cdr seq)))      
+                #             (when (atom label)                                   
+                #               (let ((p (position-if #'atom s)))                  
+                #                 `((,(label-to-functionname label) ()             
+                #                      ,@(subseq s 0 (or p (length s)))            
+                #                      ,(if p `(,(label-to-functionname (elt s p)))
+                #                             `(throw ,return-tag nil)))))))
+                #         `(,init-tag ,@body))
+                with progv({ _lexenv_: _make_lexenv(name_gotagframe = { tag: _gotag_binding(tag, fun_names[tag])
+                                                                        for tag in tags[1:] }) }):
+                        return _rewritten((let, ((go_tag, (apply, (function, list), (quote, nil), (quote, nil))),),
+                                            (let, ((return_tag, (apply, (function, list), (quote, nil), (quote, nil))),) +
+                                                 _py.tuple((name, go_tag) for name in fun_names),
+                                              (catch, return_tag,
+                                                (labels, funs,
+                                                  (let, ((nxt_label, (function, funs[0][0])),),
+                                                    (protoloop,
+                                                      (setq, nxt_label,
+                                                             (catch, go_tag, (apply, nxt_label, (quote, nil)))))))))))
         def effects(*tags_and_forms):            return _py.any(_ir_effects(f) for f in tags_and_forms
                                                                 if not symbolp(f))
         def affected(*tags_and_forms):           return _py.any(_ir_affected(f) for f in tags_and_forms
@@ -8728,7 +8782,7 @@ def go():
                 binding = symbol_value(_lexenv_).lookup_gotag(the(symbol, name))
                 if not binding:
                         simple_program_error("attempt to GO to nonexistent tag: %s", name)
-                return _not_implemented()
+                return _rewritten((throw, binding.name, (function, binding.name)))
         def effects(_):            return nil
         def affected(_):           return nil
 
@@ -8971,6 +9025,22 @@ def nth_value():
         def effects(n, form):   return _ir_effects(n) or _ir_effects(form)
         def affected(n, form):  return _ir_affected(n) or _ir_affected(form)
 
+@defknown((intern("PROTOLOOP")[0], ["\n", _form]))
+def protoloop():
+        "This was implemented exclusively for the sake of TAGBODY."
+        ## Critical Issue PROTOLOOP-MULTIPLE-VALUES-NOT-IMPLEMENTED
+        def nvalues(*_):            return _not_implemented()
+        def nth_value(n, *_):       return _not_implemented()
+        def prologuep(*_):          return t
+        def lower(*body):
+                pro = _linearise_processor(_lower)((progn,) + body)
+                return _lowered([("While", _lower_value(t),
+                                  pro,
+                                  [])],
+                                _lower_name(nil))
+        def effects(*body):         return _py.any(_ir_effects(x)  for x in body)
+        def affected(*body):        return _py.any(_ir_affected(x) for x in body)
+
 # DEF_
 #         :PROPERTIES:
 #         :K:        [ ]
@@ -9031,7 +9101,7 @@ def def_():
                                           deco_vals),
                                          # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
                                          ],
-                                        _lower((quote, name))[1])
+                                        _lower_value((quote, name)))
                 ## Xtnls feedback loop stabilisation scheme.
                 ##
                 ## This looks fairly ridiculous, but this is reality for you:
@@ -9098,7 +9168,7 @@ def lambda_():
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
-                                                 _lower((progn,) + body)[1]))
+                                                 _lower_value((progn,) + body)))
                         elif rest:
                                 _not_implemented("REST-ful defaulting lambda list")
                         elif evaluate_defaults_early:
@@ -9107,7 +9177,7 @@ def lambda_():
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
-                                                 _lower((progn,) + body)[1]))
+                                                 _lower_value((progn,) + body)))
                         else:
                                 ## Delay evaluation of default values.
                                 def defaulting_expr(arg, default):
@@ -9302,6 +9372,12 @@ def _lower(form, lexenv = nil):
                 if not typep(pv, expected_return_type):
                         error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
                 return pv
+
+def _lower_value(form, lexenv = nil):
+        p, v = _lower(form, lexenv = lexenv)
+        if p:
+                error("Form %s lowered to a non-expression.")
+        return v
 
 def _compile(form, lexenv = nil):
         "Same as %LOWER, but also macroexpand."
@@ -9525,6 +9601,7 @@ def _read_function_as_toplevel_compile_and_load(body):
         name, form = _read_python_toplevel_as_lisp(body)
         bytecode = _process_as_loadable(_process_top_level, form, lexenv = _make_null_lexenv(), id = "LISP-")
         function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
+        bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
         return function.name
 
 def lisp(function):
@@ -9716,6 +9793,9 @@ def fdefinition(name):
 # _trace(_return, "match")
 # _debug_compiler()
 
+@defun
+def onemore(x): return x + 1
+
 ## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
 # _pp_sex((defmacro, defun, ("name", lambda_list, _body, "body"),
 #           (quasiquote,
@@ -9727,6 +9807,7 @@ def fdefinition(name):
 #         # (1, 1, (1, 1, 1, 1),
 #         #     (function, (quote, ("cl", "_set_function_definition"))))
 #         )
+
 @lisp
 def DEFUN(name, lambda_list, *body):
         (defmacro, defun, (name, lambda_list, _body, body),
@@ -9762,7 +9843,7 @@ def DEFUN(name, lambda_list, *body):
 
 # LOAD (+ stray stream_type_error)
 
-_string_set("*LOAD-VERBOSE*", nil)
+_string_set("*LOAD-VERBOSE*", t)
 _string_set("*LOAD-PRINT*", nil)
 _string_set("*SOURCE-INFO*", nil)
 
@@ -9899,6 +9980,19 @@ _compiler_config_tracing(# toplevels = t,
                          )
 
 # _compiler_trap_function(intern("DEFPACKAGE")[0])
+
+@lisp
+def LOOPTEST():
+        (defun, looptest, (x,),
+          (tagbody,
+            re,
+            (setq, x, (onemore, x)),
+            (if_, (oddp, x),
+                  (go, re),
+                  (format, t, "re: %s\n", re)),
+            (go, re)))
+
+LOOPTEST()
 
 load(compile_file("vpcl.lisp"))
 
