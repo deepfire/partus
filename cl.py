@@ -9292,7 +9292,7 @@ def _lower(form, lexenv = nil):
                         _debug_printf("%s>>> %s\n%s%s", _sex_space(), name,
                                       _sex_space(), ("\n" + _sex_space()).join(pp(f) for f in xs))
         def compiler_note_rewrite(known_name, known_subforms, result_form):
-                if symbol_value(_compiler_trace_rewrites_) and _debugging_compiler() and known_name is not symbol:
+                if symbol_value(_compiler_trace_rewrites_) and _debugging_compiler() and known_name in (symbol, ref):
                         _debug_printf("%s======================================================\n%s\n"
                                       "%s--------------------- rewrote ------------------------>\n%s\n"
                                       # "%s--------------------- rewrote ------------------------>",
