@@ -279,6 +279,10 @@ def assign_meaningful_locations(node, lineno = 1):
                                            (lambda lineno: lineno + x) if integerp(x)  else
                                            error("Invalid direct advancement specifier: %s.", x.__repr__())))]
         def rec(lineno, xspec):
+                if not tuplep(xspec):
+                        # import pdb, cl
+                        # cl._without_condition_system(pdb.set_trace)
+                        error("Advancement specifier not a tuple: %s", xspec)
                 x, advance = xspec
                 functionp(advance) or error("Invariant failed in AST location walker: advance is: %s.", advance)
                 def attrs(*attrs): return reduce(operator.add, (([x] if not isinstance(x, list) else x)
@@ -292,9 +296,9 @@ def assign_meaningful_locations(node, lineno = 1):
                         return binder
                 def self_binder(): return make_binder(x)
                 def handle_body_orelse(x, prechain, intrachain = []):
-                        return chain(rec, (prechain + dir(self_binder()) + normally(x.body) + intrachain +
-                                           ((dir(1) +
-                                             normally(x.orelse)) if hasattr(x, "orelse") and x.orelse else [])),
+                        return chain(rec, ([prechain, dir(self_binder()), normally(x.body), intrachain, dir(1)] +
+                                           (normally(x.orelse) if hasattr(x, "orelse") and x.orelse else
+                                            [])),
                                      lineno)
                 reductios = { type(None):        (lambda x, lineno: lineno),
                               ast.Module:        (lambda x, lineno: reduce(rec, dir(self_binder()) + normally(x.body), lineno)),
