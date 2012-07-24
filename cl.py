@@ -8775,9 +8775,9 @@ def tagbody():
 
 @defknown((intern("GO")[0], " ", _name))
 def go():
-        def nvalues(_):            return _ir_nvalues(value)
+        def nvalues(_):            return 0
         def nth_value(n, orig, _): return None
-        def prologuep(_):          return _not_implemented()
+        def prologuep(_):          return nil
         def lower(name):
                 binding = symbol_value(_lexenv_).lookup_gotag(the(symbol, name))
                 if not binding:
