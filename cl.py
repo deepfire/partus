@@ -8423,8 +8423,8 @@ def labels():
                         error("LABELS: malformed bindings: %s.", bindings)
                 temp_name = gensym("LABELS-")
                 ## Rewrite as a function, to avoid scope pollution.  Actually, is it that important?
-                return _rewritten((flet, ((temp_name, _py.tuple()) +
-                                          _py.tuple((def_, name, lambda_list, body)
+                return _rewritten((flet, ((temp_name, ()) +
+                                          _py.tuple((def_, name, lambda_list) + _py.tuple(body)
                                                      for name, lambda_list, *body in bindings) +
                                            body,),
                                    (apply, temp_name, (quote, nil))))
