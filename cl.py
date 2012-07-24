@@ -9814,18 +9814,20 @@ def DEFUN(name, lambda_list, *body):
           (quasiquote,
             (progn,
               (eval_when, (_compile_toplevel,),
-                ## _compile_and_load_function() expectes the compiler-level part of function to be present.
-                (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil))),
+                ## _compile_and_load_function() expects the compiler-level part of function to be present.
+                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
+                        (quote, nil),
+                        (quote, nil))),
               (eval_when, (_load_toplevel, _execute),
                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
-                        # (progn,
-                        #   (def_, (comma, name), (comma, lambda_list),
-                        #    (block, (comma, name),
-                        #     (splice, body))),
-                        #   (function, (comma, name))),
-                        (lambda_, (comma, lambda_list),
-                          (block, (comma, name),
+                        (progn,
+                          (def_, (comma, name), (comma, lambda_list),
+                           (block, (comma, name),
                             (splice, body))),
+                          (function, (comma, name))),
+                        # (lambda_, (comma, lambda_list),
+                        #   (block, (comma, name),
+                        #     (splice, body))),
                         (quote, nil))))))
 
 # @lisp
