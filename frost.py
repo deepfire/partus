@@ -18,7 +18,7 @@ Irreversibles: %."""
                 if len(cs) > 1:
                         starred       = cs[0]  == cs[-1] == "_"                                   # *very-nice*
                         anded         = cs[0]  == "_" != cs[-1] and cs[1:].upper() in common_ands # &something
-                        maybe_keyword = cs[0]  == "_" != cs[-1]                                   # :something
+                        maybe_keyword = cs[-1] != cs[0] == "_" != cs[1]                           # :something
                         tailed        = cs[-1] == "_" != cs[0]                                    # something-in-conflict
                 else:
                         starred = anded = maybe_keyword = tailed = False

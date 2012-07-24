@@ -9051,9 +9051,9 @@ def protoloop():
 #         :CL:       [ ]
 #         :END:
 
-@defknown((intern("DEF_")[0], " ", _name, " ", ([(_notlead, " "), _form],),
+@defknown((intern("DEF")[0], " ", _name, " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), (_bound, _form)]),
-          name = intern("DEF_")[0])
+          name = intern("DEF")[0])
 def def_():
         "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
         def nvalues(_):             return 1
