@@ -8736,8 +8736,7 @@ def tagbody():
                         return ((fun_names[label], ()) + s[:p if p is not None else _py.len(s)] +
                                 (_ir_funcall(fun_names[s[p]]) if p is not None else
                                  (throw, return_tag, nil),),)
-                funs        = mapcon(lam_, body)
-                _debug_printf("  funs:")
+                funs        = _py.tuple(mapcon(lam_, body))
                 for n, f in _py.zip(fun_names, funs):
                         _debug_printf("       %s -- %s", n, f)
                 # (mapcon #'(lambda (seq &aux (label (car seq) (s (cdr seq)))      
@@ -8748,17 +8747,19 @@ def tagbody():
                 #                      ,(if p `(,(label-to-functionname (elt s p)))
                 #                             `(throw ,return-tag nil)))))))
                 #         `(,init-tag ,@body))
-                with progv({ _lexenv_: _make_lexenv(name_gotagframe = { tag: _gotag_binding(tag, fun_names[tag])
-                                                                        for tag in tags[1:] }) }):
-                        return _rewritten((let, ((go_tag, (apply, (function, list), (quote, nil), (quote, nil))),),
-                                            (let, ((return_tag, (apply, (function, list), (quote, nil), (quote, nil))),) +
-                                                 _py.tuple((name, go_tag) for name in fun_names),
-                                              (catch, return_tag,
-                                                (labels, funs,
-                                                  (let, ((nxt_label, (function, funs[0][0])),),
-                                                    (protoloop,
-                                                      (setq, nxt_label,
-                                                             (catch, go_tag, (apply, nxt_label, (quote, nil)))))))))))
+                form = (let, ((go_tag, (apply, (function, list), (quote, nil), (quote, nil))),),
+                         (let, ((return_tag, (apply, (function, list), (quote, nil), (quote, nil))),) +
+                              _py.tuple((name, go_tag) for name in fun_names),
+                           (catch, return_tag,
+                             (labels, funs,
+                               (let, ((nxt_label, (function, funs[0][0])),),
+                                 (protoloop,
+                                   (setq, nxt_label,
+                                          (catch, go_tag, (apply, nxt_label, (quote, nil))))))))))
+                return _rewritten(form,
+                                  { _lexenv_: _make_lexenv(name_gotagframe =
+                                                           { tag: _gotag_binding(tag, fun_names[tag])
+                                                             for tag in tags[1:] }) })
         def effects(*tags_and_forms):            return _py.any(_ir_effects(f) for f in tags_and_forms
                                                                 if not symbolp(f))
         def affected(*tags_and_forms):           return _py.any(_ir_affected(f) for f in tags_and_forms
