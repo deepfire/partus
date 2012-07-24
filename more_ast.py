@@ -473,6 +473,10 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                         return (indent(x) + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n" +
                                 pp_subprogn(x.body) +
                                 (indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else "")
+                def pp_while(x):
+                        return (indent(x) + "while " + rec(x.test) + ":\n" +
+                                pp_subprogn(x.body) +
+                                (indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else "")
                 def pp_if(x):
                         def ifrec(x, firstp):
                                 chainp = len(x.orelse) is 1 and typep(x.orelse[0], ast.If)
@@ -490,6 +494,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                         ast.FunctionDef: pp_functiondef,
                         ast.Lambda:      pp_lambda,
                         ast.For:         pp_for,
+                        ast.While:       pp_while,
                         ast.If:          pp_if,
                         ast.Expr:        pp_Expr,
                         ast.Call:        pp_call,
