@@ -966,7 +966,7 @@ def _throw(ball, value):
 
 def __block__(fn):
         "An easy decorator-styled interface for block establishment."
-        nonce = gensym("BLOCK")
+        nonce = gensym("BLOCK-")
         ret = (lambda *args, **keys:
                        _do_catch(nonce,
                                  lambda: fn(*args, **keys)))
@@ -4354,7 +4354,7 @@ def handler_bind(fn, *handlers, no_error = identity):
 
 def handler_case(body, *handlers, no_error = identity):
         "Works like real HANDLER-CASE, when the conditions are right.  Ha."
-        nonce            = gensym("HANDLER-CASE")
+        nonce            = gensym("HANDLER-CASE-")
         wrapped_handlers = _mapcar_star(lambda type, handler:
                                                 (type, lambda cond: return_from(nonce, handler(cond))),
                                         handlers)
@@ -4515,7 +4515,7 @@ def _restart_case(body, **restarts_args):
                 unknown = _py.set(options.keys()) - __valid_restart_options__
                 return t if not unknown else simple_type_error("Acceptable restart options are: (%s), not (%s)",
                                                                " ".join(__valid_restart_options__), " ".join(options.keys()))
-        nonce = gensym("RESTART-CASE")
+        nonce = gensym("RESTART-CASE-")
         wrapped_restarts_args = {
                 restart_name: _poor_man_let(restart_args["function"],
                                   restart_args["interactive"] if "interactive" in restart_args else nil,
@@ -8268,7 +8268,7 @@ def if_():
                 else:
                         _compiler_trace_choice(if_, "NONEXPR-AS-FLET")
                         ## Unregistered Issue FUNCALL-MISSING
-                        name_cons, name_ante = _gensyms(x = "IF-BRANCH", n = 2)
+                        name_cons, name_ante = _gensyms(x = "IF-BRANCH-", n = 2)
                         cons, cons_fdefn = ((consequent,                     ()) if cons_expr_p else
                                             (_ir_funcall(name_cons), ((name_cons, ()) + (consequent,),)))
                         ante, ante_fdefn = ((antecedent,                     ()) if ante_expr_p else
@@ -8316,7 +8316,7 @@ def let():
                         aux_bindings = ()
                 else:
                         _compiler_trace_choice(let, "NONEXPR-SETQ-LAMBDA")
-                        thunk_name = gensym("LET-THUNK")
+                        thunk_name = gensym("LET-THUNK-")
                         # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                         form = (progn,
                                 (def_, thunk_name, ()) +
@@ -8328,7 +8328,7 @@ def let():
                         # last_non_expr_posn = position_if(_ir_prologue_p, values, from_end = t)
                         # n_exprs = last_non_expr_posn + 1
                         # orig_expr_bindings = bindings[_py.len(bindings) - n_exprs:]
-                        # temp_names = [ gensym("LET-NONEXPR-VAL") for i in _py.range(_py.len(bindings)) ]
+                        # temp_names = [ gensym("LET-NONEXPR-VAL-") for i in _py.range(_py.len(bindings)) ]
                         # aux_bindings = _py.tuple(_py.zip(temp_names, values[:-n_exprs or None]))
                         # form = ((progn,) +
                         #         _py.tuple(_ir_args_when(function_scope,
@@ -8377,7 +8377,7 @@ def flet():
                 # tempnames = [ gensym(string(name) + "-") for name, _, *__ in bindings ]
                 # Unregistered Issue FLET-IS-ACTUALLY-LABELS
                 # Unregistered Issue FLET-CAN-HAVE-EXPRESSION-REWRITE
-                thunk_name = gensym("FLET-THUNK")
+                thunk_name = gensym("FLET-THUNK-")
                 form = (progn,
                         (def_, thunk_name, ()) +
                         _py.tuple((def_, name, lambda_list) + _py.tuple(fbody)
@@ -8421,7 +8421,7 @@ def labels():
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
                 if not every(_of_type((partuple, symbol, pytuple)), bindings):
                         error("LABELS: malformed bindings: %s.", bindings)
-                temp_name = gensym("LABELS")
+                temp_name = gensym("LABELS-")
                 ## Rewrite as a function, to avoid scope pollution.  Actually, is it that important?
                 return _rewritten((flet, ((temp_name, _py.tuple()) +
                                           _py.tuple((def_, name, lambda_list, body)
@@ -8519,7 +8519,7 @@ def unwind_protect():
                        return _rewritten(form)
                 if not values_var:
                         _compiler_trace_choice(unwind_protect, "UNWIND-LEXICAL-LESS")
-                        values_var = gensym("PROTECTED-FORM-VALUE")
+                        values_var = gensym("PROTECTED-FORM-VALUE-")
                         return _rewritten((let, ((values_var, nil),),
                                            (unwind_protect,
                                             (setq, values_var,
@@ -8965,7 +8965,7 @@ def multiple_value_prog1():
         def nth_value(n, orig, first_form, *forms): return (_ir_nth_value(n, first_form) if not _py.any(_ir_effects(f) for f in forms) else
                                                             (lambda sym: ((let, ((sym, _ir_nth_value(n, first_form)))) +
                                                                             forms +
-                                                                            (sym,)))(gensym("MV-PROG1-VALUE")))
+                                                                            (sym,)))(gensym("MV-PROG1-VALUE-")))
         def prologuep(first_form, *forms):          return not not forms or _ir_prologue_p(first_form)
         def lower(first_form, *forms):              _not_implemented()
         def effects(first_form, *forms):            return _ir_effects(first_form) or _py.any(_ir_effects(f) for f in forms)
@@ -9243,8 +9243,8 @@ def apply():
                         func_binding, func_expr = (((), func) if not _ir_prologue_p(func) else
                                                    (lambda func_name:
                                                      (((func_name, func),),
-                                                      (function, func_name)))(gensym("APPLY-FUNCNAME")))
-                        temp_names = _py.tuple(_gensyms(n = _py.len(fixed) + 1 - no_varargs, x = "APPLY-ARG"))
+                                                      (function, func_name)))(gensym("APPLY-FUNCNAME-")))
+                        temp_names = _py.tuple(_gensyms(n = _py.len(fixed) + 1 - no_varargs, x = "APPLY-ARG-"))
                         arg_exprs = temp_names + (((quote, nil),) if no_varargs else ())
                         return _rewritten((let, func_binding + _py.tuple(_py.zip(temp_names, (arg,) + args)),
                                            (apply, func_expr) + arg_exprs))
@@ -9691,7 +9691,7 @@ and true otherwise."""
                 if not definition:
                         # Not much we can do, but return the original function.
                         return fun, nil, nil, nil
-        final_name = the(symbol, name) or gensym("COMPILED-LAMBDA")
+        final_name = the(symbol, name) or gensym("COMPILED-LAMBDA-")
         # Must has a name, for two reasons:
         #  - _ast_compiled_name() requires one
         #  - THERE-EXIST lambdas non-expressible in Python
