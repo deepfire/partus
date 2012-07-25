@@ -5011,7 +5011,7 @@ def _ast_info_check_args_type(info, args, atreep = t):
                                                          (nil,   t, type[1]) if list_typespec_p(type)  else
                                                          (nil, nil, type))
                         return (maybe_typep                                                       if arg is None else
-                                _listp(arg) and every(lambda x: atree_simple_typep(x, type), arg) if list_typep  else
+                                _listp(arg) and _py.all(check_arg_type(x, type) for x in arg) if list_typep  else
                                 atree_simple_typep(arg, type))
                 else:
                         return typep(arg, type)
