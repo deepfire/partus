@@ -9065,57 +9065,45 @@ def def_():
                 # need to represent a building block from the underlying system.
                 check_type(name, (and_, symbol, (not_, keyword)))
                 # check_type(name, (or_, string, (and_, symbol, (not_, (satisfies, keywordp)))))
-                def try_compile():
-                        # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                        total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
-                        _check_no_locally_rebound_constants(total)
-                        compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
-                        fixed, optional, rest, keys = args
-                        optdefs, keydefs = defaults
-                        defmap = _py.dict(_py.zip(optional + keys, optdefs + keydefs))
-                        with progv({ _lexenv_: _make_lexenv(kind_varframe =
-                                                            { variable: { _variable_binding(name, variable,
-                                                                                            (defmap[name]
-                                                                                             if name in defmap else
-                                                                                             None))
-                                                                          for name in total } }) }):
-                                with _tail_position():
-                                        body_pro, body_val = _lower((progn,) + body)
-                        # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
-                        # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
-                        deco_vals = []
-                        for pro_deco, val_deco in (_lower(d) for d in decorators):
-                                if pro_deco:
-                                        error("in DEF %s: decorators must lower to python expressions.", name)
-                                deco_vals.append(val_deco)
-                        return _lowered([("FunctionDef", _unit_function_pyname(name), compiled_lambda_list,
-                                          (([_atree_import("pdb", "cl"),
-                                             ("Expr",
-                                              _atree_funcall(_atree_ref("cl", "_without_condition_system"),
-                                                             _atree_ref("pdb", "set_trace")))]
-                                            if _compiler_function_trapped_p(name) else []) +
-                                           body_pro +
-                                           [("Return", body_val)]),
-                                          deco_vals),
-                                         # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
-                                         ],
-                                        _lower_value((quote, name)))
-                ## Xtnls feedback loop stabilisation scheme.
-                ##
-                ## This looks fairly ridiculous, but this is reality for you:
-                ##  - it's impossible to know externals before compilation
-                ##    - determined by walking the resulting atree
-                ##  - you need to know externals before compilation
-                ##    - at least one optimisation (LET) depends on this
-                ##
-                ## Quietly hoped to be the only parameter requiring such beforehand knowledge.
-                xtnls_guess, xtnls_actual, try_ = None, _py.set(), 0
-                while xtnls_guess != xtnls_actual:
-                        xtnls_guess = xtnls_actual
-                        result = try_compile()
-                        xtnls_actual = _tuple_xtnls(result)
-                        try_ += 1
-                return result
+                cdef = _compiler_def()
+                # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
+                total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
+                _check_no_locally_rebound_constants(total)
+                compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
+                fixed, optional, rest, keys = args
+                optdefs, keydefs = defaults
+                defmap = _py.dict(_py.zip(optional + keys, optdefs + keydefs))
+                ## Critical Issue DEFAULT-VALUE-FORMS-PROCESSING-UNCLEAR
+                with progv({ _lexenv_: _make_lexenv(kind_varframe =
+                                                    { variable: { _variable_binding(name, variable,
+                                                                                    (defmap[name]
+                                                                                     if name in defmap else
+                                                                                     None))
+                                                                  for name in total } }),
+                             _compiler_def_: cdef }):
+                        with _tail_position():
+                                body_pro, body_val = _lower((progn,) + body)
+                nonlocals = cdef.lexical_setqs - _py.set(total)
+                # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
+                # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
+                deco_vals = []
+                for pro_deco, val_deco in (_lower(d) for d in decorators):
+                        if pro_deco:
+                                error("in DEF %s: decorators must lower to python expressions.", name)
+                        deco_vals.append(val_deco)
+                return _lowered([("FunctionDef", _unit_function_pyname(name), compiled_lambda_list,
+                                  ([("Nonlocal", [ _unit_variable_pyname(x) for x in _py.sorted(nonlocals) ])] +
+                                   ([_atree_import("pdb", "cl"),
+                                     ("Expr",
+                                      _atree_funcall(_atree_ref("cl", "_without_condition_system"),
+                                                     _atree_ref("pdb", "set_trace")))]
+                                    if _compiler_function_trapped_p(name) else []) +
+                                   body_pro +
+                                   [("Return", body_val)]),
+                                  deco_vals),
+                                 # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
+                                 ],
+                                _lower_value((quote, name)))
         def effects(name, lambda_list, *body, decorators = []):   return t
         def affected(name, lambda_list, *body, decorators = []):  return t
 
