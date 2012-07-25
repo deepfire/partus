@@ -9123,8 +9123,8 @@ def def_():
                         xtnls_actual = _tuple_xtnls(result)
                         try_ += 1
                 return result
-        def effects(name):         return t
-        def affected(name):        return nil
+        def effects(name, lambda_list, *body, decorators = []):   return t
+        def affected(name, lambda_list, *body, decorators = []):  return t
 
 # LAMBDA
 #         :PROPERTIES:
