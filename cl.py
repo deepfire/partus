@@ -6361,6 +6361,30 @@ _string_set("*COMPILER-TRACE-CHOICES*",            nil)
 _string_set("*COMPILER-TRACE-RESULT*",             nil)
 _string_set("*COMPILER-TRACE-PRETTY-FULL*",        nil)
 
+_string_set("*COMPILER-FN*", nil)
+# Unregistered Issue DEBUG-SCAFFOLDING
+_string_set("*COMPILER-DEBUG-P*",           nil)
+_string_set("*COMPILER-TRAPPED-FUNCTIONS*", _py.set()) ## Emit a debug entry for those functions.
+
+_intern_and_bind_names_in_module(
+        "*COMPILER-ERROR-COUNT*",
+        "*COMPILER-WARNINGS-COUNT*",
+        "*COMPILER-STYLE-WARNINGS-COUNT*",
+        "*COMPILER-NOTE-COUNT*",
+        "*UNDEFINED-WARNINGS*",
+        ##
+        "*UNIT-FUNCTIONS*",
+        "*UNIT-SYMBOLS*",
+        "*UNIT-GFUNS*",
+        "*UNIT-GVARS*",
+        ##
+        "*TOP-COMPILATION-UNIT-P*")
+
+## Should, probably, be bound by the compiler itself.
+_string_set("*COMPILER-TAILP*", nil)
+
+_string_set("*COMPILER-DEF*", nil)
+
 __known_trace_args__ = {"toplevels", "entry_forms", "qqexpansion", "macroexpansion",
                         "forms", "subforms", "rewrites", "choices", "result", "pretty_full"}
 
@@ -6493,14 +6517,9 @@ class _fn():
 def _fn(name):
         return _fns.get(name, nil)
 
-_string_set("*COMPILER-FN*", nil)
-
-def _compiling_fn():
-        return symbol_value(_compiler_fn_)
-
 def _depend_on(fn_or_name, reason = t):
         fn = fn_or_name if functionp(fn_or_name) else _fn(fn_or_name)
-        fn.add_dependent(reason, _compiling_fn())
+        fn.add_dependent(reason, symbol_value(_compiler_fn_))
 
 def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
         ## TODO: we should depend for the de-pessimisation sense likewise.
@@ -6597,19 +6616,6 @@ def _compiler_error(control, *args):
 # Compilation environment
 
 _string_set("*IN-COMPILATION-UNIT*", nil)
-_intern_and_bind_names_in_module("*ABORTED-COMPILATION-UNIT-COUNT*",
-                         "*COMPILER-ERROR-COUNT*",
-                         "*COMPILER-WARNINGS-COUNT*",
-                         "*COMPILER-STYLE-WARNINGS-COUNT*",
-                         "*COMPILER-NOTE-COUNT*",
-                         "*UNDEFINED-WARNINGS*",
-                         ##
-                         "*UNIT-FUNCTIONS*",
-                         "*UNIT-SYMBOLS*",
-                         "*UNIT-GFUNS*",
-                         "*UNIT-GVARS*",
-                         ##
-                         "*TOP-COMPILATION-UNIT-P*")
 
 def _unit_variable_pyname(x):
         return _frost.full_symbol_name_python_name(x)
@@ -6689,14 +6695,11 @@ Examples:
                         succeeded_p = t
                         return ret
                 finally:
-                        if not succeeded_p:
-                                _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                            _symbol_value(_aborted_compilation_unit_count_) + 1)
+                        ...
         else:
                 parent_id = symbol_value(_compilation_unit_id_)
                 id = gensym(id)
-                with progv({_aborted_compilation_unit_count_: 0, # What is this for?
-                            _compiler_error_count_: 0,
+                with progv({_compiler_error_count_: 0,
                             _compiler_warnings_count_: 0,
                             _compiler_style_warnings_count_: 0,
                             _compiler_note_count_: 0,
@@ -6718,9 +6721,6 @@ Examples:
                                 succeeded_p = t
                                 return ret
                         finally:
-                                if not succeeded_p:
-                                        _string_set("*ABORTED-COMPILATION-UNIT-COUNT*",
-                                                    _symbol_value(_aborted_compilation_unit_count_) + 1)
                                 summarize_compilation_unit(not succeeded_p)
                                 # _debug_printf("############################################  ..left %s", id)
 
@@ -7775,10 +7775,6 @@ def DEFMACRO(name, lambda_list, *body):
 ## - rewriting    _lower:maybe_call_primitive_compiler()   ===\n---\n...
 ## - result       _lower()                                 ;* compilation atree output\n;;; Prologue\n;;; Value
 
-# Unregistered Issue DEBUG-SCAFFOLDING
-_string_set("*COMPILER-DEBUG-P*",           nil)
-_string_set("*COMPILER-TRAPPED-FUNCTIONS*", _py.set()) ## Emit a debug entry for those functions.
-
 def _compiler_trap_function(name):
         symbol_value(_compiler_trapped_functions_).add(name)
 
@@ -7834,9 +7830,6 @@ def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((pyt
 ##   - an obvious way to do namespace separation
 ###
 #
-
-## Should, probably, be bound by the compiler itself.
-_string_set("*COMPILER-TAILP*", nil)
 
 def _sex_space(delta = None, char = " "):
         return char * (_pp_base_depth() + _defaulted(delta, 0))
@@ -9404,9 +9397,6 @@ def _compile(form, lexenv = nil):
 ## @defknown -> _lower
 #
 
-_string_set("*COMPILE-PRINT*",    t)   ## Not implemented.
-_string_set("*COMPILE-VERBOSE*",  t)   ## Partially implemented.
-
 def _process_as_compilation_unit(processor, form, lexenv = nil, standalone = nil, id = "UNIT-"):
         def in_compilation_unit():
                 stmts = processor(form, lexenv = lexenv)
@@ -9531,13 +9521,13 @@ def _process_top_level(form, lexenv = nil):
         rec(nil, t, nil, macroexpanded)
         return run_time_results
 
-_string_set("*COMPILE-PRINT*", t)
-_string_set("*COMPILE-VERBOSE*", t)
+_string_set("*COMPILE-PRINT*",         t)
+_string_set("*COMPILE-VERBOSE*",       t)
 
 _string_set("*COMPILE-FILE-PATHNAME*", nil)
 _string_set("*COMPILE-FILE-TRUENAME*", nil)
 
-_string_set("*COMPILE-OBJECT*", nil)
+_string_set("*COMPILE-OBJECT*",          nil)
 _string_set("*COMPILE-TOPLEVEL-OBJECT*", nil)
 
 def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None, print = None):
