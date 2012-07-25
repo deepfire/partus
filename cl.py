@@ -7875,9 +7875,9 @@ def _lowered_prepend_prologue(pro, pv):
 def _rewritten(form, scope = _py.dict()): return form, the(_py.dict, scope)
 def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 
-def _compiler_trace_choice(ir_name, choice):
+def _compiler_trace_choice(ir_name, id, choice):
         if symbol_value(_compiler_trace_choices_):
-                _debug_printf("%s-- %s: %s", _sex_space(), ir_name, choice)
+                _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, id, choice)
 
 #### Issues:
 ## Tail position optimisations
@@ -8098,7 +8098,7 @@ def setq():
                 # Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 lexical_binding = symbol_value(_lexenv_).lookup_var(the(symbol, name))
                 if not lexical_binding or lexical_binding.kind is special:
-                        _compiler_trace_choice(setq, "GLOBAL")
+                        _compiler_trace_choice(setq, name, "GLOBAL")
                         gvar = _find_global_variable(name)
                         if gvar and gvar.kind is constant:
                                 simple_program_error("%s is a constant and thus can't be set.", name)
@@ -8106,7 +8106,7 @@ def setq():
                                 simple_style_warning("undefined variable: %s", name)
                                 _do_defvar_without_actually_defvar(name, value)
                         return _rewritten(_ir_cl_module_call("_do_set", (quote, name), value, (ref, (quote, ("None",)))))
-                _compiler_trace_choice(setq, "LEXICAL")
+                _compiler_trace_choice(setq, name, "LEXICAL")
                 pro, val = _lower(value)
                 return _lowered(pro + [_atree_setq((_unit_function_pyname if function_scope else
                                                     _unit_symbol_pyname   if symbol_scope else
@@ -8133,17 +8133,17 @@ def quote():
         def lower(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if symbolp(x) and not constantp(x):
-                        _compiler_trace_choice(quote, "NONCONSTANT-SYMBOL")
+                        _compiler_trace_choice(quote, x, "NONCONSTANT-SYMBOL")
                         return _lowered([],
                                         _lower_name(_unit_symbol_pyname(x)))
                 else:
                         atree, successp = _try_atreeify_constant(x)
                         if successp:
-                                _compiler_trace_choice(quote, "CONSTANT")
+                                _compiler_trace_choice(quote, x, "CONSTANT")
                                 return _lowered([],
                                                 atree)
                         else:
-                                _compiler_trace_choice(quote, "SEX")
+                                _compiler_trace_choice(quote, x, "SEX")
                                 return _rewritten(_ir_funcall(list, *_py.tuple((quote, x) for x in x)))
         def effects(x):            return nil
         def affected(x):           return nil
@@ -8260,12 +8260,12 @@ def if_():
                         lo_test = pro_test, val_test = _lower(test)
                 cons_expr_p, ante_expr_p = [not _ir_prologue_p(x) for x in (consequent, antecedent)]
                 if cons_expr_p and ante_expr_p:
-                        _compiler_trace_choice(if_, "EXPR")
+                        _compiler_trace_choice(if_, test, "EXPR")
                         (_, val_cons), (__, val_ante) = mapcar(_lower, [consequent, antecedent])
                         return _lowered(pro_test,
                                         ("IfExp", val_test, val_cons, val_ante))
                 else:
-                        _compiler_trace_choice(if_, "NONEXPR-AS-FLET")
+                        _compiler_trace_choice(if_, test, "NONEXPR-AS-FLET")
                         ## Unregistered Issue FUNCALL-MISSING
                         name_cons, name_ante = _gensyms(x = "IF-BRANCH-", n = 2)
                         cons, cons_fdefn = ((consequent,                     ()) if cons_expr_p else
@@ -8307,14 +8307,14 @@ def let():
                 names, values = _recombine((_py.list, _py.list), identity, bindings_thru_defaulting)
                 _check_no_locally_rebound_constants(names)
                 if _py.all(not _ir_prologue_p(x) for x in values):
-                        _compiler_trace_choice(let, "EXPR-BOUND-VALUES")
+                        _compiler_trace_choice(let, names, "EXPR-BOUND-VALUES")
                         form = (apply, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
                                            evaluate_defaults_early = t,
                                            function_scope = function_scope),
                                 (quote, nil))
                         aux_bindings = ()
                 else:
-                        _compiler_trace_choice(let, "NONEXPR-SETQ-LAMBDA")
+                        _compiler_trace_choice(let, names, "NONEXPR-SETQ-LAMBDA")
                         thunk_name = gensym("LET-THUNK-")
                         # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                         form = (progn,
@@ -8514,17 +8514,17 @@ def unwind_protect():
         def prologuep(*_):                          return t
         def lower(form, *unwind_body, values_var = nil):
                 if not unwind_body:
-                       _compiler_trace_choice(unwind_protect, "NO-UNWIND")
+                       _compiler_trace_choice(unwind_protect, t, "NO-UNWIND")
                        return _rewritten(form)
                 if not values_var:
-                        _compiler_trace_choice(unwind_protect, "UNWIND-LEXICAL-LESS")
+                        _compiler_trace_choice(unwind_protect, t, "UNWIND-LEXICAL-LESS")
                         values_var = gensym("PROTECTED-FORM-VALUE-")
                         return _rewritten((let, ((values_var, nil),),
                                            (unwind_protect,
                                             (setq, values_var,
                                              (multiple_value_call, (function, list), (lambda_, (), form)))) +
                                            unwind_body))
-                _compiler_trace_choice(unwind_protect, "UNWIND-WITH-LEXICAL")
+                _compiler_trace_choice(unwind_protect, t, "UNWIND-WITH-LEXICAL")
                 ## Unregistered Issue UNWIND-PROTECT-MISCOMPILED-TO-GLOBAL-SETQ
                 pro_form, val_form = _lower(form)
                 pro_unwind, val_unwind = _lower((progn,) + unwind_body)
@@ -8618,11 +8618,11 @@ def block():
                                 has_return_from = t
                 _map_sex(update_has_return_from, catch_target)
                 if has_return_from:
-                        _compiler_trace_choice(quote, "HAS-RETURN-FROM")
+                        _compiler_trace_choice(quote, name, "HAS-RETURN-FROM")
                         return _rewritten(catch_target,
                                           { _lexenv_: _make_lexenv(name_blockframe = { name: _block_binding(name, nonce) }) })
                 else:
-                        _compiler_trace_choice(quote, "NO-RETURN-FROM")
+                        _compiler_trace_choice(quote, name, "NO-RETURN-FROM")
                         return _rewritten((progn,) +
                                           body)
         def effects(name, *body):            return _py.any(_ir_effects(f) for f in body)
@@ -8846,7 +8846,7 @@ when EVAL-WHEN appears as a top level form."""
                 ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
                 ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
                 ## so that they're never seen at this level.)
-                _compiler_trace_choice(eval_when, "EXECUTE" if exec else "NO-EXECUTE")
+                _compiler_trace_choice(eval_when, when, "EXECUTE" if exec else "NO-EXECUTE")
                 return _rewritten(((progn,) + body) if exec else
                                   nil)
 
@@ -9164,7 +9164,7 @@ def lambda_():
                         _check_no_locally_rebound_constants(total)
                         (fixed, optional, rest, keys), (optdefs, keydefs) = args, defaults
                         if not (optional or keys):
-                                _compiler_trace_choice(lambda_, "EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS")
+                                _compiler_trace_choice(lambda_, lambda_list, "EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS")
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
@@ -9173,7 +9173,7 @@ def lambda_():
                                 _not_implemented("REST-ful defaulting lambda list")
                         elif evaluate_defaults_early:
                                 # duplicate code here, but the checking "issue" is not understood well-enough..
-                                _compiler_trace_choice(lambda_, "EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS")
+                                _compiler_trace_choice(lambda_, lambda_list, "EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS")
                                 return _lowered([],
                                                 ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
                                                                                     function_scope = function_scope),
@@ -9184,7 +9184,7 @@ def lambda_():
                                         return (if_, (apply, (function, eq), arg, (_ref, "None"), (quote, nil)),
                                                      default,
                                                      arg)
-                                _compiler_trace_choice(lambda_, "EXPR-BODY/DEFAULTS-REWIND-DELAYED-DEFAULT-VALUES")
+                                _compiler_trace_choice(lambda_, lambda_list, "EXPR-BODY/DEFAULTS-REWIND-DELAYED-DEFAULT-VALUES")
                                 return _rewritten(
                                         _ir_when(function_scope,
                                                  (lambda_,
@@ -9198,7 +9198,7 @@ def lambda_():
                                                  function_scope = t))
 
                 else:
-                        _compiler_trace_choice(lambda_, "NONEXPR-FLET")
+                        _compiler_trace_choice(lambda_, lambda_list, "NONEXPR-FLET")
                         func_name = gensym("LET-BODY-")
                         return _rewritten((flet, ((func_name, lambda_list) + body,),
                                            (function, func_name)))
@@ -9229,7 +9229,7 @@ def apply():
                 ## required to make such type analysis viable.
                 no_varargs = rest is nil or rest == (quote, nil)
                 if not _py.any(_ir_prologue_p(x) for x in fixed + (rest,)):
-                        _compiler_trace_choice(apply, "EXPR-ARGS")
+                        _compiler_trace_choice(apply, func, "EXPR-ARGS")
                         with _no_tail_position():
                                 func_pro, func_val = _lower(func)
                                 arg_pvs = mapcar(_lower, fixed + (rest,))
@@ -9238,8 +9238,8 @@ def apply():
                                                                                               if not no_varargs else
                                                                                               None)))
                 else:
-                        _compiler_trace_choice(apply, "NONEXPR-REWIND-AS-LET-APPLY" if not _ir_prologue_p(func) else
-                                                      "NONEXPR-REWIND-AS-LET-FUNCTION-APPLY")
+                        _compiler_trace_choice(apply, func, "NONEXPR-REWIND-AS-LET-APPLY" if not _ir_prologue_p(func) else
+                                                            "NONEXPR-REWIND-AS-LET-FUNCTION-APPLY")
                         func_binding, func_expr = (((), func) if not _ir_prologue_p(func) else
                                                    (lambda func_name:
                                                      (((func_name, func),),
