@@ -9146,18 +9146,8 @@ def lambda_():
                         if function_scope else
                         { variable: { _variable_binding(name, variable, None) for name in total } })
         def prologuep(lambda_list, *body):
-                if _ir_body_prologuep(body):
-                        return t
                 total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
-                (fixed, optional, rest, keys), (optdefs, keydefs) = args, defaults
-                if not (optional or keys):
-                        return nil
-                elif rest:
-                        _not_implemented("REST-ful defaulting lambda list")
-                elif evaluate_defaults_early:
-                        return nil
-                else:
-                        return t
+                return _py.len(body) < 2 and _py.any( _ir_body_prologuep(x) for x in body + _py.tuple(defaults[0]) + _py.tuple(defaults[1]))
         def lower(lambda_list, *body, evaluate_defaults_early = nil, function_scope = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
@@ -9165,7 +9155,7 @@ def lambda_():
                 # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
                 # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
                 total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
-                if not _py.any( _ir_body_prologuep(x) for x in body + _py.tuple(defaults[0]) + _py.tuple(defaults[1])):
+                if _py.len(body) < 2 and not _py.any( _ir_body_prologuep(x) for x in body + _py.tuple(defaults[0]) + _py.tuple(defaults[1])):
                         _check_no_locally_rebound_constants(total)
                         (fixed, optional, rest, keys), (optdefs, keydefs) = args, defaults
                         if not (optional or keys):
