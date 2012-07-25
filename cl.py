@@ -6347,18 +6347,19 @@ def _match(matcher, exp, pat):
 _compiler_safe_namespace_separation = t
 _compiler_max_mockup_level = 3
 
-_string_set("*COMPILER-TRACE-TOPLEVELS*",        t)
-_string_set("*COMPILER-TRACE-TOPLEVELS-DISASM*", nil)
-_string_set("*COMPILER-TRACE-ENTRY-FORMS*",      t)
-_string_set("*COMPILER-TRACE-QQEXPANSION*",      nil)
-_string_set("*COMPILER-TRACE-MACROEXPANSION*",   nil)
+_string_set("*COMPILER-TRACE-TOPLEVELS*",          nil)
+_string_set("*COMPILER-TRACE-TOPLEVELS-DISASM*",   nil)
+_string_set("*COMPILER-TRACE-ENTRY-FORMS*",        nil)
+_string_set("*COMPILER-TRACE-QQEXPANSION*",        nil)
+_string_set("*COMPILER-TRACE-MACROEXPANSION*",     nil)
+_string_set("*COMPILER-TRACE-TRUE-DEATH-OF-CODE*", nil)
 
-_string_set("*COMPILER-TRACE-FORMS*",            nil)
-_string_set("*COMPILER-TRACE-SUBFORMS*",         nil)
-_string_set("*COMPILER-TRACE-REWRITES*",         nil)
-_string_set("*COMPILER-TRACE-CHOICES*",          nil)
-_string_set("*COMPILER-TRACE-RESULT*",           nil)
-_string_set("*COMPILER-TRACE-PRETTY-FULL*",      nil)
+_string_set("*COMPILER-TRACE-FORMS*",              nil)
+_string_set("*COMPILER-TRACE-SUBFORMS*",           nil)
+_string_set("*COMPILER-TRACE-REWRITES*",           nil)
+_string_set("*COMPILER-TRACE-CHOICES*",            nil)
+_string_set("*COMPILER-TRACE-RESULT*",             nil)
+_string_set("*COMPILER-TRACE-PRETTY-FULL*",        nil)
 
 __known_trace_args__ = {"toplevels", "entry_forms", "qqexpansion", "macroexpansion",
                         "forms", "subforms", "rewrites", "choices", "result", "pretty_full"}
@@ -8219,8 +8220,12 @@ def progn():
                                         _lower(nil))
                 pro, ntotal = [], _py.len(body)
                 with _no_tail_position():
-                        for spro, val in (_lower(x) for x in body[:-1]):
-                                pro.extend(_atree_linearise_add(spro, val))
+                        for x in body[:-1]:
+                                if _ir_effects(x):
+                                        pro.extend(_atree_linearise_add(*_lower(x)))
+                                elif symbol_value(_compiler_trace_true_death_of_code_):
+                                        _debug_printf("; eliding an effect-less expression, in a for-effect position:\n; %s",
+                                                      _pp(x))
                 with _maybe_tail_position():
                         return _lowered_prepend_prologue(pro,
                                                          _lower(body[-1]))
