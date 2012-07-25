@@ -6397,6 +6397,9 @@ def _get_symbol_pyname(symbol):
                 error("Symbol %s has no mapping to a python name.", symbol)
         return symbol.symbol_pyname
 
+def _pp(x):
+        return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex)(x)
+
 ## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
 
 ### Global compiler state carry-over, and module state initialisation.
@@ -6924,10 +6927,9 @@ def _expand_quasiquotation(form):
                         return _py.tuple(acc)
         result = process_form(form)
         if symbol_value(_compiler_trace_qqexpansion_):
-                pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
                 if form != result:
                         _debug_printf(";;;%s quasiquotation expanded to:\n%s%s",
-                                      _sex_space(-3, ";"), _sex_space(), pp(result))
+                                      _sex_space(-3, ";"), _sex_space(), _pp(result))
                 else:
                         _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
         return result
@@ -9281,24 +9283,23 @@ def _lower(form, lexenv = nil):
         # - scopes
         # - symbols not terribly clear
         # - proper quote processing
-        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
         def compiler_note_form(x):
                 if (symbol_value(_compiler_trace_forms_) and _debugging_compiler() and
                     not _py.isinstance(x, (symbol.python_type, _py.bool)) and
                     not (consp(x) and x[0] in [ref, function])):
-                        _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), pp(x))
+                        _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp(x))
         def compiler_note_parts(known_name, xs):
                 if symbol_value(_compiler_trace_subforms_) and _debugging_compiler() and known_name is not symbol:
                         _debug_printf("%s>>> %s\n%s%s", _sex_space(), name,
-                                      _sex_space(), ("\n" + _sex_space()).join(pp(f) for f in xs))
+                                      _sex_space(), ("\n" + _sex_space()).join(_pp(f) for f in xs))
         def compiler_note_rewrite(known_name, known_subforms, result_form):
                 if symbol_value(_compiler_trace_rewrites_) and _debugging_compiler() and known_name not in (symbol, ref):
                         _debug_printf("%s======================================================\n%s\n"
                                       "%s--------------------- rewrote ------------------------>\n%s\n"
                                       # "%s--------------------- rewrote ------------------------>",
                                       "%s......................................................",
-                                      _sex_space(), _sex_space() + pp((known_name,) + known_subforms),
-                                      _sex_space(), _sex_space() + pp(result_form),
+                                      _sex_space(), _sex_space() + _pp((known_name,) + known_subforms),
+                                      _sex_space(), _sex_space() + _pp(result_form),
                                       _sex_space())
         def compiler_note_result(form, pv):
                 if (symbol_value(_compiler_trace_result_) and _debugging_compiler() and
@@ -9306,7 +9307,7 @@ def _lower(form, lexenv = nil):
                     not typep(form, (or_, symbol, (pytuple, (member, quote, function, ref), (or_, symbol,
                                                                                              (partuple, (eql, quote))))))):
                         _debug_printf(";;; compilation atree output for\n%s%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
-                                      _sex_space(), pp(form), *pv)
+                                      _sex_space(), _pp(form), *pv)
         def _rec(x):
                 ## XXX: what are the side-effects?
                 ## NOTE: we are going to splice unquoting processing here, as we must be able
@@ -9380,17 +9381,16 @@ def _lower_value(form, lexenv = nil):
 def _compile(form, lexenv = nil):
         "Same as %LOWER, but also macroexpand."
         check_type(lexenv, (or_, null, _lexenv))
-        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
         macroexpanded = macroexpand_all(form, lexenv = lexenv, compilerp = t)
         if symbol_value(_compiler_trace_macroexpansion_):
                 if form != macroexpanded:
                         _debug_printf(";;;%s macroexpanded:\n%s%s",
-                                      _sex_space(-3, ";"), _sex_space(), pp(macroexpanded))
+                                      _sex_space(-3, ";"), _sex_space(), _pp(macroexpanded))
                 else:
                         _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
         if symbol_value(_compiler_trace_entry_forms_):
                 _debug_printf(";;;%s compiling:\n%s%s",
-                              _sex_space(-3, ";"), _sex_space(), pp(form))
+                              _sex_space(-3, ";"), _sex_space(), _pp(form))
         return _lower(macroexpanded, lexenv = lexenv)
 
 #
@@ -9427,9 +9427,8 @@ def _atree_assemble(stmts, form = nil, filename = ""):
         import more_ast
         more_ast.assign_meaningful_locations(ast)
         if symbol_value(_compiler_trace_toplevels_):
-                pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
                 _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
-                              pp(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
+                              _pp(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
                                                   for x in ast))
                 ############################ This is an excess newline, so it is a bug workaround.
                 ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
@@ -9470,7 +9469,6 @@ def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
 def _process_top_level(form, lexenv = nil):
         "A, hopefully, faithful implementation of CLHS 3.2.3.1."
         check_type(lexenv, (or_, null, _lexenv))
-        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
         ## Compiler macro expansion, unless disabled by a NOTINLINE declaration, SAME MODE
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
@@ -9478,12 +9476,12 @@ def _process_top_level(form, lexenv = nil):
                 _debug_printf("; compiling (%s %s%s)", kind, maybe_name, " ..." if _py.len(form) > 2 else "")
         if symbol_value(_compiler_trace_entry_forms_):
                 _debug_printf(";;;%s compiling:\n%s%s",
-                              _sex_space(-3, ";"), _sex_space(), pp(form))
+                              _sex_space(-3, ";"), _sex_space(), _pp(form))
         macroexpanded = macroexpand_all(form, lexenv = lexenv, compilerp = t)
         if symbol_value(_compiler_trace_macroexpansion_):
                 if form != macroexpanded:
                         _debug_printf(";;;%s macroexpanded:\n%s%s",
-                                      _sex_space(-3, ";"), _sex_space(), pp(macroexpanded))
+                                      _sex_space(-3, ";"), _sex_space(), _pp(macroexpanded))
                 else:
                         _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
         ## Accumulation of results arranged for the run time:
@@ -9548,7 +9546,6 @@ _string_set("*COMPILE-OBJECT*", nil)
 _string_set("*COMPILE-TOPLEVEL-OBJECT*", nil)
 
 def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None, print = None):
-        pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
         verbose = _defaulted_to_var(verbose, _compile_verbose_)
         print   = _defaulted_to_var(verbose, _compile_print_)
         if verbose:
@@ -9569,7 +9566,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                                         form_stmts = _process_top_level(form, lexenv = _make_null_lexenv())
                                         stmts.extend(form_stmts)
                                         if trace_file:
-                                                trace_file.write(pp(form))
+                                                trace_file.write(_pp(form))
                                                 for stmt in form_stmts:
                                                         trace_file.write(_py.str(stmt))
                                                         trace_file.write("\n")
@@ -9851,10 +9848,9 @@ def _load_as_source(stream, verbose = nil, print = nil):
         pathname = _file_stream_name(stream)
         verbose and format(t, "; loading %s\n", _py.repr(pathname))
         def with_abort_restart_body():
-                pp = _pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex
                 def eval_form(form, index):
                         spref = "; evaluating "
-                        print and format(t, spref + "%s\n", pp(form, initial_depth = length(spref)))
+                        print and format(t, spref + "%s\n", _pp(form, initial_depth = length(spref)))
                         def with_continue_restart_body():
                                 while t:
                                         def with_retry_restart_body():
