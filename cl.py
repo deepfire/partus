@@ -8431,7 +8431,7 @@ def labels():
                                           _py.tuple((def_, name, lambda_list) + _py.tuple(body)
                                                      for name, lambda_list, *body in bindings) +
                                            body,),
-                                   (apply, temp_name, (quote, nil))))
+                                   (apply, (function, temp_name), (quote, nil))))
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
