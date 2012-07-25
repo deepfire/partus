@@ -8787,8 +8787,8 @@ def go():
                 binding = symbol_value(_lexenv_).lookup_gotag(the(symbol, name))
                 if not binding:
                         simple_program_error("attempt to GO to nonexistent tag: %s", name)
-                return _rewritten((throw, binding.name, (function, binding.name)))
-        def effects(_):            return nil
+                return _rewritten((throw, binding.value, (function, binding.value)))
+        def effects(_):            return t
         def affected(_):           return nil
 
 # EVAL-WHEN
