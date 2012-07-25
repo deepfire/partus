@@ -9,6 +9,7 @@ import ast
 import symtable
 import marshal
 import sys
+import types
 
 import cl
 
@@ -278,10 +279,8 @@ def assign_meaningful_locations(node, lineno = 1):
         def dir(x):        return [(None, (x                           if functionp(x) else
                                            (lambda lineno: lineno + x) if integerp(x)  else
                                            error("Invalid direct advancement specifier: %s.", x.__repr__())))]
-        def rec(lineno, xspec):
+        def rec(lineno: int, xspec: (ast.AST, types.FunctionType)) -> int:
                 if not tuplep(xspec):
-                        # import pdb, cl
-                        # cl._without_condition_system(pdb.set_trace)
                         error("Advancement specifier not a tuple: %s", xspec)
                 x, advance = xspec
                 functionp(advance) or error("Invariant failed in AST location walker: advance is: %s.", advance)
@@ -296,31 +295,31 @@ def assign_meaningful_locations(node, lineno = 1):
                         return binder
                 def self_binder(): return make_binder(x)
                 def handle_body_orelse(x, prechain, intrachain = []):
-                        return chain(rec, ([prechain, dir(self_binder()), normally(x.body), intrachain, dir(1)] +
+                        return chain(rec, ([prechain, dir(self_binder()), dir(1), normally(x.body), intrachain] +
                                            (normally(x.orelse) if hasattr(x, "orelse") and x.orelse else
                                             [])),
                                      lineno)
-                reductios = { type(None):        (lambda x, lineno: lineno),
-                              ast.Module:        (lambda x, lineno: reduce(rec, dir(self_binder()) + normally(x.body), lineno)),
-                              ast.FunctionDef:   (lambda x, lineno: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
+                reductios = { type(None):        (lambda lineno, x: lineno),
+                              ast.Module:        (lambda lineno, x: reduce(rec, dir(self_binder()) + normally(x.body), lineno)),
+                              ast.FunctionDef:   (lambda lineno, x: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
                                                                                 normally(attrs("name", "args", "returns")), dir(1),
                                                                                 normally(x.body)],
                                                                           lineno)),
-                              ast.ClassDef:      (lambda x, lineno: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
+                              ast.ClassDef:      (lambda lineno, x: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
                                                                                 normally(attrs("name", "bases", "keywords",
                                                                                                "starargs", "kwargs")), dir(1),
                                                                                 normally(x.body)],
                                                                           lineno)),
-                              ast.With:          (lambda x, lineno: handle_body_orelse(x, normally([x.context_expr, x.optional_vars]) + dir(1))),
-                              ast.For:           (lambda x, lineno: handle_body_orelse(x, normally([x.target, x.test]) + dir(1))),
-                              ast.If:            (lambda x, lineno: handle_body_orelse(x, normally([x.test]) + dir(1))),
-                              ast.While:         (lambda x, lineno: handle_body_orelse(x, normally([x.test]) + dir(1))),
-                              ast.TryExcept:     (lambda x, lineno: handle_body_orelse(x, [], normally(x.handlers))),
-                              ast.ExceptHandler: (lambda x, lineno: handle_body_orelse(x, normally([x.type, x.name]) + dir(1))),
-                              ast.TryFinally:    (lambda x, lineno: chain(rec, [dir(self_binder()), dir(1),
+                              ast.With:          (lambda lineno, x: handle_body_orelse(x, normally([x.context_expr, x.optional_vars]))),
+                              ast.For:           (lambda lineno, x: handle_body_orelse(x, normally([x.target, x.test]))),
+                              ast.If:            (lambda lineno, x: handle_body_orelse(x, normally([x.test]))),
+                              ast.While:         (lambda lineno, x: handle_body_orelse(x, normally([x.test]))),
+                              ast.TryExcept:     (lambda lineno, x: handle_body_orelse(x, [], normally(x.handlers))),
+                              ast.ExceptHandler: (lambda lineno, x: handle_body_orelse(x, normally([x.type, x.name]))),
+                              ast.TryFinally:    (lambda lineno, x: chain(rec, [dir(self_binder()), dir(1),
                                                                                 normally(x.body), dir(1),
                                                                                 normally(x.finalbody)], lineno)) }
-                def default_reductio(x, lineno):
+                def default_reductio(lineno: int, x: ast.AST) -> int:
                         if not isinstance(x, ast.AST):
                                 return lineno
                         x.lineno = lineno
@@ -329,7 +328,7 @@ def assign_meaningful_locations(node, lineno = 1):
                                 [rec(lineno, (fvv, advance0)) for fvv in (fv if isinstance(fv, list) else [fv])
                                  if isinstance(fvv, ast.AST)]
                         return lineno + (1 if isinstance(x, ast.stmt) else 0)
-                return advance(reductios.get(type(x), default_reductio)(x, lineno))
+                return advance(reductios.get(type(x), default_reductio)(lineno, x))
         return (rec(lineno, (node, advance0))       if isinstance(node, ast.AST)       else
                 reduce(rec, normally(node), lineno) if isinstance(node, (list, tuple)) else
                 error("AST location assigner only accepts singular AST nodes and lists thereof."))
@@ -455,12 +454,11 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                         return lambda y: (indent(x) + name +
                                           ((" " + rec(y.value))
                                            if hasattr(y, "value") and y.value else
-                                           "") +
-                                          "\n")
+                                           ""))
                 ## Multilines
                 def pp_subprogn(body):
                         with progv({_ast_pp_depth_: symbol_value(_ast_pp_depth_) + 1}):
-                                return "\n".join(iterate(body)) + "\n"
+                                return "\n".join(iterate(body))
                 def pp_module(x):
                         return "\n".join(iterate(x.body))
                 def pp_functiondef(x):
@@ -472,11 +470,11 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                 def pp_for(x):
                         return (indent(x) + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n" +
                                 pp_subprogn(x.body) +
-                                (indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else "")
+                                ((indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
                 def pp_while(x):
                         return (indent(x) + "while " + rec(x.test) + ":\n" +
                                 pp_subprogn(x.body) +
-                                (indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else "")
+                                ((indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
                 def pp_if(x):
                         def ifrec(x, firstp):
                                 chainp = len(x.orelse) is 1 and typep(x.orelse[0], ast.If)
