@@ -7918,7 +7918,7 @@ def _compiler_trace_choice(ir_name, id, choice):
 ### LAMBDA               -> PROGN                      |              EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS
 ###                         PROGN                      |              EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS
 ###                         =(LAMBDA,LET,IF,APPLY,REF) |              EXPR-BODY/DEFAULTS-REWIND-DELAYED-DEFAULT-VALUES
-###                         =(FLET,FUNCTION)                          NONEXPR-FLET
+###                         =(FLET,FUNCTION)                          !!! NONEXPR-PROGN-DEF-FUNCTION
 ### APPLY                -> ∅                     |                   EXPR-ARGS
 ###                         =(LET,APPLY)          |                   NONEXPR-REWIND-AS-LET-APPLY
 ###                         =(LET,FUNCTION,APPLY)                     NONEXPR-REWIND-AS-LET-FUNCTION-APPLY
