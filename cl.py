@@ -8093,6 +8093,8 @@ def setq():
         def lower(name, value, *_, function_scope = nil, symbol_scope = nil):
                 assert(not _)
                 # Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
+                cdef = symbol_value(_compiler_def_)
+                assert(cdef)
                 lexical_binding = symbol_value(_lexenv_).lookup_var(the(symbol, name))
                 if not lexical_binding or lexical_binding.kind is special:
                         _compiler_trace_choice(setq, name, "GLOBAL")
@@ -8104,6 +8106,7 @@ def setq():
                                 _do_defvar_without_actually_defvar(name, value)
                         return _rewritten(_ir_cl_module_call("_do_set", (quote, name), value, (ref, (quote, ("None",)))))
                 _compiler_trace_choice(setq, name, "LEXICAL")
+                cdef.lexical_setqs.add(name)
                 pro, val = _lower(value)
                 return _lowered(pro + [_atree_setq((_unit_function_pyname if function_scope else
                                                     _unit_symbol_pyname   if symbol_scope else
@@ -8307,24 +8310,26 @@ def let():
                 bindings_thru_defaulting = _py.tuple(_ensure_cons(b, nil) for b in bindings)
                 names, values = _recombine((_py.list, _py.list), identity, bindings_thru_defaulting)
                 _check_no_locally_rebound_constants(names)
+                lexenv = _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
+                                                                    for name, form in bindings } })
                 if _py.all(not _ir_prologue_p(x) for x in values):
                         _compiler_trace_choice(let, names, "EXPR-BOUND-VALUES")
                         form = (apply, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
                                            evaluate_defaults_early = t,
-                                           function_scope = function_scope),
+                                           function_scope = function_scope,
+                                           extra_lexenvs = [lexenv]),
                                 (quote, nil))
-                        aux_bindings = ()
                 else:
                         _compiler_trace_choice(let, names, "NONEXPR-SETQ-LAMBDA")
                         thunk_name = gensym("LET-THUNK-")
                         # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                         form = (progn,
-                                (def_, thunk_name, ()) +
-                                  _py.tuple((setq, name, value)
-                                            for name, value in _py.zip(names, values)) +
-                                  body,
-                                _ir_funcall(thunk_name))
-                        aux_bindings = ()
+                                 _ir(def_, thunk_name, (),
+                                     *(_py.tuple((setq, name, value)
+                                       for name, value in _py.zip(names, values))
+                                       + body),
+                                     extra_lexenvs = [lexenv]),
+                                 _ir_funcall(thunk_name))
                         # last_non_expr_posn = position_if(_ir_prologue_p, values, from_end = t)
                         # n_exprs = last_non_expr_posn + 1
                         # orig_expr_bindings = bindings[_py.len(bindings) - n_exprs:]
@@ -8339,9 +8344,7 @@ def let():
                         #              evaluate_defaults_early = t,
                         #              function_scope = function_scope),))
                 return _rewritten(form,
-                                  { _lexenv_: _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
-                                                                                         for name, form in bindings +
-                                                                                         aux_bindings } }) })
+                                  { _lexenv_: lexenv })
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
                 return _py.any(_ir_effects(f) for f in _py.tuple(x[1] for x in bindings) + body)
@@ -9051,6 +9054,11 @@ def protoloop():
 #         :CL:       [ ]
 #         :END:
 
+class _compiler_def():
+        __slots__ = ("lexical_setqs")
+        def __init__(self, lexical_setqs = None):
+                self.lexical_setqs = _defaulted(lexical_setqs, _py.set())
+
 @defknown((intern("DEF")[0], " ", _name, " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), (_bound, _form)]),
           name = intern("DEF")[0])
@@ -9062,7 +9070,7 @@ def def_():
                 total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
         def prologuep(*_):          return t
-        def lower(name, lambda_list, *body, decorators = []):
+        def lower(name, lambda_list, *body, decorators = [], extra_lexenvs = []):
                 ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 # This is NOT a Lisp form, but rather an acknowledgement of the
                 # need to represent a building block from the underlying system.
@@ -9086,7 +9094,9 @@ def def_():
                              _compiler_def_: cdef }):
                         with _tail_position():
                                 body_pro, body_val = _lower((progn,) + body)
-                nonlocals = cdef.lexical_setqs - _py.set(total)
+                additionally_bound_by_this_def = _mapsetn(lambda x: { ix.name for ix in x.varframe[variable] },
+                                                          extra_lexenvs)
+                nonlocals = cdef.lexical_setqs - _py.set(total) - additionally_bound_by_this_def
                 # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                 # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                 deco_vals = []
@@ -9095,7 +9105,9 @@ def def_():
                                 error("in DEF %s: decorators must lower to python expressions.", name)
                         deco_vals.append(val_deco)
                 return _lowered([("FunctionDef", _unit_function_pyname(name), compiled_lambda_list,
-                                  ([("Nonlocal", [ _unit_variable_pyname(x) for x in _py.sorted(nonlocals) ])] +
+                                  (([("Nonlocal", [ _unit_variable_pyname(x)
+                                                    for x in _py.sorted(nonlocals, key = symbol_name) ])]
+                                    if nonlocals else []) +
                                    ([_atree_import("pdb", "cl"),
                                      ("Expr",
                                       _atree_funcall(_atree_ref("cl", "_without_condition_system"),
@@ -9107,8 +9119,8 @@ def def_():
                                  # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
                                  ],
                                 _lower_value((quote, name)))
-        def effects(name, lambda_list, *body, decorators = []):   return t
-        def affected(name, lambda_list, *body, decorators = []):  return t
+        def effects(name, lambda_list, *body, **_):   return t
+        def affected(name, lambda_list, *body, **_):  return t
 
 # LAMBDA
 #         :PROPERTIES:
@@ -9132,7 +9144,7 @@ def lambda_():
         def prologuep(lambda_list, *body):
                 total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 return _py.len(body) < 2 and _py.any( _ir_body_prologuep(x) for x in body + _py.tuple(defaults[0]) + _py.tuple(defaults[1]))
-        def lower(lambda_list, *body, evaluate_defaults_early = nil, function_scope = nil):
+        def lower(lambda_list, *body, evaluate_defaults_early = nil, function_scope = nil, extra_lexenvs = []):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
@@ -9177,10 +9189,13 @@ def lambda_():
                                                  function_scope = t))
 
                 else:
-                        _compiler_trace_choice(lambda_, lambda_list, "NONEXPR-FLET")
+                        _compiler_trace_choice(lambda_, lambda_list, "NONEXPR-PROGN-DEF-FUNCTION")
                         func_name = gensym("LET-BODY-")
-                        return _rewritten((flet, ((func_name, lambda_list) + body,),
-                                           (function, func_name)))
+                        return _rewritten((progn,
+                                            _ir(def_, func_name, lambda_list,
+                                                *body,
+                                                extra_lexenvs = extra_lexenvs),
+                                            (function, func_name)))
         def effects(*_):            return nil
         def affected(*_):           return nil
 
