@@ -7933,8 +7933,10 @@ def _lower_expr(x, fn):
 
 @defknown((_name, "\n", _form, ["\n", ((_typep, _py.str), " ", (_typep, t))],))
 def _ir_args():
-        def prologuep(known, *_): return _ir_prologue_p(known)
-        def lower(*_):            error("Invariant failed: %s is not meant to be lowered.", _ir_args)
+        def prologuep(known, *_):  return _ir_prologue_p(known)
+        def lower(*_):             error("Invariant failed: %s is not meant to be lowered.", _ir_args)
+        def effects(*ir,  **args): return _ir_effects(ir)
+        def affected(*ir, **args): return _ir_affected(ir)
 
 def _destructure_possible_ir_args(x):
         "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
