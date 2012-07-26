@@ -449,11 +449,11 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                 def pp_assign(x):
                         return indent(x) + "%s = %s" % (", ".join(iterate(x.targets)),
                                                         rec(x.value))
-                def make_trivial_pper(name):
+                def make_trivial_pper(name, slot = "value"):
                         ## Assert Break Continue Pass Raise Return
                         return lambda y: (indent(x) + name +
-                                          ((" " + rec(y.value))
-                                           if hasattr(y, "value") and y.value else
+                                          ((" " + rec(getattr(y, slot)))
+                                           if hasattr(y, slot) and getattr(y, slot) else
                                            ""))
                 ## Multilines
                 def pp_subprogn(body):
@@ -485,7 +485,8 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                                           (indent(x.orelse[0]) + "else:\n" +
                                            pp_subprogn(x.orelse)))))
                         return ifrec(x, True)
-                map = { ast.arguments:   pp_args,
+                map = { list:            lambda x: '[ %s ]' % ", ".join(rec(ix) for ix in x),
+                        ast.arguments:   pp_args,
                         ast.comprehension: pp_comprehension,
                         ast.GeneratorExp:  pp_generatorexp,
                         ast.Module:      pp_module,
@@ -523,6 +524,8 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                         ast.Pass:        make_trivial_pper("pass"),
                         ast.Raise:       make_trivial_pper("raise"),
                         ast.Return:      make_trivial_pper("return"),
+                        ast.Global:      make_trivial_pper("global", slot = "names"),
+                        ast.Nonlocal:    make_trivial_pper("nonlocal", slot = "names"),
                         ast.Import:      pp_import,
                         }
                 def fail(x): not_implemented("pretty-printing AST node %s" % (type(x),))
