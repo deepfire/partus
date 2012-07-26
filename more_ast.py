@@ -485,7 +485,8 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                                           (indent(x.orelse[0]) + "else:\n" +
                                            pp_subprogn(x.orelse)))))
                         return ifrec(x, True)
-                map = { list:            lambda x: '[ %s ]' % ", ".join(rec(ix) for ix in x),
+                map = { list:            lambda x: ", ".join(rec(ix) for ix in x),
+                        str:             lambda x: x,
                         ast.arguments:   pp_args,
                         ast.comprehension: pp_comprehension,
                         ast.GeneratorExp:  pp_generatorexp,
