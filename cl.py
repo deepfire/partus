@@ -6805,18 +6805,19 @@ class _lexenv():
                         pscope = _py.getattr(parent, sname) if parent else nil
                         return (pscope if not frame else
                                 ((frame, (nil if parent is nil else
-                                          pscope))))
-                (self.varscope,
-                 self.funcscope,
-                 self.blockscope,
-                 self.gotagscope) = (compute_scope(parent,  "varscope",
-                                                   complete_frame(name_varframe,   kind_varframe,   full_varframe)),
-                                     compute_scope(parent, "funcscope",
-                                                   complete_frame(name_funcframe,  kind_funcframe,  full_funcframe)),
-                                     compute_scope(parent, "blockscope",
-                                                   complete_frame(name_blockframe, kind_blockframe, full_blockframe)),
-                                     compute_scope(parent, "gotagscope",
-                                                   complete_frame(name_gotagframe, kind_gotagframe, full_gotagframe)))
+                                          pscope)))), frame
+                ((self.varscope,   self.varframe),
+                 (self.funcscope,  self.funcframe),
+                 (self.blockscope, self.blockframe),
+                 (self.gotagscope, self.gotagframe)
+                 ) = (compute_scope(parent,  "varscope",
+                                    complete_frame(name_varframe,   kind_varframe,   full_varframe)),
+                      compute_scope(parent, "funcscope",
+                                    complete_frame(name_funcframe,  kind_funcframe,  full_funcframe)),
+                      compute_scope(parent, "blockscope",
+                                    complete_frame(name_blockframe, kind_blockframe, full_blockframe)),
+                      compute_scope(parent, "gotagscope",
+                                    complete_frame(name_gotagframe, kind_gotagframe, full_gotagframe)))
         @staticmethod
         def do_lookup_scope(scope, x, default):
                 while scope:
