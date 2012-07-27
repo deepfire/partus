@@ -6800,27 +6800,51 @@ class _lexenv():
                                 complete_name_frame(name) if name else
                                 complete_kind_frame(kind) if kind else
                                 None)
-                def compute_scope(parent, sname, frame):
-                        parent = _coerce_to_lexenv(parent)
-                        pscope = _py.getattr(parent, sname) if parent else nil
-                        return (pscope if not frame else
-                                ((frame, (nil if parent is nil else
-                                          pscope)))), frame
+                self.parent = _coerce_to_lexenv(parent)
                 ((self.varscope,   self.varframe),
                  (self.funcscope,  self.funcframe),
                  (self.blockscope, self.blockframe),
                  (self.gotagscope, self.gotagframe)
-                 ) = (compute_scope(parent,  "varscope",
-                                    complete_frame(name_varframe,   kind_varframe,   full_varframe)),
-                      compute_scope(parent, "funcscope",
-                                    complete_frame(name_funcframe,  kind_funcframe,  full_funcframe)),
-                      compute_scope(parent, "blockscope",
-                                    complete_frame(name_blockframe, kind_blockframe, full_blockframe)),
-                      compute_scope(parent, "gotagscope",
-                                    complete_frame(name_gotagframe, kind_gotagframe, full_gotagframe)))
+                 ) = (self.adjoin_scope(parent,  "varscope",
+                                        complete_frame(name_varframe,   kind_varframe,   full_varframe)),
+                      self.adjoin_scope(parent, "funcscope",
+                                        complete_frame(name_funcframe,  kind_funcframe,  full_funcframe)),
+                      self.adjoin_scope(parent, "blockscope",
+                                        complete_frame(name_blockframe, kind_blockframe, full_blockframe)),
+                      self.adjoin_scope(parent, "gotagscope",
+                                        complete_frame(name_gotagframe, kind_gotagframe, full_gotagframe)))
+        @staticmethod
+        def adjoin_scope(parent, sname, frame):
+                parent = _coerce_to_lexenv(parent)
+                pscope = _py.getattr(parent, sname) if parent else nil
+                return (pscope if not frame else
+                        (frame, (nil if parent is nil else
+                                 pscope))), frame
+        @staticmethod
+        def merge_frames(f0, f1):
+                res = _py.dict(f0)
+                for key, map in f1.items():
+                        res[key] = (_dictappend(res[key], map) if key in res else
+                                    map)
+                return res
+        def appended(self, added):
+                if not added:
+                        return self
+                assert(self.parent is added.parent)
+                names = [ "var", "func", "block", "gotag" ]
+                frames = [ self.merge_frames(_py.getattr(self,  name + "frame") or _py.dict(),
+                                             _py.getattr(added, name + "frame") or _py.dict()) for name in names ]
+                parent = self.parent
+                result = _lexenv.python_type()
+                for name, frame in _py.zip(names, frames):
+                        _py.setattr(result, name + "frame", frame)
+                        _py.setattr(result, name + "scope", self.adjoin_scope(parent, name + "scope", frame)[0])
+                return result
         @staticmethod
         def do_lookup_scope(scope, x, default):
                 while scope:
+                        if not typep(scope[0], _py.dict):
+                                _debug_printf("bad scope: %s", scope)
                         if x in scope[0]["name"]:
                                 return scope[0]["name"][x]
                         scope = scope[1] # COLD-CDR
