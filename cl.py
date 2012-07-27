@@ -6874,6 +6874,15 @@ def _make_lexenv(parent = nil, **initial_content):
             :{NAME,KIND,FULL}-{VAR,FUNC,BLOCK}FRAME - constituents."""
         return _lexenv.python_type(parent, **initial_content)
 
+def _make_lexenv_varframe(bindings):
+        return _make_lexenv(kind_varframe  = { variable: { _variable_binding(name, variable, form)
+                                                           for name, form in bindings } })
+
+def _make_lexenv_funcframe(bindings):
+        return _make_lexenv(kind_funcframe = { function: { _function_binding(name, function,
+                                                                             _fn.python_type(name, lambda_list))
+                                                           for name, lambda_list, *_ in bindings } })
+
 # Quasiquotation
 
 ## From CLHS 2.4.6:
@@ -8341,8 +8350,8 @@ def let():
                 bindings_thru_defaulting = _py.tuple(_ensure_cons(b, nil) for b in bindings)
                 names, values = _recombine((_py.list, _py.list), identity, bindings_thru_defaulting)
                 _check_no_locally_rebound_constants(names)
-                lexenv = _make_lexenv(kind_varframe = { variable: { _variable_binding(name, variable, form)
-                                                                    for name, form in bindings } })
+                lexenv = _make_lexenv_varframe(bindings)
+                lexenv_extra = nil
                 if _py.all(not _ir_prologue_p(x) for x in values):
                         _compiler_trace_choice(let, names, "EXPR-BOUND-VALUES")
                         form = (apply, _ir(lambda_, (_optional,) + bindings_thru_defaulting, *body,
@@ -8353,6 +8362,7 @@ def let():
                 else:
                         _compiler_trace_choice(let, names, "NONEXPR-SETQ-LAMBDA")
                         thunk_name = gensym("LET-THUNK-")
+                        lexenv_extra = _make_lexenv_funcframe([(thunk_name, ())])
                         # Unregistered Issue PYTHON-CANNOT-CONCATENATE-ITERATORS-FULL-OF-FAIL
                         form = (progn,
                                  _ir(def_, thunk_name, (),
@@ -8375,7 +8385,7 @@ def let():
                         #              evaluate_defaults_early = t,
                         #              function_scope = function_scope),))
                 return _rewritten(form,
-                                  { _lexenv_: lexenv })
+                                  { _lexenv_: lexenv.appended(lexenv_extra) })
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
                 return _py.any(_ir_effects(f) for f in _py.tuple(x[1] for x in bindings) + body)
@@ -8419,12 +8429,7 @@ def flet():
                          body,
                         _ir_funcall(thunk_name))
                 return _rewritten(form,
-                                  { _lexenv_: _make_lexenv(kind_funcframe =
-                                                           { function: { _function_binding(name, function,
-                                                                                           _fn.python_type(name,
-                                                                                                           lambda_list))
-                                                                         for name, lambda_list, *__ in
-                                                                         bindings + ((thunk_name, ()),) } }) })
+                                  { _lexenv_: _make_lexenv_funcframe(bindings + ((thunk_name, ()),)) })
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -8457,11 +8462,14 @@ def labels():
                         error("LABELS: malformed bindings: %s.", bindings)
                 temp_name = gensym("LABELS-")
                 ## Rewrite as a function, to avoid scope pollution.  Actually, is it that important?
-                return _rewritten((flet, ((temp_name, ()) +
-                                          _py.tuple((def_, name, lambda_list) + _py.tuple(body)
-                                                     for name, lambda_list, *body in bindings) +
-                                           body,),
-                                   (apply, (function, temp_name), (quote, nil))))
+                return _rewritten((progn,
+                                   (def_, temp_name, ())
+                                     + _py.tuple((def_, name, lambda_list) + _py.tuple(body)
+                                                 for name, lambda_list, *body in bindings)
+                                     + body,
+                                   (apply, (function, temp_name), (quote, nil))),
+                                  { _lexenv_: _make_lexenv_funcframe(bindings +
+                                                                     ((temp_name, ()),)) })
         def effects(bindings, *body):
                 return _py.any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -9226,7 +9234,8 @@ def lambda_():
                                             _ir(def_, func_name, lambda_list,
                                                 *body,
                                                 extra_lexenvs = extra_lexenvs),
-                                            (function, func_name)))
+                                            (function, func_name)),
+                                          { _lexenv_: _make_lexenv_funcframe([(func_name, lambda_list) + body]) })
         def effects(*_):            return nil
         def affected(*_):           return nil
 
