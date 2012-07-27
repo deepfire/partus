@@ -6772,9 +6772,11 @@ def _coerce_to_lexenv(x):
 class _lexenv():
         """Chains variable and function scope pieces together.  Scope pieces map binding kinds
            to binding sets and bound names to bindings."""
-        varscope, funcscope = nil, nil
+        varscope, funcscope, blockscope, gotagscope = nil, nil, nil, nil
+        varframe, funcframe, blockframe, gotagframe = nil, nil, nil, nil
         def __repr__(self):
-                return "#<lexenv vars: %s, funs: %s>" % (self.varscope, self.funcscope)
+                return "#<lexenv vars: %s, funs: %s, blks: %s, gotags: %s>" % (self.varscope,   self.funcscope,
+                                                                               self.blockscope, self.gotagscope)
         def __init__(self, parent = nil,
                      name_varframe = None, name_funcframe = None, name_blockframe = None, name_gotagframe = None,
                      kind_varframe = None, kind_funcframe = None, kind_blockframe = None, kind_gotagframe = None,
@@ -7417,6 +7419,10 @@ def _pp_sex(sex, strict = t, initial_depth = None):
                 error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s", sex, pat, f, _py.repr(r))
         return r or ""
 
+def _ir_minify(form):
+        return (_py.str(form) if symbolp(form) or not form else
+                ("(%s ...)" % _ir_minify(form[0])))
+
 def _mockup_sex(sex, initial_depth = None, max_level = None):
         max_level = _defaulted(max_level, _compiler_max_mockup_level)
         def mock_atom(x):       return '"' + x + '"' if stringp(x) else _py.str(x)
@@ -7897,7 +7903,7 @@ def _rewritep(x):                         return _py.isinstance(x[1], _py.dict)
 
 def _compiler_trace_choice(ir_name, id, choice):
         if symbol_value(_compiler_trace_choices_):
-                _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, id, choice)
+                _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, _ir_minify(id), choice)
 
 #### Issues:
 ## Tail position optimisations
