@@ -6840,6 +6840,7 @@ class _lexenv():
         def lookup_var_kind(self, kind, x, default = None):
                 b = self.do_lookup_scope(self.varscope, x, None)
                 return (b and b.kind is kind and b) or default
+
 def _lexenvp(x):         return _py.isinstance(x, _lexenv.python_type)
 def _make_null_lexenv(): return make_instance(_lexenv, parent = null)
 def _make_lexenv(parent = nil, **initial_content):
@@ -8752,7 +8753,7 @@ def tagbody():
                 #         `(,init-tag ,@body))
                 form = (let, ((go_tag, (apply, (function, list), (quote, nil), (quote, nil))),),
                          (let, ((return_tag, (apply, (function, list), (quote, nil), (quote, nil))),) +
-                              _py.tuple((name, go_tag) for name in fun_names),
+                              _py.tuple((name, go_tag) for name in fun_names.values()),
                            (catch, return_tag,
                              (labels, funs,
                                (let, ((nxt_label, (function, funs[0][0])),),
@@ -9779,8 +9780,10 @@ def fdefinition(name):
 # _trace(_return, "match")
 # _debug_compiler()
 
-@defun
+@defun(intern("ONEMORE")[0])
 def onemore(x): return x + 1
+
+_do_defun(onemore, nil)
 
 ## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
 # _pp_sex((defmacro, defun, ("name", lambda_list, _body, "body"),
@@ -9976,7 +9979,7 @@ def LOOPTEST():
             (setq, x, (onemore, x)),
             (if_, (oddp, x),
                   (go, re),
-                  (format, t, "re: %s\n", re)),
+                  (format, t, "x: %s\n", x)),
             (go, re)))
 
 LOOPTEST(0)
