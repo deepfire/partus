@@ -53,52 +53,6 @@
 ;;;;    Boston, MA 02111-1307 USA
 ;;;;**************************************************************************
 
-(IN-PACKAGE "COMMON-LISP-USER")
-(DEFPACKAGE "COM.INFORMATIMAGO.COMMON-LISP.LISP-READER.READER"
-  (:USE "COMMON-LISP")
-  (:shadow "READTABLE"
-           "COPY-READTABLE" "MAKE-DISPATCH-MACRO-CHARACTER"
-           "READ" "READ-PRESERVING-WHITESPACE"
-           "READ-DELIMITED-LIST"
-           "READ-FROM-STRING"
-           "READTABLE-CASE" "READTABLEP"
-           "SET-DISPATCH-MACRO-CHARACTER" "GET-DISPATCH-MACRO-CHARACTER"
-           "SET-MACRO-CHARACTER" "GET-MACRO-CHARACTER"
-           "SET-SYNTAX-FROM-CHAR"
-           "WITH-STANDARD-IO-SYNTAX"
-           "*READ-BASE*" "*READ-DEFAULT-FLOAT-FORMAT*" "*READ-EVAL*"
-           "*READ-SUPPRESS*" "*READTABLE*")
-  (:EXPORT "READTABLE"
-           "COPY-READTABLE" "MAKE-DISPATCH-MACRO-CHARACTER"
-           "READ" "READ-PRESERVING-WHITESPACE"
-           "READ-DELIMITED-LIST"
-           "READ-FROM-STRING"
-           "READTABLE-CASE" "READTABLEP"
-           "SET-DISPATCH-MACRO-CHARACTER" "GET-DISPATCH-MACRO-CHARACTER"
-           "SET-MACRO-CHARACTER" "GET-MACRO-CHARACTER"
-           "SET-SYNTAX-FROM-CHAR"
-           "WITH-STANDARD-IO-SYNTAX"
-           "*READ-BASE*" "*READ-DEFAULT-FLOAT-FORMAT*" "*READ-EVAL*"
-           "*READ-SUPPRESS*" "*READTABLE*"
-           ;; Extensions:
-           "READTABLE-SYNTAX-TABLE" "READTABLE-PARSE-TOKEN"
-           "SET-INDIRECT-DISPATCH-MACRO-CHARACTER" 
-           "SET-INDIRECT-MACRO-CHARACTER"
-           "LIST-ALL-MACRO-CHARACTERS"
-           "SIMPLE-READER-ERROR" "SIMPLE-END-OF-FILE"
-           "MISSING-PACKAGE-ERROR" "SYMBOL-IN-MISSING-PACKAGE-ERROR"
-           "MISSING-SYMBOL-ERROR" "SYMBOL-MISSING-IN-PACKAGE-ERROR"
-           "INTERN-HERE" "RETURN-UNINTERNED"
-           ;; Utilities:
-           "POTENTIAL-NUMBER-P")
-  (:DOCUMENTATION
-   "This package implements a standard Common Lisp reader.
-
-    Copyright Pascal J. Bourguignon 2006 - 2011
-    This package is provided under the GNU General Public License.
-    See the source file for details."))
-(IN-PACKAGE "COM.INFORMATIMAGO.COMMON-LISP.LISP-READER.READER")
-
 ;;;
 ;;; From alexandria:
 ;;;
