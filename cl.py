@@ -601,6 +601,7 @@ def symbol_name(x):            return x.name
 def symbol_package(x):         return x.package
 @boot_defun # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
 def symbol_value(symbol_):     return _symbol_value(the(symbol, symbol_))
+## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
 def _symbol_function(symbol):  return (symbol.known          or
                                        symbol.macro_function or
                                        symbol.function       or
@@ -1389,7 +1390,6 @@ defclass         = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda 
                                                        "python_type", identity,  _frost.make_object_like_python_class)
 defun_with_block = _cold_defun_with_block = _make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp,
                                                                "function", __block__, _frost.make_object_like_python_function)
-
 for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  _py.globals())
 for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
 doit = True
@@ -2895,6 +2895,7 @@ Should signal an error of type TYPE-ERROR if SYMBOL is not a symbol.
 Should signal UNDEFINED-FUNCTION if SYMBOL is not fbound and an
 attempt is made to read its definition. (No such error is signaled on
 an attempt to write its definition.)"""
+        ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
         return _symbol_function(the(symbol, symbol_))
 
 @defun
@@ -2978,7 +2979,7 @@ def _warn_incompatible_function_redefinition(symbol, tons, fromns):
 
 def _warn_possible_redefinition(x, type):
         if x:
-                _style_warn("In %s: %s is being redefined.", type, x.name)
+                _style_warn("In %s: %s is being redefined.", type, x)
 
 @defun
 def setf_macro_function(new_function, symbol, environment = nil):
@@ -3079,31 +3080,25 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 _intern_and_bind_names_in_module("DEFMACRO")
 
 @defun(intern("_set_function_definition")[0])
-def _set_function_definition(x):
+def _set_function_definition(x, lambda_expression):
+        _compiler_defun(x, lambda_expression)
         def do_set_function_definition(function):
-                if the(symbol, x).macro_function:
-                        _warn_incompatible_function_redefinition(x, "function", "macro")
-                else:
-                        _warn_possible_redefinition(x.function, the(symbol, defun))
-                x.function, x.macro_function = function, nil
                 if function:
+                        x.function, x.macro_function = function, nil
                         _frost.make_object_like_python_function(x, function)
                         function.name = x
                 return x
         return do_set_function_definition
 
 @defun(intern("_set_macro_definition")[0])
-def _set_macro_definition(x):
+def _set_macro_definition(x, lambda_expression):
+        _compiler_defmacro(x, lambda_expression)
         def do_set_macro_definition(function):
-                if the(symbol, x).function:
-                        _warn_incompatible_function_redefinition(x, "macro", "function")
-                else:
-                        _warn_possible_redefinition(x.macro_function, the(symbol, defmacro))
-                x.function, x.macro_function = nil, function
                 if function:
                         _frost.make_object_like_python_function(x, function)
                         function.name = x
-                return x
+                        x.function, x.macro_function = nil, function
+                        return x
         return do_set_macro_definition
 
 # Condition system disabling
@@ -5874,7 +5869,7 @@ def _variable_bindingp(x): return _py.isinstance(x, _variable_binding)
 def _function_bindingp(x): return _py.isinstance(x, _function_binding)
 def _block_bindingp(x):    return _py.isinstance(x, _block_binding)
 
-# Global scope
+# Global scope: as seen by the compiler
 class _scope(): pass
 class _variable_scope(_scope, _collections.UserDict):
         def __hasattr__(self, name): return name in self.data
@@ -5895,23 +5890,36 @@ def _find_global_variable(name):
 def _find_global_function(name):
         return gethash(name, _function_scope)[0]
 
-def _do_defparameter(name, value):
+def _compiler_defparameter(name, value):
         x = _variable(the(symbol, name), variable)
         _variable_scope[name] = x
         if value is not None:
                 __global_scope__[name] = value
 
-def _do_defvar(name, value):
+def _compiler_defvar(name, value):
         if not _find_global_variable(name):
-                _do_defparameter(name, value)
+                _compiler_defparameter(name, value)
 
 _intern_and_bind_names_in_module("SETF")
-def _do_defun(name, lambda_expression):
-        x = _function(the((or_, symbol, (pytuple, (eql, setf), symbol)), name),
-                      function, lambda_expression = lambda_expression)
-        _function_scope[name] = x
+def _compiler_defun(name, lambda_expression, check_redefinition = t):
+        check_type(name, (or_, symbol, (pytuple, (eql, setf), symbol)))
+        if check_redefinition and symbolp(name):
+                if name.macro_function:
+                        _warn_incompatible_function_redefinition(name, "function", "macro")
+                else:
+                        _warn_possible_redefinition(name.function, name)
+        _function_scope[name] = _function(name, function, lambda_expression = lambda_expression)
 
-def _do_defvar_without_actually_defvar(name, value):
+def _compiler_defmacro(name, lambda_expression, check_redefinition = t):
+        check_type(name, (or_, symbol, (pytuple, (eql, setf), symbol)))
+        if check_redefinition and symbolp(name):
+                if name.function:
+                        _warn_incompatible_function_redefinition(name, "macro", "function")
+                else:
+                        _warn_possible_redefinition(name.macro_function, name)
+        _function_scope[name] = _function(name, macro, lambda_expression = lambda_expression)
+
+def _compiler_defvar_without_actually_defvar(name, value):
         "This is for SETQ-IN-ABSENCE-OF-DEFVAR."
         if value is not None:
                 __global_scope__[name] = value
@@ -5921,7 +5929,7 @@ def _global_variable_constant_p(name):
         return var and var.kind is constant
 
 ## Unregistered Issue CONSTANTNESS-PERSISTENCE
-def _do_defconstant(name, value):
+def _compiler_defconstant(name, value):
         assert(value is not None)
         if _global_variable_constant_p(name):
                 error("The constant %s is being redefined (from %s to %s).", name, _variable_scope[name].value, value)
@@ -5992,15 +6000,15 @@ declared to be the names of constant variables)."""
 def _sync_global_scopes_to_package(package):
         for sym in package.own:
                 if sym.function:
-                        _do_defun(sym, nil)
+                        _compiler_defun(sym, nil, check_redefinition = nil)
                 value, gvarp = gethash(sym, __global_scope__)
                 if gvarp:
-                        _do_defvar(sym, value)
+                        _compiler_defvar(sym, value)
 
 _sync_global_scopes_to_package(__cl)
 
-_do_defconstant(t,   t)
-_do_defconstant(nil, nil)
+_compiler_defconstant(t,   t)
+_compiler_defconstant(nil, nil)
 
 
 # Matcher
@@ -6438,12 +6446,9 @@ def _fop_make_symbol_available(globals, package_name, symbol_name,
                 # _debug_printf("   c-t %%U-S-G-F-P %s FUN: %s  - %s, %s %s",
                 #               "G" if gfunp else "l", symbol_name, function_pyname, symbol.function, symbol.macro_function)
                 if gfunp:
-                        if _find_global_function(symbol):
-                                fun = symbol_function(symbol)
-                                assert(fun)
-                                globals[function_pyname] = fun
-                        else:
-                                globals[function_pyname] = lambda *_, **__: error("Function not defined: %s.", symbol)
+                        globals[function_pyname] = (symbol_function(symbol)
+                                                    if symbol.function or symbol.macro_function else
+                                                    lambda *_, **__: error("Function not defined: %s.", symbol))
         if gvarp:
                 if _find_global_variable(symbol):
                         value = symbol_value(symbol)
@@ -7792,7 +7797,7 @@ def macroexpand_all(sex, lexenv = nil, compilerp = t):
 
 # DEFMACRO
 
-@_set_macro_definition(defmacro)
+@_set_macro_definition(defmacro, nil)
 # ((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
@@ -7801,7 +7806,8 @@ def DEFMACRO(name, lambda_list, *body):
                 # (function, (def_, name, lambda_list) + body),
                  (_ir_args,
                   (def_, name, lambda_list) + body,
-                  ("decorators", [_ir_cl_module_call("_set_macro_definition", (quote, name))])))
+                  ("decorators", [_ir_cl_module_call("_set_macro_definition",
+                                                     (quote, name), (quote, (name, lambda_list) + body))])))
 
 # Tuple intermediate IR
 
@@ -8143,7 +8149,7 @@ def setq():
                                 simple_program_error("%s is a constant and thus can't be set.", name)
                         if not gvar and not lexical_binding: # Must be a special, don't complain.
                                 simple_style_warning("undefined variable: %s", name)
-                                _do_defvar_without_actually_defvar(name, value)
+                                _compiler_defvar_without_actually_defvar(name, value)
                         return _rewritten(_ir_cl_module_call("_do_set", (quote, name), value, (ref, (quote, ("None",)))))
                 _compiler_trace_choice(setq, name, "LEXICAL")
                 cdef.lexical_setqs.add(name)
@@ -8502,7 +8508,8 @@ def function():
                                         _attr_chain_atree(name[1]))
                 lexical_binding = symbol_value(_lexenv_).lookup_func(the(symbol, name))
                 if not lexical_binding:
-                        if not name.function:
+                        ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
+                        if not _find_global_function(name):
                                 simple_style_warning("undefined function: %s", name)
                         _unit_note_gfun_reference(name)
                 return _lowered([],
@@ -8779,8 +8786,6 @@ def tagbody():
                                 (_ir_funcall(fun_names[s[p]]) if p is not None else
                                  (throw, return_tag, nil),),)
                 funs        = _py.tuple(mapcon(lam_, body))
-                for n, f in _py.zip(fun_names, funs):
-                        _debug_printf("       %s -- %s", n, f)
                 # (mapcon #'(lambda (seq &aux (label (car seq) (s (cdr seq)))      
                 #             (when (atom label)                                   
                 #               (let ((p (position-if #'atom s)))                  
@@ -9636,9 +9641,9 @@ def lisp(function):
 def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
         "There really is no other way.  Trust me.  Please."
         form = _ir_args_when(globalp, _ir_lambda_to_def(name, lambda_expression),
-                             decorators = [_ir_cl_module_call("_set_macro_definition", name)
+                             decorators = [_ir_cl_module_call("_set_macro_definition", name, lambda_expression)
                                            if macrop else
-                                           _ir_cl_module_call("_set_function_definition", name)])
+                                           _ir_cl_module_call("_set_function_definition", name, lambda_expression)])
         bytecode = _process_as_loadable(_linearise_processor(_compile), form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
         function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
@@ -9822,8 +9827,6 @@ def fdefinition(name):
 @defun(intern("ONEMORE")[0])
 def onemore(x): return x + 1
 
-_do_defun(onemore, nil)
-
 ## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
 # _pp_sex((defmacro, defun, ("name", lambda_list, _body, "body"),
 #           (quasiquote,
@@ -9843,19 +9846,18 @@ def DEFUN(name, lambda_list, *body):
             (progn,
               (eval_when, (_compile_toplevel,),
                 ## _compile_and_load_function() expects the compiler-level part of function to be present.
-                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
-                        (quote, nil),
-                        (quote, nil))),
+                (apply, (function, (quote, ("cl", "_compiler_defun"))),
+                 (quote, (comma, name)), (quote, (lambda_, (comma, lambda_list), (splice, body))),
+                 (quote, nil))),
               (eval_when, (_load_toplevel, _execute),
-                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (quote, (comma, name)), (quote, nil)),
+                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))),
+                         (quote, (comma, name)), (quote, (lambda_, (comma, lambda_list), (splice, body))),
+                         (quote, nil)),
                         (progn,
                           (def_, (comma, name), (comma, lambda_list),
                            (block, (comma, name),
                             (splice, body))),
                           (function, (comma, name))),
-                        # (lambda_, (comma, lambda_list),
-                        #   (block, (comma, name),
-                        #     (splice, body))),
                         (quote, nil))))))
 
 # @lisp
@@ -10003,9 +10005,13 @@ _configure_recursion_limit(262144)
 _compiler_config_tracing(# toplevels = t,
                          # toplevels_disasm = t,
                          # entry_forms = t,
+                         # forms = t,
                          # macroexpansion = t,
+                         true_death_of_code = t,
+                         # result = t,
                          # rewrites = t,
-                         # pretty_full = t
+                         # choices = t,
+                         pretty_full = t
                          )
 
 # _compiler_trap_function(intern("DEFPACKAGE")[0])
