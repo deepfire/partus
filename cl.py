@@ -92,6 +92,7 @@ import pdb         as _pdb
 import sys         as _sys
 import math        as _math
 import time        as _time
+import trace       as __trace
 import types       as _types
 import socket      as _socket
 import hashlib     as _hashlib
@@ -10014,16 +10015,16 @@ _configure_recursion_limit(262144)
 
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
-_compiler_config_tracing(toplevels = t,
+_compiler_config_tracing(# toplevels = t,
                          # toplevels_disasm = t,
                          # entry_forms = t,
                          # forms = t,
                          # macroexpansion = t,
-                         true_death_of_code = t,
+                         # true_death_of_code = t,
                          # result = t,
                          # rewrites = t,
                          # choices = t,
-                         pretty_full = t
+                         # pretty_full = t
                          )
 
 # _compiler_trap_function(intern("DEFPACKAGE")[0])
@@ -10041,7 +10042,26 @@ _compiler_config_tracing(toplevels = t,
 
 # LOOPTEST(0)
 
-load(compile_file("vpcl.lisp"))
+def traced():
+        return compile_file("vpcl.lisp")
+
+import cProfile as _cProfile, pstats as _pstats
+
+_cProfile.runctx("traced()", globals(), locals(), sort = "time")
+
+# tracer = __trace.Trace(
+#         ignoredirs=[_sys.prefix, _sys.exec_prefix],
+#         trace = 0,
+#         count = 1)
+
+# run the new command using the given tracer
+# fasl_filename = tracer.runfunc(traced)
+
+# r = tracer.results()
+# r.write_results(show_missing = True, coverdir = "/tmp")
+
+
+load(fasl_filename)
 
 # load(compile_file("reader.lisp"))
 
