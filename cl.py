@@ -3080,25 +3080,27 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 _intern_and_bind_names_in_module("DEFMACRO")
 
 @defun(intern("_set_function_definition")[0])
-def _set_function_definition(x, lambda_expression):
+def _set_function_definition(globals, x, lambda_expression):
         _compiler_defun(x, lambda_expression)
         def do_set_function_definition(function):
                 if function:
                         x.function, x.macro_function = function, nil
                         _frost.make_object_like_python_function(x, function)
                         function.name = x
+                        globals[_get_function_pyname(x)] = function
                 return x
         return do_set_function_definition
 
 @defun(intern("_set_macro_definition")[0])
-def _set_macro_definition(x, lambda_expression):
+def _set_macro_definition(globals, x, lambda_expression):
         _compiler_defmacro(x, lambda_expression)
         def do_set_macro_definition(function):
                 if function:
                         _frost.make_object_like_python_function(x, function)
                         function.name = x
                         x.function, x.macro_function = nil, function
-                        return x
+                        globals[_get_function_pyname(x)] = function
+                return x
         return do_set_macro_definition
 
 # Condition system disabling
@@ -6432,8 +6434,8 @@ def _get_symbol_pyname(symbol):
                 error("Symbol %s has no mapping to a python name.", symbol)
         return symbol.symbol_pyname
 
-def _pp(x):
-        return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex)(x)
+def _pp(x, **args):
+        return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex)(x, **args)
 
 ## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
 
@@ -7799,7 +7801,8 @@ def macroexpand_all(sex, lexenv = nil, compilerp = t):
 
 # DEFMACRO
 
-@_set_macro_definition(defmacro, nil)
+_ensure_function_pyname(defmacro) ## This is only needed due to the special definition of DEFMACRO.
+@_set_macro_definition(globals(), defmacro, nil)
 # ((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
@@ -7808,7 +7811,7 @@ def DEFMACRO(name, lambda_list, *body):
                 # (function, (def_, name, lambda_list) + body),
                  (_ir_args,
                   (def_, name, lambda_list) + body,
-                  ("decorators", [_ir_cl_module_call("_set_macro_definition",
+                  ("decorators", [_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
                                                      (quote, name), (quote, (name, lambda_list) + body))])))
 
 # Tuple intermediate IR
@@ -9327,7 +9330,7 @@ def _lower(form, lexenv = nil):
         def compiler_note_form(x):
                 if (symbol_value(_compiler_trace_forms_) and _debugging_compiler() and
                     not _py.isinstance(x, (symbol.python_type, _py.bool)) and
-                    not (consp(x) and x[0] in [ref, function])):
+                    not (consp(x) and x[0] in [ref, function, quote])):
                         _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp(x))
         def compiler_note_parts(known_name, xs):
                 if symbol_value(_compiler_trace_subforms_) and _debugging_compiler() and known_name is not symbol:
@@ -9460,12 +9463,12 @@ def _process_as_compilation_unit(processor, form, lexenv = nil, standalone = nil
         return with_compilation_unit(in_compilation_unit,
                                      override = t, id = id)
 
-def _atree_assemble(stmts, form = nil, filename = ""):
+def _atree_assemble(stmts, form, filename = ""):
         ast = mapcar(_atree_ast, stmts)
         import more_ast
         more_ast.assign_meaningful_locations(ast)
         if symbol_value(_compiler_trace_toplevels_):
-                _debug_printf(";;; Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
+                _debug_printf(";;; Lisp ================\n%s\n;;; Python ------------->\n%s\n;;; .....................\n",
                               _pp(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
                                                   for x in ast))
                 ############################ This is an excess newline, so it is a bug workaround.
@@ -9488,7 +9491,7 @@ def _atree_assemble(stmts, form = nil, filename = ""):
 def _process_as_loadable(processor, form, lexenv = nil, id = "PROCESSED-"):
         stmts, *_ =_process_as_compilation_unit(processor, form,
                                                 lexenv = lexenv, standalone = t, id = id)
-        return _atree_assemble(stmts, form = form)
+        return _atree_assemble(stmts, form)
 
 def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
         mod, globals, locals = _load_code_object_as_module(filename, bytecode, register = nil)
@@ -9510,8 +9513,11 @@ def _process_top_level(form, lexenv = nil):
         ## Compiler macro expansion, unless disabled by a NOTINLINE declaration, SAME MODE
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
-                kind, maybe_name = (form[0], form[1]) if _tuplep(form) and form else (form, "")
-                _debug_printf("; compiling (%s %s%s)", kind, maybe_name, " ..." if _py.len(form) > 2 else "")
+                kind, maybe_name = ((form[0], form[1]) if _tuplep(form) and _py.len(form) > 1 else
+                                    (form[0], "")      if _tuplep(form) and form              else
+                                    (form, ""))
+                _debug_printf("; compiling (%s%s%s%s)",
+                              kind, " " if _py.len(form) > 1 else "", maybe_name, " ..." if _py.len(form) > 2 else "")
         if symbol_value(_compiler_trace_entry_forms_):
                 _debug_printf(";;;%s compiling:\n%s%s",
                               _sex_space(-3, ";"), _sex_space(), _pp(form))
@@ -9552,7 +9558,7 @@ def _process_top_level(form, lexenv = nil):
                 if eval:
                         bytecode = _atree_assemble(_compilation_unit_prologue(*unit_data) +
                                                    stmts,
-                                                   form = form)
+                                                   form)
                         # _debug_printf(";; ..compile-time code object execution")
                         _, broken_globals, good_globals = _load_module_bytecode(bytecode)
                         ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
@@ -9590,9 +9596,10 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                 format(t, "; compiling file \"%s\" (written %s):\n", input_file, file_write_date(input_file))
         ## input/output file conformance is bad here..
         abort_p, warnings_p, failure_p = nil, nil, nil
+        forms = (progn,)
         with _py.open(input_file, "r") as input:
                 def in_compilation_unit():
-                        nonlocal trace_file
+                        nonlocal trace_file, forms
                         if trace_file:
                                 trace_filename = (trace_file if stringp(trace_file) else
                                                   input_file.replace(".lisp", "." + symbol_value(_trace_file_type_)))
@@ -9601,6 +9608,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                                 stmts = []
                                 form = read(input, eof_value = input_file, eof_error_p = nil)
                                 while form is not input_file:
+                                        forms = forms + (form,)
                                         form_stmts = _process_top_level(form, lexenv = _make_null_lexenv())
                                         stmts.extend(form_stmts)
                                         if trace_file:
@@ -9621,7 +9629,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
         try:
                 with _py.open(output_file, "wb") as f:
                         f.write(symbol_value(_fasl_file_magic_))
-                        bytecode = _atree_assemble(atree)
+                        bytecode = _atree_assemble(atree, forms)
                         _marshal.dump(bytecode, f)
                         return output_file
         finally:
@@ -9643,9 +9651,11 @@ def lisp(function):
 def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
         "There really is no other way.  Trust me.  Please."
         form = _ir_args_when(globalp, _ir_lambda_to_def(name, lambda_expression),
-                             decorators = [_ir_cl_module_call("_set_macro_definition", name, lambda_expression)
+                             decorators = [_ir_cl_module_call("_set_macro_definition",
+                                                              _ir_funcall("globals"), name, lambda_expression)
                                            if macrop else
-                                           _ir_cl_module_call("_set_function_definition", name, lambda_expression)])
+                                           _ir_cl_module_call("_set_function_definition",
+                                                              _ir_funcall("globals"), name, lambda_expression)])
         bytecode = _process_as_loadable(_linearise_processor(_compile), form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
         function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
@@ -9826,8 +9836,8 @@ def fdefinition(name):
 # _trace(_return, "match")
 # _debug_compiler()
 
-@defun(intern("ONEMORE")[0])
-def onemore(x): return x + 1
+# @defun(intern("ONEMORE")[0])
+# def onemore(x): return x + 1
 
 ## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
 # _pp_sex((defmacro, defun, ("name", lambda_list, _body, "body"),
@@ -9841,26 +9851,26 @@ def onemore(x): return x + 1
 #         #     (function, (quote, ("cl", "_set_function_definition"))))
 #         )
 
-@lisp
-def DEFUN(name, lambda_list, *body):
-        (defmacro, defun, (name, lambda_list, _body, body),
-          (quasiquote,
-            (progn,
-              (eval_when, (_compile_toplevel,),
-                ## _compile_and_load_function() expects the compiler-level part of function to be present.
-                (apply, (function, (quote, ("cl", "_compiler_defun"))),
-                 (quote, (comma, name)), (quote, (lambda_, (comma, lambda_list), (splice, body))),
-                 (quote, nil))),
-              (eval_when, (_load_toplevel, _execute),
-                (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))),
-                         (quote, (comma, name)), (quote, (lambda_, (comma, lambda_list), (splice, body))),
-                         (quote, nil)),
-                        (progn,
-                          (def_, (comma, name), (comma, lambda_list),
-                           (block, (comma, name),
-                            (splice, body))),
-                          (function, (comma, name))),
-                        (quote, nil))))))
+# @lisp
+# def DEFUN(name, lambda_list, *body):
+#         (defmacro, defun, (name, lambda_list, _body, body),
+#           (quasiquote,
+#             (progn,
+#               (eval_when, (_compile_toplevel,),
+#                 ## _compile_and_load_function() expects the compiler-level part of function to be present.
+#                 (apply, (function, (quote, ("cl", "_compiler_defun"))),
+#                  (quote, (comma, name)), (quote, (lambda_, (comma, lambda_list), (splice, body))),
+#                  (quote, nil))),
+#               (eval_when, (_load_toplevel, _execute),
+#                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))),
+#                          (quote, (comma, name)), (quote, (lambda_, (comma, lambda_list), (splice, body))),
+#                          (quote, nil)),
+#                         (progn,
+#                           (def_, (comma, name), (comma, lambda_list),
+#                            (block, (comma, name),
+#                             (splice, body))),
+#                           (function, (comma, name))),
+#                         (quote, nil))))))
 
 # @lisp
 # def cond(*clauses):
@@ -10004,7 +10014,7 @@ _configure_recursion_limit(262144)
 
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
-_compiler_config_tracing(# toplevels = t,
+_compiler_config_tracing(toplevels = t,
                          # toplevels_disasm = t,
                          # entry_forms = t,
                          # forms = t,
@@ -10018,20 +10028,22 @@ _compiler_config_tracing(# toplevels = t,
 
 # _compiler_trap_function(intern("DEFPACKAGE")[0])
 
-@lisp
-def LOOPTEST():
-        (defun, looptest, (x,),
-          (tagbody,
-            re,
-            (setq, x, (onemore, x)),
-            (if_, (oddp, x),
-                  (go, re),
-                  (format, t, "x: %s\n", x)),
-            (go, re)))
+# @lisp
+# def LOOPTEST():
+#         (defun, looptest, (x,),
+#           (tagbody,
+#             re,
+#             (setq, x, (onemore, x)),
+#             (if_, (oddp, x),
+#                   (go, re),
+#                   (format, t, "x: %s\n", x)),
+#             (go, re)))
 
-LOOPTEST(0)
+# LOOPTEST(0)
 
 load(compile_file("vpcl.lisp"))
+
+# load(compile_file("reader.lisp"))
 
 # load("vpcl.lisp", verbose = t)
 

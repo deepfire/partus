@@ -1,10 +1,23 @@
-(in-package :common-lisp)
-
-(defmacro defpackage (name &body options)
-  (format t "Yay, expanding DEFPACKAGE %s!" name)
-  (terpri)
+(defmacro defun (name lambda-list &body body)
   `(progn
-     (format t "Yay, executing expanded DEFPACKAGE %s!" ,name)
-     (terpri)))
+     (eval-when (:compile-toplevel)
+       ;; -compile-and-load-function() expects the compiler-level part of function to be present.
+       (apply (function (quote ("cl" "_compiler_defun")))
+              ',name '(lambda ,lambda-list ,@body)
+              'nil))
+     (eval-when (:load-toplevel :execute)
+       (apply (apply (function (quote ("cl" "_set_function_definition")))
+                     (apply (function (quote ("globals"))) 'nil) ',name '(lambda ,lambda-list ,@body)
+                     'nil)
+              (progn
+                (def ,name ,lambda-list
+                  (block ,name
+                    ,@body))
+                (function ,name))
+              'nil))))
 
-(defpackage :vpcl)
+(defun %test-defun ()
+  (format t "Hello from DEFUN TEST")
+  (terpri))
+
+(%test-defun)
