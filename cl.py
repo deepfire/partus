@@ -4107,9 +4107,11 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                 # _here("> \"%s\", by \"%s\"" % (string[pos:], char))
                 if   char == _py.chr(40):  obj = read_list() # Org is a bit too picky
                 elif char == "\"":         obj = read_string()
-                elif char == "'":          obj = read_quote()
+                elif char == "'":
+                        read_char(stream)
+                        obj = (quote, read_inner())
                 elif char == "`":
-                        read_char(stream);
+                        read_char(stream)
                         obj = (quasiquote, read_list())
                 elif char == ",":
                         ## This is a simplified take, but it'll do for bootstrapping purposes.
