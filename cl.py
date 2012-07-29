@@ -575,12 +575,6 @@ class symbol(): # Turned to a symbol, during the package system bootstrap.
                 self.symbol_pyname   = None
         def __hash__(self):
                 return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
-        def __call__(self, *args, **keys):
-                function = self.function ## Well, it's an inlined SYMBOL-FUNCTION..
-                if not _py.isinstance(function, _cold_function_type):
-                        error("While calling %s: SYMBOL-FUNCTION returned a non-callable object of type %s.",
-                              self, _py.type(function))
-                return function(*args, **keys)
         def __bool__(self):
                 return self is not nil
 
@@ -827,6 +821,15 @@ def import_(symbols, package = None, populate_module = True):
 
 # Package system init
 
+def _protosymbolicate(x, name, slot):
+        sym, _ = _intern(name)
+        _py.setattr(sym, slot, x)
+        return sym
+
+def _symbolicate(x, name, slot, globals):
+        sym = _protosymbolicate(x, name, slot)
+        _frost.setf_global(sym, _frost.full_symbol_name_python_name(sym), globals)
+
 def _init_package_system_0():
         global __packages__
         global __keyword
@@ -856,8 +859,6 @@ def _init_package_system_0():
                 _frost.setf_global(_find_symbol_or_fail(lisp_name, __cl), python_name, _py.globals())
                 # Unregistered Issue PACKAGE-SYSTEM-INIT-SHOULD-USE-GLOBAL-SETTER-INSTEAD-OF-CUSTOM-HACKERY
         # secondary
-        global star
-        star = _intern("*", __cl)[0]
         package("COMMON-LISP-USER", use = [__cl], boot = True)
         __global_scope__["*PACKAGE*"] = __cl # COLD-SETQ
         symbol = _frost.frost_def(symbol,  _intern("SYMBOL")[0],  "python_type", _py.globals())
@@ -1367,14 +1368,14 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
         def cold_definer(name_or_obj):
                 obj, sym, name = _interpret_toplevel_value(name_or_obj, predicate)
                 def do_cold_def(o):
+                        _py.setattr(symbol, slot, o)
                         # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
                         #           if stringp(name) else
                         #           name if symbolp(name) else
                         #           error("In %s: bad name %s for a cold object.", definer_name))
                         o = preprocess(o)
-                        _frost.frost_def(o, sym, slot, _py.globals())
                         mimicry(sym, o)
-                        return sym
+                        return o
                 return (do_cold_def(obj) if obj                                          else
                         do_cold_def      if stringp(name_or_obj) or symbolp(name_or_obj) else
                         error("In %s: argument must be either satisfy %s or be a string;  was: %s.",
@@ -1405,11 +1406,13 @@ def _attrify_args(self, locals, *names):
 class nil():
         @classmethod
         def __instancecheck__(_, __): return False # This is an empty type
+_symbolicate(nil, "NIL", "python_type", globals())
 
 @defclass
 class t():
         @classmethod
         def __instancecheck__(_, __): return True  # This is the absolute sum type
+_symbolicate(t, "T", "python_type", globals())
 
 @defclass
 class simple_condition(condition.python_type):
@@ -3124,10 +3127,6 @@ def _init_condition_system():
 def _condition_system_enabled_p():
         return (_frost.pytracer_enabled_p() and
                 _frost.tracer_hook("exception") is __cl_condition_handler__)
-
-def _init_package_system_2():
-        "Is called once CL is loaded completely."
-        in_package("COMMON-LISP-USER")
 
 _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
                                                                 "COMPILE-TOPLEVEL",
@@ -13013,7 +13012,6 @@ def _make_method_specializers(specializers):
 
 # Init
 
-_init_package_system_2()
 def _init():
         "Initialise the Common Lisp compatibility layer."
         _init_condition_system()
