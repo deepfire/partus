@@ -200,14 +200,13 @@ def _unboot_set(set):
         _debug_printf("; unbooted function set %s, remaining boot sets: %s", repr(set), ", ".join(_namespace["boot"].keys()))
 
 def _interpret_toplevel_value(name_or_obj, objness_predicate):
-        def stringp(x): return isinstance(x, str)
-        name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj)               else
-                     (name_or_obj, None)                 if stringp(name_or_obj) or symbolp(name_or_obj) else
+        name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj)           else
+                     (name_or_obj, None)                 if isinstance(name_or_obj, (str, symbol_t)) else
                      error("Bad cold object definition: %s", name_or_obj))
         ####### Thought paused here:
         # ..delay symbol computation!
-        sym, inmod_name = ((_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if isinstance(name, str) else
-                           (name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if symbolp(name)                 else
+        sym, inmod_name = ((_intern(_frost.python_name_lisp_symbol_name(name))[0], name)  if isinstance(name, str)      else
+                           (name, _frost.lisp_symbol_name_python_name(symbol_name(name))) if isinstance(name, symbol_t) else
                            error("In cold definition of %s: bad name %s for a cold object.", name, repr(name)))
         return obj, sym, inmod_name
 
@@ -399,7 +398,8 @@ def _do_set(name, value, force_toplevel):
       _string_set(name, value, force_toplevel = force_toplevel, symbolicp = False),
       on_unboot = _boot_symbolicate_global_dynamic_scope)
 def _string_set(symbol_name, value, force_toplevel = None, symbolicp = True):
-        stringp(symbol_name) or error("The first argument to %%STRING-SET must be a string, was: %s.", symbol_name.__repr__())
+        isinstance(symbol_name, str) or \
+                 error("The first argument to %%STRING-SET must be a string, was: %s.", symbol_name.__repr__())
         name = _intern(symbol_name)[0] if symbolicp else symbol_name
         _do_set(name, value, force_toplevel)
         symbolicp and _pyimport_symbol(name)
@@ -434,7 +434,7 @@ def _coerce_to_condition(datum, *args, default_type = None, **keys):
 
         type_ = (type_specifier             if isinstance(type_specifier, type)                                     else
                  None                       if _conditionp(type_specifier)                                          else
-                 type_specifier.python_type if symbolp(type_specifier) and _symbol_type_specifier_p(type_specifier) else
+                 type_specifier.python_type if isinstance(type_specifier, symbol_t) and _symbol_type_specifier_p(type_specifier) else
                  not_a_condition_specifier_error(datum))
         cond = (datum              if type_ is None   else # Already a condition.
                 type_(datum % args) if stringp(datum) else
@@ -591,7 +591,7 @@ def make_symbol(name, **keys):
 def symbolp(x):  return isinstance(x, symbol_t)
 
 @boot_defun
-def keywordp(x): return symbolp(x) and symbol_package(x) is __keyword
+def keywordp(x): return isinstance(x, symbol_t) and symbol_package(x) is __keyword
 
 @boot_defun
 def symbol_name(x):            return x.name
@@ -609,8 +609,8 @@ def _symbol_function(symbol):  return (symbol.known          or
 @boot_defun
 def string(x):
         ## NOTE: These type check branches can be in bootstrap order or in usage frequency order!
-        return (x      if stringp(x) else
-                x.name if symbolp(x) else
+        return (x      if isinstance(x, str)      else
+                x.name if isinstance(x, symbol_t) else
                 error("%s must have been either a string or a symbol.", x))
 
 def _do_find_symbol(str, package):
@@ -623,7 +623,7 @@ def _find_symbol_or_fail(x, package = None):
 
 def _symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
-        s = gethash(x, p.accessible, None)[0] if stringp(x) else x
+        s = gethash(x, p.accessible, None)[0] if isinstance(x, str) else x
         if s is not None:
                 return _keyword("INHERITED" if s.name in p.inherited else
                                 "EXTERNAL"  if s      in p.external  else
@@ -726,9 +726,9 @@ def _intern_in_package(x, p):
         return s, presentp
 
 def _coerce_to_package(x, if_null = "current"):
-        return (find_package(x)                                              if stringp(x) or symbolp(x) or packagep(x) else
+        return (find_package(x)                                              if isinstance(x, (str, symbol_t, package_t)) else
                 (_symbol_value(_package_) if if_null == "current" else
-                 _package_not_found_error(x))                                if (not x)                                 else
+                 _package_not_found_error(x))                                if (not x)                                   else
                 simple_type_error("COERCE-TO-PACKAGE accepts only package designators -- packages, strings or symbols, was given '%s' of type %s.",
                                   x, type_of(x)))
 
@@ -786,7 +786,7 @@ def in_package(name):
 @boot_defun
 def export(symbols, package = None):
         symbols, package = symbols if isinstance(symbols, list) else [symbols], _coerce_to_package(package)
-        assert(all(symbolp(x)
+        assert(all(isinstance(x, symbol_t)
                    for x in symbols))
         symdict = _map_into_hash(lambda x: (x.name, x), symbols)
         for user in package.packages_using:
@@ -984,13 +984,13 @@ of nonce-ing is to be handled manually."""
 
 @boot_defun
 def __return_from(nonce, value):
-        nonce = ((getattr((symbol_function(nonce) if symbolp(nonce) else
-                               nonce), "ball", None) or
+        nonce = ((getattr((symbol_function(nonce) if isinstance(nonce, symbol_t) else
+                           nonce), "ball", None) or
                   error("RETURN-FROM was handed a function %s, but it is not cooperating in the "
-                        "__BLOCK__ nonce passing syntax.", nonce)) if functionp(nonce) else
+                        "__BLOCK__ nonce passing syntax.", nonce)) if isinstance(nonce, _cold_function_type) else
                  ## This can mean either the @defun-ned function, or absent a function definition, the symbol itself.
-                 (getattr(nonce.function, "ball", nonce))      if symbolp(nonce)   else
-                 nonce                                             if stringp(nonce)   else
+                 (getattr(nonce.function, "ball", nonce))          if isinstance(nonce, symbol_p)            else
+                 nonce                                             if isinstance(nonce, str)                 else
                  error("In RETURN-FROM: nonce must either be a string, or a function designator;  was: %s.", repr(nonce)))
         __throw(nonce, value)
 
@@ -1102,7 +1102,7 @@ def sequencep(x):     return getattr(type(x), "__len__", None) is not None
 # Types mappable to python
 
 def _define_python_type_map(symbol_or_name, type_):
-        not (stringp(symbol_or_name) or symbolp(symbol_or_name)) and \
+        not isinstance(symbol_or_name, (str, symbol_t)) and \
             error("In DEFINE-PYTHON-TYPE-MAP: first argument must be either a string or a symbol, was: %s.", repr(symbol_or_name))
         not isinstance(type_, type) and \
             error("In DEFINE-PYTHON-TYPE-MAP: second argument must be a Python type, was: %s.", repr(type_))
@@ -1172,7 +1172,7 @@ negative boolean value is returned."""
                 (((not isinstance(x, type_.python_type)) and
                   (x, type_, False))                           if hasattr(type_, "python_type")         else
                  _complex_type_mismatch(x, tuple([type_]))     if hasattr(type_, "type_predicate")      else
-                 _invalid_type_specifier_error(type_))         if symbolp(type_)                        else
+                 _invalid_type_specifier_error(type_))         if isinstance(type_, symbol_t)           else
                 _complex_type_mismatch(x, type_)               if (isinstance(type_, tuple) and type_ and
                                                                    hasattr(type_[0], "type_predicate")) else
                 _invalid_type_specifier_error(type_))
@@ -1265,7 +1265,7 @@ def member(x, type):
 @_deftype
 def satisfies(x, type):
         return ((x, type, True) if ((len(type) is not 2) or
-                                    not functionp(type[1])) else
+                                    not isinstance(type[1], _cold_function_type)) else
                 ((not type[1](x)) and
                  (x, type, False)))
 
@@ -1284,8 +1284,8 @@ def unsigned_byte(x, type):
 ## Non-standard
 @_deftype
 def pytypename(x, type):
-        return ((x, type, True)  if len(type) is not 1                          else
-                (x, type, False) if not (symbolp(x) and _symbol_python_type(x)) else
+        return ((x, type, True)  if len(type) is not 1                                       else
+                (x, type, False) if not (isinstance(x, symbol_t) and _symbol_python_type(x)) else
                 nil)
 
 @_deftype
@@ -1353,7 +1353,7 @@ _unboot_set("typep")
 def subtypep(sub, super):
         def coerce_to_python_type(x):
                 return (x             if isinstance(x, _cold_class_type)   else
-                        x.python_type if symbolp(x) else
+                        x.python_type if isinstance(x, symbol_t)           else
                         error("In SUBTYPEP: arguments must be valid type designators, but %s wasn't one.", repr(x)))
         def do_subclass_check(sub, super):
                 return issubclass(coerce_to_python_type(sub),
@@ -1380,8 +1380,8 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
                         o = preprocess(o)
                         mimicry(sym, o)
                         return o
-                return (do_cold_def(obj) if obj                                          else
-                        do_cold_def      if stringp(name_or_obj) or symbolp(name_or_obj) else
+                return (do_cold_def(obj) if obj                                      else
+                        do_cold_def      if isinstance(name_or_obj, (str, symbol_t)) else
                         error("In %s: argument must be either satisfy %s or be a string;  was: %s.",
                               definer_name, predicate, repr(name_or_obj)))
         cold_definer.__name__ = definer_name
@@ -1471,7 +1471,7 @@ def find_class(x, errorp = t):
 @defun
 def make_instance(class_or_name, **initargs):
         return (class_or_name             if isinstance(class_or_name, _cold_class_type) else
-                class_or_name.python_type if symbolp(class_or_name)                          else
+                class_or_name.python_type if isinstance(class_or_name, symbol_t)         else
                 error("In MAKE-INSTANCE %s: first argument must be a class specifier.", class_or_name))(**initargs)
 
 def _make_missing_method(cls, name):
@@ -1630,30 +1630,30 @@ def _poor_man_defstruct(name, *slots):
 
 def _poor_man_when(test, body):
         if test:
-                return body() if functionp(body) else body
+                return body() if isinstance(body, _cold_function_type) else body
 
 def _poor_man_case(val, *clauses):
         for (cval, body) in clauses:
                 if ((val == cval or (cval is True) or (cval is t)) if not isinstance(cval, list) else
                     val in cval):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, _cold_function_type) else body
 
 def _poor_man_ecase(val, *clauses):
         for (cval, body) in clauses:
                 if ((val == cval) if not isinstance(cval, list) else
                     val in cval):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, _cold_function_type) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
 def _poor_man_typecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, _cold_function_type) else body
 
 def _poor_man_etypecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, _cold_function_type) else body
         else:
                 simple_type_error("%s fell through ETYPECASE expression. Wanted one of (%s).",
                                   val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
@@ -1698,7 +1698,7 @@ _case_attribute_map = dict(UPCASE     = string_upcase,
                                CAPITALIZE = string_capitalize,
                                PRESERVE   = identity)
 def _case_xform(type_, s):
-        if not (symbolp(type_) and type_.package.name == "KEYWORD"):
+        if not (isinstance(type_, symbol_t) and type_.package.name == "KEYWORD"):
                 error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", type(type_), _print_symbol(type_))
         return _case_attribute_map[type_.name](s)
 
@@ -4842,11 +4842,11 @@ def _ast_attribute_chain(xs, writep = nil):  return reduce((lambda acc, attr: _a
                                                            xs[1:],
                                                            _ast_name(xs[0], writep))
 def _ast_index(of, index, writep = nil):     return _ast.Subscript(value = of, slice = _ast.Index(value = index), ctx = _ast_rw(writep))
-def _ast_maybe_normalise_string(x):          return (_ast_string(x) if stringp(x) else x)
+def _ast_maybe_normalise_string(x):          return (_ast_string(x) if isinstance(x, str) else x)
 
 def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
         check_type(args, (pylist_t, (or_t, _ast.AST, _NoneType, (satisfies_t, _astifiable_p))))
-        return _ast.Call(func = (_ast_name(name) if stringp(name) else name),
+        return _ast.Call(func = (_ast_name(name) if isinstance(name, str) else name),
                         args = mapcar(_coerce_to_ast, args),
                         keywords = _maphash(_ast_keyword, keys),
                         starargs = starargs or None,
@@ -5003,7 +5003,7 @@ def _ast_info_check_args_type(info, args, atreep = t):
                         return typep(x, (or_t, (member_t, integer_t, string_t),
                                                (pytuple_t, (eql_t, maybe_t), (member_t, integer_t, string_t))))
                 def atree_simple_typep(x, type):
-                        return (isinstance(x, tuple) and stringp(x[0]) and
+                        return (isinstance(x, tuple) and isinstance(x[0], str) and
                                 _find_ast_info(x[0]) and issubclass(_find_ast_info(x[0]).type, type))
                 if atreep and not simple_typespec_p(type):
                         maybe_typep, list_typep, type = ((t,   nil, type[1]) if maybe_typespec_p(type) else
@@ -5043,7 +5043,7 @@ def _ast_bound_free(astxs):
                                    astxs))
 
 def _atree_validate(atree):
-        if stringp(atree) or integerp(atree) or atree is None:
+        if isinstance(atree, (str, int, _NoneType)):
                 return
         check_type(atree, (partuple_t, string_t))
         kind, args = atree[0], atree[1:]
@@ -5794,15 +5794,15 @@ all AST-trees .. except for the case of tuples."""
                                 argument_type_error(name, subtype, val, "AST node %s", repr(type))
                 return ast_type(*effective_args)
         ret =  (tree
-                if isinstance(tree, (str, int, _NoneType)) else
+                if isinstance(tree, (str, int, _NoneType))                             else
                 mapcar(_atree_ast, tree)
-                if _listp(tree)                  else
+                if _listp(tree)                                                        else
                 _try_astify_constant(tree)[0]
-                if not isinstance(tree, tuple)            else
+                if not isinstance(tree, tuple)                                         else
                 error("The atree nodes cannot be zero-length.")
-                if not tree                     else
+                if not tree                                                            else
                 error("The CAR of an atree must be a string, not %s.", tree[0])
-                if not stringp(tree[0])         else
+                if not isinstance(tree[0], str)                                        else
                 unknown_ast_type_error(tree[0], tree) if tree[0] not in _ast.__dict__  else
                 (astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
         return ret
@@ -5905,7 +5905,7 @@ def _compiler_defvar(name, value):
 _intern_and_bind_names_in_module("SETF")
 def _compiler_defun(name, lambda_expression, check_redefinition = t):
         check_type(name, (or_t, symbol_t, (pytuple_t, (eql_t, setf), symbol_t)))
-        if check_redefinition and symbolp(name):
+        if check_redefinition and isinstance(name, symbol_t):
                 if name.macro_function:
                         _warn_incompatible_function_redefinition(name, "function", "macro")
                 else:
@@ -5914,7 +5914,7 @@ def _compiler_defun(name, lambda_expression, check_redefinition = t):
 
 def _compiler_defmacro(name, lambda_expression, check_redefinition = t):
         check_type(name, (or_t, symbol_t, (pytuple_t, (eql_t, setf), symbol_t)))
-        if check_redefinition and symbolp(name):
+        if check_redefinition and isinstance(name, symbol_t):
                 if name.function:
                         _warn_incompatible_function_redefinition(name, "macro", "function")
                 else:
@@ -5993,9 +5993,9 @@ Affected By:
 
 The state of the global environment (e.g., which symbols have been
 declared to be the names of constant variables)."""
-        return (isinstance(form, (int, float, complex, str)) or
-                keywordp(form)                                                   or
-                (symbolp(form) and _global_variable_constant_p(form))            or
+        return (isinstance(form, (int, float, complex, str))                       or
+                keywordp(form)                                                     or
+                (isinstance(form, symbol_t) and _global_variable_constant_p(form)) or
                 (isinstance(form, tuple) and (not form or (len(form) is 2 and form[0] is quote))))
 
 ## Intern globals
@@ -6053,7 +6053,7 @@ _untrace()
 
 def _trace_printf(tracespec, control, *args):
         if _tracep(*(tracespec                    if isinstance(tracespec, tuple) else
-                     (tracespec,)                 if stringp(tracespec) else
+                     (tracespec,)                 if isinstance(tracespec, str)   else
                      (tracespec, _caller_name(1)))):
                 _debug_printf(control, *(args if not (len(args) == 1 and functionp(args[0])) else
                                          args[0]()))
@@ -6180,8 +6180,8 @@ class _matcher():
         def register_complex_matcher(m, name, matcher):
                 __metasex_words__.add(name)
                 m.__complex_patterns__[name] = matcher
-        def simplex_pat_p(m, x): return isinstance(x, tuple) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
-        def complex_pat_p(m, x): return isinstance(x, tuple) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
+        def simplex_pat_p(m, x): return isinstance(x, tuple) and x and isinstance(x[0], symbol_t) and x[0] in m.__simplex_patterns__
+        def complex_pat_p(m, x): return isinstance(x, tuple) and x and isinstance(x[0], symbol_t) and x[0] in m.__complex_patterns__
         def simplex(m, bound, name, exp, pat, orifst):
                 # _trace_frame()
                 # _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s",
@@ -6524,7 +6524,7 @@ def _find_fn(name):
         return _fns.get(name, nil)
 
 def _depend_on(fn_or_name, reason = t):
-        fn = fn_or_name if functionp(fn_or_name) else _find_fn(fn_or_name)
+        fn = fn_or_name if isinstance(fn_or_name, _cold_function_type) else _find_fn(fn_or_name)
         fn.add_dependent(reason, symbol_value(_compiler_fn_))
 
 def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
@@ -6533,7 +6533,7 @@ def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
         ## in case of full recompilation..
         ##
         ## ..And we didn't even start to consider dependency loops..
-        if symbolp(function_form):
+        if isinstance(function_form, symbol_t):
                 fn = _find_fn(function_form)
                 if fn:
                         prop_vals = []
@@ -6555,7 +6555,7 @@ def _parse_body(body, doc_string_allowed = t):
         doc = nil
         def doc_string_p(x, remaining_forms):
                 return ((error("duplicate doc string %s", x) if doc else t)
-                        if stringp(x) and doc_string_allowed and remaining_forms else
+                        if isinstance(x, str) and doc_string_allowed and remaining_forms else
                         None)
         def declaration_p(x):
                 return isinstance(x, tuple) and x[0] is declare
@@ -6593,7 +6593,7 @@ def _self_evaluating_form_p(x):
         return isinstance(x, (int, str, float)) or x in [t, nil]
 
 def _ir_funcall(func, *args):
-        return (apply, (function, ((quote, (func,)) if stringp(func) else
+        return (apply, (function, ((quote, (func,)) if isinstance(func, str) else
                                    func))) + args + ((quote, nil),)
 
 def _ir_cl_module_name(name):
@@ -7025,8 +7025,8 @@ _intern_and_bind_names_in_module_specifically(
 __metasex_words__      = set() ## Populated by _register_*_matcher()
 __metasex_leaf_words__ = { _newline, _indent, _for_matchers_xform, _for_not_matchers_xform }
 
-def _metasex_word_p(x):      return symbolp(x) and x in __metasex_words__
-def _metasex_leaf_word_p(x): return symbolp(x) and x in __metasex_leaf_words__
+def _metasex_word_p(x):      return isinstance(x, symbol_t) and x in __metasex_words__
+def _metasex_leaf_word_p(x): return isinstance(x, symbol_t) and x in __metasex_leaf_words__
 
 def _preprocess_metasex(pat):
         "Expand syntactic sugars."
@@ -7135,7 +7135,7 @@ def _find_known(x):
 
 def _form_known(form):
         ## METASEX-MATCHER guts it, due to case analysis
-        complex_form_p = consp(form) and symbolp(form[0])
+        complex_form_p = consp(form) and isinstance(form[0], symbol_t)
         return complex_form_p and _find_known(form[0])
 
 def _form_metasex(form):
@@ -7145,7 +7145,7 @@ def _form_metasex(form):
         return _preprocess_metasex(
                 (_typep, t)                             if not isinstance(form, tuple)                            else
                 ()                                      if not form                                               else
-                _find_known(form[0]).metasex            if symbolp(form[0]) and _find_known(form[0])              else
+                _find_known(form[0]).metasex            if isinstance(form[0], symbol_t) and _find_known(form[0]) else
                 (_form, "\n", [(_notlead, " "), _form]) if isinstance(form[0], tuple) and form[0] and form[0][0] is lambda_ else
                 ([(_notlead, " "), _form],))
 
@@ -7197,8 +7197,11 @@ class _metasex_matcher(_matcher):
         def atom(exp, pat):
                 # _trace_frame()
                 with _match_level():
-                        result = ((symbolp(exp) and not keywordp(exp)) if pat is _name else
-                                   exp is pat                          if symbolp(pat) else
+                        symp = isinstance(exp, symbol_t)
+                        ## Wanna some fun?  Replace -- not keywordp(exp), with:
+                        ## symbol_package(exp) is not __keyword -- Unregistered Issue PYTHON-IS-BUGGY
+                        result = ((symp and not keywordp(exp)) if pat is _name else
+                                   exp is pat                  if symp         else
                                    exp == pat)
                         # _trace_printf("atom", "%% atom: e:%s/%s/%s p:%s/%s/%s:  %s (t1:%s, t2:%s), _name: %s, symp(exp): %s, keyp(exp): %s, %s",
                         #               lambda: (exp, symbol_name(exp), symbol_package(exp),
@@ -7278,7 +7281,7 @@ class _metasex_matcher_pp(_metasex_matcher):
         def prod(x, orig_tuple_p):
                 # _trace_frame()
                 result = (""            if not (orig_tuple_p or x or (orig_tuple_p and x == ()) or x is nil) else
-                          '"' + x + '"' if stringp(x)                         else
+                          '"' + x + '"' if isinstance(x, str)                                                else
                           str(x))
                 # _trace_printf("yield", "+++ YIELD prod:\n%s", result)
                 return result
@@ -7455,7 +7458,7 @@ def _ir_minify(form):
 
 def _mockup_sex(sex, initial_depth = None, max_level = None):
         max_level = _defaulted(max_level, _compiler_max_mockup_level)
-        def mock_atom(x):       return '"' + x + '"' if stringp(x) else str(x)
+        def mock_atom(x):       return '"' + x + '"' if isinstance(x, str) else str(x)
         def mock_complexes(xs, new_level):
                 with progv({ _pp_base_depth_: symbol_value(_pp_base_depth_) + 2 }):
                         return ("\n" + _sex_space()).join(rec(x, new_level) for x in xs)
@@ -7493,8 +7496,8 @@ def _ir_nth_value(n, form):
         return (lambda known: (known.nth_value(n, form, *form[1:]) if known else
                                (nth_value, n, form)))(_form_known(form))
 def _ir_prologue_p(form):
-        return (lambda known: (known.prologuep(*form[1:])          if known                            else
-                               nil                                 if symbolp(form) or constantp(form) else
+        return (lambda known: (known.prologuep(*form[1:])          if known                                         else
+                               nil                                 if isinstance(form, symbol_t) or constantp(form) else
                                error("Prologue queries only defined on known forms, not %s.", repr(form))))(_form_known(form))
 def _ir_binds(form):
         return (lambda known: (known.binds(*form[1:])              if known else
@@ -7688,12 +7691,12 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
                 else:
                         return (find_compiler_macroexpander(form) if known.name is apply else
                                 nil)
-        expander, args = (((form and symbolp(form[0]) and
+        expander, args = (((form and isinstance(form[0], symbol_t) and
                             (macro_function(form[0], env) or
                              (compilerp and
                               knownifier_and_maybe_compiler_macroexpander(form, _find_known(form[0]))))),
                            form[1:])                              if isinstance(form, tuple) else
-                          (_symbol_macro_expander(form, env), ()) if symbolp(form) else ## Notice, how NIL is not expanded.
+                          (_symbol_macro_expander(form, env), ()) if isinstance(form, symbol_t) else ## Notice, how NIL is not expanded.
                           (nil, nil))
         return ((form, nil) if not expander else
                 (expander(*args), t))
@@ -8025,7 +8028,7 @@ def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, 
         default_expr = _defaulted(default_expr, (_name, "None"))
         if not isinstance(lambda_list_, tuple):
                 error("In %s: lambda list must be a tuple, was: %s.", context, lambda_list_)
-        def valid_parameter_specifier_p(x): return symbolp(x) and symbol_package(x) is not __keyword
+        def valid_parameter_specifier_p(x): return isinstance(x, symbol_t) and symbol_package(x) is not __keyword
         test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (isinstance(x, tuple) and len(x) == 2 and
                                                                                valid_parameter_specifier_p(x[0])),
                                  "In %s: lambda lists can only contain non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
@@ -8139,8 +8142,9 @@ def _lower_name(name, writep = nil):
         check_type(name, (or_t, string_t, symbol_t, (pytuple_t, (eql_t, symbol), symbol_t)))
         if isinstance(name, tuple) and writep:
                 error("COMPILE-NAME: write access disallowed while lowering (SYMBOL ..) forms.")
-        return ("Name", (name if stringp(name) else
-                         _frost.full_symbol_name_python_name(name[1] if isinstance(name, tuple) else name)),
+        return ("Name", (name if isinstance(name, str)   else
+                         _frost.full_symbol_name_python_name(name[1] if isinstance(name, tuple) else
+                                                             name)),
                 ("Store" if writep else "Load",))
 
 @defknown((intern("SETQ")[0], " ", (_typep, symbol_t), " ", _form))
@@ -8195,7 +8199,7 @@ def quote():
         def prologuep(_):          return nil
         def lower(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
-                if symbolp(x) and not constantp(x):
+                if isinstance(x, symbol_t) and not constantp(x):
                         _compiler_trace_choice(quote, x, "NONCONSTANT-SYMBOL")
                         return _lowered([],
                                         _lower_name(_unit_symbol_pyname(x)))
@@ -8359,7 +8363,7 @@ def let():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body, function_scope = nil):
-                bindings = (((b,    None) if symbolp(b) else
+                bindings = (((b,    None) if isinstance(b, symbol_t) else
                              (b[0], b[1])) for b in bindings)
                 return { variable: { _variable_binding(name, variable, None) for name, _ in bindings } }
         def prologuep(bindings, *body):
@@ -8782,17 +8786,18 @@ _intern_and_bind_names_in_module("NXT-LABEL")
 def tagbody():
         def nvalues(*tags_and_forms):            return 1
         def nth_value(_, orig, *tags_and_forms): return (nil if not any(_ir_effects(f) for f in tags_and_forms
-                                                                            if not symbolp(f)) else
+                                                                        if isinstance(f, symbol_t)) else
                                                          (progn, orig, nil))
         ## Unregistered Issue TAGBODY-BINDS-METHOD-IMPRECISE-AND-CANNOT-BE-SO-MADE-EASILY
-        def binds(*tags_and_forms):              return { tag: t for tag in remove_if_not(symbolp, tags_and_forms) }
+        def binds(*tags_and_forms):              return { tag: t for tag in tags_and_forms
+                                                          if isinstance(tag, symbol_t) }
         def prologuep(*tags_and_forms):          return not not tags_and_forms
         def lower(*tags_and_forms):
                 (init_tag,
                  go_tag,
                  return_tag) = (gensym(x + "-TAG-") for x in ["INIT", "GO", "RETURN"])
                 body         = (init_tag,) + tags_and_forms
-                tags         = remove_if_not(symbolp, body)
+                tags         = [ f for f in body if isinstance(f, symbol_t)] ## ..vs: remove_if_not(symbolp, body)
                 fun_names    = { tag: gensym("TAG-%s-" % symbol_name(tag)) for tag in tags }
                 def lam_(seq):
                         label, s = seq[0], seq[1:]
@@ -8825,9 +8830,9 @@ def tagbody():
                                                            { tag: _gotag_binding(tag, fun_names[tag])
                                                              for tag in tags[1:] }) })
         def effects(*tags_and_forms):            return any(_ir_effects(f) for f in tags_and_forms
-                                                                if not symbolp(f))
+                                                                if not isinstance(f, symbol_t))
         def affected(*tags_and_forms):           return any(_ir_affected(f) for f in tags_and_forms
-                                                                if not symbolp(f))
+                                                                if not isinstance(f, symbol_t))
 
 # GO
 #         :PROPERTIES:
@@ -9386,7 +9391,7 @@ def _lower(form, lexenv = nil):
                                         return ret
                         if not x: ## Either an empty list or NIL itself.
                                 return _rec((ref, nil))
-                        if symbolp(x[0]):
+                        if isinstance(x[0], symbol_t):
                                 argsp, form, args = _destructure_possible_ir_args(x)
                                 # Urgent Issue COMPILER-MACRO-SYSTEM
                                 known = _find_known(form[0])
@@ -9403,11 +9408,11 @@ def _lower(form, lexenv = nil):
                                 error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
                         elif (isinstance(x[0], tuple) and x[0] and x[0][0] is lambda_):
                                 return _rec((apply,) + x + ((quote, nil),))
-                        elif stringp(x[0]): # basic function call
+                        elif isinstance(x[0], str): # basic function call
                                 return _rec((apply,) + x + ((quote, nil),))
                         else:
                                 error("Invalid form: %s.", princ_to_string(x))
-                elif symbolp(x) and not constantp(x):
+                elif isinstance(x, symbol_t) and not constantp(x):
                         ## Unregistered Issue SYMBOL-MODEL
                         return _rec((ref, x))
                 else:
