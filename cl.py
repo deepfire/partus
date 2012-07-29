@@ -432,13 +432,13 @@ def _coerce_to_condition(datum, *args, default_type = None, **keys):
                 raise _py.Exception("Cannot coerce %s to a condition." % repr(x))
         type_specifier = _defaulted(default_type, error_t) if stringp(datum) else datum
 
-        type = (type_specifier             if typep(type_specifier, _cold_class_type)                              else
-                None                       if _conditionp(type_specifier)                                          else
-                type_specifier.python_type if symbolp(type_specifier) and _symbol_type_specifier_p(type_specifier) else
-                not_a_condition_specifier_error(datum))
-        cond = (datum              if type is None   else # Already a condition.
-                type(datum % args) if stringp(datum) else
-                type(*args, **keys))
+        type_ = (type_specifier             if isinstance(type_specifier, type)                                     else
+                 None                       if _conditionp(type_specifier)                                          else
+                 type_specifier.python_type if symbolp(type_specifier) and _symbol_type_specifier_p(type_specifier) else
+                 not_a_condition_specifier_error(datum))
+        cond = (datum              if type_ is None   else # Already a condition.
+                type_(datum % args) if stringp(datum) else
+                type_(*args, **keys))
         return cond
 
 @boot("typep", lambda _, datum, *args, **keys:
@@ -1015,7 +1015,7 @@ def signal(cond):
                 ## Unregistered Issue CLUSTERS-NOT-PROPERLY-UNWOUND-FOR-HANDLERS
                 for type, handler in cluster:
                         if not stringp(type):
-                                if typep(cond, type):
+                                if isinstance(cond, type):
                                         hook = _symbol_value(_prehandler_hook_)
                                         if hook:
                                                 frame = assoc("__frame__", cluster)
@@ -1058,7 +1058,7 @@ def _invoke_debugger(condition):
                                "entering the debugger. Printing was aborted and the "
                                "%s was stored in %s.\n",
                                ndc_type, _debug_condition_, ndc_type, _nested_debug_condition_)
-                        if typep(condition, cell_error_t):
+                        if isinstance(condition, cell_error_t):
                                 format(_symbol_value(_error_output_),
                                        "\n(CELL-ERROR-NAME %s) = %s\n",
                                        _nested_debug_condition_, cell_error_name(condition))
@@ -1497,7 +1497,7 @@ class readtable_t(_collections.UserDict):
                                 case)
                 self.data = make_hash_table()
 
-def readtablep(x):     return typep(x, readtable_t)
+def readtablep(x):     return isinstance(x, readtable_t)
 def readtable_case(x): return the(readtable_t, x).case
 
 def copy_readtable(x):
@@ -1783,7 +1783,7 @@ def _this_frame():
 _frame = type(_this_frame())
 
 def _framep(x):
-        return typep(x, _frame)
+        return isinstance(x, _frame)
 
 def _next_frame(f):
         return f.f_back if f.f_back else error("Frame \"%s\" is the last frame.", _pp_frame(f, lineno = True))
@@ -3143,9 +3143,9 @@ class base_char_t(): pass
 # Early-earlified streaming
 
 @defun
-def streamp(x):                     return typep(x, stream_t)
+def streamp(x):                     return isinstance(x, stream_t)
 
-def _file_stream_p(x):              return typep(x, (or_t, __io._TextIOBase, __io._BufferedIOBase))
+def _file_stream_p(x):              return isinstance(x, (__io._TextIOBase, __io._BufferedIOBase))
 
 @defun
 def with_open_stream(stream, fn):
@@ -3851,7 +3851,7 @@ def write_to_string(object,
                                 string += _print_unreadable_compound(object)
                         elif functionp(object):
                                 string += _print_function(object)
-                        elif (not escape) and typep(object, (or_t, restart_t, condition_t)):
+                        elif (not escape) and isinstance(object, (restart_t, condition_t)):
                                 string += str(object)
                         else:
                                 string += _print_unreadable(object)
@@ -4213,7 +4213,7 @@ read = _cold_read
 # Condition system
 
 def _conditionp(x):
-        return typep(x, condition_t)
+        return isinstance(x, condition_t)
 
 def make_condition(type, *args, **keys):
         check_type(type, symbol_t)
@@ -4266,7 +4266,7 @@ def __cl_condition_handler__(condspec, frame):
                 # _print_frames(_frames_calling(frame))
                 def _maybe_upgrade_condition(cond):
                         "Fix up the shit routinely being passed around."
-                        return ((cond, nil) if typep(cond, condition_t) else
+                        return ((cond, nil) if isinstance(cond, condition_t) else
                                 (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
                                                cond)), t))
                         # _poor_man_typecase(cond,
@@ -4481,7 +4481,7 @@ class restart_t(_servile):
 _string_set("*RESTART-CLUSTERS*", [])
 
 def _restartp(x):
-        return typep(x, restart_t)
+        return isinstance(x, restart_t)
 
 def restart_name(x):
         return x.name
@@ -4670,9 +4670,9 @@ def _defbody_parse_ast(names, asts, valid_declarations = make_hash_table()):
         """Given a list of defined parameter NAMES, a list of statement ASTS and a
 table of VALID-DECLARATIONS, return the body, documentation and declarations if any."""
         def _ast_call_to_name_p(name, x):
-                return (typep(x, _ast.Expr)            and
-                        typep(x.value, _ast.Call)      and
-                        typep(x.value.func, _ast.Name) and
+                return (isinstance(x, _ast.Expr)            and
+                        isinstance(x.value, _ast.Call)      and
+                        isinstance(x.value.func, _ast.Name) and
                         x.value.func.id == name)
         def ensure_valid_declarations(decls):
                 # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
@@ -4680,7 +4680,7 @@ table of VALID-DECLARATIONS, return the body, documentation and declarations if 
                         import more_ast
                         err("invalid declaration form: %s", more_ast.pp_ast_as_code(decls))
                 def ensure_valid_declaration(decl):
-                        typep(decl, _ast.Tuple) and decl.elts and typep(decl.elts[0], _ast.Name) or fail()
+                        isinstance(decl, _ast.Tuple) and decl.elts and isinstance(decl.elts[0], _ast.Name) or fail()
                         decl_name = decl.elts[0].id
                         if decl_name not in valid_declarations:
                                 err("unknown declaration: %s", decl_name.upper())
@@ -4705,8 +4705,8 @@ table of VALID-DECLARATIONS, return the body, documentation and declarations if 
                          for name in _mapsetn(_declaration_names, decls) } # INDEXING..
         content, _ = _prefix_suffix_if(_not_of_type(_ast.Pass), asts)
         documentation, body = ((content[0].value.s, content[1:]) if (len(content) > 1 and
-                                                                     typep(content[0], _ast.Expr) and
-                                                                     typep(content[0].value, _ast.Str)) else
+                                                                     isinstance(content[0], _ast.Expr) and
+                                                                     isinstance(content[0].value, _ast.Str)) else
                                (nil, content))
         declarations, body = _prefix_suffix_if(_curry(_ast_call_to_name_p, "declare"), body)
         return body, documentation, group_declarations(valid_declarations,
@@ -4734,9 +4734,9 @@ def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast
                                 if multiline:
                                         if hasattr(x.body[-1], "body"):
                                                 massage_tail(x.body[-1], True)
-                                        elif not typep(x.body[-1], _ast.Return):
+                                        elif not isinstance(x.body[-1], _ast.Return):
                                                 error("In %s: multi-line methods must include an explicit terminating Return statement", desc)
-                                elif not(typep(x.body[0], _ast.Return)):
+                                elif not(isinstance(x.body[0], _ast.Return)):
                                         if hasattr(x.body[0], "value"):
                                                 x.body[0] = _ast.Return(x.body[0].value)
                                         elif hasattr(x.body[0], "body"):
@@ -4763,7 +4763,7 @@ def _defbody_make_required_method_error(desc):
 
 # AST basics
 
-def _astp(x):        return typep(x, _ast.AST)
+def _astp(x):        return isinstance(x, _ast.AST)
 
 def _coerce_to_ast_type(type_):
         return _poor_man_typecase(type_,
@@ -4771,7 +4771,7 @@ def _coerce_to_ast_type(type_):
                                                       error("Provided type %s is not a proper subtype of _ast.AST.", type_))),
                                   (string_t, lambda: (_ast.__dict__[type_] if type_ in _ast.__dict__ else
                                                       error("Unknown AST type '%s'.", type_))),
-                                  (t,        lambda: error("Invalid AST type specifier: %s, %s, %s.", type_, type, typep(type_, type))))
+                                  (t,        lambda: error("Invalid AST type specifier: %s, %s, %s.", type_, type, isinstance(type_, type))))
 
 def _text_ast(text):
         return _py.compile(text, "", 'exec', flags = _ast.PyCF_ONLY_AST).body
@@ -4782,7 +4782,7 @@ def _function_ast(fn):
 
 def _function_body_pass_p(fn):
         fn_body_ast = _function_ast(fn)[1]
-        return len(fn_body_ast) == 1 and typep(fn_body_ast[0], _ast.Pass)
+        return len(fn_body_ast) == 1 and isinstance(fn_body_ast[0], _ast.Pass)
 
 ### literals
 def _ast_num(n):
@@ -5022,7 +5022,7 @@ def _ast_info_check_args_type(info, args, atreep = t):
         return t
 
 def _ast_ensure_stmt(x):
-        return x if typep(x, _ast.stmt) else _ast.Expr(the(_ast.AST, x))
+        return x if isinstance(x, _ast.stmt) else _ast.Expr(the(_ast.AST, x))
 
 # AST/Atree bound/free calculation
 
@@ -5519,7 +5519,7 @@ def _ast_Starred(value: _ast.expr,
 @defast
 def _ast_Name(id:  string_t,
               ctx: _ast.expr_context):
-        def bound_free(): ((set(), set([id])) if typep(ctx, (or_t, _ast.Load, _ast.AugLoad, _ast.Param)) else
+        def bound_free(): ((set(), set([id])) if isinstance(ctx, (_ast.Load, _ast.AugLoad, _ast.Param)) else
                            (set([id]), set()))
 #      | List(expr* elts, expr_context ctx)
 @defast
@@ -5795,7 +5795,7 @@ all AST-trees .. except for the case of tuples."""
                                 argument_type_error(name, subtype, val, "AST node %s", repr(type))
                 return ast_type(*effective_args)
         ret =  (tree
-                if typep(tree, (or_t, string_t, integer_t, (eql_t, None))) else
+                if isinstance(tree, (str, int, _NoneType)) else
                 mapcar(_atree_ast, tree)
                 if _listp(tree)                  else
                 _try_astify_constant(tree)[0]
@@ -6022,8 +6022,8 @@ _compiler_defconstant(nil, nil)
 _intern_and_bind_names_in_module("%NAME", "%MAYBE")
 
 def _maybe_destructure_binding(pat):
-        return ((None, pat)               if not typep(pat, dict) else
-                tuple(pat.items())[0] if len(pat) == 1        else
+        return ((None, pat)           if not isinstance(pat, dict) else
+                tuple(pat.items())[0] if len(pat) == 1             else
                 error_bad_pattern(pat))
 
 def _error_bad_pattern(pat):
@@ -6231,7 +6231,7 @@ class _matcher():
                                 if x == ix: return i
                 def constant_pat_p(pat):
                         def nonconstant_pat_p(x): return isinstance(x, tuple) or m.nonliteral_atom_p(x)
-                        return not nonconstant_pat_p(tuple(pat.items())[0][1] if typep(pat, dict) else
+                        return not nonconstant_pat_p(tuple(pat.items())[0][1] if isinstance(pat, dict) else
                                                      pat)
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                 ## 1. Destructure the pattern, deduce the situation.
@@ -6855,7 +6855,7 @@ class _lexenv():
         @staticmethod
         def do_lookup_scope(scope, x, default):
                 while scope:
-                        if not typep(scope[0], dict):
+                        if not isinstance(scope[0], dict):
                                 _debug_printf("bad scope: %s", scope)
                         if x in scope[0]["name"]:
                                 return scope[0]["name"][x]
@@ -7035,12 +7035,12 @@ def _preprocess_metasex(pat):
                 k, v = tuple(b.items())[0]
                 return {k: _preprocess_metasex(v)}
         ret = ((_count_scope, (_some,) +
-                tuple(_preprocess_metasex(x) for x in pat)) if typep(pat, list)           else
-                prep_binding(pat)                           if typep(pat, dict)           else
-                (_form,)                                    if pat == _form               else
-                (_newline, 0)                               if pat == "\n"                else
-                (_newline, pat)                             if integerp(pat)              else
-                (_indent, 1)                                if pat == " "                 else
+                tuple(_preprocess_metasex(x) for x in pat)) if isinstance(pat, list)                else
+                prep_binding(pat)                           if isinstance(pat, dict)                else
+                (_form,)                                    if pat is _form                         else
+                (_newline, 0)                               if pat == "\n"                          else
+                (_newline, pat)                             if isinstance(pat, int)                 else
+                (_indent, 1)                                if pat == " "                           else
                 pat                                         if not (pat and isinstance(pat, tuple)) else
                 ((identity if _metasex_word_p(pat[0]) else
                   _preprocess_metasex)(pat[0]),) + tuple((                     x  for x in pat[1:])
@@ -7144,7 +7144,7 @@ def _form_metasex(form):
         ## Unregistered Issue FORM-METASEX-SHOULD-COMPUTE-METASEX-OF-DEFINED-MACROS
         ## Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
         return _preprocess_metasex(
-                (_typep, t)                             if not isinstance(form, tuple)                                      else
+                (_typep, t)                             if not isinstance(form, tuple)                            else
                 ()                                      if not form                                               else
                 _find_known(form[0]).metasex            if symbolp(form[0]) and _find_known(form[0])              else
                 (_form, "\n", [(_notlead, " "), _form]) if isinstance(form[0], tuple) and form[0] and form[0][0] is lambda_ else
@@ -8026,7 +8026,7 @@ def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, 
         default_expr = _defaulted(default_expr, (_name, "None"))
         if not isinstance(lambda_list_, tuple):
                 error("In %s: lambda list must be a tuple, was: %s.", context, lambda_list_)
-        def valid_parameter_specifier_p(x): return typep(x, (and_t, symbol_t, (not_t, keyword_t)))
+        def valid_parameter_specifier_p(x): return symbolp(x) and symbol_package(x) is not __keyword
         test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (isinstance(x, tuple) and len(x) == 2 and
                                                                                valid_parameter_specifier_p(x[0])),
                                  "In %s: lambda lists can only contain non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
@@ -9487,7 +9487,7 @@ def _atree_assemble(stmts, form, filename = ""):
                                                   for x in ast))
                 ############################ This is an excess newline, so it is a bug workaround.
                 ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
-                if typep(ast[0], _ast.FunctionDef):
+                if isinstance(ast[0], _ast.FunctionDef):
                         _debug_printf("type of ast: %s\ndecorators: %s", type_of(ast[0]), ast[0].decorator_list)
         bytecode = _py.compile(_ast.fix_missing_locations(_ast_module(ast)), filename, "exec")
         if symbol_value(_compiler_trace_toplevels_disasm_):
@@ -13020,10 +13020,10 @@ object."""
 
 def _make_method_specializers(specializers):
         def parse(name):
-                return (# name                                                    if specializerp(name) else
-                        name                                                      if name is t                   else
+                return (# name                                    if specializerp(name) else
+                        name                                      if name is t                   else
                                                                   # ..special-case, since T isn't a type..
-                        name                                                      if typep(name, type) else
+                        name                                      if isinstance(name, type)      else
                                                                   # Was: ((symbolp name) `(find-class ',name))
                         _poor_man_ecase(car(name),
                                         (eql,       lambda: intern_eql_specializer(name[1])),
@@ -13058,13 +13058,13 @@ def _evaluated_code_source(co):
         return gethash(co, __eval_source_cache__)
 
 def _coerce_to_expr(x):
-        return (x.value if typep(x, _ast.Expr) else
+        return (x.value if isinstance(x, _ast.Expr) else
                 x)
 
 def _eval_python(expr_or_stmt):
         "In AST form, naturally."
         package = _symbol_value(_package_)
-        exprp = typep(the(_ast.AST, expr_or_stmt), (or_t, _ast.expr, _ast.Expr))
+        exprp = isinstance(the(_ast.AST, expr_or_stmt), (_ast.expr, _ast.Expr))
         call = _ast.fix_missing_locations(_ast_module(
                         [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
                          _ast_Expr(_ast_funcall(_ast_name("__evset__"), [_coerce_to_expr(expr_or_stmt)]))]
