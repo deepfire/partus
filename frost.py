@@ -10,6 +10,9 @@ def lisp_symbol_name_python_name(x):
         ret = "".join(sub(x)).lower()
         return ret
 
+def lisp_symbol_name_python_type_name(x):
+        return lisp_symbol_name_python_name(x) + "_t"
+
 common_ands = { "WHOLE", "OPTIONAL", "REST", "BODY", "KEY", "ALLOW-OTHER-KEYS" }
 def python_name_lisp_symbol_name(x):
         """Heuristic to (not quite) undo the effect of _lisp_symbol_name_python_name().
