@@ -4766,12 +4766,11 @@ def _defbody_make_required_method_error(desc):
 def _astp(x):        return isinstance(x, _ast.AST)
 
 def _coerce_to_ast_type(type_):
-        return _poor_man_typecase(type_,
-                                  (type,     lambda: (type_ if subtypep(type_, _ast.AST) else
-                                                      error("Provided type %s is not a proper subtype of _ast.AST.", type_))),
-                                  (string_t, lambda: (_ast.__dict__[type_] if type_ in _ast.__dict__ else
-                                                      error("Unknown AST type '%s'.", type_))),
-                                  (t,        lambda: error("Invalid AST type specifier: %s, %s, %s.", type_, type, isinstance(type_, type))))
+        return ((type_ if subtypep(type_, _ast.AST) else error("Provided type %s is not a proper subtype of _ast.AST", type_))
+                if isinstance(type_, type) else
+                (_ast.__dict__[type_] if type_ in _ast.__dict__ else error("Unknown AST type '%s'.", type_))
+                if isinstance(type_, str)  else
+                error("Invalid AST type specifier: %s, %s, %s.", type_, type, isinstance(type_, type)))
 
 def _text_ast(text):
         return _py.compile(text, "", 'exec', flags = _ast.PyCF_ONLY_AST).body
