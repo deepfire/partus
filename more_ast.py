@@ -336,7 +336,7 @@ def assign_meaningful_locations(node, lineno = 1):
 cl._intern_and_bind_names_in_module("*AST-PP-DEPTH*",
                                     globals = globals())
 
-cl.set(_ast_pp_depth_, 0, force_toplevel = t)
+cl._string_set("*AST-PP-DEPTH*", 0, force_toplevel = t)
 def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
         fmtctl = "%%%dd " % ndigits
         def indent(ast_or_lineno):
