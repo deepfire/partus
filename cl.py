@@ -575,7 +575,9 @@ class symbol_t(): # Turned to a symbol, during the package system bootstrap.
                 self.function_pyname = None
                 self.symbol_pyname   = None
         def __hash__(self):
-                return hash(self.name) ^ (hash(self.package.name) if self.package else 0)
+                return hash(self.name)
+                ## Unregistered Issue CONTROVERSIAL-SYMBOL-HASH-SPEEDUP
+                ## ^ (hash(self.package.name) if self.package else 0)
         def __bool__(self):
                 return self is not nil
 
@@ -1213,7 +1215,6 @@ def _of_type(x):
 
 def _not_of_type(x):
         return lambda y: not typep(y, x)
-        return some(_type_mismatch, xs, _infinite(type))
 
 # Complex type definitions
 
@@ -1240,13 +1241,13 @@ def or_(x, type):
         return ((x, type, False) if len(type) is 1 else
                 _poor_man_let(mapcar(_type_mismatch, [x] * (len(type) - 1), type[1:]),
                               lambda mismatches:
-                                      (some(lambda m: m and m[2] and m, mismatches) or
-                                       (every(identity, mismatches) and (x, type, False)))))
+                                      (_some_fast(lambda m: m and m[2] and m, mismatches) or
+                                       (all(x for x in mismatches) and (x, type, False)))))
 
 @_deftype("AND")
 def and_(x, type):
         return (nil       if len(type) is 1 else
-                some(_type_mismatch, [x] * (len(type) - 1), type[1:]))
+                _some_fast(lambda ix: _type_mismatch(x, ix), type[1:]))
 
 @_deftype("NOT")
 def not_(x, type):
@@ -1300,36 +1301,37 @@ def maybe(x, type):
 def pylist(x, type):
         return ((x, type, True)  if len(type) is not 2          else
                 (x, type, False) if not isinstance(x, list) else
-                some(_type_mismatch, x, _infinite(type[1])))
+                _some_fast(lambda ix: _type_mismatch(ix, type[1]), x))
 
 @_deftype
 def homotuple(x, type):
         return ((x, type, True)  if len(type) is not 2           else
                 (x, type, False) if not isinstance(x, tuple) else
-                some(_type_mismatch, x, _infinite(type[1])))
+                _some_fast(lambda ix: _type_mismatch(ix, type[1]), x))
 
 @_deftype
 def pytuple(x, type):
         return ((x, type, False) if not (isinstance(x, tuple) and len(x) == len(type) - 1) else
-                some(_type_mismatch, x, type[1:]))
+                _some_fast_2(_type_mismatch, x, type[1:]))
 # Unregistered Issue TEACHABLE-TYPE-CHECKING-PRACTICE-AND-TOOL-CONSTRUCTION
 
 @_deftype
 def partuple(x, type):
         return ((x, type, False) if not (isinstance(x, tuple) and len(x) >= len(type) - 1) else
-                some(_type_mismatch, x, type[1:]))
+                _some_fast_2(_type_mismatch, x, type[1:]))
 
 __variseq__ = (pytuple_t, (eql_t, maybe_t), t) # Meta-type, heh..
 @_deftype
 def varituple(x, type):
         # correctness enforcement over speed?
         fixed_t, maybes_t = _prefix_suffix_if_not(_of_type(__variseq__), type[1:])
-        if not every(_of_type(__variseq__), maybes_t):
+        if not all(typep(x, __variseq__) for x in maybes_t):
                 return (x, type, True)   # fail
         fixlen = len(fixed_t)
+        ctype = (or_t,) + tuple(t[1] for t in maybes_t)
         return ((x, type) if len(x) < fixlen else
-                some(_type_mismatch, x[:fixlen], fixed_t) or
-                some(_type_mismatch, x[fixlen:], _infinite((or_t,) + tuple(t[1] for t in maybes_t))))
+                _some_fast_2(_type_mismatch, x[:fixlen], fixed_t) or
+                _some_fast(lambda ix: _type_mismatch(ix, ctype), x[fixlen:]))
 
 @_deftype
 def lambda_list(x, type):
@@ -2380,6 +2382,18 @@ def notevery(fn, *xss, start = 0):
 def some(fn, *xss, start = 0):
         for xs in _from(start, zip(*xss)):
                 ret = fn(*xs)
+                if ret: return ret or t
+        return nil
+
+def _some_fast(fn, xs):
+        for x in xs:
+                ret = fn(x)
+                if ret: return ret or t
+        return nil
+
+def _some_fast_2(fn, xs, ys):
+        for x, y in _py.zip(xs, ys):
+                ret = fn(x, y)
                 if ret: return ret or t
         return nil
 
@@ -4673,7 +4687,7 @@ table of VALID-DECLARATIONS, return the body, documentation and declarations if 
                         n_decl_args = valid_declarations[decl_name]
                         if len(decl.elts) < 1 + n_decl_args + 1:
                                 err("invalid declaration %s: no parameter names specified", decl_name.upper())
-                        every(_of_type(_ast.Name), decl.elts[1 + n_decl_args:]) or fail()
+                        all(isinstance(x, _ast.Name) for x in decl.elts[1 + n_decl_args:]) or fail()
                         decl_param_names = tuple(x.id for x in decl.elts[1 + n_decl_args:])
                         unknown_param_names = set(decl_param_names) - set(names)
                         if unknown_param_names:
@@ -5091,7 +5105,7 @@ def defast(fn):
                         error("In DEFAST %s:the amount of provided type specifiers (%d) does not match the AST _fields: %s",
                               name, len(ast_field_types), ast_type._fields)
                 type_specifier_type = (or_t, pytuple_t, type, pytypename_t)
-                if not every(_of_type(type_specifier_type), ast_field_types):
+                if not all(typep(x, type_specifier_type) for x in ast_field_types):
                         mismatched = find_if_not(_of_type(type_specifier_type), ast_field_types)
                         error("In DEFAST %s: the AST field type specifiers must be of type %s, found: %s",
                               name, type_specifier_type, mismatched)
@@ -5724,7 +5738,7 @@ def _atreeifiable_p(x):
         recursep, _ = type_recipe
         if not recursep:
                 return t
-        return every(_atreeifiable_p, x)
+        return all(_atreeifiable_p(x) for x in x)
 
 def _try_atreeify_constant(x):
         "It's more efficient to try doing it, than to do a complete check and then to 'try' again."
@@ -8065,11 +8079,11 @@ def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, 
         fixed = list(lambda_list_[0:_defaulted(optpos, (restpos    if restposp    else
                                                             bodypos    if bodyposp    else
                                                             keypos     if keyposp     else None))])
-        if not every(symbolp, fixed):
+        if not all(isinstance(x, symbol_t) for x in fixed):
                 error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, find_if_not(symbolp, fixed))
         total = fixed + optional + ([rest_or_body] if rest_or_body else []) + keys
         ### 4. validate syntax of the provided individual argument specifiers
-        if not every(valid_parameter_specifier_p, total):
+        if not all(valid_parameter_specifier_p(x) for x in total):
                 error(failure_message, context, lambda_list_)
         ### 5. check for duplicate lambda list specifiers
         if len(total) != len(set(total)):
@@ -8363,7 +8377,7 @@ def let():
         def lower(bindings, *body, function_scope = nil):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (isinstance(bindings, tuple) and
-                        every(_of_type((pytuple_t, symbol_t, t)))):
+                        all(typep(x, (pytuple_t, symbol_t, t)) for x in bindings)):
                         error("LET: malformed bindings: %s.", bindings)
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
                 bindings_thru_defaulting = tuple(_ensure_cons(b, nil) for b in bindings)
@@ -8434,7 +8448,7 @@ def flet():
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-                if not every(_of_type((partuple_t, symbol_t, pytuple_t)), bindings):
+                if not all(typep(x, (partuple_t, symbol_t, pytuple_t)) for x in bindings):
                         error("FLET: malformed bindings: %s.", bindings)
                 # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED
                 # tempnames = [ gensym(string(name) + "-") for name, _, *__ in bindings ]
@@ -8477,7 +8491,7 @@ def labels():
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-                if not every(_of_type((partuple_t, symbol_t, pytuple_t)), bindings):
+                if not all(typep(x, (partuple_t, symbol_t, pytuple_t)) for x in bindings):
                         error("LABELS: malformed bindings: %s.", bindings)
                 temp_name = gensym("LABELS-")
                 ## Rewrite as a function, to avoid scope pollution.  Actually, is it that important?
