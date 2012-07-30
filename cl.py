@@ -10902,9 +10902,9 @@ the specified initialization has taken effect."""
         if _specifiedp(lambda_list):
                 # XXX: _not_implemented("lambda-list validation")
                 generic_function.lambda_list = lambda_list
-        generic_function.method_combination  = _defaulted(method_combination, standard_method_combination,
+        generic_function.method_combination  = _defaulted(method_combination, standard_method_combination_t,
                                                           type = _cold_class_type)
-        generic_function.method_class        = _defaulted(method_class, standard_method,
+        generic_function.method_class        = _defaulted(method_class, standard_method_t,
                                                           type = _cold_class_type) # method metaclass
         generic_function.name                = _defaulted(name, nil)
         # The discriminating function may reuse the
@@ -11490,7 +11490,7 @@ executed."""
 # If only primary methods are used and if call-next-method is not used,
 # only the most specific method is invoked; that is, more specific
 # methods shadow more general ones.
-standard_method_combination = method_combination # Crude XXX
+standard_method_combination_t = method_combination_t # Crude XXX
 # standard_method_combination = define_method_combination(
 #         _i("STANDARD"),
 #         [(_i("around"),  [(_keyword("around"),)]),
@@ -11832,13 +11832,13 @@ mutates the list returned by this generic function."""
 def error_need_at_least_n_args(function, n):
         error("The function %s requires at least %d arguments.", function, n)
 
-__sealed_classes__ = set([object_t,
+__sealed_classes__ = set([object,
                           integer_t, boolean_t, float_t, complex_t,
                           string_t,
                           hash_table_t,
                           function_t,
                           stream_t,
-                          pytuple_t, pybytes_t, pylist_, pybytearray_t, pyset_t, pyfrozenset_t,
+                          pytuple_t, pybytes_t, pylist_t, pybytearray_t, pyset_t, pyfrozenset_t,
                           BaseException, Exception] +
                          mapcar(type_of,
                                 [None,           # NoneType
@@ -12006,7 +12006,7 @@ def ensure_generic_function_using_class(generic_function, function_name,
                                         argument_precedence_order = None,
                                         declarations = None,
                                         documentation = None,
-                                        generic_function_class = standard_generic_function,
+                                        generic_function_class = standard_generic_function_t,
                                         lambda_list = None,
                                         method_class = None,
                                         method_combination = None,
@@ -12183,9 +12183,9 @@ ENSURE-GENERIC-FUNCTION."""
 def defgeneric(_ = None,
                argument_precedence_order = None,
                documentation = None,
-               method_combination = standard_method_combination,
-               generic_function_class = standard_generic_function,
-               method_class = standard_method):
+               method_combination = standard_method_combination_t,
+               generic_function_class = standard_generic_function_t,
+               method_class = standard_method_t):
 # Unregistered Issue: COMPLIANCE-DEFGENERIC-METHOD-DESCRIPTIONS-UNIMPLEMENTABLE
         """defgeneric function-name gf-lambda-list [[option | {method-description}*]]
 
