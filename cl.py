@@ -5011,14 +5011,14 @@ def _ast_info_check_args_type(info, args, atreep = t):
                 #         return typep(x, (or_t, (member_t, integer_t, string_t),
                 #                                (pytuple_t, (eql_t, maybe_t), (member_t, integer_t, string_t))))
                 def atree_simple_typep(x, type):
-                        return (isinstance(x, tuple) and isinstance(x[0], str) and
-                                _find_ast_info(x[0]) and issubclass(_find_ast_info(x[0]).type, type))
+                        ast_info = isinstance(x, tuple) and isinstance(x[0], str) and _find_ast_info(x[0])
+                        return ast_info and issubclass(ast_info.type, type)
                 if atreep and not simple_typespec_p(type):
                         maybe_typep, list_typep, type = ((t,   nil, type[1]) if maybe_typespec_p(type) else
                                                          (nil,   t, type[1]) if list_typespec_p(type)  else
                                                          (nil, nil, type))
-                        return (maybe_typep                                                       if arg is None else
-                                _listp(arg) and all(check_arg_type(x, type) for x in arg) if list_typep  else
+                        return (maybe_typep                                                         if arg is None else
+                                isinstance(arg, list) and all(check_arg_type(x, type) for x in arg) if list_typep  else
                                 atree_simple_typep(arg, type))
                 else:
                         return typep(arg, type)
@@ -5053,7 +5053,8 @@ def _ast_bound_free(astxs):
 def _atree_validate(atree):
         if isinstance(atree, (str, int, _NoneType)):
                 return
-        check_type(atree, (partuple_t, string_t))
+        if not (isinstance(atree, tuple) and atree and isinstance(atree[0], str)):
+                error("Invalid atree: %s", atree)
         kind, args = atree[0], atree[1:]
         info = _find_ast_info(_coerce_to_ast_type(kind))
         _ast_info_check_args_type(info, args, atreep = t)
