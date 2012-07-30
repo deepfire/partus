@@ -7544,153 +7544,165 @@ def _runtest(fun, bindings, result):
         return (b == bindings,
                 r == result,
                 f is None)
-def _results():
-        for fun, b, r, f in _results_:
-                _debug_printf("%15s bound: %s", fun.__name__, b)
-                _debug_printf("%15s res: %s", fun.__name__, r)
 
-# _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "&BODY")
-# def just_match():
-#         return _match(_metasex,
-#                       (let, ((first, ()),
-#                              (second, (car,))),
-#                         _body),
-#                       (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
-#                          1, {"body":[(_notlead, "\n"), _form]}))
-# bound_good, result_good, nofail = _runtest(just_match,
-#                                            { 'bindings': ((first, ()),
-#                                                           (second, (car,))),
-#                                              'body':     (_body,)},
-#                                            t)
-# _results()
-# assert(nofail)
-# assert(bound_good)
-# assert(result_good)
-# print("; JUST-MATCH: passed")
+_intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
+def _run_tests(print_results = None):
+        def _print_results():
+                for fun, b, r, f in _results_[-1:]:
+                        _debug_printf("%15s bound: %s", fun.__name__, b)
+                        _debug_printf("%15s res: %s", fun.__name__, r)
+        def just_match():
+                _metasex.per_use_init()
+                return _match(_metasex,
+                              (let, ((first, ()),
+                                     (second, (car,))),
+                                _body),
+                              (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+                                 1, {"body":[(_notlead, "\n"), _form]}))
+        bound_good, result_good, nofail = _runtest(just_match,
+                                                   { 'bindings': ((first, ()),
+                                                                  (second, (car,))),
+                                                     'body':     (_body,)},
+                                                   t)
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; JUST-MATCH: passed")
 
-# def pp():
-#         return _match(_metasex_pp,
-#                       (let, ((first, ()),
-#                              (second, (car,))),
-#                         _body),
-#                       (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
-#                          1, {"body":[(_notlead, "\n"), _form]}))
-# bound_good, result_good, nofail = _runtest(pp,
-#                                            { 'bindings': ((first, ()),
-#                                                           (second, (car,))),
-#                                              'body':     (_body,)},
-#                                            """(LET ((FIRST ())
-#       (SECOND (CAR)))
-#   &BODY)""")
-# _results()
-# assert(nofail)
-# assert(bound_good)
-# assert(result_good)
-# print("; PP: passed")
+        def pp():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp,
+                              (let, ((first, ()),
+                                     (second, (car,))),
+                                _body),
+                              (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+                                 1, {"body":[(_notlead, "\n"), _form]}))
+        bound_good, result_good, nofail = _runtest(pp,
+                                                   { 'bindings': ((first, ()),
+                                                                  (second, (car,))),
+                                                     'body':     (_body,)},
+                                                   """(LET ((FIRST ())
+      (SECOND (CAR)))
+  &BODY)""")
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; PP: passed")
 
-# def mal_pp():
-#         return _match(_metasex_nonstrict_pp,
-#                       (let, ((first),
-#                              (second, (car,), ())),
-#                         _body),
-#                       (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
-#                          1, [(_notlead, "\n"), _form]))
-# bound_good, result_good, nofail = _runtest(mal_pp,
-#                                            {},
-#                                            """(LET ((FIRST ())
-#       (SECOND (CAR)))
-#   &BODY)""")
-# _results()
-# assert(nofail)
-# assert(bound_good)
-# assert(result_good)
-# print("; MAL-PP: passed")
+        def mal_pp():
+                _metasex_nonstrict_pp.per_use_init()
+                return _match(_metasex_nonstrict_pp,
+                              (let, ((first),
+                                     (second, (car,), ())),
+                                _body),
+                              (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
+                                 1, [(_notlead, "\n"), _form]))
+        #       bound_good, result_good, nofail = _runtest(mal_pp,
+        #                                                  {},
+        #                                                  """(LET ((FIRST ())
+        #     (SECOND (CAR)))
+        # &BODY)""")
+        #       print_results and _print_results()
+        #       assert(nofail)
+        #       assert(bound_good)
+        #       assert(result_good)
+        #       print("; MAL-PP: passed")
 
-# def empty():
-#         return _match(_metasex_pp, (), {"whole":()})
-# bound_good, result_good, nofail = _runtest(empty,
-#                                            { 'whole': () },
-#                                            "()")
-# _results()
-# assert(nofail)
-# assert(bound_good)
-# assert(result_good)
-# print("; EMPTY: passed")
+        def empty():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp, (), {"whole":()})
+        bound_good, result_good, nofail = _runtest(empty,
+                                                   { 'whole': () },
+                                                   "()")
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; EMPTY: passed")
 
-# def empty_cross():
-#         return _match(_metasex_pp, (), ({"a":[_name]}, {"b":[(_name,)]},))
-# bound_good, result_good, nofail = _runtest(empty_cross,
-#                                            { 'a': (), 'b': () },
-#                                            "()")
-# _results()
-# assert(nofail)
-# assert(bound_good)
-# assert(result_good)
-# print("; EMPTY-CROSS: passed")
+        def empty_cross():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp, (), ({"a":[_name]}, {"b":[(_name,)]},))
+        bound_good, result_good, nofail = _runtest(empty_cross,
+                                                   { 'a': (), 'b': () },
+                                                   "()")
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; EMPTY-CROSS: passed")
 
-# def alternates():
-#         return _match(_metasex_pp, (1, "a"), {"whole":([(_or, (_typep, int),
-#                                                               (_typep, str))],)})
-# bound_good, result_good, nofail = _runtest(alternates,
-#                                            { 'whole': (1, "a") },
-#                                            '(1"a")')
-# _results()
-# assert(nofail)
-# assert(bound_good)
-# assert(result_good)
-# print("; ALTERNATES: passed")
+        def alternates():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp, (1, "a"), {"whole":([(_or, (_typep, int),
+                                                                      (_typep, str))],)})
+        bound_good, result_good, nofail = _runtest(alternates,
+                                                   { 'whole': (1, "a") },
+                                                   '(1"a")')
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; ALTERNATES: passed")
 
-# _intern_and_bind_names_in_module("PI")
-# def simplex():
-#         pat = ({'head':[()]}, {'tail':_name})
-#         exp = ((), pi)
-#         return _match(_metasex_pp, exp, pat)
-# bound_good, result_good, nofail = _runtest(simplex,
-#                                            { 'head': ((),),
-#                                              'tail': pi },
-#                                            "(()PI)"
-#                                            )
-# _results()
-# assert(nofail)
-# assert(bound_good)
-# assert(result_good)
-# print("; SIMPLEX: passed")
+        _intern_and_bind_names_in_module("PI")
+        def simplex():
+                _metasex_pp.per_use_init()
+                pat = ({'head':[()]}, {'tail':_name})
+                exp = ((), pi)
+                return _match(_metasex_pp, exp, pat)
+        bound_good, result_good, nofail = _runtest(simplex,
+                                                   { 'head': ((),),
+                                                     'tail': pi },
+                                                   "(()PI)"
+                                                   )
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; SIMPLEX: passed")
 
-# def mid_complex():
-#         pat = ({"headname":_name},
-#                   {"headtupname":(_name,)},
-#                            {"varitupseq":[(_name, [_name])]},
-#                                                     {"fix1tupseq":[(_name,)]},
-#                                                                            {"nameseq":[_name]},
-#                                                                                 {"tailname":_name})
-#         exp =              (pi,   (pi,),   (pi,), (pi, pi), (pi, pi, pi), (pi,), (pi,), (pi,),   pi, pi, pi)
-#         return _match(_metasex_pp, exp, pat)
-# bound_good, result_good, nofail = _runtest(mid_complex,
-#                                            { 'headname': pi,
-#                                              'headtupname': (pi,),
-#                                              'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
-#                                              'fix1tupseq': ((pi,), (pi,), (pi,)),
-#                                              'nameseq': (pi, pi),
-#                                              'tailname': pi },
-#                                            "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)"
-#                                            # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
-#                                            )
-# _results()
-# assert(nofail)
-# assert(bound_good)
-# assert(result_good)
-# print("; MID-COMPLEX: passed")
+        def mid_complex():
+                _metasex_pp.per_use_init()
+                pat = ({"headname":_name},
+                          {"headtupname":(_name,)},
+                                   {"varitupseq":[(_name, [_name])]},
+                                                            {"fix1tupseq":[(_name,)]},
+                                                                                   {"nameseq":[_name]},
+                                                                                        {"tailname":_name})
+                exp =              (pi,   (pi,),   (pi,), (pi, pi), (pi, pi, pi), (pi,), (pi,), (pi,),   pi, pi, pi)
+                return _match(_metasex_pp, exp, pat)
+        bound_good, result_good, nofail = _runtest(mid_complex,
+                                                   { 'headname': pi,
+                                                     'headtupname': (pi,),
+                                                     'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
+                                                     'fix1tupseq': ((pi,), (pi,), (pi,)),
+                                                     'nameseq': (pi, pi),
+                                                     'tailname': pi },
+                                                   "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)"
+                                                   # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
+                                                   )
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; MID-COMPLEX: passed")
 
-# def simple_maybe():
-#         return _match(_metasex_pp, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
-# bound_good, result_good, nofail = _runtest(simple_maybe,
-#                                            { 'pi': (pi,), 'car': car, 'cdr': cdr, },
-#                                            "(PICARCDR)")
-# _results()
-# assert(nofail)
-# assert(bound_good)
-# assert(result_good)
-# print("; SIMPLE-MAYBE: passed")
+        def simple_maybe():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
+        bound_good, result_good, nofail = _runtest(simple_maybe,
+                                                   { 'pi': (pi,), 'car': car, 'cdr': cdr, },
+                                                   "(PICARCDR)")
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; SIMPLE-MAYBE: passed")
+
+# _run_tests(print_results = nil)
 
 # Macroexpansion
 
