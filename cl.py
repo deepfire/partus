@@ -10072,7 +10072,7 @@ def traced():
 
 import cProfile as _cProfile, pstats as _pstats
 
-_cProfile.runctx("traced()", globals(), locals(), sort = "time")
+_cProfile.runctx("fasl_filename = traced()", globals(), locals(), sort = "time")
 
 # tracer = __trace.Trace(
 #         ignoredirs=[_sys.prefix, _sys.exec_prefix],
