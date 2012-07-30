@@ -470,7 +470,7 @@ def _package_not_found_error(x):
         error("The name \"%s\" does not designate any package.", x)
 
 def _symbol_conflict_error(op, obj, pkg, x, y):
-        error(simple_package_error, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
+        error(simple_package_error_t, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
               (op, obj, pkg, x, y))
 
 def _symbols_not_accessible_error(package, syms):
@@ -2979,7 +2979,7 @@ def _symbol_macro_expander(sym, environment = None):
         return (lambda: expansion) if expansion is not None else None
 
 def _style_warn(control, *args):
-        warn(simple_style_warning, format_control = control, format_arguments = args)
+        warn(simple_style_warning_t, format_control = control, format_arguments = args)
 
 def _warn_incompatible_function_redefinition(symbol, tons, fromns):
         _style_warn("%s is being redefined as a %s when it was previously defined to be a %s.", symbol, tons, fromns)
