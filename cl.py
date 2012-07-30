@@ -9295,7 +9295,7 @@ def apply():
                                 func_pro, func_val = _lower(func)
                                 arg_pvs = mapcar(_lower, fixed + (rest,))
                         return _lowered(func_pro,
-                                        ("Call", func_val, mapcar(second, arg_pvs[:-1]), [], (arg_pvs[-1][1]
+                                        ("Call", func_val, [x[1] for x in arg_pvs[:-1]], [], (arg_pvs[-1][1]
                                                                                               if not no_varargs else
                                                                                               None)))
                 else:
