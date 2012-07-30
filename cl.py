@@ -4997,11 +4997,19 @@ def _ast_info_check_args_type(info, args, atreep = t):
                       info.type.__name__, "exactly" if len(info.fields) == info.nfixed else "at least", info.nfixed,
                       len(args), args)
         def check_arg_type(arg, type):
-                def maybe_typespec_p(x): return typep(x, (pytuple_t, (eql_t, maybe_t), t))
-                def list_typespec_p(x):  return typep(x, (pytuple_t, (eql_t, pylist_t), t))
+                def maybe_typespec_p(x): return isinstance(x, tuple) and len(x) is 2 and x[0] is maybe_t
+                def list_typespec_p(x):  return isinstance(x, tuple) and len(x) is 2 and x[0] is pylist_t
                 def simple_typespec_p(x):
-                        return typep(x, (or_t, (member_t, integer_t, string_t),
-                                               (pytuple_t, (eql_t, maybe_t), (member_t, integer_t, string_t))))
+                        return (x is integer_t or
+                                x is string_t or
+                                isinstance(x, tuple) and len(x) is 2 and x[0] is maybe_t and
+                                (x[1] is integer_t or x[1] is string_t))
+                ## The eternal beauty sleeps..
+                # def maybe_typespec_p(x): return typep(x, (pytuple_t, (eql_t, maybe_t), t))
+                # def list_typespec_p(x):  return typep(x, (pytuple_t, (eql_t, pylist_t), t))
+                # def simple_typespec_p(x):
+                #         return typep(x, (or_t, (member_t, integer_t, string_t),
+                #                                (pytuple_t, (eql_t, maybe_t), (member_t, integer_t, string_t))))
                 def atree_simple_typep(x, type):
                         return (isinstance(x, tuple) and isinstance(x[0], str) and
                                 _find_ast_info(x[0]) and issubclass(_find_ast_info(x[0]).type, type))
