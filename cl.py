@@ -6110,11 +6110,11 @@ _intern_and_bind_names_in_module_specifically(
         ("ir_args",  "IR-ARGS"))
 
 class _matcher():
-        class simplex_matcher():
+        class matchod():
                 def __init__(self, name, method):
                         self.name = name
                         self.method = method
-                        self.miss_cache = None
+                        self.cache = None
         @staticmethod
         def bind(value, bound, name, if_exists:{error, replace} = error):
                 def error_bound(x):
@@ -6182,10 +6182,10 @@ class _matcher():
         ###
         def register_simplex_matcher(m, name, matcher):
                 __metasex_words__.add(name)
-                m.__simplex_patterns__[name] = m.simplex_matcher(name, matcher)
+                m.__simplex_patterns__[name] = m.matchod(name, matcher)
         def register_complex_matcher(m, name, matcher):
                 __metasex_words__.add(name)
-                m.__complex_patterns__[name] = matcher
+                m.__complex_patterns__[name] = m.matchod(name, matcher)
         def simplex_pat_p(m, x): return isinstance(x, tuple) and x and isinstance(x[0], symbol_t) and x[0] in m.__simplex_patterns__
         def complex_pat_p(m, x): return isinstance(x, tuple) and x and isinstance(x[0], symbol_t) and x[0] in m.__complex_patterns__
         def simplex(m, bound, name, exp, pat, orifst):
@@ -6193,34 +6193,50 @@ class _matcher():
                 # _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s",
                 #               lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                 #                        name, bound, exp, pat))
-                matcher = m.__simplex_patterns__[pat[0]]
-                # _debug_printf("querying miss for exp:    %s", exp)
-                if exp and isinstance(exp, tuple) and exp[0] is ir_args:
-                        exp = exp[1]
-                this_exp_misses = matcher.miss_cache[exp]
-                miss = this_exp_misses.get(pat)
-                if miss:
-                        return miss
-                res = _, __, f = matcher.method(bound, name, exp, pat, orifst)
-                if f is not None:
-                        this_exp_misses[pat] = res
+                mtd = m.__simplex_patterns__[pat[0]]
+                def exp_store():
+                        try:
+                                return mtd.cache[exp]
+                        except TypeError:
+                                pass
+                store = _without_condition_system(exp_store)
+                if store is not None:
+                        exp_pat_hit = store.get(pat)
+                        if exp_pat_hit:
+                                return exp_pat_hit
+                res = _, __, f = mtd.method(bound, name, exp, pat, orifst)
+                if store is not None and f is None:
+                        store[pat] = res
                 return res
-        def initialise_simplex_miss_cache(m):
-                for smr in m.__simplex_patterns__.values():
-                        smr.miss_cache = _collections.defaultdict(dict)
+                # return m.__simplex_patterns__[pat[0][0]](bound, name, exp, pat, orifst)
         def complex(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
                 # _trace_printf("complex", "complex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  %s  %s",
                 #               lambda: (pat[0][0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                 #                        name, bound, exp, pat, orifst, aux, limit))
-                return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit)
+                mtd = m.__complex_patterns__[pat[0][0]]
+                # store = mtd.cache[id(exp)]
+                # if store is not None:
+                #         exp_pat_hit = store.get(id(pat))
+                #         if exp_pat_hit:
+                #                 return exp_pat_hit
+                res = _, __, f = mtd.method(bound, name, exp, pat, orifst, aux, limit)
+                # if store is not None:
+                #         store[id(pat)] = res
+                return res
+                # return m.__complex_patterns__[pat[0][0]](bound, name, exp, pat, orifst, aux, limit)
+        def initialise_cache(m):
+                for mr in m.__simplex_patterns__.values():
+                        mr.cache = _collections.defaultdict(dict)
+                for mr in m.__complex_patterns__.values():
+                        mr.cache = _collections.defaultdict(dict)
         def __init__(m):
                 m.__complex_patterns__, m.__simplex_patterns__ = dict(), dict()
                 m.register_complex_matcher(_some, m.segment)
                 m.register_complex_matcher(_maybe, m.maybe)
                 m.register_complex_matcher(_or, m.or_)
         def per_use_init(m):
-                m.initialise_simplex_miss_cache()
+                m.initialise_cache()
         def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
         def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
