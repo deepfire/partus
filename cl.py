@@ -5038,12 +5038,15 @@ _intern_and_bind_names_in_module("*BOUND-FREE-RECURSOR*")
 def _bound_free_recursor():
         return _symbol_value(_bound_free_recursor_)
 
+__atrees_validate__ = nil
+
 def _ast_bound_free(astxs):
         def ast_rec(astxs):
                 def bound_free(ast):
                         info = _find_ast_info(type_of(ast))
                         args = mapcar(_slot_of(ast), type(ast)._fields)
-                        _ast_info_check_args_type(info, args, atreep = nil)
+                        if __atrees_validate__:
+                                _ast_info_check_args_type(info, args, atreep = nil)
                         return info.bound_free(*args)
                 return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
         with progv({_bound_free_recursor_: ast_rec}):
@@ -7987,10 +7990,8 @@ _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
                                    lambda *_: _dynamic_scope_pop())
 
-__validate_atrees_upon_emission__ = t
-
 def _lowered(pro, val):
-        if __validate_atrees_upon_emission__:
+        if __atrees_validate__:
                 def validate():
                         for stmt in [val] + pro:
                                 _atree_validate(stmt)
