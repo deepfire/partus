@@ -6104,11 +6104,17 @@ _match_level = _defwith("_match_level",
                         __new__ = _make_ml)
 
 _intern_and_bind_names_in_module_specifically(
-        ("_some",  "%SOME"),
-        ("_or",    "%OR"),
-        ("_maybe", "%MAYBE"))
+        ("_some",    "%SOME"),
+        ("_or",      "%OR"),
+        ("_maybe",   "%MAYBE"),
+        ("_ir_args", "%IR-ARGS"))
 
 class _matcher():
+        class simplex_matcher():
+                def __init__(self, name, method):
+                        self.name = name
+                        self.method = method
+                        self.miss_cache = None
         @staticmethod
         def bind(value, bound, name, if_exists:{error, replace} = error):
                 def error_bound(x):
@@ -6176,7 +6182,7 @@ class _matcher():
         ###
         def register_simplex_matcher(m, name, matcher):
                 __metasex_words__.add(name)
-                m.__simplex_patterns__[name] = matcher
+                m.__simplex_patterns__[name] = m.simplex_matcher(name, matcher)
         def register_complex_matcher(m, name, matcher):
                 __metasex_words__.add(name)
                 m.__complex_patterns__[name] = matcher
@@ -6187,7 +6193,21 @@ class _matcher():
                 # _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s",
                 #               lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                 #                        name, bound, exp, pat))
-                return m.__simplex_patterns__[pat[0]](bound, name, exp, pat, orifst)
+                matcher = m.__simplex_patterns__[pat[0]]
+                # _debug_printf("querying miss for exp:    %s", exp)
+                if exp and isinstance(exp, tuple) and exp[0] is _ir_args:
+                        exp = exp[1]
+                this_exp_misses = matcher.miss_cache[exp]
+                miss = this_exp_misses.get(pat)
+                if miss:
+                        return miss
+                res = _, __, f = matcher.method(bound, name, exp, pat, orifst)
+                if f is not None:
+                        this_exp_misses[pat] = res
+                return res
+        def initialise_simplex_miss_cache(m):
+                for smr in m.__simplex_patterns__.values():
+                        smr.miss_cache = _collections.defaultdict(dict)
         def complex(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
                 # _trace_printf("complex", "complex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  %s  %s",
@@ -6199,6 +6219,8 @@ class _matcher():
                 m.register_complex_matcher(_some, m.segment)
                 m.register_complex_matcher(_maybe, m.maybe)
                 m.register_complex_matcher(_or, m.or_)
+        def per_use_init(m):
+                m.initialise_simplex_miss_cache()
         def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
         def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
@@ -6350,6 +6372,7 @@ class _matcher():
                       (*maybe_get0Rname(pat)))
 
 def _match(matcher, exp, pat):
+        matcher.per_use_init()
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
         return matcher.match(dict(), name, exp, prepped, (True, False), None, -1)
 
@@ -7395,6 +7418,7 @@ _metasex_nonstrict_pp = _metasex_matcher_nonstrict_pp()
 # _trace(_return, "typep")
 
 def _match_sex(sex, pattern = None):
+        _metasex.per_use_init()
         return _match(_metasex, sex, _defaulted(pattern, _form_metasex(sex)))
 
 ## WIP: set specifiers (got bored)
@@ -7435,12 +7459,14 @@ class _metasex_mapper(_metasex_matcher):
 _mapper = _metasex_mapper()
 
 def _map_sex(fn, sex):
+        _mapper.per_use_init()
         with progv({ _mapper_fn_: fn }):
                 return _match(_mapper, sex, _form_metasex(sex))
 
 # Pretty-printing
 
 def _pp_sex(sex, strict = t, initial_depth = None):
+        _metasex_pp.per_use_init()
         # _debug_printf("\n   pretty-printing:\n%s", sex)
         ## Unregistered Issue RELAXED-METASEX-PRETTY-PRINTER-MODE-NEEDED
         initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
@@ -7804,6 +7830,7 @@ class _macroexpander_matcher(_metasex_matcher):
 _macroexpander = _macroexpander_matcher()
 
 def macroexpand_all(sex, lexenv = nil, compilerp = t):
+        _macroexpander.per_use_init()
         with progv({ _macroexpander_env_: _coerce_to_lexenv(lexenv)}):
                 _, r, f = _macroexpander_inner(_macroexpander, dict(), None,
                                                sex,
@@ -9320,6 +9347,7 @@ def apply():
 _intern_and_bind_names_in_module("COND")
 
 def applyification():
+        _macroexpander.per_use_init()
         return _macroexpander_inner(_macroexpander, dict(), None,
                                     (cond,),
                                     nil,  ## The pattern will be discarded out of hand, anyway.
@@ -10041,7 +10069,7 @@ _compiler_config_tracing(# toplevels = t,
                          # result = t,
                          # rewrites = t,
                          # choices = t,
-                         # pretty_full = t
+                         pretty_full = t
                          )
 
 # _compiler_trap_function(intern("DEFPACKAGE")[0])
