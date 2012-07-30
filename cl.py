@@ -9358,6 +9358,17 @@ def apply():
 
 _intern_and_bind_names_in_module("COND")
 
+def _test_ir_args():
+        _metasex_pp.per_use_init()
+        form = (ir_args,
+                (car,),
+                ("crap", [1, 2, 3]))
+        # return _match(_metasex_pp, (ir_args,
+        #                             (list,),
+        #                             ("crap", [1, 2, 3])), {"whole":_form})
+        return macroexpand_all(form, lexenv = _make_null_lexenv())
+_test_ir_args()
+
 def applyification():
         _macroexpander.per_use_init()
         return _macroexpander_inner(_macroexpander, dict(), None,
