@@ -574,10 +574,6 @@ class symbol_t(): # Turned to a symbol, during the package system bootstrap.
                 ## package and name.
                 self.function_pyname = None
                 self.symbol_pyname   = None
-        def __hash__(self):
-                return hash(self.name)
-                ## Unregistered Issue CONTROVERSIAL-SYMBOL-HASH-SPEEDUP
-                ## ^ (hash(self.package.name) if self.package else 0)
         def __bool__(self):
                 return self is not nil
 
