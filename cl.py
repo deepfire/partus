@@ -6107,7 +6107,7 @@ _intern_and_bind_names_in_module_specifically(
         ("_some",    "%SOME"),
         ("_or",      "%OR"),
         ("_maybe",   "%MAYBE"),
-        ("_ir_args", "%IR-ARGS"))
+        ("ir_args",  "IR-ARGS"))
 
 class _matcher():
         class simplex_matcher():
@@ -6195,7 +6195,7 @@ class _matcher():
                 #                        name, bound, exp, pat))
                 matcher = m.__simplex_patterns__[pat[0]]
                 # _debug_printf("querying miss for exp:    %s", exp)
-                if exp and isinstance(exp, tuple) and exp[0] is _ir_args:
+                if exp and isinstance(exp, tuple) and exp[0] is ir_args:
                         exp = exp[1]
                 this_exp_misses = matcher.miss_cache[exp]
                 miss = this_exp_misses.get(pat)
@@ -7863,7 +7863,7 @@ def DEFMACRO(name, lambda_list, *body):
         return (eval_when, (_compile_toplevel, _load_toplevel, _execute),
                 ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
                 # (function, (def_, name, lambda_list) + body),
-                 (_ir_args,
+                 (ir_args,
                   (def_, name, lambda_list) + body,
                   ("decorators", [_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
                                                      (quote, name), (quote, (name, lambda_list) + body))])))
@@ -8036,16 +8036,16 @@ def _lower_expr(x, fn):
 
 # Out-of-band IR argument passing: %IR-ARGS, %IR
 
-@defknown((_name, "\n", _form, ["\n", ((_typep, str), " ", (_typep, t))],))
-def _ir_args():
+@defknown((ir_args, "\n", _form, ["\n", ((_typep, str), " ", (_typep, t))],))
+def ir_args():
         def prologuep(known, *_):  return _ir_prologue_p(known)
-        def lower(*_):             error("Invariant failed: %s is not meant to be lowered.", _ir_args)
+        def lower(*_):             error("Invariant failed: %s is not meant to be lowered.", ir_args)
         def effects(*ir,  **args): return _ir_effects(ir)
         def affected(*ir, **args): return _ir_affected(ir)
 
 def _destructure_possible_ir_args(x):
         "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
-        return ((t, x[1], x[2:]) if isinstance(x, tuple) and x and x[0] is _ir_args else
+        return ((t, x[1], x[2:]) if isinstance(x, tuple) and x and x[0] is ir_args else
                 (nil, x, ()))
 
 def _ir(*ir, **keys):
@@ -8055,7 +8055,7 @@ def _ir(*ir, **keys):
         if invalid_params:
                 error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
                       known.name, known.lower_params, invalid_params)
-        return (_ir_args, ir) + tuple(_hash_table_alist(keys))
+        return (ir_args, ir) + tuple(_hash_table_alist(keys))
 
 def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
