@@ -10143,26 +10143,11 @@ def append_(*xs):    return sum(xs, xs[0].__class__()) or ()
 
 # LOOPTEST(0)
 
-def traced():
-        return compile_file("vpcl.lisp")
+# import cProfile as _cProfile, pstats as _pstats
+# _cProfile.runctx("fasl_filename = traced()", globals(), locals(), sort = "cumulative")
 
-import cProfile as _cProfile, pstats as _pstats
-
-_cProfile.runctx("fasl_filename = traced()", globals(), locals(), sort = "time")
-
-# tracer = __trace.Trace(
-#         ignoredirs=[_sys.prefix, _sys.exec_prefix],
-#         trace = 0,
-#         count = 1)
-
-# run the new command using the given tracer
-# fasl_filename = tracer.runfunc(traced)
-
-# r = tracer.results()
-# r.write_results(show_missing = True, coverdir = "/tmp")
-
-
-load(fasl_filename)
+load(compile_file("vpcl.lisp"))
+load(compile_file("reader.lisp"))
 
 # load(compile_file("reader.lisp"))
 
