@@ -7732,11 +7732,15 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
         # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
         def find_compiler_macroexpander(form):
                 ### XXX: we rely on the FUNCALL form to have been validated! (Joys of MetaSEX, yet?)
-                b, _, fail = _match_sex(form[1:], ((_or, (quote,    { "global_function_name":  (_typep, symbol_t)}),
-                                                         (function, { "lexical_function_name": (_typep, symbol_t)})), [_form]))
-                global_, lexical_ = (b.get("global_function_name",  nil),
-                                     b.get("lexical_function_name", nil))
-                return (compiler_macro_function(global_ or lexical_, check_shadow = lexical_) if fail is None else
+                maybe_fnref = form[1]
+                lookupable = (isinstance(maybe_fnref, tuple) and len(maybe_fnref) == 2 and
+                              isinstance(maybe_fnref[1], symbol_t))
+                global_, lexical_ = ((nil, nil)            if not lookupable             else
+                                     (maybe_fnref[1], nil) if maybe_fnref[0] is quote    else
+                                     (nil, maybe_fnref[1]) if maybe_fnref[0] is function else
+                                     (nil, nil))
+                return (compiler_macro_function(global_ or lexical_, check_shadow = lexical_)
+                        if global_ or lexical_ else
                         nil)
         def knownifier_and_maybe_compiler_macroexpander(form, known):
                 if not known: ## ..then it's a funcall, because all macros
