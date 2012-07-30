@@ -280,10 +280,10 @@ def assign_meaningful_locations(node, lineno = 1):
                                            (lambda lineno: lineno + x) if integerp(x)  else
                                            error("Invalid direct advancement specifier: %s.", x.__repr__())))]
         def rec(lineno: int, xspec: (ast.AST, types.FunctionType)) -> int:
-                if not tuplep(xspec):
+                if not isinstance(xspec, tuple):
                         error("Advancement specifier not a tuple: %s", xspec)
                 x, advance = xspec
-                functionp(advance) or error("Invariant failed in AST location walker: advance is: %s.", advance)
+                isinstance(advance, types.FunctionType) or error("Invariant failed in AST location walker: advance is: %s.", advance)
                 def attrs(*attrs): return reduce(operator.add, (([x] if not isinstance(x, list) else x)
                                                                 for x in (getattr(x, attr) for attr in attrs)
                                                                 if x is not None))

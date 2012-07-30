@@ -4988,9 +4988,9 @@ _ast_info = _poor_man_defstruct("_ast_info",
                                 "nfixed")
 __ast_walkable_field_types__ = set([_ast.stmt, (pylist_t, _ast.expr), (maybe_t, _ast.expr),
                                     _ast.expr, (pylist_t, _ast.stmt)])
-__ast_infos__ = make_hash_table()
-def _find_ast_info(type):
-        return __ast_infos__[_coerce_to_ast_type(type)]
+__ast_infos__         = make_hash_table()
+def  _find_ast_info(type):     return __ast_infos__[_coerce_to_ast_type(type)]
+def __find_ast_info(type):     return __ast_infos__[type]
 def _ast_info_check_args_type(info, args, atreep = t):
         if len(args) < info.nfixed:
                 error("AST type '%s' requires %s %d arguments, but only %d were provided: %s.",
@@ -5043,7 +5043,7 @@ __atrees_validate__ = nil
 def _ast_bound_free(astxs):
         def ast_rec(astxs):
                 def bound_free(ast):
-                        info = _find_ast_info(type_of(ast))
+                        info = __find_ast_info(type_of(ast))
                         args = mapcar(_slot_of(ast), type(ast)._fields)
                         if __atrees_validate__:
                                 _ast_info_check_args_type(info, args, atreep = nil)
@@ -5059,7 +5059,7 @@ def _atree_validate(atree):
         if not (isinstance(atree, tuple) and atree and isinstance(atree[0], str)):
                 error("Invalid atree: %s", atree)
         kind, args = atree[0], atree[1:]
-        info = _find_ast_info(_coerce_to_ast_type(kind))
+        info = _find_ast_info(kind)
         _ast_info_check_args_type(info, args, atreep = t)
         for xxs in args:
                 for xs in _ensure_list(xxs):
@@ -5069,8 +5069,7 @@ def _atree_bound_free(atreexs):
         def atree_rec(atreexs):
                 def bound_free(atree):
                         check_type(atree, (partuple_t, string_t))
-                        type = _coerce_to_ast_type(atree[0])
-                        info = _find_ast_info(type)
+                        info = _find_ast_info(atree[0])
                         args = atree[1:]
                         _ast_info_check_args_type(info, args, atreep = t)
                         return info.bound_free(*args)
@@ -5791,32 +5790,32 @@ all AST-trees .. except for the case of tuples."""
                       name, (control % args), expected_type, princ_to_string(defacto_value), tree)
         def astify_known(type, args):
                 ast_type = _ast.__dict__[type]
-                info = _find_ast_info(ast_type)
-                fields, finfos = _recombine((list, list), identity, list(info.fields.items()))
+                info = __find_ast_info(ast_type)
+                fields, finfos, positional, optional = [], [], [], []
+                for f, i in info.fields.items():
+                        fields.append(f); finfos.append(i)
+                        # (positional if hasattr(i, "default") else
+                        #  optional).append(i)
                 positional, optional = _prefix_suffix_if(lambda x: "default" in x, finfos)
                 nfixed, defacto = len(positional), len(args)
                 max = nfixed + len(optional)
                 if not (nfixed <= defacto <= max):
                         argument_count_error(nfixed, max, defacto, "AST type %s", type)
-                effective_args = args + mapcar(_indexing("default"), optional[defacto - nfixed:])
+                effective_args = args + [ x["default"] for x in optional[defacto - nfixed:] ]
+                # mapcar(_indexing("default"), optional[defacto - nfixed:])
                 assert(len(effective_args) == max)
                 for val, name, finfo in zip(effective_args, fields, finfos):
                         subtype = finfo["type"]
                         if not typep(val, subtype):
                                 argument_type_error(name, subtype, val, "AST node %s", repr(type))
                 return ast_type(*effective_args)
-        ret =  (tree
-                if isinstance(tree, (str, int, _NoneType))                             else
-                mapcar(_atree_ast, tree)
-                if _listp(tree)                                                        else
-                _try_astify_constant(tree)[0]
-                if not isinstance(tree, tuple)                                         else
-                error("The atree nodes cannot be zero-length.")
-                if not tree                                                            else
-                error("The CAR of an atree must be a string, not %s.", tree[0])
-                if not isinstance(tree[0], str)                                        else
-                unknown_ast_type_error(tree[0], tree) if tree[0] not in _ast.__dict__  else
-                (astify_known(tree[0], mapcar(_atree_ast, _from(1, tree)))))
+        ret =  (tree                                                    if isinstance(tree, (str, int, _NoneType)) else
+                [ _atree_ast(x) for x in tree ]                         if isinstance(tree, list)                  else
+                _try_astify_constant(tree)[0]                           if not isinstance(tree, tuple)             else
+                error("The atree nodes cannot be zero-length.")         if not tree                                else
+                error("Atree[0] must be a string, not a %s.", tree[0])  if not isinstance(tree[0], str)            else
+                unknown_ast_type_error(tree[0], tree)                   if tree[0] not in _ast.__dict__            else
+                (astify_known(tree[0], [ _atree_ast(x) for x in tree[1:] ])))
         return ret
 
 # Atree tools
