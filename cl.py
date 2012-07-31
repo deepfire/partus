@@ -10053,7 +10053,9 @@ def _load_as_fasl(stream, verbose = None, print = None):
         filename = truename(stream)
         verbose and format(t, "; loading %s...\n", filename)
         bytecode = _marshal.load(stream)
-        _load_module_bytecode(bytecode, filename = filename)
+        _, broken_globals, good_globals = _load_module_bytecode(bytecode, filename = filename)
+        ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
+        broken_globals.update(good_globals)
 
 @_cold_defun_with_block
 def load(pathspec, verbose = None, print = None,
