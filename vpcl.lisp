@@ -20,3 +20,21 @@
   (terpri))
 
 (%test-defun)
+
+(defmacro when (test &body body)
+  `(if ,test
+       (progn ,@body)
+       nil))
+
+(defmacro unless (test &body body)
+  `(if ,test
+       nil
+       (progn ,@body)))
+
+(when t
+  (format t "Correct WHEN branch taken")
+  (terpri))
+
+(unless t
+  (format t "Incorrect UNLESS branch taken")
+  (terpri))
