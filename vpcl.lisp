@@ -2,8 +2,7 @@
   `(progn
      (eval-when (:compile-toplevel)
        ;; -compile-and-load-function() expects the compiler-level part of function to be present.
-       (apply (function (quote ("cl" "_compiler_defun")))
-              ',name '(lambda ,lambda-list ,@body)
+       (apply (function (quote ("cl" "_compiler_defun"))) ',name 'nil
               'nil))
      (eval-when (:load-toplevel :execute)
        (apply (apply (function (quote ("cl" "_set_function_definition")))

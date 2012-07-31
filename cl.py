@@ -3083,9 +3083,9 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 _intern_and_bind_names_in_module("DEFMACRO")
 
 def _set_function_definition(globals, x, lambda_expression):
-        _compiler_defun(x, lambda_expression)
+        identity_redef = _compiler_defun(x, lambda_expression)
         def do_set_function_definition(function):
-                if function:
+                if not identity_redef and function:
                         x.function, x.macro_function = function, nil
                         _frost.make_object_like_python_function(x, function)
                         function.name = x
@@ -3094,9 +3094,9 @@ def _set_function_definition(globals, x, lambda_expression):
         return do_set_function_definition
 
 def _set_macro_definition(globals, x, lambda_expression):
-        _compiler_defmacro(x, lambda_expression)
+        identity_redef = _compiler_defmacro(x, lambda_expression)
         def do_set_macro_definition(function):
-                if function:
+                if not identity_redef and function:
                         _frost.make_object_like_python_function(x, function)
                         function.name = x
                         x.function, x.macro_function = nil, function
@@ -5911,22 +5911,33 @@ def _compiler_defvar(name, value):
 
 _intern_and_bind_names_in_module("SETF")
 def _compiler_defun(name, lambda_expression, check_redefinition = t):
+        "Return a boolean, which denotes whether the situation is an identity redefinition."
         check_type(name, (or_t, symbol_t, (pytuple_t, (eql_t, setf), symbol_t)))
+        oldef, _ = gethash(name, _function_scope)
+        if oldef and oldef.lambda_expression == lambda_expression:
+                return t
         if check_redefinition and isinstance(name, symbol_t):
                 if name.macro_function:
                         _warn_incompatible_function_redefinition(name, "function", "macro")
                 else:
                         _warn_possible_redefinition(name.function, name)
         _function_scope[name] = _function(name, function, lambda_expression = lambda_expression)
+        return nil
 
 def _compiler_defmacro(name, lambda_expression, check_redefinition = t):
+        "Return a boolean, which denotes whether the situation is an identity redefinition."
         check_type(name, (or_t, symbol_t, (pytuple_t, (eql_t, setf), symbol_t)))
+        oldef, _ = gethash(name, _function_scope)
+        ## Unregistered Issue MACRO-REDEFINITION-REPLACED-BY-ONE-WITH-NONEIFIED-GLOBALS
+        if oldef and oldef.lambda_expression == lambda_expression:
+                return t
         if check_redefinition and isinstance(name, symbol_t):
                 if name.function:
                         _warn_incompatible_function_redefinition(name, "macro", "function")
                 else:
                         _warn_possible_redefinition(name.macro_function, name)
         _function_scope[name] = _function(name, macro, lambda_expression = lambda_expression)
+        return nil
 
 def _compiler_defvar_without_actually_defvar(name, value):
         "This is for SETQ-IN-ABSENCE-OF-DEFVAR."
@@ -6794,23 +6805,23 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                              _compiler_trace_result_:      nil }):
                  symbols = sorted(funs | syms, key = str)
                  return _lower(
-                        (progn,
-                         _ir_cl_module_call(
-                                        "_fop_make_symbol_available",
-                                        _ir_funcall("globals"),
-                                        "COMMON-LISP", "LIST", _ensure_function_pyname(list_), (ref, (quote, ("None",))),
-                                        True, False),
-                         _ir_cl_module_call(
-                                        "_fop_make_symbols_available",
-                                        _ir_funcall("globals"),
-                                        _ir_funcall(list_, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
-                                                                  for sym in symbols )),
-                                        _ir_funcall(list_, *tuple(symbol_name(sym)          for sym in symbols )),
-                                        _ir_funcall(list_, *tuple(wrap(sym.function_pyname) for sym in symbols )),
-                                        _ir_funcall(list_, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                                        _ir_funcall(list_, *tuple(sym in gfuns              for sym in symbols )),
-                                        _ir_funcall(list_, *tuple(sym in gvars              for sym in symbols )))),
-                        lexenv = _make_null_lexenv())
+                         (progn,
+                          _ir_cl_module_call(
+                                         "_fop_make_symbol_available",
+                                         _ir_funcall("globals"),
+                                         "COMMON-LISP", "LIST", _ensure_function_pyname(list_), (ref, (quote, ("None",))),
+                                         True, False),
+                          _ir_cl_module_call(
+                                         "_fop_make_symbols_available",
+                                         _ir_funcall("globals"),
+                                         _ir_funcall(list_, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
+                                                                   for sym in symbols )),
+                                         _ir_funcall(list_, *tuple(symbol_name(sym)          for sym in symbols )),
+                                         _ir_funcall(list_, *tuple(wrap(sym.function_pyname) for sym in symbols )),
+                                         _ir_funcall(list_, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
+                                         _ir_funcall(list_, *tuple(sym in gfuns              for sym in symbols )),
+                                         _ir_funcall(list_, *tuple(sym in gvars              for sym in symbols )))),
+                         lexenv = _make_null_lexenv())
         with _no_compiler_debugging():
                 return (import_prologue() +
                         _atree_linearise(*symbol_prologue()))
@@ -9593,7 +9604,7 @@ def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
                 sf = the((or_t, symbol_t, function_t), # globals[_get_function_pyname(name)]
                          mod.__dict__[_get_function_pyname(func_name)])
                 func = sf if functionp(sf) else symbol_function(sf)
-                # _without_condition_system(_pdb.set_trace) # { k:v for k,v in globals.items() if k != '__builtins__' }
+                # _without_condition_system(_pdb.set_trace) # { k:v for k,v in globals().items() if v is None }
                 func.name = func_name # Debug name, as per F-L-E spec.
         else:
                 func = nil
