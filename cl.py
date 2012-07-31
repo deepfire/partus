@@ -10146,6 +10146,15 @@ def append_(*xs):    return sum(xs, xs[0].__class__()) or ()
 # import cProfile as _cProfile, pstats as _pstats
 # _cProfile.runctx("fasl_filename = traced()", globals(), locals(), sort = "cumulative")
 
+def fx():
+        _debug_printf("  fname: %s", _caller_frame(11).f_code.co_name)
+        _debug_printf(" locals: %s", _caller_frame(11).f_locals)
+        _debug_printf("  glsid: %x", id(_caller_frame(11).f_globals))
+        _debug_printf("   coid: %x", id(_caller_frame(11).f_code))
+        _debug_printf("DEFUN's: %x", id(find_symbol("DEFUN")[0].macro_function.__code__))
+
+# _compiler_trap_function(intern("DEFUN")[0])
+
 load(compile_file("vpcl.lisp"))
 load(compile_file("reader.lisp"))
 
