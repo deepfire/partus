@@ -26,15 +26,11 @@
        (progn ,@body)
        nil))
 
-(defmacro unless (test &body body)
-  `(if ,test
-       nil
-       (progn ,@body)))
+(defmacro setf (target value)
+  `(setq target value))
 
-(when t
-  (format t "Correct WHEN branch taken")
-  (terpri))
+(defmacro push (x xs)
+  (error "PUSH: not implemented."))
 
-(unless t
-  (format t "Incorrect UNLESS branch taken")
-  (terpri))
+(defmacro pop (xs)
+  (error "POP: not implemented."))
