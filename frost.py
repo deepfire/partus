@@ -10,6 +10,11 @@ def lisp_symbol_name_python_name(x):
         ret = "".join(sub(x)).lower()
         return ret
 
+def full_symbol_name_python_name(x):
+        return ("#" if not x.package              else
+                "" if x.package.name == "KEYWORD" else
+                x.package.name) + ":" + x.name
+
 def lisp_symbol_name_python_type_name(x):
         return lisp_symbol_name_python_name(x) + "_t"
 
@@ -55,11 +60,6 @@ def make_object_like_python_class(x, cls):
         x.__doc__          = cls.__doc__
         x.__subclasshook__ = cls.__subclasshook__
         return x
-
-def full_symbol_name_python_name(x):
-        return ("#" if not x.package              else
-                "" if x.package.name == "KEYWORD" else
-                x.package.name) + ":" + x.name
 
 def frost_def(o, symbol, slot, globals):
         setattr(symbol, slot, o)

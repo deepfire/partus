@@ -280,9 +280,6 @@ def type_of(x):
 
 # Boot listery and consery (beware model issues)
 
-def _tuplep(x):
-        return isinstance(x, _cold_tuple_type)
-
 @boot_defun
 def atom(x):        return not isinstance(x, tuple) or x == ()
 @boot_defun # Unregistered Issue LIST-CONSNESS
@@ -392,6 +389,7 @@ def _boot_symbolicate_global_dynamic_scope():
 
 def _do_set(name, value, force_toplevel):
         _dynamic_frame_for_set(name, force_toplevel = force_toplevel)[name] = value
+        return value
 
 @boot("symbol",
       lambda _string_set, name, value, force_toplevel = None:
@@ -4899,15 +4897,15 @@ def _argspec_lambda_spec(spec, astify_defaults = t):
 def _lambda_spec_arguments(lambda_list_spec):
         fixed, optional, args, keyword, keys = lambda_list_spec
         return _ast.arguments(args        = mapcar(lambda x: _ast.arg(x, None),
-                                                  fixed + mapcar(lambda x: x[0], optional)),
-                             defaults    = mapcar(lambda x: x[1], optional),
-                             vararg      = args,
-                             kwonlyargs  = mapcar(lambda x: _ast.arg(x, None),
-                                                  mapcar(lambda x: x[0], keyword)),
-                             kw_defaults = mapcar(lambda x: x[1], keyword),
-                             kwarg       = keys,
-                             varargannotation = None,
-                             kwargannotation  = None)
+                                                   fixed + mapcar(lambda x: x[0], optional)),
+                              defaults    = mapcar(lambda x: x[1], optional),
+                              vararg      = args,
+                              kwonlyargs  = mapcar(lambda x: _ast.arg(x, None),
+                                                   mapcar(lambda x: x[0], keyword)),
+                              kw_defaults = mapcar(lambda x: x[1], keyword),
+                              kwarg       = keys,
+                              varargannotation = None,
+                              kwargannotation  = None)
 
 def _ast_functiondef(name, lambda_list_spec, body):
         fixed, optional, args, keyword, keys = lambda_list_spec
@@ -7070,6 +7068,10 @@ assert(_runtest(_expand_quasiquotation,
                          (quote, 6),
                          7)))))
 print("; QUASIQUOTATION-NESTED: passed")
+
+# DEFPRIMITIVE
+
+from primitives import *
 
 # DEFKNOWN
 
