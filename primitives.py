@@ -335,6 +335,24 @@ def process(p):
 ##  - indeterminates dispatch to strategies
 ## ... ?
 
+### TODO
+## 1. Core:
+#
+# QUOTE
+# FLET, LABELS
+# UNWIND-PROTECT
+# CATCH
+# THROW
+# PROGV
+# ? M-V-CALL
+# ? M-V-PROG1
+# ? NTH-VALUE
+# ?? TAGBODY, GO
+#
+## 2. Super
+#
+# operations
+
 ###
 ### High-level (un-lived, indeterminate)
 ###
