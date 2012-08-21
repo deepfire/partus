@@ -76,8 +76,9 @@ class primclass():
                 self.help_strategies = list()
 
 class prim(metaclass = primclass):
-        def __init__(self, *args):
+        def __init__(self, *args, **keys):
                 self.args = args
+                self.keys = keys
                 self.spills = []
         def __str__(self):
                 return "(%s%s)" % (type(self).__name__.upper(),
@@ -97,25 +98,25 @@ class prim(metaclass = primclass):
                         raise Exception("Ambiguous method specification: primitive %s for tags %s.", cls.__name__, tags)
                 return set.pop()
 
-def determine(cls, args):
-        for name, test, keys in cls.help_strategies:
-                if test(*args):
+def determine(cls, args, keys):
+        for name, test, _ in cls.help_strategies:
+                if test(*args, **keys):
                         ## Simplify and compute spills.
                         return (method if not isinstance(method, prim) else
-                                cls.find_method(keys))(*args)
+                                cls.find_method(keys))(*args, **keys)
         else:
                 raise Exception("Unhandled primitive form: %s" % self)
 
 class indet(prim):
         """Those have context-sensitivity, provided by a choice of strategies.
            The indeterminacy is short-lived, though."""
-        def __new__(cls, *args):
-                return determine(cls, args)
+        def __new__(cls, *args, **keys):
+                return determine(cls, args, keys)
 
 class det(prim):
         "Those are spill-determinate, post-init."
-        def __init__(self, *args):
-                prim.__init__(self, *args)
+        def __init__(self, *args, **keys):
+                prim.__init__(self, *args, **keys)
                 prim_check_and_spill(self)
 
 class stmt(det):         pass ## lower to ([ast.stmt], ast.expr)
@@ -158,7 +159,7 @@ def coerce_to_stmt(x):
 TheEmptyList = list()
 
 def help(x):
-        r = x.help(*x.args)
+        r = x.help(*x.args, **x.keys)
         p, v = (r if isinstance(r, tuple) else
                 ([], r))
         return x.spills + p or TheEmptyList, v
@@ -209,6 +210,9 @@ def help_args(fixed, opts, optvals, args, keys, keyvals, restkey):
                 kwargannotation  = None,
                 defaults         = help_exprs(optvals),
                 kw_defaults      = help_exprs(keyvals))
+
+def help_ctx(writep):
+        return (ast.Store if writep else ast.Load)()
 
 def fixed_ll(names):            return (names, [], [], None, [], [], None)
 def fixed_rest_ll(names, rest): return (names, [], [], rest, [], [], None)
@@ -443,7 +447,7 @@ class defun(body):
                                 decorator_list = help_exprs(decorators),
                                 returns = None,
                                 body = help_tail_prog(body, kind = ast.Return))
-                         ], ast.Name(fun_pyname(name), ast.Load())
+                         ], help_expr(function(name))
         @defmethod(lambda_)
         def lambda_(pyargs, expr):
                 return defun(gensym("DEFLAM-"), pyargs, [], expr)
@@ -686,16 +690,14 @@ class throw(expr):
 @defprim(intern("LEXICAL-REF")[0],
          (symbol_t,))
 class lexical_ref(efless): ## potconst, if we choose to do constant propagation this way
-        def help(name):
-                return ast.Name(var_pyname(name), ast.Load())
+        def help(name, writep = nil):
+                return ast.Name(var_pyname(name), (ast.Store if writep else ast.Load)())
 
 @defprim(intern("LEXICAL-SETQ")[0],
          (symbol_t, expr_spill))
 class lexical_setq(stmt):
         def help(name, value):
-                pyname = var_pyname(name)
-                return [ ast.Assign([ast.Name(pyname, ast.Store())], help(value))
-                        ], ast.Name(pyname, ast.Load())
+                return help_progn_star(assign(lexical_ref(name, writep = t), value, tn = nil))
 
 @defprim(intern("SPECIAL-REF")[0],
          (symbol_t,))
@@ -720,24 +722,66 @@ class impl_ref(expr):
 ###
 @defprim(intern("ATTR-REF")[0],
          (prim, prim))
-class attr_ref(indet):
+class attr(indet):
         1_const = defstrategy(test = lambda _, attr: isinstance(attr, string),
                               keys = "const attr")
         2_var   = defstrategy(keys = efless)
 
 @defprim(intern("CONST-ATTR-REF")[0],
          (expr_spill, string))
-class const_attr_ref(efless):
-        def help(x, attr): return ast.Attribute(help_expr(x), help_expr(attr), ast.Load())
-        attr_ref = identity_method("const attr")
+class const_attr(efless):
+        def help(x, attr, writep = nil): return ast.Attribute(help_expr(x), help_expr(attr), help_ctx(writep))
+        attr = identity_method("const attr")
 
 @defprim(intern("VAR-ATTR-REF")[0],
          (expr_spill, expr_spill))
-class var_attr_ref(efless):
+class var_attr(efless):
         def help(x, attr):
                 return help(funcall(ast.Name("getattr", ast.Load()),
                                     help_expr(x), help_expr(attr)))
-        attr_ref = identity_method()
+        attr = identity_method()
+
+@defprim(intern("INDEX")[0],
+         (expr_spill, expr_spill))
+class index(expr):
+        def help(x, index, writep = nil): return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
+
+@defprim(intern("ASSIGN")[0],
+         (expr, expr_spill))
+class assign(stmt):
+        def help(place, value):
+                tn = gensym("TARGET-")
+                return [ help(lexical_setq(tn, value))[0],
+                         ast.Assign([ help_expr(place) ], help_expr(lexical_ref(tn)))
+                         ], lexical_ref(tn)
+
+###
+### Lists
+###
+@defprim(intern("CONS")[0], (expr_spill, expr_spill))
+class cons(expr):
+        def help(car, cdr): return ast.List([ help_expr(car),
+                                              help_expr(cdr) ])
+
+@defprim(intern("CAR")[0], (expr_spill,))
+class car(expr):
+        def help(cons): return _ast.Subscript(help_expr(cons), ast.Index(0), ast.Load())
+
+@defprim(intern("CDR")[0], (expr_spill,))
+class cdr(expr):
+        def help(cons): return _ast.Subscript(help_expr(cons), ast.Index(1), ast.Load())
+
+@defprim(intern("RPLACA")[0], (expr_spill,))
+class rplaca(expr):
+        def help(cons, value):
+                return help_progn_star(assign(index(lexical_ref(tn, writep = t), integer(0), writep = t),
+                                              value, tn = gensym("CAR-")))
+
+@defprim(intern("RPLACD")[0], (expr_spill,))
+class rplacd(expr):
+        def help(cons, value):
+                return help_progn_star(assign(index(lexical_ref(tn, writep = t), integer(1), writep = t),
+                                              value, tn = gensym("CDR-")))
 
 ###
 ### Operations
