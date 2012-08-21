@@ -366,9 +366,14 @@ def process(p):
 ## - RESIGNAL
 ## - LEXICAL-{REF,SETQ}, SPECIAL-{REF,SETQ}
 ## - IMPL-REF
-## - ATTR-REF, CONST-ATTR-REF, VAR-ATTR-REF
+## - ATTR, CONST-ATTR, VAR-ATTR
+## - INDEX
+## - ASSIGN
+## - CONS, CAR, CDR, RPLACA, RPLACD
+## - OR, AND, NOT
+## - LOGNOT
 ## - EQ
-## - ADD
+## - +, -, *
 
 ###
 ### Constants
@@ -786,19 +791,44 @@ class rplacd(expr):
 ###
 ### Operations
 ###
-def help_binop(op, x, y):
-        return ast.BinOp(help_expr(x), op(), help_expr(y))
-
-@defprim(intern("EQ")[0], (expr_spill, expr_spill))
-class eq(potconst):
-        ## Optimisation: fold (NOT (EQ X Y)) to ast.IsNot
-        def help(x, y): return help_binop(ast.Is, x, y)
+def help_boolop(op, xs):  return ast.BoolOp(op(), [ help_expr(x) for x in xs ])
+def help_unop(op, x):     return ast.UnaryOp(op(), help_expr(x))
+def help_binop(op, x, y): return ast.BinOp(help_expr(x), op(), help_expr(y))
 
 def help_binop_seq(args, type):
         init, rest = ((args[0], args[1:]) if args else (0, args))
         return reduce(lambda x, y: ast.BinOp(x, type(), help_expr(y)),
                       rest, help_expr(init))
 
+@defprim(intern("OR")[0], ([expr_spill],))
+class or_(potconst):
+        def help(xs): return help_boolop(ast.Or, xs)
+
+@defprim(intern("AND")[0], ([expr_spill],))
+class and_(potconst):
+        def help(xs): return help_boolop(ast.And, xs)
+
+@defprim(intern("NOT")[0], (expr_spill,))
+class not_(potconst):
+        def help(x): return help_unop(ast.Not, x)
+
+@defprim(intern("LOGNOT")[0], (expr_spill,))
+class lognot(potconst):
+        def help(x): return help_unop(ast.Invert, x)
+
+@defprim(intern("EQ")[0], (expr_spill, expr_spill))
+class eq(potconst):
+        ## Optimisation: fold (NOT (EQ X Y)) to ast.IsNot
+        def help(x, y): return help_binop(ast.Is, x, y)
+
 @defprim(intern("+")[0], ([expr_spill],))
 class add(potconst):
         def help(*xs): return help_binop_seq(xs, ast.Add)
+
+@defprim(intern("-")[0], ([expr_spill],))
+class sub(potconst):
+        def help(*xs): return help_binop_seq(xs, ast.Sub)
+
+@defprim(intern("*")[0], ([expr_spill],))
+class mult(potconst):
+        def help(*xs): return help_binop_seq(xs, ast.Mult)
