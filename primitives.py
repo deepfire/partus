@@ -25,37 +25,43 @@ def defmethod(prim, *tags):
                         primitive_method_pool[tag].add(method)
         return do_defmethod
 
-def identity_method():
-        return (identity,) # just a marker, to be processed by defprim
+def identity_method(*keys):
+        return (identity, keys) # just a marker, to be processed by defprim
 
-def defstrategy(test = lambda _: True, method = None):
-        assert(method)
-        return (defstrategy, test, method)
-
-def strategyp(x):
-        return isinstance(x, tuple) and x and x[0] is defstrategy and x[1:] or (None, None)
+def defstrategy(test = lambda _: True, keys = None):
+        assert(keys)
+        return (defstrategy, test, keys if isinstance(keys, list) else [keys])
 
 def defprim(name, form_specifier):
+        def maybe_process_as_strategy(cls, name, spec):
+                def strategyp(x): return (isinstance(x, tuple) and x and x[0] is defstrategy and x[1:]
+                                          or (None, None))
+                test, keys = strategyp(spec)
+                if test and keys:
+                        # implementation strategy
+                        cls.help_strategies.append((name, test, keys))
+                        cls.help_strategies.sort()
+                        return t
         def do_defprim(cls):
                 __primitives__[name] = __primitives_by_pyname__[cls.__name__] = cls
                 class_key_supers = cls.__mro__[0:cls.__mro__.index(prim)]
                 cls.form_specifier = form_specifier
-                def primitive_add_method_keys_by_supers(primitive_method_pool, method, supers):
-                        for pcl in supers:
-                                primitive_method_pool[pcl].add(method)
+                def primitive_add_method_keys(primitive_method_pool, method, keys):
+                        for key in keys:
+                                primitive_method_pool[key].add(method)
                 help_stdmethod = cls.__dict__["help"]
                 for name, method_spec in cls.__dict__.items():
-                        test, method = strategyp(method_spec)
-                        if test and method:
-                                ## implementation strategy
-                                cls.help_strategies.append((name, test, method))
-                                cls.help_strategies.sort()
-                        elif name != "help": # must be an indet method
-                                method, identityp = ((method_spec, nil)  if isinstance(method_spec, types.FunctionType) else
-                                                     (help_stdmethod, t) if (isinstance(method_spec, tuple) and
-                                                                             method_spec[0] is identity) else
-                                                     error("Invalid method specifier: %s", method_spec))
-                                primitive_add_method_keys_by_supers(find_indet_method_pool(name), method, class_key_supers)
+                        if maybe_process_as_strategy(cls, name, method_spec) or name == "help":
+                                continue
+                        ## otherwise, must be an indet method
+                        method, identityp, keys = \
+                            ((method_spec,    nil, ())             if isinstance(method_spec, types.FunctionType) else
+                             (help_stdmethod, t,   method_spec[1]) if (isinstance(method_spec, tuple) and
+                                                                       method_spec[0] is identity) else
+                             error("Invalid method specifier: %s", method_spec))
+                            indet_method_pool = find_indet_method_pool(name)
+                            primitive_add_method_keys(indet_method_pool, method, keys)
+                            primitive_add_method_keys(indet_method_pool, method, class_key_supers)
                 return cls
         return do_defprim
 
@@ -92,11 +98,11 @@ class prim(metaclass = primclass):
                 return set.pop()
 
 def determine(cls, args):
-        for name, test, target_primitive in cls.help_strategies:
+        for name, test, keys in cls.help_strategies:
                 if test(*args):
                         ## Simplify and compute spills.
                         return (method if not isinstance(method, prim) else
-                                cls.find_method([target_primitive]))(*args)
+                                cls.find_method(keys))(*args)
         else:
                 raise Exception("Unhandled primitive form: %s" % self)
 
@@ -122,31 +128,15 @@ class potefless(expr):   pass ## might have no side effect
 class efless(potefless): pass ## on side effect
 class potconst(efless):  pass ## might end up being a constant expression
 class const(potconst):   pass ## constant
+class literal(const):
+        def value(self):
+                return self.args[0]
 
 ## to consider: no-return
 
 ###
 ### Toolkit
 ###
-def stmtp(x):     return isinstance(x, stmt)
-def bodyp(x):     return isinstance(x, body)
-def exprp(x):     return isinstance(x, expr)
-def the_stmt(x):
-        if not isinstance(x, stmt):   error("Statement expected, was: %s", x)
-        return x
-def the_expr(x):
-        if not isinstance(x, expr):   error("Expression expected, was: %s", x)
-        return x
-def the_efless(x):
-        if not isinstance(x, efless): error("Effect-less expression expected, was: %s", x)
-        return x
-def the_const(x):
-        if not isinstance(x, const):  error("Constant expression expected, was: %s", x)
-        return x
-def the_str(x):
-        if not isinstance(x, str):    error("String expected, was: %s", x)
-        return x
-
 def prim_kind_det_p(x):         return issubclass(x, (expr, stmt))
 def prim_unspilled_expr_p(x):   return isinstance(x, expr) and not x.spills
 def suite_unspilled_expr_p(xs): return len(xs) is 1 and prim_unspilled_expr_p(xs[0])
@@ -173,24 +163,31 @@ def help(x):
                 ([], r))
         return x.spills + p or TheEmptyList, v
 
-def help_exp(x):
+def help_expr(x):
         p, v = help(x)
         p and error("Helped %s to non-expr %s, %s, where an expression result was expected.", x, p, v)
         return v
 
-def help_exps(xs):
-        return [ help_exp(x) for x in xs ]
+def help_exprs(xs):
+        return [ help_expr(x) for x in xs ]
 
-def help_progn(xs):
-        assert(xs)
+def help_prog(xs):
         p_acc = []
-        for x in xs[:-1]:
+        for x in xs:
                 p, v = help(x)
                 p_acc.extend(p)
                 p_acc.append(ast.Expr(v))
-        p, v = help(xs[-1])
+        return p_acc
+
+def help_prog_n(xs, vf):
+        p_acc = help_prog(xs)
+        p, v = help(vf)
         p_acc.extend(p)
         return p_acc, v
+
+def help_progn(xs):
+        assert(xs)
+        return help_prog_n(xs[:-1], xs[-1])
 
 def help_progn_star(*xs):
         return help_progn(xs)
@@ -210,8 +207,11 @@ def help_args(fixed, opts, optvals, args, keys, keyvals, restkey):
                 kwonlyargs       = [ ast.arg(var_pyname(x), None) for x in         keynames ],
                 kwarg            = var_pyname(restkey) if restkey else None,
                 kwargannotation  = None,
-                defaults         = help_exps(optvals),
-                kw_defaults      = help_exps(keyvals))
+                defaults         = help_exprs(optvals),
+                kw_defaults      = help_exprs(keyvals))
+
+def fixed_ll(names):            return (names, [], [], None, [], [], None)
+def fixed_rest_ll(names, rest): return (names, [], [], rest, [], [], None)
 
 ###
 ### Spill theory
@@ -318,8 +318,8 @@ def prim_check_and_spill(primitive) -> primitive, list(dict()):
                                 arg.spills):             # - the argument has spilled itself
                                 return (arg, [])
                         tn = gensym("EXP-") ## Temporary Name.
-                        return (arg.spills + [setq_lexical(tn, arg)],
-                                ref_lexical(tn))
+                        return (arg.spills + [lexical_setq(tn, arg)],
+                                lexical_ref(tn))
                 return processors.get(type(spec), type_check)(spec, arg, force_spill = force_spill)
         primitive.args, primitive.spills = tuple_spills(primitive, args)
         return primitive
@@ -328,34 +328,97 @@ def process(p):
         ...
 
 ###
-### Granch scheme of things
+### (current) (not so very) grand scheme of things
 ###
-## 1. Init-time calculation of spills for determinates
-## 2. Help-time
+## 1. Init-time:
+##  - calculation of spills for determinates
 ##  - indeterminates dispatch to strategies
+## 2. Help-time
+##  - lowering
 ## ... ?
 
-### TODO
-## 1. Core:
-#
-# QUOTE
-# FLET, LABELS
-# UNWIND-PROTECT
-# CATCH
-# THROW
-# PROGV
+### Core TODO
+##
 # ? M-V-CALL
 # ? M-V-PROG1
 # ? NTH-VALUE
 # ?? TAGBODY, GO
-#
-## 2. Super
-#
-# operations
+# Later: PROGV
+##
+
+## Registry:
+## - STRING, INTEGER, FLOAT-NUM, SYMBOL, LITERAL-LIST, LITERAL-HASH-TABLE-EXPR
+## - QUOTE
+## - FUNCTION,
+## - LAMBDA, DEFUN, LAMBDA-EXPR
+## - LET, LET-EXPR, LET-TAIL, LET-THUNK
+## - SPECIAL-LET
+## - FLET, FLET-EXPR, FLET-STMT
+## - LABELS
+## - PROGN
+## - IF, IF-EXPR, IF-STMT
+## - FUNCALL, APPLY
+## - UNWIND-PROTECT
+## - RESIGNAL
+## - LEXICAL-{REF,SETQ}, SPECIAL-{REF,SETQ}
+## - IMPL-REF
+## - ATTR-REF, CONST-ATTR-REF, VAR-ATTR-REF
+## - EQ
+## - ADD
 
 ###
-### High-level (un-lived, indeterminate)
+### Constants
 ###
+@defprim(string,
+         (str,))
+class string(literal):
+        def help(name): return ast.Str(x)
+
+@defprim(integer,
+         (int,))
+class integer(literal):
+        def help(x): return ast.Num(x)
+
+@defprim(intern("FLOAT-NUM")[0],
+         (float,))
+class float_num(literal):
+        def help(x): return ast.Num(x)
+
+@defprim(symbol,
+         (symbol_t,))
+class symbol(literal):
+        def help(name): return ast.Name(sym_pyname(name), ast.Load())
+
+@defprim(intern("LITERAL-LIST"),
+         ([literal],))
+class listeral_list(literal):
+        def help(*xs):
+                return reduce(lambda car, cdr: ast.List(help_expr(car), cdr),
+                              reversed(xs),
+                              ast.Name(sym_pyname(nil), ast.Load()))
+
+@defprim(intern("LITERAL-HASH-TABLE-EXPR"),
+         ([(expr_spill, expr_spill)],))
+## Unregistered Issue EXTREME-NICETY-OF-AUTOMATIC-RECLASSIFICATION-TO-A-NARROWER-TYPE
+class literal_hash_table_expr(expr):
+        def help(*kvs):
+                keys, vals = zip(*kvs)
+                return ast.Dict(help_exprs(keys), help_exprs(vals))
+
+@defprim(intern("QUOTE")[0],
+         (const,))
+class quote(const):
+        def help(x):
+                return help(x)
+
+###
+### Functions
+###
+@defprim(function,
+         (or_t, symbol_t, ((eql_t, cl.setq), symbol_t)))
+class function(efless):
+        def help(name): return ast.Name(fun_pyname(name), ast.Load())
+
 @defprim(lambda_,
          ((([symbol_t],),
           ([symbol_t],), ([prim],), symbol_t,
@@ -363,67 +426,10 @@ def process(p):
           [prim]))
 class lambda_(indet):
         "NOTE: default value form evaluation is not delayed."
-        1_expr = defstrategy(test   = lambda pyargs, *body: suite_unspilled_expr_p(body),
-                             method = expr)
-        2_stmt = defstrategy(method = body)
+        1_expr = defstrategy(test = lambda pyargs, *body: suite_unspilled_expr_p(body),
+                             keys = expr)
+        2_stmt = defstrategy(keys = body)
 
-@defprim(if_,
-         (prim, prim, prim))
-class if_(indet):
-        1_expr = defstrategy(test   = lambda _, conseq, ante: (prim_unspilled_expr_p(conseq) and
-                                                               prim_unspilled_expr_p(ante)),
-                             method = expr)
-        2_stmt = defstrategy(method = body)
-
-@defprim(intern("PROGN")[0],
-         ([prim],))
-class progn(indet):
-        1_expr = defstrategy(test   = lambda *body: suite_unspilled_expr_p(body),
-                             method = help_exp)
-        2_stmt = defstrategy(method = help_progn_star)
-
-@defprim(let,
-         (([(symbol_t, prim)],),
-          [prim]))
-class let(indet):
-        1_expr = defstrategy(test   = lambda bindings, *body: suite_unspilled_expr_p(body),
-                             method = expr)
-        2_stmt = defstrategy(method = body)
-
-###
-### Constants
-###
-@defprim(string,
-         (str,))
-class string(const):
-        def help(name): return ast.Str(x)
-
-@defprim(integer,
-         (int,))
-class integer(const):
-        def help(x): return ast.Num(x)
-
-@defprim(symbol,
-         (symbol_t,))
-class symbol(const):
-        def help(name): return ast.Name(sym_pyname(name), ast.Load())
-
-@defprim(intern("QUOTED-LIST")[0],
-         ([const],))
-class quoted_list(const):
-        def help(*xs):
-                return reduce(lambda car, cdr: ast.List(help_exp(car), cdr),
-                              reversed(xs),
-                              ast.Name(sym_pyname(nil), ast.Load()))
-
-@defprim(function,
-         (or_t, symbol_t, ((eql_t, cl.setq), symbol_t)))
-class function(efless):
-        def help(name): return ast.Name(fun_pyname(name), ast.Load())
-
-###
-### Functions
-###
 @defprim(defun,
          (symbol_t, (([symbol_t],),
                      ([symbol_t],), ([expr],), symbol_t,
@@ -434,7 +440,7 @@ class defun(body):
                 return [ ast.FunctionDef(
                                 fun_pyname(name),
                                 help_args(*pyargs),
-                                decorator_list = help_exps(decorators),
+                                decorator_list = help_exprs(decorators),
                                 returns = None,
                                 body = help_tail_prog(body, kind = ast.Return))
                          ], ast.Name(fun_pyname(name), ast.Load())
@@ -448,51 +454,41 @@ class defun(body):
            ([symbol_t],), ([expr_spill],), symbol_t),
           expr))
 class lambda_expr(expr):
-        def help(pyargs, expr): return ast.Lambda(help_args(*pyargs), help_exp(expr))
+        def help(pyargs, expr): return ast.Lambda(help_args(*pyargs), help_expr(expr))
         lambda_ = identity_method()
-
-@defprim(funcall,
-         (expr_spill, [expr_spill]))
-class funcall(expr):
-        ## NOT LINKED UP -- deferred for usage by higher levels.
-        def help(func, *fixed_args):
-                return ast.Call(help_exp(func), [ help_exp(x) for x in fixed_args ], [])
-
-@defprim(apply,
-         (expr_spill, expr_spill, [expr_spill]))
-class apply(expr):
-        ## NOT LINKED UP -- deferred for usage by higher levels.
-        def help(func, arg, *args):
-                fixed_args, arglist = (([arg] + args[:-1], args[-1]) if args else
-                                       ([],                [arg]))
-                return ast.Call(help_exp(func), [ help_exp(x) for x in fixed_args ], [], help_exp(arglist))
 
 ###
 ### Binding
 ###
+@defprim(let,
+         (([(symbol_t, prim)],),
+          [prim]))
+class let(indet):
+        1_expr = defstrategy(test = lambda bindings, *body: suite_unspilled_expr_p(body),
+                             keys = expr)
+        2_stmt = defstrategy(keys = body)
+
 @defprim(intern("LET-EXPR"),
          (([(symbol_t, expr_spill)],),
           expr))
 class let_expr(expr):
         def help(bindings, expr):
                 ns, vs = list(zip(*bindings))
-                return ast.Call(ast.Lambda(help_args([ var_pyname(x) for x in ns ], [], [], None, [], [], None),
-                                           help_exp(expr)),
-                                help_exps(vs))
+                return help(funcall(lambda_expr(fixed_ll(ns),
+                                                expr),
+                                    *vs))
         let = identity_method()
 
 @defprim(intern("LET-TAIL"),
-         (([(symbol_t, expr_spill)],),
-          [prim]))
+         (([(symbol_t, expr_spill)],),)
+         [prim])
 class let_tail(body):
         "Can only be used, when it can be proved, that no used variables can be mutated."
-        ## NOT LINKED UP -- deferred for usage by higher levels.
+        ## NOT LINKED UP -- deferred for usage by higher levels,
+        ## as there is not enough information to perform indet-init-time selection.
         def help(bindings, *body):
-                ns, vs = list(zip(*bindings))
-                p, v = help_progn(body)
-                return [ ast.Assign([ ast.Name(var_pyname(x) for x in ns) ],
-                                    ast.List([ help_exp(x) for x in vs], ast.Load()))
-                         ] + p, v
+                return help(progn(*([ lexical_setq(n, v) for n, v in bindings ]
+                                    + body)))
 
 @defprim(intern("LET-THUNK"),
          (([(symbol_t, expr_spill)],),
@@ -502,24 +498,107 @@ class let_thunk(body):
         def help(bindings, *body):
                 ns, vs = list(zip(*bindings))
                 tn = gensym("LET-THUNK-")
-                return [ ast.FunctionDef(
-                                fun_pyname(tn),
-                                help_args([ var_pyname(x) for x in ns ], [], [], None, [], [], None),
-                                decorator_list = [],
-                                returns = None,
-                                body = help_tail_prog(body, kind = ast.Return))
-                         ], ast.Call(ast.Name(fun_pyname(tn), ast.Load()),
-                                     help_exps(vs))
+                return help(progn(defun(tn, fixed_ll(ns), [],
+                                        *body),
+                                  funcall(function(tn), *vs)))
         let = identity_method()
+
+@defprim(intern("SPECIAL-LET"),
+         (([(symbol_t, expr_spill)],),
+          [prim]))
+class special_let(body):
+        def help(bindings, *body):
+                tn = gensym("VALUE-")
+                return [ ast.With(funcall(impl_ref("_env_cluster"),
+                                          literal_hash_table_expr(*((symbol(name), val)
+                                                                    for name, val in bindings.items()))),
+                                  None,
+                                  help_prog_star(lexical_setq(tn, progn(*body))))
+                         ], help_exp(lexical_ref(tn))
+                return help(progn(defun(tn, fixed_ll(ns), [],
+                                        *body),
+                                  funcall(function(tn), *vs)))
+
+@defprim(flet,
+         (([(symbol_t, (([symbol_t],),
+                        ([symbol_t],), ([expr_spill],), symbol_t,
+                        ([symbol_t],), ([expr_spill],), symbol_t),
+             [prim])],),
+          [prim]))
+class flet(indet):
+        1_expr = defstrategy(test = lambda bindings, *body: (suite_unspilled_expr_p(body) and
+                                                             all(suite_unspilled_expr_p(body)
+                                                                 for name, lam, body in bindings)),
+                             keys = expr)
+        2_stmt = defstrategy(keys = body)
+
+@defprim(intern("FLET-EXPR"),
+         (([(symbol_t, (([symbol_t],),
+                        ([symbol_t],), ([expr_spill],), symbol_t,  ## EXPR-SPILL?
+                        ([symbol_t],), ([expr_spill],), symbol_t),
+             expr)],),
+          expr))
+class flet_expr(body):
+        def help(bindings, expr):
+                ns, lls, bs = zip(*bindings)
+                return help(funcall(lambda_expr(fixed_ll(ns),
+                                                expr),
+                                    *[ lambda_expr(lam, expr)
+                                       for _, lam, expr in bindings ]))
+        flet = identity_method()
+
+@defprim(intern("FLET-STMT"),
+         (([(symbol_t, (([symbol_t],),
+                        ([symbol_t],), ([expr_spill],), symbol_t,  ## EXPR-SPILL?
+                        ([symbol_t],), ([expr_spill],), symbol_t),
+             [prim])],),
+          [prim]))
+class flet_stmt(body):
+        def help(bindings, *body):
+                gennames = [ gensym(symbol_name(name)) for name, _, __ in bindings ]
+                names, lams, bodies = zip(*bindings)
+                tn = gensym("FLET-THUNK-")
+                return (help_prog([defun(tn, fixed_ll([]),
+                                         *([ defun(name, args, [],
+                                                   *body)
+                                             for name, args, *body in bindings ]
+                                           + body))]),
+                        help(funcall(function(tn))))
+        flet = identity_method()
+
+@defprim(intern("LABELS")[0],
+         (([(symbol_t, (([symbol_t],),
+                        ([symbol_t],), ([expr_spill],), symbol_t,  ## EXPR-SPILL?
+                        ([symbol_t],), ([expr_spill],), symbol_t),
+             [prim])],),
+          [prim]))
+class labels(body):
+        def help(bindings, *body):
+                tn = gensym("LABELS-THUNK-")
+                return (help_prog([defun(tn, fixed_ll([]),
+                                         *([ defun(name, args, [],
+                                                   *body)
+                                             for name, args, *body in bindings ]
+                                           + body))]),
+                        help(funcall(function(tn))))
 
 ###
 ### Control
 ###
-@defprim(intern("IMPL-CALL")[0],
-         (str, [expr_spill]))
-class impl_call(expr):
-        def help(name, *args):
-                return ast.Call(_ast_attribute_chain("cl", the_str(name)), help_exps(args))
+@defprim(intern("PROGN")[0],
+         ([prim],))
+class progn(indet):
+        1_expr = defstrategy(test = lambda *body: suite_unspilled_expr_p(body),
+                             keys = help_exp)
+        2_stmt = defstrategy(keys = help_progn_star)
+
+@defprim(if_,
+         (prim, prim, prim))
+class if_(indet):
+        1_expr = defstrategy(test = lambda _, conseq, ante: (prim_unspilled_expr_p(conseq) and
+                                                             prim_unspilled_expr_p(ante)),
+                             keys = expr)
+        2_stmt = defstrategy(keys = body)
 
 @defprim(intern("IF-EXPR")[0],
          (expr_spill, expr, expr))
@@ -535,49 +614,147 @@ class if_stmt(body):
                 tv, (cp, cv), (ap, av) = [ help(x) for x in tca ]
                 tn = gensym("IFVAL-")
                 return [ ast.If(tv,
-                                cp + help(setq_lexical(tn, cv))[0],
-                                ap + help(setq_lexical(tn, av))[0]
-                                ) ], help(ref_lexical(tn))
+                                cp + help_prog([lexical_setq(tn, cv)]),
+                                ap + help_prog([lexical_setq(tn, av)])
+                                ) ], help(lexical_ref(tn))
         if_ = identity_method()
+
+@defprim(funcall,
+         (expr_spill, [expr_spill]))
+class funcall(expr):
+        ## NOT LINKED UP -- deferred for usage by higher levels.
+        def help(func, *fixed_args):
+                return ast.Call(help_expr(func),
+                                help_exprs(fixed_args), [])
+
+@defprim(apply,
+         (expr_spill, expr_spill, [expr_spill]))
+class apply(expr):
+        ## NOT LINKED UP -- deferred for usage by higher levels.
+        def help(func, arg, *args):
+                fixed_args, arglist = (([arg] + args[:-1], args[-1]) if args else
+                                       ([],                [arg]))
+                return ast.Call(help_expr(func), help_exprs(fixed_args), [], help_expr(arglist))
+
+@defprim(unwind_protect,
+         (prim,
+          [prim]))
+class unwind_protect(body):
+        def help(protected_form, *body):
+                # need a combinator for PRIM forms
+                tn = gensym("UWP-VALUE-")
+                return ast.TryFinally(help_prog([lexical_setq(tn, protected_form)]),
+                                      help_prog(body)
+                                      ), help_expr(lexical_ref(tn))
+
+@defprim(resignal, ())
+class resignal(stmt):
+        def help():
+                return ast.Raise()
+
+@defprim(catch,
+         (expr_spill,
+          [prim]))
+class catch(tag, *body):
+        def help(tag, *body):
+                val_tn, ex_tn = gensym("BODY-VALUE-"), gensym("EX")
+                return [ ast.TryExcept(
+                                help_prog([lexical_setq(val_tn, progn(*body))]),
+                                [ ast.ExceptHandler(impl_ref("__catcher_throw__"),
+                                                    var_pyname(ex_tn),
+                                                    help_prog_star(
+                                                        if_(is_(attr(lexical_ref(ex_tn), string("ball")),
+                                                                help_expr(tag)),
+                                                            progn(funcall(ref_impl("__catch_maybe_reenable_pytracer"),
+                                                                          lexical_ref(ex_tn)),
+                                                                  lexical_setq(val_tn,
+                                                                               attr(lexical_ref(ex_tn), string("value")))),
+                                                            resignal()))) ],
+                                [])
+                         ], help_expr(lexical_ref(val_tn))
+
+@defprim(throw,
+         (expr_spill, expr_spill))
+class throw(expr):
+        def help(tag, value):
+                return help_expr(funcall(impl_ref("__throw"),
+                                         help_expr(tag), help_expr(value)))
 
 ###
 ### References
 ###
-@defprim(intern("REF-LEXICAL")[0],
+@defprim(intern("LEXICAL-REF")[0],
          (symbol_t,))
-class ref_lexical(efless): ## potconst, if we choose to do constant propagation this way
+class lexical_ref(efless): ## potconst, if we choose to do constant propagation this way
         def help(name):
                 return ast.Name(var_pyname(name), ast.Load())
 
-@defprim(intern("SETQ-LEXICAL")[0],
+@defprim(intern("LEXICAL-SETQ")[0],
          (symbol_t, expr_spill))
-class setq_lexical(stmt):
+class lexical_setq(stmt):
         def help(name, value):
                 pyname = var_pyname(name)
                 return [ ast.Assign([ast.Name(pyname, ast.Store())], help(value))
                         ], ast.Name(pyname, ast.Load())
 
-@defprim(intern("REF-SPECIAL")[0],
+@defprim(intern("SPECIAL-REF")[0],
          (symbol_t,))
-class ref_special(efless):
+class special_ref(efless):
         def help(name):
-                return help(impl_call("_symbol_value", symbol(name)))
+                return help(funcall(impl_ref("_symbol_value"), symbol(name)))
 
-@defprim(intern("SETQ-SPECIAL")[0],
+@defprim(intern("SPECIAL-SETQ")[0],
          (symbol_t, expr_spill))
-class setq_special(expr):
+class special_setq(expr):
         def help(name, value):
-                return help(impl_call("_do_set", symbol(name), value))
+                return help(funcall(impl_ref("_do_set"), symbol(name), value))
+
+@defprim(intern("IMPL-REF")[0],
+         (string,))
+class impl_ref(expr):
+        def help(name):
+                return _ast_attribute_chain("cl", name.value())
+
+###
+### Specials
+###
+@defprim(intern("ATTR-REF")[0],
+         (prim, prim))
+class attr_ref(indet):
+        1_const = defstrategy(test = lambda _, attr: isinstance(attr, string),
+                              keys = "const attr")
+        2_var   = defstrategy(keys = efless)
+
+@defprim(intern("CONST-ATTR-REF")[0],
+         (expr_spill, string))
+class const_attr_ref(efless):
+        def help(x, attr): return ast.Attribute(help_expr(x), help_expr(attr), ast.Load())
+        attr_ref = identity_method("const attr")
+
+@defprim(intern("VAR-ATTR-REF")[0],
+         (expr_spill, expr_spill))
+class var_attr_ref(efless):
+        def help(x, attr):
+                return help(funcall(ast.Name("getattr", ast.Load()),
+                                    help_expr(x), help_expr(attr)))
+        attr_ref = identity_method()
 
 ###
 ### Operations
 ###
-def help_boolop(args, type): 
-        init, rest = ((args[0], args[1:]) if args else (0, args))
-        return reduce(lambda x, y: ast.BoolOp(x, type(), the_expr(help(y))),
-                      rest, the_expr(help(init)))
+def help_binop(op, x, y):
+        return ast.BinOp(help_expr(x), op(), help_expr(y))
 
-@defprim(intern("+")[0],
-         ([expr_spill],))
+@defprim(intern("EQ")[0], (expr_spill, expr_spill))
+class eq(potconst):
+        ## Optimisation: fold (NOT (EQ X Y)) to ast.IsNot
+        def help(x, y): return help_binop(ast.Is, x, y)
+
+def help_binop_seq(args, type):
+        init, rest = ((args[0], args[1:]) if args else (0, args))
+        return reduce(lambda x, y: ast.BinOp(x, type(), help_expr(y)),
+                      rest, help_expr(init))
+
+@defprim(intern("+")[0], ([expr_spill],))
 class add(potconst):
-        def help(*xs): return help_boolop(xs, ast.Add)
+        def help(*xs): return help_binop_seq(xs, ast.Add)

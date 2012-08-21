@@ -948,11 +948,14 @@ def __catch(ball, body):
         except __catcher_throw__ as ct:
                 # format(t, "catcher %s, ball %s -> %s", ct.ball, ball, "caught" if ct.ball is ball else "missed")
                 if ct.ball is ball:
-                        if ct.reenable_pytracer:
-                                _frost.enable_pytracer()
+                        __catch_maybe_reenable_pytracer(ct)
                         return ct.value
                 else:
                         raise
+
+def __catch_maybe_reenable_pytracer(ct):
+        if ct.reenable_pytracer:
+                _frost.enable_pytracer()
 
 def __throw(ball, value):
         "Stack this seeks, like mad, like the real one."
