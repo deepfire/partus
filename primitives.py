@@ -5,11 +5,6 @@ import ast
 import frost
 import collections
 
-### names
-def fun_pyname(x): return frost.full_symbol_name_python_name(x)
-def sym_pyname(x): return frost.full_symbol_name_python_name(x)
-def var_pyname(x): return frost.full_symbol_name_python_name(x)
-
 ###
 __primitives__           = dict()
 __primitives_by_pyname__ = dict()
@@ -51,7 +46,7 @@ def defprim(name, form_specifier):
                                 primitive_method_pool[key].add(method)
                 help_stdmethod = cls.__dict__["help"]
                 for name, method_spec in cls.__dict__.items():
-                        if maybe_process_as_strategy(cls, name, method_spec) or name == "help":
+                        if maybe_process_as_strategy(cls, name, method_spec) or name in ("help", "value"):
                                 continue
                         ## otherwise, must be an indet method
                         method, identityp, keys = \
@@ -202,11 +197,11 @@ def help_args(fixed, opts, optvals, args, keys, keyvals, restkey):
         assert(len(opts) == len(optvals) and
                len(keys) == len(keyvals))
         return ast.arguments(
-                args             = [ ast.arg(var_pyname(x), None) for x in fixed + optnames ],
-                vararg           = var_pyname(args)    if args    else None,
+                args             = [ ast.arg(x.value(), None) for x in fixed + optnames ],
+                vararg           = args.value()    if args    else None,
                 varargannotation = None,
-                kwonlyargs       = [ ast.arg(var_pyname(x), None) for x in         keynames ],
-                kwarg            = var_pyname(restkey) if restkey else None,
+                kwonlyargs       = [ ast.arg(x.value(), None) for x in         keynames ],
+                kwarg            = restkey.value() if restkey else None,
                 kwargannotation  = None,
                 defaults         = help_exprs(optvals),
                 kw_defaults      = help_exprs(keyvals))
@@ -321,9 +316,9 @@ def prim_check_and_spill(primitive) -> primitive, list(dict()):
                                 isinstance(arg, stmt) or # - the argument is not an expression
                                 arg.spills):             # - the argument has spilled itself
                                 return (arg, [])
-                        tn = gensym("EXP-") ## Temporary Name.
-                        return (arg.spills + [lexical_setq(tn, arg)],
-                                lexical_ref(tn))
+                        tn = genname("EXP-") ## Temporary Name.
+                        return (arg.spills + [assign(tn, arg)],
+                                name(tn))
                 return processors.get(type(spec), type_check)(spec, arg, force_spill = force_spill)
         primitive.args, primitive.spills = tuple_spills(primitive, args)
         return primitive
@@ -351,9 +346,11 @@ def process(p):
 ##
 
 ## Registry:
-## - STRING, INTEGER, FLOAT-NUM, SYMBOL, LITERAL-LIST, LITERAL-HASH-TABLE-EXPR
-## - QUOTE
-## - FUNCTION,
+## - NAME
+## - ASSIGN
+## - ATTR, CONST-ATTR, VAR-ATTR
+## - INDEX, SLICE
+## - STRING, INTEGER, FLOAT-NUM, LITERAL-LIST, LITERAL-HASH-TABLE-EXPR
 ## - LAMBDA, DEFUN, LAMBDA-EXPR
 ## - LET, LET-EXPR, LET-TAIL, LET-THUNK
 ## - SPECIAL-LET
@@ -364,16 +361,80 @@ def process(p):
 ## - FUNCALL, APPLY
 ## - UNWIND-PROTECT
 ## - RESIGNAL
-## - LEXICAL-{REF,SETQ}, SPECIAL-{REF,SETQ}
+## - SPECIAL-{REF,SETQ}
 ## - IMPL-REF
-## - ATTR, CONST-ATTR, VAR-ATTR
-## - INDEX
-## - ASSIGN
 ## - CONS, CAR, CDR, RPLACA, RPLACD
 ## - OR, AND, NOT
 ## - LOGNOT
 ## - EQ
 ## - +, -, *
+
+###
+### Spycials
+###
+@defprim(intern("NAME")[0],
+         (string_t,))
+class name(expr):
+        def value(x, writep = nil):
+                return x
+        def help(x, writep = nil):
+                return ast.Name(x, help_ctx(writep))
+
+def genname(x = "#:G"):
+        return name(_gensymname(x))
+
+@defprim(intern("ASSIGN")[0],
+         (expr, expr_spill))
+class assign(stmt):
+        def help(place, value, tn = nil):
+                the_tn = tn or genname("TARGET-")
+                simple_val_p = isinstance(value, (name, const))
+                simple_tgt_p = isinstance(place, name)
+                return ([] if simple_val_p or simple_tgt_p else
+                        [ help(set_name(the_tn, value))[0] ]
+                        ) + [ ast.Assign([ help_expr(place) ], help_expr(the_tn))
+                              ], help_expr(value if simple_val_p else
+                                           place if simple_tgt_p else
+                                           the_tn)
+
+@defprim(intern("ATTR-REF")[0],
+         (prim, prim))
+class attr(indet):
+        1_const = defstrategy(test = lambda _, attr: isinstance(attr, string),
+                              keys = "const attr")
+        2_var   = defstrategy(keys = efless)
+
+@defprim(intern("CONST-ATTR-REF")[0],
+         (expr_spill, string))
+class const_attr(efless):
+        def help(x, attr, writep = nil): return ast.Attribute(help_expr(x), help_expr(attr), help_ctx(writep))
+        attr = identity_method("const attr")
+
+@defprim(intern("VAR-ATTR-REF")[0],
+         (expr_spill, expr_spill))
+class var_attr(efless):
+        def help(x, attr):
+                return help(funcall(name("getattr"), help_expr(x), help_expr(attr)))
+        attr = identity_method()
+
+@defprim(intern("INDEX")[0],
+         (expr_spill, expr_spill))
+class index(expr):
+        def help(x, index, writep = nil):
+                return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
+
+@defprim(intern("SLICE")[0],
+         (expr_spill, expr_spill, expr_spill))
+class slice(expr):
+        def help(x, start, end, writep = nil):
+                return ast.Subscript(help_expr(x), ast.Slice(help_expr(start), help_expr(end if end is not nil else
+                                                                                         name("None"))),
+                                     help_ctx(writep))
+
+def prim_attr_chain(xs, writep = nil):
+        return reduce((lambda acc, attr: const_attr(acc, attr, writep)),
+                      xs[1:],
+                      name(xs[0], writep))
 
 ###
 ### Constants
@@ -393,18 +454,14 @@ class integer(literal):
 class float_num(literal):
         def help(x): return ast.Num(x)
 
-@defprim(symbol,
-         (symbol_t,))
-class symbol(literal):
-        def help(name): return ast.Name(sym_pyname(name), ast.Load())
-
 @defprim(intern("LITERAL-LIST"),
          ([literal],))
 class listeral_list(literal):
         def help(*xs):
                 return reduce(lambda car, cdr: ast.List(help_expr(car), cdr),
                               reversed(xs),
-                              ast.Name(sym_pyname(nil), ast.Load()))
+                              ## Namespace separation leak:
+                              help_expr(name(cl._ensure_symbol_pyname(nil))))
 
 @defprim(intern("LITERAL-HASH-TABLE-EXPR"),
          ([(expr_spill, expr_spill)],))
@@ -414,24 +471,13 @@ class literal_hash_table_expr(expr):
                 keys, vals = zip(*kvs)
                 return ast.Dict(help_exprs(keys), help_exprs(vals))
 
-@defprim(intern("QUOTE")[0],
-         (const,))
-class quote(const):
-        def help(x):
-                return help(x)
-
 ###
 ### Functions
 ###
-@defprim(function,
-         (or_t, symbol_t, ((eql_t, cl.setq), symbol_t)))
-class function(efless):
-        def help(name): return ast.Name(fun_pyname(name), ast.Load())
-
 @defprim(lambda_,
-         ((([symbol_t],),
-          ([symbol_t],), ([prim],), symbol_t,
-          ([symbol_t],), ([prim],), symbol_t),
+         ((([name],),
+          ([name],), ([prim],), name,
+          ([name],), ([prim],), name),
           [prim]))
 class lambda_(indet):
         "NOTE: default value form evaluation is not delayed."
@@ -440,27 +486,27 @@ class lambda_(indet):
         2_stmt = defstrategy(keys = body)
 
 @defprim(defun,
-         (symbol_t, (([symbol_t],),
-                     ([symbol_t],), ([expr],), symbol_t,
-                     ([symbol_t],), ([expr],), symbol_t),
+         (name, (([name],),
+                 ([name],), ([expr],), name,
+                 ([name],), ([expr],), name),
           [prim]))
 class defun(body):
         def help(name, pyargs, decorators, *body):
                 return [ ast.FunctionDef(
-                                fun_pyname(name),
+                                name.value(),
                                 help_args(*pyargs),
                                 decorator_list = help_exprs(decorators),
                                 returns = None,
                                 body = help_tail_prog(body, kind = ast.Return))
-                         ], help_expr(function(name))
+                         ], help_expr(name)
         @defmethod(lambda_)
         def lambda_(pyargs, expr):
-                return defun(gensym("DEFLAM-"), pyargs, [], expr)
+                return defun(genname("DEFLAM-"), pyargs, [], expr)
 
 @defprim(intern("LAMBDA-EXPR")[0],
-         ((([symbol_t],),
-           ([symbol_t],), ([expr_spill],), symbol_t,
-           ([symbol_t],), ([expr_spill],), symbol_t),
+         ((([name],),
+           ([name],), ([expr_spill],), name,
+           ([name],), ([expr_spill],), name),
           expr))
 class lambda_expr(expr):
         def help(pyargs, expr): return ast.Lambda(help_args(*pyargs), help_expr(expr))
@@ -470,7 +516,7 @@ class lambda_expr(expr):
 ### Binding
 ###
 @defprim(let,
-         (([(symbol_t, prim)],),
+         (([(name, prim)],),
           [prim]))
 class let(indet):
         1_expr = defstrategy(test = lambda bindings, *body: suite_unspilled_expr_p(body),
@@ -478,7 +524,7 @@ class let(indet):
         2_stmt = defstrategy(keys = body)
 
 @defprim(intern("LET-EXPR"),
-         (([(symbol_t, expr_spill)],),
+         (([(name, expr_spill)],),
           expr))
 class let_expr(expr):
         def help(bindings, expr):
@@ -489,49 +535,46 @@ class let_expr(expr):
         let = identity_method()
 
 @defprim(intern("LET-TAIL"),
-         (([(symbol_t, expr_spill)],),)
+         (([(name, expr_spill)],),)
          [prim])
 class let_tail(body):
         "Can only be used, when it can be proved, that no used variables can be mutated."
         ## NOT LINKED UP -- deferred for usage by higher levels,
         ## as there is not enough information to perform indet-init-time selection.
         def help(bindings, *body):
-                return help(progn(*([ lexical_setq(n, v) for n, v in bindings ]
+                return help(progn(*([ assign(n, v) for n, v in bindings ]
                                     + body)))
 
 @defprim(intern("LET-THUNK"),
-         (([(symbol_t, expr_spill)],),
+         (([(name, expr_spill)],),
           [prim]))
 class let_thunk(body):
         "The most universal, yet bulky kind of LET."
         def help(bindings, *body):
                 ns, vs = list(zip(*bindings))
-                tn = gensym("LET-THUNK-")
+                tn = genname("LET-THUNK-")
                 return help(progn(defun(tn, fixed_ll(ns), [],
                                         *body),
-                                  funcall(function(tn), *vs)))
+                                  funcall(tn, *vs)))
         let = identity_method()
 
 @defprim(intern("SPECIAL-LET"),
-         (([(symbol_t, expr_spill)],),
+         (([(name, expr_spill)],),
           [prim]))
 class special_let(body):
         def help(bindings, *body):
-                tn = gensym("VALUE-")
+                tn = genname("VALUE-")
                 return [ ast.With(funcall(impl_ref("_env_cluster"),
-                                          literal_hash_table_expr(*((symbol(name), val)
+                                          literal_hash_table_expr(*((name, val)
                                                                     for name, val in bindings.items()))),
                                   None,
-                                  help_prog_star(lexical_setq(tn, progn(*body))))
-                         ], help_exp(lexical_ref(tn))
-                return help(progn(defun(tn, fixed_ll(ns), [],
-                                        *body),
-                                  funcall(function(tn), *vs)))
+                                  help_prog_star(assign(tn, progn(*body))))
+                         ], help_expr(tn)
 
 @defprim(flet,
-         (([(symbol_t, (([symbol_t],),
-                        ([symbol_t],), ([expr_spill],), symbol_t,
-                        ([symbol_t],), ([expr_spill],), symbol_t),
+         (([(name, (([name],),
+                    ([name],), ([expr_spill],), name,
+                    ([name],), ([expr_spill],), name),
              [prim])],),
           [prim]))
 class flet(indet):
@@ -542,9 +585,9 @@ class flet(indet):
         2_stmt = defstrategy(keys = body)
 
 @defprim(intern("FLET-EXPR"),
-         (([(symbol_t, (([symbol_t],),
-                        ([symbol_t],), ([expr_spill],), symbol_t,  ## EXPR-SPILL?
-                        ([symbol_t],), ([expr_spill],), symbol_t),
+         (([(name, (([name],),
+                    ([name],), ([expr_spill],), name,  ## EXPR-SPILL?
+                    ([name],), ([expr_spill],), name),
              expr)],),
           expr))
 class flet_expr(body):
@@ -557,39 +600,38 @@ class flet_expr(body):
         flet = identity_method()
 
 @defprim(intern("FLET-STMT"),
-         (([(symbol_t, (([symbol_t],),
-                        ([symbol_t],), ([expr_spill],), symbol_t,  ## EXPR-SPILL?
-                        ([symbol_t],), ([expr_spill],), symbol_t),
+         (([(name, (([name],),
+                    ([name],), ([expr_spill],), name,  ## EXPR-SPILL?
+                    ([name],), ([expr_spill],), name),
              [prim])],),
           [prim]))
 class flet_stmt(body):
         def help(bindings, *body):
-                gennames = [ gensym(symbol_name(name)) for name, _, __ in bindings ]
                 names, lams, bodies = zip(*bindings)
-                tn = gensym("FLET-THUNK-")
+                tn = genname("FLET-THUNK-")
                 return (help_prog([defun(tn, fixed_ll([]),
-                                         *([ defun(name, args, [],
+                                         *([ defun(name, lam, [],
                                                    *body)
-                                             for name, args, *body in bindings ]
+                                             for name, lam, *body in bindings ]
                                            + body))]),
-                        help(funcall(function(tn))))
+                        help_expr(funcall(tn)))
         flet = identity_method()
 
 @defprim(intern("LABELS")[0],
-         (([(symbol_t, (([symbol_t],),
-                        ([symbol_t],), ([expr_spill],), symbol_t,  ## EXPR-SPILL?
-                        ([symbol_t],), ([expr_spill],), symbol_t),
+         (([(name, (([name],),
+                    ([name],), ([expr_spill],), name,  ## EXPR-SPILL?
+                    ([name],), ([expr_spill],), name),
              [prim])],),
           [prim]))
 class labels(body):
         def help(bindings, *body):
-                tn = gensym("LABELS-THUNK-")
+                tn = genname("LABELS-THUNK-")
                 return (help_prog([defun(tn, fixed_ll([]),
-                                         *([ defun(name, args, [],
+                                         *([ defun(name, lam, [],
                                                    *body)
-                                             for name, args, *body in bindings ]
+                                             for name, lam, *body in bindings ]
                                            + body))]),
-                        help(funcall(function(tn))))
+                        help_expr(funcall(tn)))
 
 ###
 ### Control
@@ -621,11 +663,11 @@ class if_expr(expr):
 class if_stmt(body):
         def help(*tca):
                 tv, (cp, cv), (ap, av) = [ help(x) for x in tca ]
-                tn = gensym("IFVAL-")
+                tn = genname("IFVAL-")
                 return [ ast.If(tv,
-                                cp + help_prog([lexical_setq(tn, cv)]),
-                                ap + help_prog([lexical_setq(tn, av)])
-                                ) ], help(lexical_ref(tn))
+                                cp + help_prog([assign(tn, cv)]),
+                                ap + help_prog([assign(tn, av)])
+                                ) ], help_expr(tn)
         if_ = identity_method()
 
 @defprim(funcall,
@@ -651,10 +693,13 @@ class apply(expr):
 class unwind_protect(body):
         def help(protected_form, *body):
                 # need a combinator for PRIM forms
-                tn = gensym("UWP-VALUE-")
-                return ast.TryFinally(help_prog([lexical_setq(tn, protected_form)]),
-                                      help_prog(body)
-                                      ), help_expr(lexical_ref(tn))
+                if body:
+                        tn = genname("UWP-VALUE-")
+                        return ast.TryFinally(help_prog([assign(tn, protected_form)]),
+                                              help_prog(body)
+                                              ), help_expr(tn)
+                else:
+                        return help_progn_star(protected_form)
 
 @defprim(resignal, ())
 class resignal(stmt):
@@ -666,21 +711,21 @@ class resignal(stmt):
           [prim]))
 class catch(tag, *body):
         def help(tag, *body):
-                val_tn, ex_tn = gensym("BODY-VALUE-"), gensym("EX")
+                val_tn, ex_tn = genname("BODY-VALUE-"), genname("EX")
                 return [ ast.TryExcept(
-                                help_prog([lexical_setq(val_tn, progn(*body))]),
+                                help_prog([assign(val_tn, progn(*body))]),
                                 [ ast.ExceptHandler(impl_ref("__catcher_throw__"),
-                                                    var_pyname(ex_tn),
+                                                    ex_tn.value(),
                                                     help_prog_star(
-                                                        if_(is_(attr(lexical_ref(ex_tn), string("ball")),
+                                                        if_(is_(attr(ex_tn, string("ball")),
                                                                 help_expr(tag)),
                                                             progn(funcall(ref_impl("__catch_maybe_reenable_pytracer"),
-                                                                          lexical_ref(ex_tn)),
-                                                                  lexical_setq(val_tn,
-                                                                               attr(lexical_ref(ex_tn), string("value")))),
+                                                                          ex_tn),
+                                                                  assign(val_tn,
+                                                                         attr(ex_tn, string("value")))),
                                                             resignal()))) ],
                                 [])
-                         ], help_expr(lexical_ref(val_tn))
+                         ], help_expr(val_tn)
 
 @defprim(throw,
          (expr_spill, expr_spill))
@@ -692,73 +737,23 @@ class throw(expr):
 ###
 ### References
 ###
-@defprim(intern("LEXICAL-REF")[0],
-         (symbol_t,))
-class lexical_ref(efless): ## potconst, if we choose to do constant propagation this way
-        def help(name, writep = nil):
-                return ast.Name(var_pyname(name), (ast.Store if writep else ast.Load)())
-
-@defprim(intern("LEXICAL-SETQ")[0],
-         (symbol_t, expr_spill))
-class lexical_setq(stmt):
-        def help(name, value):
-                return help_progn_star(assign(lexical_ref(name, writep = t), value, tn = nil))
-
 @defprim(intern("SPECIAL-REF")[0],
-         (symbol_t,))
+         (name,))
 class special_ref(efless):
         def help(name):
-                return help(funcall(impl_ref("_symbol_value"), symbol(name)))
+                return help(funcall(impl_ref("_symbol_value"), name))
 
 @defprim(intern("SPECIAL-SETQ")[0],
-         (symbol_t, expr_spill))
+         (name, expr_spill))
 class special_setq(expr):
         def help(name, value):
-                return help(funcall(impl_ref("_do_set"), symbol(name), value))
+                return help(funcall(impl_ref("_do_set"), name, value, name("None")))
 
 @defprim(intern("IMPL-REF")[0],
          (string,))
 class impl_ref(expr):
         def help(name):
                 return _ast_attribute_chain("cl", name.value())
-
-###
-### Specials
-###
-@defprim(intern("ATTR-REF")[0],
-         (prim, prim))
-class attr(indet):
-        1_const = defstrategy(test = lambda _, attr: isinstance(attr, string),
-                              keys = "const attr")
-        2_var   = defstrategy(keys = efless)
-
-@defprim(intern("CONST-ATTR-REF")[0],
-         (expr_spill, string))
-class const_attr(efless):
-        def help(x, attr, writep = nil): return ast.Attribute(help_expr(x), help_expr(attr), help_ctx(writep))
-        attr = identity_method("const attr")
-
-@defprim(intern("VAR-ATTR-REF")[0],
-         (expr_spill, expr_spill))
-class var_attr(efless):
-        def help(x, attr):
-                return help(funcall(ast.Name("getattr", ast.Load()),
-                                    help_expr(x), help_expr(attr)))
-        attr = identity_method()
-
-@defprim(intern("INDEX")[0],
-         (expr_spill, expr_spill))
-class index(expr):
-        def help(x, index, writep = nil): return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
-
-@defprim(intern("ASSIGN")[0],
-         (expr, expr_spill))
-class assign(stmt):
-        def help(place, value):
-                tn = gensym("TARGET-")
-                return [ help(lexical_setq(tn, value))[0],
-                         ast.Assign([ help_expr(place) ], help_expr(lexical_ref(tn)))
-                         ], lexical_ref(tn)
 
 ###
 ### Lists
@@ -776,17 +771,17 @@ class car(expr):
 class cdr(expr):
         def help(cons): return _ast.Subscript(help_expr(cons), ast.Index(1), ast.Load())
 
-@defprim(intern("RPLACA")[0], (expr_spill,))
+@defprim(intern("RPLACA")[0], (expr_spill, expr_spill))
 class rplaca(expr):
         def help(cons, value):
-                return help_progn_star(assign(index(lexical_ref(tn, writep = t), integer(0), writep = t),
-                                              value, tn = gensym("CAR-")))
+                return help_progn_star(assign(index(cons, integer(0), writep = t),
+                                              value, tn = genname("CAR-")))
 
-@defprim(intern("RPLACD")[0], (expr_spill,))
+@defprim(intern("RPLACD")[0], (expr_spill, expr_spill))
 class rplacd(expr):
         def help(cons, value):
-                return help_progn_star(assign(index(lexical_ref(tn, writep = t), integer(1), writep = t),
-                                              value, tn = gensym("CDR-")))
+                return help_progn_star(assign(index(cons, integer(1), writep = t),
+                                              value, tn = genname("CDR-")))
 
 ###
 ### Operations
