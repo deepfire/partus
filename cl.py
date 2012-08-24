@@ -9096,7 +9096,7 @@ def def_():
                 total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
         def prologuep(*_):          return t
-        def lower(name, lambda_list, *body, decorators = [], extra_lexenvs = []):
+        def lower(name, lambda_list, *body, decorators = []):
                 ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
                 # This is NOT a Lisp form, but rather an acknowledgement of the
                 # need to represent a building block from the underlying system.
@@ -9120,9 +9120,7 @@ def def_():
                              _compiler_def_: cdef }):
                         with _tail_position():
                                 body_pro, body_val = _lower((progn,) + body)
-                additionally_bound_by_this_def = _mapsetn(lambda x: { ix.name for ix in x.varframe[variable] },
-                                                          extra_lexenvs)
-                nonlocals = cdef.lexical_setqs - set(total) - additionally_bound_by_this_def
+                nonlocals = cdef.lexical_setqs - set(total)
                 # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
                 # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
                 deco_vals = []
@@ -9170,7 +9168,7 @@ def lambda_():
         def prologuep(lambda_list, *body):
                 total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 return len(body) < 2 and any( _ir_body_prologuep(x) for x in body + tuple(defaults[0]) + tuple(defaults[1]))
-        def lower(lambda_list, *body, evaluate_defaults_early = nil, function_scope = nil, extra_lexenvs = []):
+        def lower(lambda_list, *body, evaluate_defaults_early = nil, function_scope = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
@@ -9218,10 +9216,9 @@ def lambda_():
                         _compiler_trace_choice(lambda_, lambda_list, "NONEXPR-PROGN-DEF-FUNCTION")
                         func_name = gensym("LET-BODY-")
                         return _rewritten((progn,
-                                            _ir(def_, func_name, lambda_list,
-                                                *body,
-                                                extra_lexenvs = extra_lexenvs),
-                                            (function, func_name)),
+                                           (def_, func_name, lambda_list,
+                                            *body),
+                                           (function, func_name)),
                                           { _lexenv_: _make_lexenv_funcframe([(func_name, lambda_list) + body]) })
         def effects(*_):            return nil
         def affected(*_):           return nil
