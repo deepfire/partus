@@ -2339,7 +2339,7 @@ def eql(x, y):
 def equal(x, y):
         return x == y
 
-def _infinite(x):
+def _infinitely(x):
         while True:
                 yield x
 
@@ -5817,7 +5817,7 @@ def _nameusep(x):
 
 class _binding():
         value, shadows = None, None
-        def __init__(self, value, shadows = nil, **attributes):
+        def __init__(self, value, shadows = None, **attributes):
                 _attrify_args(self, locals(), "value", "shadows")
         def __repr__(self):
                 return "#<bind %s %s: %s>" % (self.kind, self.name, self.value)
@@ -5825,15 +5825,15 @@ def _bindingp(x):
         return isinstance(x, _binding)
 
 class _variable(_nameuse):
-        def __init__(self, name, kind, type = t, dynamic_extent = nil, **attributes):
+        def __init__(self, name, tn, kind, type = t, dynamic_extent = nil, **attributes):
                 check_type(kind, (member_t, variable, constant, special, symbol_macro)) # constant | special | symbol-macro | variable
                 _nameuse.__init__(self, name, kind, type, **attributes)
-                _attrify_args(self, locals(), "dynamic_extent") # t | nil
+                _attrify_args(self, locals(), "tn", "dynamic_extent") # t | nil
 class _function(_nameuse):
-        def __init__(self, name, kind, type = t, lambda_expression = None, **attributes):
+        def __init__(self, name, tn, kind, type = t, lambda_expression = None, **attributes):
                 check_type(kind, (member_t, function, macro, compiler_macro)) # macro | compiler-macro | function
                 _nameuse.__init__(self, name, kind, type, **attributes)
-                _attrify_args(self, locals(), "lambda_expression") # None | cons
+                _attrify_args(self, locals(), "tn", "lambda_expression") # None | cons
 class _block(_nameuse):
         def __init__(self, name, **attributes):
                 _nameuse.__init__(self, name, block, t, **attributes)
@@ -5846,12 +5846,13 @@ def _nameuse_functionp(x): return isinstance(x, _function)
 def _nameuse_blockp(x): return isinstance(x, _block)
 
 class _variable_binding(_variable, _binding):
-        def __init__(self, name, kind, value, **attributes):
-                _variable.__init__(self, name, kind, **attributes)
+        def __init__(self, name, tn, kind, value, **attributes):
+                ## Variables are not necessarily bound to specific value forms -- function parameters.
+                _variable.__init__(self, name, tn, kind, **attributes)
                 _binding.__init__(self, value, **attributes)
 class _function_binding(_function, _binding):
-        def __init__(self, name, kind, value, **attributes):
-                _function.__init__(self, name, kind, **attributes)
+        def __init__(self, name, tn, kind, value, **attributes):
+                _function.__init__(self, name, tn, kind, **attributes)
                 _binding.__init__(self, value, **attributes)
 class _block_binding(_block, _binding):
         def __init__(self, name, value, **attributes):
@@ -6435,7 +6436,7 @@ _intern_and_bind_names_in_module(
 ## Should, probably, be bound by the compiler itself.
 _string_set("*COMPILER-TAILP*", nil)
 
-_string_set("*COMPILER-DEF*", nil)
+_string_set("*COMPILER-LAMBDA*", nil)
 
 __known_trace_args__ = {"toplevels", "entry_forms", "qqexpansion", "macroexpansion",
                         "forms", "subforms", "rewrites", "choices", "result", "pretty_full"}
@@ -6826,16 +6827,21 @@ def _coerce_to_lexenv(x):
         return (nil if x is null else
                 (x or _symbol_value(_lexenv_)))
 
+def _with_lexenv_frame(frame, fn):
+        with progv({ _lexenv_: frame }):
+                return fn()
+
 @defclass(intern("%LEXENV")[0])
 class _lexenv():
         """Chains variable and function scope pieces together.  Scope pieces map binding kinds
            to binding sets and bound names to bindings."""
+        clambda = nil
         varscope, funcscope, blockscope, gotagscope = nil, nil, nil, nil
         varframe, funcframe, blockframe, gotagframe = nil, nil, nil, nil
         def __repr__(self):
                 return "#<lexenv vars: %s, funs: %s, blks: %s, gotags: %s>" % (self.varscope,   self.funcscope,
                                                                                self.blockscope, self.gotagscope)
-        def __init__(self, parent = nil,
+        def __init__(self, clambda, parent = nil,
                      name_varframe = None, name_funcframe = None, name_blockframe = None, name_gotagframe = None,
                      kind_varframe = None, kind_funcframe = None, kind_blockframe = None, kind_gotagframe = None,
                      full_varframe = None, full_funcframe = None, full_blockframe = None, full_gotagframe = None):
@@ -6860,7 +6866,8 @@ class _lexenv():
                                 complete_name_frame(name) if name else
                                 complete_kind_frame(kind) if kind else
                                 None)
-                self.parent = _coerce_to_lexenv(parent)
+                self.clambda  = clambda ## The compiler lambda.
+                self.parent   = _coerce_to_lexenv(parent)
                 ((self.varscope,   self.varframe),
                  (self.funcscope,  self.funcframe),
                  (self.blockscope, self.blockframe),
@@ -6873,13 +6880,14 @@ class _lexenv():
                                         complete_frame(name_blockframe, kind_blockframe, full_blockframe)),
                       self.adjoin_scope(parent, "gotagscope",
                                         complete_frame(name_gotagframe, kind_gotagframe, full_gotagframe)))
-        @staticmethod
-        def adjoin_scope(parent, sname, frame):
-                parent = _coerce_to_lexenv(parent)
-                pscope = getattr(parent, sname) if parent else nil
+        def adjoin_scope(self, parent_lexenv, sname, frame):
+                parent_lexenv = _coerce_to_lexenv(parent_lexenv)
+                pscope = getattr(parent_lexenv, sname) if parent_lexenv else nil
                 return (pscope if not frame else
-                        (frame, (nil if parent is nil else
-                                 pscope))), frame
+                        (frame,
+                         (nil if parent_lexenv is nil else pscope),
+                         self)
+                        ), frame
         @staticmethod
         def merge_frames(f0, f1):
                 res = dict(f0)
@@ -6887,59 +6895,72 @@ class _lexenv():
                         res[key] = (_dictappend(res[key], map) if key in res else
                                     map)
                 return res
-        def appended(self, added):
-                if not added:
-                        return self
-                assert(self.parent is added.parent)
-                names = [ "var", "func", "block", "gotag" ]
-                frames = [ self.merge_frames(getattr(self,  name + "frame") or dict(),
-                                             getattr(added, name + "frame") or dict()) for name in names ]
-                parent = self.parent
-                result = _lexenv()
-                for name, frame in zip(names, frames):
-                        setattr(result, name + "frame", frame)
-                        setattr(result, name + "scope", self.adjoin_scope(parent, name + "scope", frame)[0])
-                return result
+        # def appended(self, clambda, added):
+        #         if not added:
+        #                 return self
+        #         assert(self.parent is added.parent)
+        #         names = [ "var", "func", "block", "gotag" ]
+        #         frames = [ self.merge_frames(getattr(self,  name + "frame") or dict(),
+        #                                      getattr(added, name + "frame") or dict()) for name in names ]
+        #         parent = self.parent
+        #         result = _lexenv(clambda)
+        #         for name, frame in zip(names, frames):
+        #                 setattr(result, name + "frame", frame)
+        #                 setattr(result, name + "scope", self.adjoin_scope(parent, name + "scope", frame)[0])
+        #         return result
         @staticmethod
         def do_lookup_scope(scope, x, default):
                 while scope:
-                        if not isinstance(scope[0], dict):
+                        frame, rest, lexenv = scope
+                        if not isinstance(frame, dict):
                                 _debug_printf("bad scope: %s", scope)
-                        if x in scope[0]["name"]:
-                                return scope[0]["name"][x]
-                        scope = scope[1] # COLD-CDR
-                return default
+                        if x in frame["name"]:
+                                return frame["name"][x], lexenv
+                        scope = rest # COLD-CDR
+                return default, None
         def lookup_func(self, x, default = None):         return self.do_lookup_scope(self.funcscope, x, default)
         def lookup_var(self, x, default = None):          return self.do_lookup_scope(self.varscope, x, default)
         def lookup_block(self, x, default = None):        return self.do_lookup_scope(self.blockscope, x, default)
         def lookup_gotag(self, x, default = None):        return self.do_lookup_scope(self.gotagscope, x, default)
-        def lookup_scope(self, sname, x, default = None): return self.do_lookup_scope(getattr(self, sname), x, default)
-        def funcscope_binds_p(self, x):   return self.lookup_func(x)  is not None
-        def varscope_binds_p(self, x):    return self.lookup_var(x)   is not None
-        def blockscope_binds_p(self, x):  return self.lookup_block(x) is not None
-        def gotagscope_binds_p(self, x):  return self.lookup_gotag(x) is not None
+        def funcscope_binds_p(self, x):   return self.lookup_func(x)[0]  is not None
+        def varscope_binds_p(self, x):    return self.lookup_var(x)[0]   is not None
+        def blockscope_binds_p(self, x):  return self.lookup_block(x)[0] is not None
+        def gotagscope_binds_p(self, x):  return self.lookup_gotag(x)[0] is not None
         def lookup_func_kind(self, kind, x, default = None):
-                b = self.do_lookup_scope(self.funcscope, x, None)
+                b = self.do_lookup_scope(self.funcscope, x, None)[0]
                 return (b and b.kind is kind and b) or default
         def lookup_var_kind(self, kind, x, default = None):
-                b = self.do_lookup_scope(self.varscope, x, None)
+                b = self.do_lookup_scope(self.varscope, x, None)[0]
                 return (b and b.kind is kind and b) or default
 
-def _lexenvp(x):         return isinstance(x, _lexenv)
-def _make_null_lexenv(): return make_instance(_lexenv, parent = null)
-def _make_lexenv(parent = nil, **initial_content):
+def _lexenvp(x):                return isinstance(x, _lexenv)
+def _make_null_lexenv(clambda): return make_instance(_lexenv, clambda, parent = null)
+def _make_lexenv(clambda, parent = nil, **initial_content):
         """ :PARENT - NULL for a null lexenv, nil for the value of *LEXENV*.
             :{NAME,KIND,FULL}-{VAR,FUNC,BLOCK}FRAME - constituents."""
-        return _lexenv(parent, **initial_content)
+        return _lexenv(clambda, parent, **initial_content)
 
-def _make_lexenv_varframe(bindings):
-        return _make_lexenv(kind_varframe  = { variable: { _variable_binding(name, variable, form)
-                                                           for name, form in bindings } })
+def _make_lexenv_varframe(clambda, tns, names, forms = _infinitely(None)):
+        return _make_lexenv(clambda,
+                            kind_varframe  = { variable: { _variable_binding(tn, sym, variable, form)
+                                                           for tn, sym, form in zip(tns, names, forms) } })
 
-def _make_lexenv_funcframe(bindings):
-        return _make_lexenv(kind_funcframe = { function: { _function_binding(name, function,
+def _make_lexenv_funcframe(clambda, tns, bindings):
+        return _make_lexenv(clambda,
+                            kind_funcframe = { function: { _function_binding(tn, sym, function,
                                                                              _fn(name, lambda_list))
-                                                           for name, lambda_list, *_ in bindings } })
+                                                           for tn, (sym, lambda_list, *_) in zip(tns, bindings) } })
+
+def _variable_frame_bindings(clambda, names, forms = _infinitely(None)):
+        tns   = [ p.name(_symbol_name(sym))  for sym in names ]
+        frame = _make_lexenv_varframe(clambda, tns, names, forms)
+        return tns, frame
+
+def _function_frame_bindings(clambda, bindings):
+        names = list[zip(*bindings)][0]
+        tns   = [ p.name(_ensure_function_pyname(sym))  for sym in names ]
+        frame = _make_lexenv_funcframe(clambda, tns, bindings)
+        return tns, frame
 
 # Quasiquotation
 
@@ -7905,10 +7926,12 @@ def DEFMACRO(name, lambda_list, *body):
 # Primitive IR
 import primitives as p
 
+def _defaulting_expr(name, default):
+        return p.if_(p.eq(name, p.name("None")), default, name)
 ##
 ## Primitivification status:
 #
-# - LET used to handle function and symbol pyspace targets
+# ..up to CATCH/THROW
 
 # Tuple intermediate IR
 
@@ -7946,20 +7969,12 @@ def _compiler_debug_printf(control, *args):
                 def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
                 _debug_printf(justification + fix_string(control), *tuple(fix_string(a) for a in args))
 
+def _compiler_trace_choice(ir_name, id, choice):
+        if symbol_value(_compiler_trace_choices_):
+                _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, _ir_minify(id), choice)
+
 if probe_file("/home/deepfire/.partus-debug-compiler"):
         _debug_compiler()
-
-def _tuplerator(pve):
-        for x in pve[0]:
-                if x is not None:
-                        yield x
-        if pve[1] is not None:
-                yield pve[1]
-def _tuple_empty_p(pve):      return not (pve[0] or pve[1])
-def _tuple_expression_p(pve): return not (pve[0])
-def _tuple_bound(pve):        return _mapsetn(_atree_bound, _tuplerator(the((pytuple_t, pylist_t, pytuple_t), pve)))
-def _tuple_free(pve):         return _mapsetn(_atree_free,  _tuplerator(the((pytuple_t, pylist_t, pytuple_t), pve)))
-def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((pytuple_t, pylist_t, pytuple_t), pve)))
 
 # Compiler state and miscellanea
 
@@ -8000,16 +8015,9 @@ _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
                                    lambda *_: _dynamic_scope_pop())
 
-def _lowered(prim):
-        return prim
-def _lowered_prepend_prologue(pro, pv):
-        return (pro + pv[0], pv[1])
+def _lowered(prim):                   return prim
 def _rewritten(form, scope = dict()): return form, the(dict, scope)
-def _rewritep(x):                         return isinstance(x[1], dict)
-
-def _compiler_trace_choice(ir_name, id, choice):
-        if symbol_value(_compiler_trace_choices_):
-                _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, _ir_minify(id), choice)
+def _rewritep(x):                     return isinstance(x[1], dict)
 
 #### Issues:
 ## Tail position optimisations
@@ -8094,7 +8102,7 @@ def _ir_args_when(when, ir, **parameters):
 
 # Lambda list facilities
 
-def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, default_expr = None):
+def _ir_prepare_lambda_list(lambda_list_, context, allow_defaults = None, default_expr = None):
         ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
         default_expr = _defaulted(default_expr, (_name, "None"))
         if not isinstance(lambda_list_, tuple):
@@ -8141,8 +8149,8 @@ def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, 
                              list((x[1] if isinstance(x, tuple) else default_expr)
                                       for x in optional))
         fixed = list(lambda_list_[0:_defaulted(optpos, (restpos    if restposp    else
-                                                            bodypos    if bodyposp    else
-                                                            keypos     if keyposp     else None))])
+                                                        bodypos    if bodyposp    else
+                                                        keypos     if keyposp     else None))])
         if not all(isinstance(x, symbol_t) for x in fixed):
                 error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, find_if_not(symbolp, fixed))
         total = fixed + optional + ([rest_or_body] if rest_or_body else []) + keys
@@ -8156,24 +8164,17 @@ def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, 
                 (fixed, optional, rest_or_body, keys),
                 (optdefs, keydefs))
 
-def _lower_lispy_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_defaults,
-                             function_scope = nil):
+def _lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_defaults):
         assert len(optional) == len(opt_defaults)
-        assert len(keys) == len(key_defaults)
-        assert not function_scope or not (rest or keys)
-        ((odef_pros, odef_vals),
-         (kdef_pros, kdef_vals)) = mapcar(lambda x: _recombine((list, list), _lower, x),
-                                          [opt_defaults, key_defaults])
-        if odef_pros or kdef_pros:
-                _compiler_error("In LAMBDA %s: invariant failed: target lambda lists must have expressible defaults: %s.", context)
-        return ("arguments",
-                mapcar(lambda x: ("arg", (_unit_function_pyname if function_scope else _unit_variable_pyname)(x)),
-                       fixed + optional),
-                rest and _frost.full_symbol_name_python_name(rest) or None, None,
-                mapcar(lambda x: ("arg", _frost.full_symbol_name_python_name(x)), keys),
-                None, None,
-                odef_vals,
-                kdef_vals)
+        assert len(keys)     == len(key_defaults)
+        def to_names(xs): return [ p.name(_unit_variable_pyname(x)) for x in xs ]
+        return (to_names(fixed),
+                to_names(optional),
+                [ _lower(x) for x in _defaulted(opt_defaults, _infinitely((ref, (quote, ("None",))))) ],
+                p.name(_unit_variable_pyname(rest)) if rest else None,
+                to_names(keys),
+                [ _lower(x) for x in _defaulted(key_defaults, _infinitely((ref, (quote, ("None",))))) ],
+                None)
 
 # Multiple-value function call dependency support
 
@@ -8222,15 +8223,15 @@ def _lower_name(name, writep = nil):
 def setq():
         def nvalues(_, __):                                               return 1
         def nth_value(n, orig, _, value):                                 return orig if n is 0 else (progn, orig, nil)
-        def binds(name, value, *_, function_scope = nil):
+        def binds(name, value, *_):
                 assert(not _)
                 return dict()
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
         def prologuep(*_): return t
-        def lower(name, value, *_, function_scope = nil):
+        def lower(name, value, *_):
                 assert(not _)
-                lexical_binding = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
+                lexical_binding, lexenv = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is special:
                         _compiler_trace_choice(setq, name, "GLOBAL")
                         gvar = _find_global_variable(name)
@@ -8241,11 +8242,9 @@ def setq():
                                 _compiler_defvar_without_actually_defvar(name, value)
                         return _lowered(p.special_setq(p.name(_unit_symbol_pyname(name)), _lower(value)))
                 _compiler_trace_choice(setq, name, "LEXICAL")
-                # Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
-                symbol_value(_compiler_def_).lexical_setqs.add(name)
-                return _lowered(p.assign(p.name((_unit_function_pyname if function_scope else
-                                                 symbol_name)(name)),
-                                         _lower(value)))
+                if lexenv.clambda is not symbol_value(_compiler_lambda_):
+                        symbol_value(_compiler_lambda_).nonlocal_setqs.add(name)
+                return _lowered(p.assign(lexical_binding.tn, _lower(value)))
         def effects(name, value):         return t
         def affected(name, value):        return _ir_affected(value)
 
@@ -8388,24 +8387,26 @@ def if_():
 def let():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
-        def binds(bindings, *body, function_scope = nil):
+        def binds(bindings, *body):
                 bindings = (((b,    None) if isinstance(b, symbol_t) else
                              (b[0], b[1])) for b in bindings)
                 return { variable: { _variable_binding(name, variable, None) for name, _ in bindings } }
         def prologuep(bindings, *body):
                 return not not bindings or _ir_body_prologuep(body)
-        def lower(bindings, *body, function_scope = nil):
+        def lower(bindings, *body):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (isinstance(bindings, tuple) and
                         all(typep(x, (pytuple_t, symbol_t, t)) for x in bindings)):
                         error("LET: malformed bindings: %s.", bindings)
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
-                normalised_bindings = tuple(_ensure_cons(b, nil) for b in bindings)
-                names, values = _recombine((list, list), identity, normalised_bindings)
+                normalised_bindings = tuple(_ensure_cons(, nil) for b in bindings)
                 _check_no_locally_rebound_constants(names)
-                with progv({ _lexenv_: _make_lexenv_varframe(normalised_bindings) }):
-                        return _lowered(p.let(normalised_bindings,
-                                              *(_lower(x) for x in body)))
+                tns, frame = _variable_frame_bindings(symbol_value(_compiler_lambda_), *zip(*normalised_bindings))
+                return _lowered(p.let(((tn, _lower(form))
+                                       for tn, (_, form) in zip(tns, normalised_bindings)),
+                                      *(_with_lexenv_frame(frame,
+                                                           lambda: _lower(x))
+                                        for x in body)))
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
                 return any(_ir_effects(f) for f in tuple(x[1] for x in bindings) + body)
@@ -8435,12 +8436,16 @@ def flet():
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-                if not all(typep(x, (partuple_t, symbol_t, pytuple_t)) for x in bindings):
+                if not all(typep(x, (partuple_t, symbol_t, pytuple_t))  for x in bindings):
                         error("FLET: malformed bindings: %s.", bindings)
                 # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED -- ???
-                with progv({ _lexenv_: _make_lexenv_funcframe(bindings) }):
-                        return _lowered(p.flet(bindings,
-                                               *(_lower(x) for x in body)))
+                tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), bindings)
+                return _lowered(p.flet(((tn, _lower_lambda_list(lam)
+                                         ) + tuple(_lower(x)  for x in body)
+                                        for tn, (name, lam, *body) in zip(tns, bindings)),
+                                       *(_with_lexenv_frame(frame,
+                                                            lambda: _lower(x))
+                                         for x in body)))
         def effects(bindings, *body):
                 return any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -8471,9 +8476,13 @@ def labels():
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
                 if not all(typep(x, (partuple_t, symbol_t, pytuple_t)) for x in bindings):
                         error("LABELS: malformed bindings: %s.", bindings)
-                with progv({ _lexenv_: _make_lexenv_funcframe(bindings) }):
-                        return _lowered(p.labels(bindings,
-                                                 *(_lower(x) for x in body)))
+                tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), bindings)
+                with progv({ _lexenv_: frame }):
+                        return _lowered(p.labels(((tn, _lower_lambda_list(lam)
+                                                   ) + tuple(_lower(x)  for x in body)
+                                                  for tn, (name, lam, *body) in zip(tns, bindings)),
+                                                 *(_lower(x)
+                                                   for x in body)))
         def effects(bindings, *body):
                 return any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -8502,14 +8511,16 @@ def function():
         def lower(name):
                 def pycall_p(x): return typep(x, (pytuple_t, (eql_t, quote), (homotuple_t, string_t)))
                 if pycall_p(name):
+                        ## this is not scoped -- a raw, unchecked call
                         return _lowered(p.prim_attr_chain(name[1]))
-                lexical_binding = symbol_value(_lexenv_).lookup_func(the(symbol_t, name))
+                lexical_binding, lexenv = symbol_value(_lexenv_).lookup_func(the(symbol_t, name))
                 if not lexical_binding:
                         ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
                         if not _find_global_function(name):
                                 simple_style_warning("undefined function: %s", name)
                         _unit_note_gfun_reference(name)
-                return _lowered(p.name(_unit_function_pyname(name)))
+                return _lowered(p.name(_unit_function_pyname(name)) if not lexical_binding else
+                                lexical_binding.tn)
         def effects(name):         return nil
         def affected(name):        return not symbol_value(_lexenv_).funcscope_binds_p(name)
 """function name => function
@@ -8672,7 +8683,7 @@ def return_from():
         def nth_value(n, orig, _, value): return _ir_nth_value(n, value)
         def prologuep(_, value):          return _ir_prologue_p(value)
         def lower(name, value):
-                binding = symbol_value(_lexenv_).lookup_block(the(symbol_t, name))
+                binding, lexenv = symbol_value(_lexenv_).lookup_block(the(symbol_t, name))
                 if not binding:
                         simple_program_error("return for unknown block: %s", name)
                 return _rewritten((throw, (quote, binding.value), value))
@@ -8810,7 +8821,7 @@ def go():
         def nth_value(n, orig, _): return None
         def prologuep(_):          return nil
         def lower(name):
-                binding = symbol_value(_lexenv_).lookup_gotag(the(symbol_t, name))
+                binding, lexenv = symbol_value(_lexenv_).lookup_gotag(the(symbol_t, name))
                 if not binding:
                         simple_program_error("attempt to GO to nonexistent tag: %s", name)
                 return _rewritten((throw, binding.value, (function, binding.value)))
@@ -8942,7 +8953,7 @@ def let_():
 #         :K:        [ ]
 #         :VALUES:   [X]
 #         :EFFECTS:  [X]
-#         :IMPL:     [ ]
+#         :IMPL:     [X]
 #         :CL:       [X]
 #         :END:
 
@@ -8954,12 +8965,9 @@ def progv_():
                                                                                                _ir_effects(values)) else
                                                               nil)
         def prologuep(names, values, *body):          return not not names or _ir_body_prologuep(body)
-        def lower(names, values, *body):
-                _not_implemented()
-                # ppro, pval = _lower(_ir_cl_module_call("_progv", ???))
-                # bpro, bval = _lower((progn, body))
-                # ("With", ("Call", ("Name", "progv", ("Load",))), [])
-                # return _ir_cl_module_call("__catch", tag, (lambda_, ()) + body)
+        def lower(vars, vals, *body):
+                return _lowered(p.progv((_lower(x) for x in vars), (_lower(x) for x in vals),
+                                        *(_lower(x) for x in body)))
         def effects(names, values, *body):            return any(_ir_effects(f) for f in (names, values) + body)
         def affected(names, values, *body):           return any(_ir_affected(f) for f in (names, values) + body)
 
@@ -9020,7 +9028,7 @@ def ref():
                 def pyref_p(x): return typep(x, (pytuple_t, (eql_t, quote), (homotuple_t, string_t)))
                 if pyref_p(name):
                         return _lowered(p.prim_attr_chain(name[1]))
-                lexical_binding = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
+                lexical_binding, lexenv = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is special:
                         gvar = _find_global_variable(name)
                         if not gvar and not lexical_binding: # Don't complain on yet-unknown specials.
@@ -9028,8 +9036,9 @@ def ref():
                         _unit_note_gvar_reference(name)
                         ## Note, how this differs from FUNCTION:
                         return _lowered(p.special_ref(p.name(_unit_symbol_pyname(name))))
-                return _lowered([],
-                                ("Name", _unit_variable_pyname(name), ("Load",)))
+                if lexenv.clambda is not symbol_value(_compiler_lambda_):
+                        symbol_value(_compiler_lambda_).nonlocal_refs.add(name)
+                return _lowered(lexical_binding.tn)
         def effects(name):         return nil
         def affected(name):        return not _global_variable_constant_p(name)
 
@@ -9051,7 +9060,8 @@ def nth_value():
                         (progn, form, nil)   if n != form_n                            else
                         _ir_nth_value(n, form)) ## We don't risque unbounded recursion here, so let's further analysis..
         def prologuep(n, form): return _ir_prologue_p(n) or _ir_prologue_p(form)
-        def lower(n, form):     return _rewritten(_ir_cl_module_call("_values_frame_project", n, form))
+        def lower(n, form):
+                return _lowered(p.funcall(p.impl_ref("_values_frame_project"), _lower(n), _lower(form)))
         def effects(n, form):   return _ir_effects(n) or _ir_effects(form)
         def affected(n, form):  return _ir_affected(n) or _ir_affected(form)
 
@@ -9063,11 +9073,7 @@ def protoloop():
         def nth_value(n, *_):       return _not_implemented()
         def prologuep(*_):          return t
         def lower(*body):
-                pro = _linearise_processor(_lower)((progn,) + body)
-                return _lowered([("While", _lower_value(t),
-                                  pro,
-                                  [])],
-                                _lower_name(nil))
+                return _lowered(p.loop(*(_lower(x) for x in body)))
         def effects(*body):         return any(_ir_effects(x)  for x in body)
         def affected(*body):        return any(_ir_affected(x) for x in body)
 
@@ -9080,10 +9086,11 @@ def protoloop():
 #         :CL:       [ ]
 #         :END:
 
-class _compiler_def():
-        __slots__ = ("lexical_setqs")
-        def __init__(self, lexical_setqs = None):
-                self.lexical_setqs = _defaulted(lexical_setqs, set())
+class _compiler_lambda():
+        __slots__ = ("nonlocal_refs", "nonlocal_setqs")
+        def __init__(self, nonlocal_refs = None, nonlocal_setqs = None):
+                self.nonlocal_refs  = _defaulted(nonlocal_refs, set())
+                self.nonlocal_setqs = _defaulted(nonlocal_setqs, set())
 
 @defknown((intern("DEF")[0], " ", _name, " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), (_bound, _form)]),
@@ -9093,7 +9100,7 @@ def def_():
         def nvalues(_):             return 1
         def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, nil)
         def binds(name, lambda_list, *body, decorators = []):
-                total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
+                total, _, __ = _ir_prepare_lambda_list(lambda_list, "DEF %s" % name)
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
         def prologuep(*_):          return t
         def lower(name, lambda_list, *body, decorators = []):
@@ -9102,47 +9109,28 @@ def def_():
                 # need to represent a building block from the underlying system.
                 check_type(name, (and_t, symbol_t, (not_t, keyword_t)))
                 # check_type(name, (or_t, string_t, (and_t, symbol_t, (not_t, (satisfies_t, keywordp)))))
-                cdef = _compiler_def()
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "DEF %s" % name)
+                total, args, defaults = _ir_prepare_lambda_list(lambda_list, "DEF %s" % name)
                 _check_no_locally_rebound_constants(total)
-                compiled_lambda_list = _lower_lispy_lambda_list("DEF %s" % name, *(args + defaults))
                 fixed, optional, rest, keys = args
                 optdefs, keydefs = defaults
-                defmap = dict(zip(optional + keys, optdefs + keydefs))
                 ## Critical Issue DEFAULT-VALUE-FORMS-PROCESSING-UNCLEAR
-                with progv({ _lexenv_: _make_lexenv(kind_varframe =
-                                                    { variable: { _variable_binding(name, variable,
-                                                                                    (defmap[name]
-                                                                                     if name in defmap else
-                                                                                     None))
-                                                                  for name in total } }),
-                             _compiler_def_: cdef }):
-                        with _tail_position():
-                                body_pro, body_val = _lower((progn,) + body)
-                nonlocals = cdef.lexical_setqs - set(total)
-                # body_exprp = _tuple_expression_p(preliminary_body_pve) # Why we'd need that, again?
+                clambda = _compiler_lambda()
+                tns, lexenv = _variable_frame_bindings(clambda, total)
+                with progv({ _lexenv_: lexenv,
+                             _compiler_lambda_: clambda }):
+                        prim_body = [ _lower(x) for x in body ]
                 # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
-                deco_vals = []
-                for pro_deco, val_deco in (_lower(d) for d in decorators):
-                        if pro_deco:
-                                error("in DEF %s: decorators must lower to python expressions.", name)
-                        deco_vals.append(val_deco)
-                return _lowered([("FunctionDef", _unit_function_pyname(name), compiled_lambda_list,
-                                  (([("Nonlocal", [ _unit_variable_pyname(x)
-                                                    for x in sorted(nonlocals, key = symbol_name) ])]
-                                    if nonlocals else []) +
-                                   ([_atree_import("pdb", "cl"),
-                                     ("Expr",
-                                      _atree_funcall(_atree_ref("cl", "_without_condition_system"),
-                                                     _atree_ref("pdb", "set_trace")))]
-                                    if _compiler_function_trapped_p(name) else []) +
-                                   body_pro +
-                                   [("Return", body_val)]),
-                                  deco_vals),
-                                 # ("Assign", [("Name", full_name, ("Store",))], ("Name", short_name, ("Load",)))
-                                 ],
-                                _lower_value((quote, name)))
+                return p.defun(p.name(_unit_function_pyname(name)), _lower_lambda_list("DEF %s" % name, *(args + defaults)),
+                               [ _lower(d) for d in decorators ],
+                               *(([ p.nonlocal([ p.name(_unit_variable_pyname(x))
+                                                 for x in sorted(clambda.nonlocals, key = symbol_name) ]) ]
+                                  if clambda.nonlocals else [])
+                                 + ([ p.import_(p.name("pdb"), p.name("cl")),
+                                      p.funcall(p.impl_ref("cl", "_without_condition_system"),
+                                                p.impl_ref("pdb", "set_trace")) ]
+                                    if _compiler_function_trapped_p(name) else [])
+                                 + prim_body))
         def effects(name, lambda_list, *body, **_):   return t
         def affected(name, lambda_list, *body, **_):  return t
 
@@ -9160,58 +9148,81 @@ def def_():
 def lambda_():
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def binds(lambda_list, *body, evaluate_defaults_early = nil, function_scope = nil):
-                total, _, __ = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA")
-                return ({ function: { _function_binding(name, function, None) for name in total } }
-                        if function_scope else
-                        { variable: { _variable_binding(name, variable, None) for name in total } })
+        def binds(lambda_list, *body, evaluate_defaults_early = nil):
+                total, _, __ = _ir_prepare_lambda_list(lambda_list, "LAMBDA")
+                return { variable: { _variable_binding(name, variable, None) for name in total } }
         def prologuep(lambda_list, *body):
-                total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
+                total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 return len(body) < 2 and any( _ir_body_prologuep(x) for x in body + tuple(defaults[0]) + tuple(defaults[1]))
-        def lower(lambda_list, *body, evaluate_defaults_early = nil, function_scope = nil):
+        def lower(lambda_list, *body, evaluate_defaults_early = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                # Unregistered Issue SHOULD-HAVE-A-BETTER-WAY-TO-COMPUTE-EXPRESSIBILITY
                 # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
-                total, args, defaults = _ir_prepare_lispy_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
-                if len(body) < 2 and not any( _ir_body_prologuep(x) for x in body + tuple(defaults[0]) + tuple(defaults[1])):
-                        _check_no_locally_rebound_constants(total)
-                        (fixed, optional, rest, keys), (optdefs, keydefs) = args, defaults
-                        if not (optional or keys):
-                                _compiler_trace_choice(lambda_, lambda_list, "EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS")
-                                return _lowered([],
-                                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
-                                                                                    function_scope = function_scope),
-                                                 _lower_value((progn,) + body)))
-                        elif rest:
-                                _not_implemented("REST-ful defaulting lambda list")
-                        elif evaluate_defaults_early:
-                                # duplicate code here, but the checking "issue" is not understood well-enough..
-                                _compiler_trace_choice(lambda_, lambda_list, "EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS")
-                                return _lowered([],
-                                                ("Lambda", _lower_lispy_lambda_list("LAMBDA", *(args + defaults),
-                                                                                    function_scope = function_scope),
-                                                 _lower_value((progn,) + body)))
-                        else:
-                                ## Delay evaluation of default values.
-                                def defaulting_expr(arg, default):
-                                        return (if_, (apply, (function, eq), arg, (_ref, "None"), (quote, nil)),
-                                                     default,
-                                                     arg)
-                                _compiler_trace_choice(lambda_, lambda_list, "EXPR-BODY/DEFAULTS-REWIND-DELAYED-DEFAULT-VALUES")
-                                return _rewritten(
-                                        _ir_when(function_scope,
-                                                 (lambda_,
-                                                  tuple(fixed + [_optional] + optional + keys),
-                                                  _ir_when(function_scope,
-                                                           (let, tuple((arg, defaulting_expr(arg, default))
-                                                                           for arg, default in zip(optional + keys,
-                                                                                                       optdefs + keydefs))) +
-                                                           body,
-                                                           function_scope = t)),
-                                                 function_scope = t))
-
+                total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
+                _check_no_locally_rebound_constants(total)
+                (fixed, optional, rest, keys), (optdefs, keydefs) = args, defaults
+                constant_defaults = all(constantp(x) for x in optdefs + keydefs)
+                must_defer = not (constant_defaults or evaluate_defaults_early)
+                clambda = _compiler_lambda(optional         = not not optional,
+                                           rest             = not not rest,
+                                           keys             = not not keys)
+                tns, lexenv = _variable_frame_bindings(clambda, total)
+                with progv({ _lexenv_: lexenv,
+                             _compiler_lambda_: clambda }):
+                        prim_body = [ _lower(x) for x in body ]
+                nonlocal_decl = ([ p.nonlocal([ p.name(_unit_variable_pyname(x))
+                                                for x in sorted(clambda.nonlocals, key = symbol_name) ]) ]
+                                 if clambda.nonlocals else [])
+                if not (rest or keys) and not (must_defer and optional):
+                        ## &rest requires listification, at very least
+                        ## &key and &optional require run-time defaulting
+                        ## &key require run-time arg parsing
+                        ## so, the simple case is this..
+                        _compiler_trace_choice(lambda_, lambda_list, "NO-REST-KEYS-FIXED-LAMBDA/NON-DEFERRED-OPTIONALS")
+                        return _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *(args + defaults)),
+                                                  *(nonlocal_decl +
+                                                    prim_body)))
+                ## So, full complexity, head-on?
+                _compiler_trace_choice(lambda_, lambda_list, "FULL-COMPLEXITY-HEAD-ON")
+                need_rest = rest or key ## &key is processed through parsing of *rest
+                gsy_o, gs_r, gsy_k = ([ gensym("OPT-" + symbol_name(x) + "-") for x in optional ],
+                                      gensym("REST-" + symbol_name(rest) + "-") if need_rest else None,
+                                      [ gensym("KEY-" + symbol_name(x) + "-") for x in key ])
+                tns_o, tn_r, tns_k = ([ p.name(symbol_name(x)) for x in gsy_o ],
+                                      p.name(symbol_name(gs_r)) if need_rest else None,
+                                      [ p.name(symbol_name(x)) for x in gsy_k ])
+                # tns_all = tuple(fixed + tns_o + ([tn_r] if rest else []) + tns_k)
+                # inner = _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *p.fixed_ll(tns_all)),
+                #                            *(nonlocal_decl +
+                #                              prim_body)))
+                outer = _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *(p.fixed_opt_rest_ll(fixed, gsy_o, None, gs_r)
+                                                                          if need_rest else
+                                                                          p.fixed_opt_ll(fixed, gsy_o, None))),
+                                           # We're primed with LET*, but what about nonlocal..
+                                           # ..we need to split them and dispatch the pieces..
+                                           *(nonlocal_decl
+                                             + ( [ p.assert_(p.eq(p.funcall(p.name("len")), p.integer(0))) ]
+                                                 if key else [] )
+                                             + [ p.let_(tuple((name, p.if_(p.eq(tn, p.name("None")),
+                                                                           _lower(expr),
+                                                                           tn))
+                                                              for tn, expr in zip(gsy_o, optdefs)) +
+                                                        + (((p.name(symbol_name(rest)), tn_r),) if rest else
+                                                           ())
+                                                        + tuple((name, p.if_(p.eq(tn, p.name("None")),
+                                                                             _lower(expr),
+                                                                             tn))
+                                                              for tn, expr in zip(gsy_o, optdefs)),
+                                                        *prim_body) ])))
+                if : ## rest is implied by the above
+                        return _rewritten(
+                                (lambda_,
+                                 tuple(fixed + [_optional] + optional + keys),
+                                 ((let, tuple((arg, defaulting_expr(arg, default))
+                                              for arg, default in zip(optional + keys,
+                                                                      optdefs + keydefs))) +
+                                  body)))
                 else:
                         _compiler_trace_choice(lambda_, lambda_list, "NONEXPR-PROGN-DEF-FUNCTION")
                         func_name = gensym("LET-BODY-")
@@ -9219,7 +9230,7 @@ def lambda_():
                                            (def_, func_name, lambda_list,
                                             *body),
                                            (function, func_name)),
-                                          { _lexenv_: _make_lexenv_funcframe([(func_name, lambda_list) + body]) })
+                                          )
         def effects(*_):            return nil
         def affected(*_):           return nil
 
@@ -9248,9 +9259,8 @@ def apply():
                 no_varargs = rest is nil or rest == (quote, nil)
                 if not any(_ir_prologue_p(x) for x in fixed + (rest,)):
                         _compiler_trace_choice(apply, func, "EXPR-ARGS")
-                        with _no_tail_position():
-                                func_pro, func_val = _lower(func)
-                                arg_pvs = mapcar(_lower, fixed + (rest,))
+                        func_pro, func_val = _lower(func)
+                        arg_pvs = mapcar(_lower, fixed + (rest,))
                         return _lowered(func_pro,
                                         ("Call", func_val, [x[1] for x in arg_pvs[:-1]], [], (arg_pvs[-1][1]
                                                                                               if not no_varargs else

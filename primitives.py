@@ -3,6 +3,7 @@ from cl import *
 
 import ast
 import frost
+import types
 import collections
 
 ###
@@ -23,18 +24,20 @@ def defmethod(prim, *tags):
 def identity_method(*keys):
         return (identity, keys) # just a marker, to be processed by defprim
 
-def defstrategy(test = lambda _: True, keys = None):
-        assert(keys)
-        return (defstrategy, test, keys if isinstance(keys, list) else [keys])
+def defstrategy(test = lambda _: True, keys = None, method = None):
+        assert(keys or method)
+        return (defstrategy, test, (method if method                 else
+                                    keys   if isinstance(keys, list) else
+                                    [keys]))
 
 def defprim(name, form_specifier):
         def maybe_process_as_strategy(cls, name, spec):
                 def strategyp(x): return (isinstance(x, tuple) and x and x[0] is defstrategy and x[1:]
                                           or (None, None))
-                test, keys = strategyp(spec)
-                if test and keys:
+                test, method_or_keys = strategyp(spec)
+                if test and method_or_keys:
                         # implementation strategy
-                        cls.help_strategies.append((name, test, keys))
+                        cls.help_strategies.append((name, test, method_or_keys))
                         cls.help_strategies.sort()
                         return t
         def do_defprim(cls):
@@ -94,13 +97,17 @@ class prim(metaclass = primclass):
                 return set.pop()
 
 def determine(cls, args, keys):
-        for name, test, _ in cls.help_strategies:
+        for name, test, method in cls.help_strategies:
                 if test(*args, **keys):
                         ## Simplify and compute spills.
-                        return (method if not isinstance(method, prim) else
+                        return (method if not isinstance(method, list) else
                                 cls.find_method(keys))(*args, **keys)
         else:
                 raise Exception("Unhandled primitive form: %s" % self)
+
+def redetermining_as(cls, **keys):
+        "Wacky?  Sure looks like it.."
+        lambda x: help(determine(cls, x.args, keys))
 
 class indet(prim):
         """Those have context-sensitivity, provided by a choice of strategies.
@@ -133,9 +140,8 @@ class literal(const):
 ###
 ### Toolkit
 ###
-def prim_kind_det_p(x):         return issubclass(x, (expr, stmt))
-def prim_unspilled_expr_p(x):   return isinstance(x, expr) and not x.spills
-def suite_unspilled_expr_p(xs): return len(xs) is 1 and prim_unspilled_expr_p(xs[0])
+def unspilled_expr_p(x):        return isinstance(x, expr) and not x.spills
+def suite_unspilled_expr_p(xs): return len(xs) is 1 and unspilled_expr_p(xs[0])
 
 def ast_to_expr(x):
         return (x.value if isinstance(x, ast.Expr) else
@@ -209,8 +215,13 @@ def help_args(fixed, opts, optvals, args, keys, keyvals, restkey):
 def help_ctx(writep):
         return (ast.Store if writep else ast.Load)()
 
-def fixed_ll(names):            return (names, [], [], None, [], [], None)
-def fixed_rest_ll(names, rest): return (names, [], [], rest, [], [], None)
+def help_nil():
+        return help_expr(name(cl._ensure_symbol_pyname(nil)))
+
+def          fixed_ll(fixed):                    return (fixed, [],  [],     None, [], [], None)
+def      fixed_opt_ll(fixed, opt, optval):       return (fixed, opt, optval, None, [], [], None)
+def     fixed_rest_ll(fixed, rest):              return (fixed, [],  [],     rest, [], [], None)
+def fixed_opt_rest_ll(fixed, opt, optval, rest): return (fixed, opt, optval, rest, [], [], None)
 
 ###
 ### Spill theory
@@ -352,22 +363,24 @@ def process(p):
 ## - INDEX, SLICE
 ## - STRING, INTEGER, FLOAT-NUM, LITERAL-LIST, LITERAL-HASH-TABLE-EXPR
 ## - LAMBDA, DEFUN, LAMBDA-EXPR
-## - LET, LET-EXPR, LET-TAIL, LET-THUNK
-## - SPECIAL-LET
+## - LET, LET-EXPR, LET-THUNK
+## - LET*, LET*-SETQ, LET*-EXPR, LET*-STMT
+## - PROGV
 ## - FLET, FLET-EXPR, FLET-STMT
 ## - LABELS
 ## - PROGN
 ## - IF, IF-EXPR, IF-STMT
 ## - FUNCALL, APPLY
 ## - UNWIND-PROTECT
+## - LOOP
 ## - RESIGNAL
 ## - SPECIAL-{REF,SETQ}
 ## - IMPL-REF
 ## - CONS, CAR, CDR, RPLACA, RPLACD
-## - OR, AND, NOT
-## - LOGNOT
-## - EQ
-## - +, -, *
+## - AND OR
+## - + - * / MOD POW << >> LOGIOR LOGXOR LOGAND FLOOR
+## - NOT LOTNOT
+## - EQ NEQ EQUAL NOT-EQUAL < <= > >= IN NOT-IN
 
 ###
 ### Spycials
@@ -436,6 +449,27 @@ def prim_attr_chain(xs, writep = nil):
                       xs[1:],
                       name(xs[0], writep))
 
+@defprim(intern("GLOBAL")[0],
+         ([name],))
+class global_(stmt):
+        def help(*xs):
+                return ast.Global([ x.value() for x in xs ]
+                                  ), help_expr(name("None"))
+
+@defprim(intern("NONLOCAL")[0],
+         ([name],))
+class nonlocal_(stmt):
+        def help(*xs):
+                return ast.Nonlocal([ x.value() for x in xs ]
+                                    ), help_expr(name("None"))
+
+@defprim(intern("IMPORT")[0],
+         ([name],))
+class import_(stmt):
+        def help(*xs):
+                return ast.Import([ ast.alias(x.value()) for x in xs ]
+                                  ), help_expr(name("None"))
+
 ###
 ### Constants
 ###
@@ -461,7 +495,7 @@ class listeral_list(literal):
                 return reduce(lambda car, cdr: ast.List(help_expr(car), cdr),
                               reversed(xs),
                               ## Namespace separation leak:
-                              help_expr(name(cl._ensure_symbol_pyname(nil))))
+                              help_nil())
 
 @defprim(intern("LITERAL-HASH-TABLE-EXPR"),
          ([(expr_spill, expr_spill)],))
@@ -481,7 +515,8 @@ class literal_hash_table_expr(expr):
           [prim]))
 class lambda_(indet):
         "NOTE: default value form evaluation is not delayed."
-        1_expr = defstrategy(test = lambda pyargs, *body: suite_unspilled_expr_p(body),
+        1_expr = defstrategy(test = (lambda pyargs, *body, name = nil, decorators = []:
+                                             suite_unspilled_expr_p(body) and not (name or decorators)),
                              keys = expr)
         2_stmt = defstrategy(keys = body)
 
@@ -500,8 +535,8 @@ class defun(body):
                                 body = help_tail_prog(body, kind = ast.Return))
                          ], help_expr(name)
         @defmethod(lambda_)
-        def lambda_(pyargs, expr):
-                return defun(genname("DEFLAM-"), pyargs, [], expr)
+        def lambda_(pyargs, expr, name = nil, decorators = []):
+                return defun(name or genname("DEFLAM-"), pyargs, decorators, expr)
 
 @defprim(intern("LAMBDA-EXPR")[0],
          ((([name],),
@@ -515,11 +550,17 @@ class lambda_expr(expr):
 ###
 ### Binding
 ###
+def bindings_free_eval_order_p(bindings):
+        return all(isinstance(x, (name, const))
+                   for x, form in bindings)
+
 @defprim(let,
          (([(name, prim)],),
           [prim]))
 class let(indet):
-        1_expr = defstrategy(test = lambda bindings, *body: suite_unspilled_expr_p(body),
+        1_expr = defstrategy(test = lambda bindings, *body: (all(unspilled_expr_p(x)
+                                                                 for x in list(zip(*bindings))[1])
+                                                             and suite_unspilled_expr_p(body)),
                              keys = expr)
         2_stmt = defstrategy(keys = body)
 
@@ -534,17 +575,6 @@ class let_expr(expr):
                                     *vs))
         let = identity_method()
 
-@defprim(intern("LET-TAIL"),
-         (([(name, expr_spill)],),)
-         [prim])
-class let_tail(body):
-        "Can only be used, when it can be proved, that no used variables can be mutated."
-        ## NOT LINKED UP -- deferred for usage by higher levels,
-        ## as there is not enough information to perform indet-init-time selection.
-        def help(bindings, *body):
-                return help(progn(*([ assign(n, v) for n, v in bindings ]
-                                    + body)))
-
 @defprim(intern("LET-THUNK"),
          (([(name, expr_spill)],),
           [prim]))
@@ -558,15 +588,65 @@ class let_thunk(body):
                                   funcall(tn, *vs)))
         let = identity_method()
 
-@defprim(intern("SPECIAL-LET"),
-         (([(name, expr_spill)],),
-          [prim]))
-class special_let(body):
+@defprim(intern("LET*")[0],
+         (([(name, prim)],),)
+         [prim])
+class let_(body):
+        1_head        = defstrategy(test   = lambda _, *__, headp = nil, uncaught_tail = nil: headp or uncaught_tail,
+                                    keys   = setq)
+        2_reorderable = defstrategy(test   = lambda bindings, *_: bindings_free_eval_order_p(bindings),
+                                    method = redetermining_as(let))
+        # TODO: try to reduce frame creation, even in the non-reorderable case.
+        3_expr        = defstrategy(test   = lambda bindings, *body: (all(unspilled_expr_p(x)
+                                                                          for x in list(zip(*bindings))[1])
+                                                                      and suite_unspilled_expr_p(body)),
+                                    keys   = expr)
+        4_stmt        = defstrategy(keys   = stmt)
+
+@defprim(intern("LET*-SETQ")[0],
+         (([(name, prim)],),)  ## This one handles binding spills by itself.
+         [prim])
+class let__setq(body):
+        "Can only be used as a tail, when it can be proved, that no unwind will use mutated variables."
         def help(bindings, *body):
+                return help(progn(*([ assign(n, v) for n, v in bindings ]
+                                    + body)))
+        let_ = identity_method(setq)
+
+@defprim(intern("LET*-EXPR")[0],
+         (([(name, expr_spill)],),)
+         expr)
+class let__expr(expr):
+        def help(bindings, expr):
+                return help_expr(let_expr((bindings[0],),
+                                          let_(bindings[1:],
+                                               expr))
+                                 if bindings else
+                                 expr)
+        let_ = identity_method()
+
+@defprim(intern("LET*-STMT")[0],
+         (([(name, expr)],),)
+         [prim])
+class let__stmt(body):
+        def help(bindings, *body):
+                return help(let((bindings[0],),
+                                let_(bindings[1:],
+                                     *body))
+                            if bindings else
+                            progn(*body))
+        let_ = identity_method()
+
+@defprim(intern("PROGV"),
+         (([(expr_spill, expr_spill)],),
+          [prim]))
+class progv(body):
+        def help(vars, vals, *body):
                 tn = genname("VALUE-")
                 return [ ast.With(funcall(impl_ref("_env_cluster"),
-                                          literal_hash_table_expr(*((name, val)
-                                                                    for name, val in bindings.items()))),
+                                          literal_hash_table_expr(*((help_expr(var), help_expr(val))
+                                                                    # No type checking!
+                                                                    for var, val in zip(vars, vals)))),
                                   None,
                                   help_prog_star(assign(tn, progn(*body))))
                          ], help_expr(tn)
@@ -611,6 +691,7 @@ class flet_stmt(body):
                 tn = genname("FLET-THUNK-")
                 return (help_prog([defun(tn, fixed_ll([]),
                                          *([ defun(name, lam, [],
+                                                   # this suffers from NAME being available for BODY
                                                    *body)
                                              for name, lam, *body in bindings ]
                                            + body))]),
@@ -639,15 +720,15 @@ class labels(body):
 @defprim(intern("PROGN")[0],
          ([prim],))
 class progn(indet):
-        1_expr = defstrategy(test = lambda *body: suite_unspilled_expr_p(body),
-                             keys = help_exp)
-        2_stmt = defstrategy(keys = help_progn_star)
+        1_expr = defstrategy(test   = lambda *body: suite_unspilled_expr_p(body),
+                             method = help_exp)
+        2_stmt = defstrategy(method = help_progn_star)
 
 @defprim(if_,
          (prim, prim, prim))
 class if_(indet):
-        1_expr = defstrategy(test = lambda _, conseq, ante: (prim_unspilled_expr_p(conseq) and
-                                                             prim_unspilled_expr_p(ante)),
+        1_expr = defstrategy(test = lambda _, conseq, ante: (unspilled_expr_p(conseq) and
+                                                             unspilled_expr_p(ante)),
                              keys = expr)
         2_stmt = defstrategy(keys = body)
 
@@ -700,6 +781,19 @@ class unwind_protect(body):
                                               ), help_expr(tn)
                 else:
                         return help_progn_star(protected_form)
+
+@defprim(loop, ([prim],))
+class loop(body):
+        def help(*body):
+                return ast.While(help_expr(name("True")),
+                                 help_prog(*body),
+                                 []), help_nil()
+
+@defprim(assert_, (expr_spill, expr_spill))
+class assert_(stmt):
+        def help(condition, description):
+                return ast.Assert(help_expr(condition), help_expr(description)
+                                  ), help_nil()
 
 @defprim(resignal, ())
 class resignal(stmt):
@@ -786,44 +880,121 @@ class rplacd(expr):
 ###
 ### Operations
 ###
-def help_boolop(op, xs):  return ast.BoolOp(op(), [ help_expr(x) for x in xs ])
-def help_unop(op, x):     return ast.UnaryOp(op(), help_expr(x))
-def help_binop(op, x, y): return ast.BinOp(help_expr(x), op(), help_expr(y))
+def help_boolop(op, xs):     return ast.BoolOp(op(), [ help_expr(x) for x in xs ])
+def help_unop(op, x):        return ast.UnaryOp(op(), help_expr(x))
+def help_binop(op, x, y):    return ast.BinOp(help_expr(x), op(), help_expr(y))
+def help_compare(op, x, ys): return ast.Compare(help_expr(x), op(), [ help_expr(y) for y in ys ])
 
-def help_binop_seq(args, type):
-        init, rest = ((args[0], args[1:]) if args else (0, args))
+def help_binop_seq(args, type, one):
+        init, rest = ((args[0], args[1:]) if args else (one, args))
         return reduce(lambda x, y: ast.BinOp(x, type(), help_expr(y)),
                       rest, help_expr(init))
+
+## AND OR
+@defprim(intern("AND")[0], ([expr_spill],))
+class and_(potconst):
+        def help(xs): return help_boolop(ast.And, xs)
 
 @defprim(intern("OR")[0], ([expr_spill],))
 class or_(potconst):
         def help(xs): return help_boolop(ast.Or, xs)
 
-@defprim(intern("AND")[0], ([expr_spill],))
-class and_(potconst):
-        def help(xs): return help_boolop(ast.And, xs)
+## + - * / MOD POW << >> LOGIOR LOGXOR LOGAND FLOOR
+@defprim(intern("+")[0], ([expr_spill],))
+class add(potconst):
+        def help(*xs): return help_binop_seq(xs, ast.Add)
 
+@defprim(intern("-")[0], ([expr_spill],))
+class subtract(potconst):
+        def help(*xs): return help_binop_seq(xs, ast.Sub)
+
+@defprim(intern("*")[0], ([expr_spill],))
+class multiply(potconst):
+        def help(*xs): return help_binop_seq(xs, ast.Mult)
+
+@defprim(intern("/")[0], ([expr_spill],))
+class divide(potconst):
+        def help(*xs): return help_binop_seq(xs, ast.Div)
+
+@defprim(intern("MOD")[0], (expr_spill, expr_spill))
+class mod(potconst):
+        def help(x, y): return help_binop(ast.Mod, x, y)
+
+@defprim(intern("POW")[0], (expr_spill, expr_spill))
+class expt(potconst):
+        def help(x, y): return help_binop(ast.Pow, x, y)
+
+@defprim(intern("<<")[0], (expr_spill, expr_spill))
+class lshift(potconst):
+        def help(x, y): return help_binop(ast.LShift, x, y)
+
+@defprim(intern(">>")[0], (expr_spill, expr_spill))
+class rshift(potconst):
+        def help(x, y): return help_binop(ast.RShift, x, y)
+
+@defprim(intern("LOGIOR")[0], (expr_spill, expr_spill))
+class logior(potconst):
+        def help(x, y): return help_binop(ast.BitOr, x, y)
+
+@defprim(intern("LOGXOR")[0], (expr_spill, expr_spill))
+class logxor(potconst):
+        def help(x, y): return help_binop(ast.BitXor, x, y)
+
+@defprim(intern("LOGAND")[0], (expr_spill, expr_spill))
+class logand(potconst):
+        def help(x, y): return help_binop(ast.BitAnd, x, y)
+
+@defprim(intern("FLOOR")[0], (expr_spill, expr_spill))
+class floor(potconst):
+        def help(x, y): return help_binop(ast.FloorDiv, x, y)
+
+## NOT LOGNOT
 @defprim(intern("NOT")[0], (expr_spill,))
 class not_(potconst):
+        ## Optimisation: fold (NOT (EQ X Y)) to ast.IsNot
         def help(x): return help_unop(ast.Not, x)
 
 @defprim(intern("LOGNOT")[0], (expr_spill,))
 class lognot(potconst):
         def help(x): return help_unop(ast.Invert, x)
 
+## EQ NEQ EQUAL NOT-EQUAL < <= > >= IN NOT-IN
 @defprim(intern("EQ")[0], (expr_spill, expr_spill))
 class eq(potconst):
-        ## Optimisation: fold (NOT (EQ X Y)) to ast.IsNot
-        def help(x, y): return help_binop(ast.Is, x, y)
+        def help(x, y): return help_compare(ast.Is, x, [y])
 
-@defprim(intern("+")[0], ([expr_spill],))
-class add(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Add)
+@defprim(intern("NEQ")[0], (expr_spill, expr_spill))
+class neq(potconst):
+        def help(x, y): return help_compare(ast.IsNot, x, [y])
 
-@defprim(intern("-")[0], ([expr_spill],))
-class sub(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Sub)
+@defprim(intern("EQUAL")[0], (expr_spill, [expr_spill]))
+class equal(potconst):
+        def help(x, *ys): return help_compare(ast.Eq, x, ys)
 
-@defprim(intern("*")[0], ([expr_spill],))
-class mult(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Mult)
+@defprim(intern("NOT-EQUAL")[0], (expr_spill, [expr_spill]))
+class nequal(potconst):
+        def help(x, *ys): return help_compare(ast.NotEq, x, ys)
+
+@defprim(intern("<")[0], (expr_spill, [expr_spill]))
+class lthan(potconst):
+        def help(x, *ys): return help_compare(ast.Lt, x, ys)
+
+@defprim(intern("<=")[0], (expr_spill, [expr_spill]))
+class lorequal(potconst):
+        def help(x, *ys): return help_compare(ast.LtE, x, ys)
+
+@defprim(intern(">")[0], (expr_spill, [expr_spill]))
+class gthan(potconst):
+        def help(x, *ys): return help_compare(ast.Gt, x, ys)
+
+@defprim(intern(">=")[0], (expr_spill, [expr_spill]))
+class gorequal(potconst):
+        def help(x, *ys): return help_compare(ast.GtE, x, ys)
+
+@defprim(intern("IN")[0], (expr_spill, expr_spill))
+class in_(potconst):
+        def help(x, y): return help_compare(ast.In, x, [y])
+
+@defprim(intern("NOT-IN")[0], (expr_spill, expr_spill))
+class not_in(potconst):
+        def help(x, y): return help_compare(ast.NotIn, x, [y])
