@@ -360,7 +360,7 @@ def process(p):
 ## - NAME
 ## - ASSIGN
 ## - ATTR, CONST-ATTR, VAR-ATTR
-## - INDEX, SLICE
+## - INDEX, SLICE, PYLIST
 ## - STRING, INTEGER, FLOAT-NUM, LITERAL-LIST, LITERAL-HASH-TABLE-EXPR
 ## - LAMBDA, DEFUN, LAMBDA-EXPR
 ## - LET, LET-EXPR, LET-THUNK
@@ -375,12 +375,12 @@ def process(p):
 ## - LOOP
 ## - RESIGNAL
 ## - SPECIAL-{REF,SETQ}
-## - IMPL-REF
+## - IMPL-REF, BUILTIN-REF
 ## - CONS, CAR, CDR, RPLACA, RPLACD
-## - AND OR
-## - + - * / MOD POW << >> LOGIOR LOGXOR LOGAND FLOOR
-## - NOT LOTNOT
-## - EQ NEQ EQUAL NOT-EQUAL < <= > >= IN NOT-IN
+## - AND, OR
+## - +, -, *, /, MOD, POW, <<, >>, LOGIOR, LOGXOR, LOGAND, FLOOR
+## - NOT, LOTNOT
+## - EQ, NEQ, EQUAL, NOT-EQUAL, <, <=, >, >=, IN, NOT-IN
 
 ###
 ### Spycials
@@ -437,12 +437,21 @@ class index(expr):
                 return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
 
 @defprim(intern("SLICE")[0],
-         (expr_spill, expr_spill, expr_spill))
+         (expr_spill, expr_spill, expr_spill, expr_spill))
 class slice(expr):
-        def help(x, start, end, writep = nil):
-                return ast.Subscript(help_expr(x), ast.Slice(help_expr(start), help_expr(end if end is not nil else
-                                                                                         name("None"))),
+        def help(x, start, end, step, writep = nil):
+                return ast.Subscript(help_expr(x), ast.Slice(help_expr(start),
+                                                             help_expr(end if end is not nil else
+                                                                       name("None")),
+                                                             help_expr(step if step is not nil else
+                                                                       name("None"))),
                                      help_ctx(writep))
+
+@defprim(intern("PYLIST")[0],
+         ([expr_spill],))
+class pylist(expr):
+        def help(*xs):
+                return ast.List([ help_expr(x) for x in xs ], help_ctx(nil))
 
 def prim_attr_chain(xs, writep = nil):
         return reduce((lambda acc, attr: const_attr(acc, attr, writep)),
@@ -488,16 +497,16 @@ class integer(literal):
 class float_num(literal):
         def help(x): return ast.Num(x)
 
-@defprim(intern("LITERAL-LIST"),
+@defprim(intern("LITERAL-LIST")[0],
          ([literal],))
-class listeral_list(literal):
+class literal_list(literal):
         def help(*xs):
-                return reduce(lambda car, cdr: ast.List(help_expr(car), cdr),
+                return reduce(lambda car, cdr: ast.List([help_expr(car), cdr], help_ctx(nil)),
                               reversed(xs),
                               ## Namespace separation leak:
                               help_nil())
 
-@defprim(intern("LITERAL-HASH-TABLE-EXPR"),
+@defprim(intern("LITERAL-HASH-TABLE-EXPR")[0],
          ([(expr_spill, expr_spill)],))
 ## Unregistered Issue EXTREME-NICETY-OF-AUTOMATIC-RECLASSIFICATION-TO-A-NARROWER-TYPE
 class literal_hash_table_expr(expr):
@@ -564,7 +573,7 @@ class let(indet):
                              keys = expr)
         2_stmt = defstrategy(keys = body)
 
-@defprim(intern("LET-EXPR"),
+@defprim(intern("LET-EXPR")[0],
          (([(name, expr_spill)],),
           expr))
 class let_expr(expr):
@@ -575,7 +584,7 @@ class let_expr(expr):
                                     *vs))
         let = identity_method()
 
-@defprim(intern("LET-THUNK"),
+@defprim(intern("LET-THUNK")[0],
          (([(name, expr_spill)],),
           [prim]))
 class let_thunk(body):
@@ -637,7 +646,7 @@ class let__stmt(body):
                             progn(*body))
         let_ = identity_method()
 
-@defprim(intern("PROGV"),
+@defprim(intern("PROGV")[0],
          (([(expr_spill, expr_spill)],),
           [prim]))
 class progv(body):
@@ -664,7 +673,7 @@ class flet(indet):
                              keys = expr)
         2_stmt = defstrategy(keys = body)
 
-@defprim(intern("FLET-EXPR"),
+@defprim(intern("FLET-EXPR")[0],
          (([(name, (([name],),
                     ([name],), ([expr_spill],), name,  ## EXPR-SPILL?
                     ([name],), ([expr_spill],), name),
@@ -679,7 +688,7 @@ class flet_expr(body):
                                        for _, lam, expr in bindings ]))
         flet = identity_method()
 
-@defprim(intern("FLET-STMT"),
+@defprim(intern("FLET-STMT")[0],
          (([(name, (([name],),
                     ([name],), ([expr_spill],), name,  ## EXPR-SPILL?
                     ([name],), ([expr_spill],), name),
@@ -847,7 +856,13 @@ class special_setq(expr):
          (string,))
 class impl_ref(expr):
         def help(name):
-                return _ast_attribute_chain("cl", name.value())
+                return _ast_attribute_chain("cl", name)
+
+@defprim(intern("BUILTIN-REF")[0],
+         (string,))
+class blin_ref(expr):
+        def help(x):
+                return name(x)
 
 ###
 ### Lists
