@@ -887,6 +887,7 @@ def _gensymname(x = "N"):
 
 @boot_defun
 def gensym(x = "G"):
+        # A version adding a name is defined later: GENSYM-TN.
         return make_symbol(_gensymname(x))
 
 # Dynamic scope
@@ -5719,7 +5720,7 @@ __primitiviser_map__ = { str:        (nil, p.string),
                          int:        (nil, p.integer),
                          float:      (nil, p.float),
                          ## Note: this relies on the corresponding name to be made available by some means.
-                         symbol_t:   (nil, lambda x: p.name(_ensure_symbol_pyname(x)))
+                         symbol_t:   (nil, lambda x: p.name(_unit_symbol_pyname(x)))
                          }
 
 def _primitivisable_p(x):
@@ -6951,17 +6952,6 @@ def _make_lexenv_funcframe(clambda, tns, bindings):
                                                                              _fn(name, lambda_list))
                                                            for tn, (sym, lambda_list, *_) in zip(tns, bindings) } })
 
-def _variable_frame_bindings(clambda, names, forms = _infinitely(None)):
-        tns   = [ p.name(_symbol_name(sym))  for sym in names ]
-        frame = _make_lexenv_varframe(clambda, tns, names, forms)
-        return tns, frame
-
-def _function_frame_bindings(clambda, bindings):
-        names = list[zip(*bindings)][0]
-        tns   = [ p.name(_ensure_function_pyname(sym))  for sym in names ]
-        frame = _make_lexenv_funcframe(clambda, tns, bindings)
-        return tns, frame
-
 # Quasiquotation
 
 ## From CLHS 2.4.6:
@@ -7083,10 +7073,6 @@ assert(_runtest(_expand_quasiquotation,
                          (quote, 6),
                          7)))))
 print("; QUASIQUOTATION-NESTED: passed")
-
-# DEFPRIMITIVE
-
-from primitives import *
 
 # DEFKNOWN
 
@@ -7928,6 +7914,39 @@ import primitives as p
 
 def _defaulting_expr(name, default):
         return p.if_(p.eq(name, p.name("None")), default, name)
+
+def _var_tn(sym):
+        return p.name(_unit_variable_pyname(symbol_name(sym)))
+
+def _var_tns(syms):
+        return [ _var_tn(x) for x in syms ]
+
+def _fun_tn(sym):
+        return p.name(_unit_function_pyname(symbol_name(sym)))
+
+def _gensym_tn(x = "G"):
+        sym = gensym(x)
+        sym.tn = p.name(_unit_variable_pyname(symbol_name(x)))
+        return sym
+
+def _variable_frame_bindings(clambda, names, forms = _infinitely(None)):
+        tns   = [ p.name(_unit_variable_pyname(sym))  for sym in names ]
+        frame = _make_lexenv_varframe(clambda, tns, names, forms)
+        return tns, frame
+
+def _function_frame_bindings(clambda, bindings):
+        names = list[zip(*bindings)][0]
+        tns   = [ p.name(_unit_function_pyname(sym))  for sym in names ]
+        frame = _make_lexenv_funcframe(clambda, tns, bindings)
+        return tns, frame
+
+def _vectorise_lisp_list(x):
+        res = []
+        while x:
+                res.append(x[0])
+                x = x[1]
+        return res
+
 ##
 ## Primitivification status:
 #
@@ -8304,7 +8323,7 @@ def multiple_value_call():
                 ## We have no choice, but to lower immediately, and by hand.
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
                 return _lowered(p.apply(_lower(fn),
-                                        p.add(*(p.slice(_lower(x), 1, nil) for x in arg_forms))))
+                                        p.add(*(p.slice(_lower(x), 1, nil, nil) for x in arg_forms))))
         def effects(fn, *arg_forms):
                 return (any(_ir_effects(arg) for arg in arg_forms) or
                         _ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
@@ -8439,7 +8458,9 @@ def flet():
                 if not all(typep(x, (partuple_t, symbol_t, pytuple_t))  for x in bindings):
                         error("FLET: malformed bindings: %s.", bindings)
                 # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED -- ???
-                tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), bindings)
+                clambdas = [ _compiler_lambda(name, lambda_list)
+                             for name, lambda_list, *_ in bindings ]
+                tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), [ (c.name, c) for c in clambdas ])
                 return _lowered(p.flet(((tn, _lower_lambda_list(lam)
                                          ) + tuple(_lower(x)  for x in body)
                                         for tn, (name, lam, *body) in zip(tns, bindings)),
@@ -8476,9 +8497,11 @@ def labels():
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
                 if not all(typep(x, (partuple_t, symbol_t, pytuple_t)) for x in bindings):
                         error("LABELS: malformed bindings: %s.", bindings)
-                tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), bindings)
+                clambdas = [ _compiler_lambda(name, lambda_list)
+                             for name, lambda_list, *_ in bindings ]
+                tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), [ (c.name, c) for c in clambdas ])
                 with progv({ _lexenv_: frame }):
-                        return _lowered(p.labels(((tn, _lower_lambda_list(lam)
+                        return _lowered(p.labels(((tn, _lower_lambda_list(lam)bindings
                                                    ) + tuple(_lower(x)  for x in body)
                                                   for tn, (name, lam, *body) in zip(tns, bindings)),
                                                  *(_lower(x)
@@ -9077,7 +9100,7 @@ def protoloop():
         def effects(*body):         return any(_ir_effects(x)  for x in body)
         def affected(*body):        return any(_ir_affected(x) for x in body)
 
-# DEF_
+# LAMBDA
 #         :PROPERTIES:
 #         :K:        [ ]
 #         :VALUES:   [X]
@@ -9088,60 +9111,10 @@ def protoloop():
 
 class _compiler_lambda():
         __slots__ = ("nonlocal_refs", "nonlocal_setqs")
-        def __init__(self, nonlocal_refs = None, nonlocal_setqs = None):
-                self.nonlocal_refs  = _defaulted(nonlocal_refs, set())
-                self.nonlocal_setqs = _defaulted(nonlocal_setqs, set())
-
-@defknown((intern("DEF")[0], " ", _name, " ", ([(_notlead, " "), _form],),
-            1, [(_notlead, "\n"), (_bound, _form)]),
-          name = intern("DEF")[0])
-def def_():
-        "A function definition with python-style lambda list (but homoiconic lisp-style representation)."
-        def nvalues(_):             return 1
-        def nth_value(n, orig, *_): return orig if n is 0 else (progn, orig, nil)
-        def binds(name, lambda_list, *body, decorators = []):
-                total, _, __ = _ir_prepare_lambda_list(lambda_list, "DEF %s" % name)
-                return { variable: { _variable_binding(name, variable, None) for name in total } }
-        def prologuep(*_):          return t
-        def lower(name, lambda_list, *body, decorators = []):
-                ## Urgent Issue COMPLIANCE-IR-LEVEL-BOUND-FREE-FOR-GLOBAL-NONLOCAL-DECLARATIONS
-                # This is NOT a Lisp form, but rather an acknowledgement of the
-                # need to represent a building block from the underlying system.
-                check_type(name, (and_t, symbol_t, (not_t, keyword_t)))
-                # check_type(name, (or_t, string_t, (and_t, symbol_t, (not_t, (satisfies_t, keywordp)))))
-                # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                total, args, defaults = _ir_prepare_lambda_list(lambda_list, "DEF %s" % name)
+        def __init__(self, lambda_list):
+                total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 _check_no_locally_rebound_constants(total)
-                fixed, optional, rest, keys = args
-                optdefs, keydefs = defaults
-                ## Critical Issue DEFAULT-VALUE-FORMS-PROCESSING-UNCLEAR
-                clambda = _compiler_lambda()
-                tns, lexenv = _variable_frame_bindings(clambda, total)
-                with progv({ _lexenv_: lexenv,
-                             _compiler_lambda_: clambda }):
-                        prim_body = [ _lower(x) for x in body ]
-                # Unregistered Issue CRUDE-SPECIAL-CASE-FOR-BOUND-FREE
-                return p.defun(p.name(_unit_function_pyname(name)), _lower_lambda_list("DEF %s" % name, *(args + defaults)),
-                               [ _lower(d) for d in decorators ],
-                               *(([ p.nonlocal([ p.name(_unit_variable_pyname(x))
-                                                 for x in sorted(clambda.nonlocals, key = symbol_name) ]) ]
-                                  if clambda.nonlocals else [])
-                                 + ([ p.import_(p.name("pdb"), p.name("cl")),
-                                      p.funcall(p.impl_ref("cl", "_without_condition_system"),
-                                                p.impl_ref("pdb", "set_trace")) ]
-                                    if _compiler_function_trapped_p(name) else [])
-                                 + prim_body))
-        def effects(name, lambda_list, *body, **_):   return t
-        def affected(name, lambda_list, *body, **_):  return t
-
-# LAMBDA
-#         :PROPERTIES:
-#         :K:        [ ]
-#         :VALUES:   [X]
-#         :EFFECTS:  [X]
-#         :IMPL:     [X]
-#         :CL:       [ ]
-#         :END:
+                (self.fixed, self.optional, self.rest, self.keys), (self.optdefs, self.keydefs) = args, defaults
 
 @defknown((intern("LAMBDA")[0], " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), (_bound, _form)]))
@@ -9154,19 +9127,16 @@ def lambda_():
         def prologuep(lambda_list, *body):
                 total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 return len(body) < 2 and any( _ir_body_prologuep(x) for x in body + tuple(defaults[0]) + tuple(defaults[1]))
-        def lower(lambda_list, *body, evaluate_defaults_early = nil):
+        def lower(lambda_list, *body, name = nil, decorators = [], evaluate_defaults_early = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
                 # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
-                total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
-                _check_no_locally_rebound_constants(total)
-                (fixed, optional, rest, keys), (optdefs, keydefs) = args, defaults
-                constant_defaults = all(constantp(x) for x in optdefs + keydefs)
-                must_defer = not (constant_defaults or evaluate_defaults_early)
-                clambda = _compiler_lambda(optional         = not not optional,
-                                           rest             = not not rest,
-                                           keys             = not not keys)
+                clambda = _compiler_lambda(name, lambda_list)
+                (fixed, optional, rest, keys), (optdefs, keydefs) = \
+                    (clambda.fixed, clambda.optional, clambda.rest, clambda.keys), (clambda.optdefs, clambda.keydefs)
+                constant_defaults_p = all(constantp(x) for x in optdefs + keydefs)
+                must_defer = not (constant_defaults_p or evaluate_defaults_early)
                 tns, lexenv = _variable_frame_bindings(clambda, total)
                 with progv({ _lexenv_: lexenv,
                              _compiler_lambda_: clambda }):
@@ -9186,51 +9156,47 @@ def lambda_():
                 ## So, full complexity, head-on?
                 _compiler_trace_choice(lambda_, lambda_list, "FULL-COMPLEXITY-HEAD-ON")
                 need_rest = rest or key ## &key is processed through parsing of *rest
-                gsy_o, gs_r, gsy_k = ([ gensym("OPT-" + symbol_name(x) + "-") for x in optional ],
-                                      gensym("REST-" + symbol_name(rest) + "-") if need_rest else None,
-                                      [ gensym("KEY-" + symbol_name(x) + "-") for x in key ])
-                tns_o, tn_r, tns_k = ([ p.name(symbol_name(x)) for x in gsy_o ],
-                                      p.name(symbol_name(gs_r)) if need_rest else None,
-                                      [ p.name(symbol_name(x)) for x in gsy_k ])
-                # tns_all = tuple(fixed + tns_o + ([tn_r] if rest else []) + tns_k)
-                # inner = _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *p.fixed_ll(tns_all)),
-                #                            *(nonlocal_decl +
-                #                              prim_body)))
-                outer = _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *(p.fixed_opt_rest_ll(fixed, gsy_o, None, gs_r)
-                                                                          if need_rest else
-                                                                          p.fixed_opt_ll(fixed, gsy_o, None))),
-                                           # We're primed with LET*, but what about nonlocal..
-                                           # ..we need to split them and dispatch the pieces..
-                                           *(nonlocal_decl
-                                             + ( [ p.assert_(p.eq(p.funcall(p.name("len")), p.integer(0))) ]
-                                                 if key else [] )
-                                             + [ p.let_(tuple((name, p.if_(p.eq(tn, p.name("None")),
-                                                                           _lower(expr),
-                                                                           tn))
-                                                              for tn, expr in zip(gsy_o, optdefs)) +
-                                                        + (((p.name(symbol_name(rest)), tn_r),) if rest else
-                                                           ())
-                                                        + tuple((name, p.if_(p.eq(tn, p.name("None")),
-                                                                             _lower(expr),
-                                                                             tn))
-                                                              for tn, expr in zip(gsy_o, optdefs)),
-                                                        *prim_body) ])))
-                if : ## rest is implied by the above
-                        return _rewritten(
-                                (lambda_,
-                                 tuple(fixed + [_optional] + optional + keys),
-                                 ((let, tuple((arg, defaulting_expr(arg, default))
-                                              for arg, default in zip(optional + keys,
-                                                                      optdefs + keydefs))) +
-                                  body)))
-                else:
-                        _compiler_trace_choice(lambda_, lambda_list, "NONEXPR-PROGN-DEF-FUNCTION")
-                        func_name = gensym("LET-BODY-")
-                        return _rewritten((progn,
-                                           (def_, func_name, lambda_list,
-                                            *body),
-                                           (function, func_name)),
-                                          )
+                gsy_o, gs_r = ([ _gensym_tn("OPT-" + symbol_name(x) + "-") for x in optional ],
+                               _gensym_tn("REST-" + symbol_name(rest) + "-") if need_rest else None)
+                ns_o, ns_k = _var_tns(optional), _var_tns(key)
+                tn_ht = p.genname("KWHASH")
+                nksy_k = [ p.name(_unit_symbol_pyname(_keyword(symbol_name(x)))) for x in key ]
+                [fn_tn], frame = _function_frame_bindings(clambda, [(name, clambda)])
+                with progv(frame if name else
+                           dict()):
+                        return _lowered(p.lambda_(
+                                        _lower_lambda_list("LAMBDA", *(p.fixed_opt_rest_ll(fixed, gsy_o, None, gs_r)
+                                                                       if need_rest else
+                                                                       p.fixed_opt_ll(fixed, gsy_o, None))),
+                                        # We're primed with LET*, but what about nonlocal..
+                                        # ..we need to split them and dispatch the pieces..
+                                        *(nonlocal_decl
+                                          + ( [ p.assert_(p.not_(p.mod(p.funcall(p.blin_ref("len"), p.integer(2))))) ]
+                                              if key else [] )
+                                          + [ p.let_(tuple((_var_tn(name),
+                                                            p.if_(p.eq(gs.tn, p.name("None")),
+                                                                  _lower(def_expr),
+                                                                  gs.tn))
+                                                           for name, gs, def_expr in zip(optional, gsy_o, optdefs)) +
+                                                     + (( p.import_(p.name("pdb"), p.name("cl")),
+                                                          p.funcall(p.impl_ref("cl", "_without_condition_system"),
+                                                                    p.impl_ref("pdb", "set_trace")) )
+                                                        if name and _compiler_function_trapped_p(name) else ())
+                                                     + (((_var_tn(rest), gs_r.tn),) if rest else ())
+                                                     + ((tn_ht, p.apply(p.blin_ref("dict"),
+                                                                        p.funcall(p.biin_ref("zip"),
+                                                                                  p.slice(gs_r.tn, p.integer(0), nil,
+                                                                                          p.integer(2)),
+                                                                                  p.slice(gs_r.tn, p.integer(1), nil,
+                                                                                          p.integer(2))))),)
+                                                     + tuple((name, p.if_(p.eq(p.index(tn_ht, ksymtn), p.name("None")),
+                                                                          _lower(expr),
+                                                                          p.index(tn_ht, ksymtn)))
+                                                             for ksymtn, expr in zip(nksy_k, keydefs)),
+                                                     *prim_body,
+                                                     headp = t) ]),
+                                        name = fn_tn,
+                                        decorators = [ _lower(x) for x in decorators ]))
         def effects(*_):            return nil
         def affected(*_):           return nil
 
@@ -9256,26 +9222,12 @@ def apply():
                 ## the comparison against a literal NIL is much weaker than a NULL type membership test.
                 ## Therefore, the important evolutionary question, is what kind of preparations are
                 ## required to make such type analysis viable.
-                no_varargs = rest is nil or rest == (quote, nil)
-                if not any(_ir_prologue_p(x) for x in fixed + (rest,)):
-                        _compiler_trace_choice(apply, func, "EXPR-ARGS")
-                        func_pro, func_val = _lower(func)
-                        arg_pvs = mapcar(_lower, fixed + (rest,))
-                        return _lowered(func_pro,
-                                        ("Call", func_val, [x[1] for x in arg_pvs[:-1]], [], (arg_pvs[-1][1]
-                                                                                              if not no_varargs else
-                                                                                              None)))
+                if rest is nil or rest == (quote, nil):
+                        return _lowered(p.funcall(_lower(func), *(_lower(x) for x in fixed)))
                 else:
-                        _compiler_trace_choice(apply, func, "NONEXPR-REWIND-AS-LET-APPLY" if not _ir_prologue_p(func) else
-                                                            "NONEXPR-REWIND-AS-LET-FUNCTION-APPLY")
-                        func_binding, func_expr = (((), func) if not _ir_prologue_p(func) else
-                                                   (lambda func_name:
-                                                     (((func_name, func),),
-                                                      (function, func_name)))(gensym("APPLY-FUNCNAME-")))
-                        temp_names = tuple(_gensyms(n = len(fixed) + 1 - no_varargs, x = "APPLY-ARG-"))
-                        arg_exprs = temp_names + (((quote, nil),) if no_varargs else ())
-                        return _rewritten((let, func_binding + tuple(zip(temp_names, (arg,) + args)),
-                                           (apply, func_expr) + arg_exprs))
+                        return _lowered(p.apply(_lower(func), *((_lower(x) for x in fixed)
+                                                                + [ p.funcall(p.impl_ref("_vectorise_lisp_list"),
+                                                                              _lower(rest)) ])))
         def effects(func, arg, *args):
                 return (any(_ir_effects(arg) for arg in (func, arg) + args) or
                         _ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
