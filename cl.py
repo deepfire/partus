@@ -3084,6 +3084,35 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 
 _intern_and_bind_names_in_module("DEFMACRO")
 
+## Namespace separation.
+
+_compiler_safe_namespace_separation = t
+
+def _ensure_function_pyname(symbol):
+        if symbol.function_pyname is not None:
+                return symbol.function_pyname
+        symbol.function_pyname = (_gensymname("FUN_" + str(symbol) + "-") if _compiler_safe_namespace_separation else
+                                  str(symbol))
+        return symbol.function_pyname
+def _ensure_symbol_pyname(symbol):
+        if symbol.symbol_pyname is not None:
+                return symbol.symbol_pyname
+        symbol.symbol_pyname = (_gensymname("SYM_" + str(symbol) + "-") if _compiler_safe_namespace_separation else
+                                str(symbol))
+        return symbol.symbol_pyname
+
+def _ensure_variable_pyname(x):
+        return _frost.full_symbol_name_python_name(x)
+
+def _get_function_pyname(symbol):
+        if symbol.function_pyname is None:
+                error("Function %s has no mapping to a python name.", symbol)
+        return symbol.function_pyname
+def _get_symbol_pyname(symbol):
+        if symbol.symbol_pyname is None:
+                error("Symbol %s has no mapping to a python name.", symbol)
+        return symbol.symbol_pyname
+
 def _set_function_definition(globals, x, lambda_expression):
         identity_redef = _compiler_defun(x, lambda_expression)
         def do_set_function_definition(function):
@@ -5716,40 +5745,6 @@ def _atree_ref(*xs):
 def _atree_funcall(fn, *args):
         return ("Call", fn, list(args), [])
 
-__primitiviser_map__ = { str:        (nil, p.string),
-                         int:        (nil, p.integer),
-                         float:      (nil, p.float),
-                         ## Note: this relies on the corresponding name to be made available by some means.
-                         symbol_t:   (nil, lambda x: p.name(_unit_symbol_pyname(x)))
-                         }
-
-def _primitivisable_p(x):
-        type = type_of(x)
-        type_recipe, _ = gethash(type, __primitiviser_map__)
-        if not type_recipe:
-                return nil
-        recursep, _ = type_recipe
-        if not recursep:
-                return t
-        return all(_primitivisable_p(x) for x in x)
-
-def _try_primitivise_constant(x):
-        "It's more efficient to try doing it, than to do a complete check and then to 'try' again."
-        (rec, primitiviser), primitivisablep = gethash(type_of(x), __primitiviser_map__,
-                                                       ((nil, nil), nil))
-        if not primitivisablep:
-                return None, None
-        if rec: ## Dead code.
-                prim, successp = _try_primitivise_list(x)
-                return (primitiviser(prim), t) if successp else (None, None)
-        return primitiviser(prim if rec else x), t
-
-def _primitivise_constant(x):
-        prim, successp = _try_primitivise_constant(x)
-        return (prim if successp else
-                error("Cannot primitivise value %s.  Is it a literal?",
-                      prin1_to_string(x)))
-
 # Atree -> AST
 
 def _atree_ast(tree):
@@ -5888,7 +5883,7 @@ def _find_global_variable(name): return gethash(name, _variable_scope)[0]
 def _find_global_function(name): return gethash(name, _function_scope)[0]
 
 def _compiler_defparameter(name, value):
-        x = _variable(the(symbol_t, name), variable)
+        x = _variable(the(symbol_t, name), _ensure_variable_pyname(name), variable)
         _variable_scope[name] = x
         if value is not None:
                 __global_scope__[name] = value
@@ -5909,7 +5904,8 @@ def _compiler_defun(name, lambda_expression, check_redefinition = t):
                         _warn_incompatible_function_redefinition(name, "function", "macro")
                 else:
                         _warn_possible_redefinition(name.function, name)
-        _function_scope[name] = _function(name, function, lambda_expression = lambda_expression)
+        _function_scope[name] = _function(name, _ensure_function_pyname(name),
+                                          function, lambda_expression = lambda_expression)
         return nil
 
 def _compiler_defmacro(name, lambda_expression, check_redefinition = t):
@@ -5924,7 +5920,8 @@ def _compiler_defmacro(name, lambda_expression, check_redefinition = t):
                         _warn_incompatible_function_redefinition(name, "macro", "function")
                 else:
                         _warn_possible_redefinition(name.macro_function, name)
-        _function_scope[name] = _function(name, macro, lambda_expression = lambda_expression)
+        _function_scope[name] = _function(name, _ensure_function_pyname(name),
+                                          macro, lambda_expression = lambda_expression)
         return nil
 
 def _compiler_defvar_without_actually_defvar(name, value):
@@ -5941,7 +5938,7 @@ def _compiler_defconstant(name, value):
         assert(value is not None)
         if _global_variable_constant_p(name):
                 error("The constant %s is being redefined (from %s to %s).", name, _variable_scope[name].value, value)
-        var = _variable(the(symbol_t, name), constant, value = value)
+        var = _variable(the(symbol_t, name), _ensure_variable_pyname(name), constant, value = value)
         _variable_scope[name] = var
 
 def _check_no_locally_rebound_constants(locals, use = "local variable"):
@@ -6398,7 +6395,6 @@ def _match(matcher, exp, pat):
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
         return matcher.match(dict(), name, exp, prepped, (True, False), None, -1)
 
-_compiler_safe_namespace_separation = t
 _compiler_max_mockup_level = 3
 
 _string_set("*COMPILER-TRACE-TOPLEVELS*",          nil)
@@ -6452,29 +6448,6 @@ def _compiler_config_tracing(**keys):
         def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
         for namespec, value in keys.items():
                 _string_set(control_var_name(namespec), value)
-
-## Namespace separation.
-def _ensure_function_pyname(symbol):
-        if symbol.function_pyname is not None:
-                return symbol.function_pyname
-        symbol.function_pyname = (_gensymname("FUN_" + str(symbol) + "-") if _compiler_safe_namespace_separation else
-                                  str(symbol))
-        return symbol.function_pyname
-def _ensure_symbol_pyname(symbol):
-        if symbol.symbol_pyname is not None:
-                return symbol.symbol_pyname
-        symbol.symbol_pyname = (_gensymname("SYM_" + str(symbol) + "-") if _compiler_safe_namespace_separation else
-                                str(symbol))
-        return symbol.symbol_pyname
-
-def _get_function_pyname(symbol):
-        if symbol.function_pyname is None:
-                error("Function %s has no mapping to a python name.", symbol)
-        return symbol.function_pyname
-def _get_symbol_pyname(symbol):
-        if symbol.symbol_pyname is None:
-                error("Symbol %s has no mapping to a python name.", symbol)
-        return symbol.symbol_pyname
 
 def _pp(x, **args):
         return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex)(x, **args)
@@ -6648,7 +6621,8 @@ def _ir_cl_module_call(name, *ir_args):
         return _ir_funcall((quote, _ir_cl_module_name(name)), *ir_args)
 
 def _ir_lambda_to_def(name, lambda_expression):
-        return (def_, the(symbol_t, name)) + lambda_expression[1:]
+        return _ir_args(lambda_, the(symbol_t, name), *lambda_expression[1:],
+                        name = name)
 
 # Compiler conditions
 
@@ -6815,7 +6789,8 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                                          _ir_funcall(list_, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
                                          _ir_funcall(list_, *tuple(sym in gfuns              for sym in symbols )),
                                          _ir_funcall(list_, *tuple(sym in gvars              for sym in symbols )))),
-                         lexenv = _make_null_lexenv())
+                         ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
+                         lexenv = _make_null_lexenv(nil))
         with _no_compiler_debugging():
                 return (import_prologue() +
                         _atree_linearise(*symbol_prologue()))
@@ -6935,7 +6910,7 @@ class _lexenv():
                 return (b and b.kind is kind and b) or default
 
 def _lexenvp(x):                return isinstance(x, _lexenv)
-def _make_null_lexenv(clambda): return make_instance(_lexenv, clambda, parent = null)
+def _make_null_lexenv(clambda): return make_instance(_lexenv, clambda = clambda, parent = null)
 def _make_lexenv(clambda, parent = nil, **initial_content):
         """ :PARENT - NULL for a null lexenv, nil for the value of *LEXENV*.
             :{NAME,KIND,FULL}-{VAR,FUNC,BLOCK}FRAME - constituents."""
@@ -7905,9 +7880,10 @@ def DEFMACRO(name, lambda_list, *body):
                 ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
                 # (function, (def_, name, lambda_list) + body),
                  (ir_args,
-                  (def_, name, lambda_list) + body,
+                  (lambda_, lambda_list) + body,
                   ("decorators", [_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
-                                                     (quote, name), (quote, (name, lambda_list) + body))])))
+                                                     (quote, name), (quote, (name, lambda_list) + body))]),
+                  ("name", name)))
 
 # Primitive IR
 import primitives as p
@@ -7947,16 +7923,39 @@ def _vectorise_lisp_list(x):
                 x = x[1]
         return res
 
-##
-## Primitivification status:
-#
-# ..up to CATCH/THROW
+__primitiviser_map__ = { str:        (nil, p.string),
+                         int:        (nil, p.integer),
+                         float:      (nil, p.float_num),
+                         ## Note: this relies on the corresponding name to be made available by some means.
+                         symbol_t:   (nil, lambda x: p.name(_unit_symbol_pyname(x)))
+                         }
 
-# Tuple intermediate IR
+def _primitivisable_p(x):
+        type = type_of(x)
+        type_recipe, _ = gethash(type, __primitiviser_map__)
+        if not type_recipe:
+                return nil
+        recursep, _ = type_recipe
+        if not recursep:
+                return t
+        return all(_primitivisable_p(x) for x in x)
 
-#     A tuple of:
-#     - prologue
-#     - value, can only contain _ast.expr's
+def _try_primitivise_constant(x):
+        "It's more efficient to try doing it, than to do a complete check and then to 'try' again."
+        (rec, primitiviser), primitivisablep = gethash(type_of(x), __primitiviser_map__,
+                                                       ((nil, nil), nil))
+        if not primitivisablep:
+                return None, None
+        if rec: ## Dead code.
+                prim, successp = _try_primitivise_list(x)
+                return (primitiviser(prim), t) if successp else (None, None)
+        return primitiviser(prim if rec else x), t
+
+def _primitivise_constant(x):
+        prim, successp = _try_primitivise_constant(x)
+        return (prim if successp else
+                error("Cannot primitivise value %s.  Is it a literal?",
+                      prin1_to_string(x)))
 
 ## Compiler messages:
 ## - entry        _lower:rec()                             ;* lowering
@@ -8418,7 +8417,7 @@ def let():
                         all(typep(x, (pytuple_t, symbol_t, t)) for x in bindings)):
                         error("LET: malformed bindings: %s.", bindings)
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
-                normalised_bindings = tuple(_ensure_cons(, nil) for b in bindings)
+                normalised_bindings = tuple(_ensure_cons(b, nil) for b in bindings)
                 _check_no_locally_rebound_constants(names)
                 tns, frame = _variable_frame_bindings(symbol_value(_compiler_lambda_), *zip(*normalised_bindings))
                 return _lowered(p.let(((tn, _lower(form))
@@ -8501,8 +8500,8 @@ def labels():
                              for name, lambda_list, *_ in bindings ]
                 tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), [ (c.name, c) for c in clambdas ])
                 with progv({ _lexenv_: frame }):
-                        return _lowered(p.labels(((tn, _lower_lambda_list(lam)bindings
-                                                   ) + tuple(_lower(x)  for x in body)
+                        return _lowered(p.labels(((tn, _lower_lambda_list(lam))
+                                                  + tuple(_lower(x)  for x in body)
                                                   for tn, (name, lam, *body) in zip(tns, bindings)),
                                                  *(_lower(x)
                                                    for x in body)))
@@ -9121,7 +9120,7 @@ class _compiler_lambda():
 def lambda_():
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def binds(lambda_list, *body, evaluate_defaults_early = nil):
+        def binds(lambda_list, *body, name = nil, decorators = [], evaluate_defaults_early = nil):
                 total, _, __ = _ir_prepare_lambda_list(lambda_list, "LAMBDA")
                 return { variable: { _variable_binding(name, variable, None) for name in total } }
         def prologuep(lambda_list, *body):
@@ -9141,8 +9140,8 @@ def lambda_():
                 with progv({ _lexenv_: lexenv,
                              _compiler_lambda_: clambda }):
                         prim_body = [ _lower(x) for x in body ]
-                nonlocal_decl = ([ p.nonlocal([ p.name(_unit_variable_pyname(x))
-                                                for x in sorted(clambda.nonlocals, key = symbol_name) ]) ]
+                nonlocal_decl = ([ p.nonlocal_([ p.name(_unit_variable_pyname(x))
+                                                 for x in sorted(clambda.nonlocals, key = symbol_name) ]) ]
                                  if clambda.nonlocals else [])
                 if not (rest or keys) and not (must_defer and optional):
                         ## &rest requires listification, at very least
@@ -9246,7 +9245,8 @@ def _test_ir_args():
         # return _match(_metasex_pp, (ir_args,
         #                             (list,),
         #                             ("crap", [1, 2, 3])), {"whole":_form})
-        return macroexpand_all(form, lexenv = _make_null_lexenv())
+        ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
+        return macroexpand_all(form, lexenv = _make_null_lexenv(nil))
 _test_ir_args()
 
 def applyification():
@@ -9548,7 +9548,8 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                                 form = read(input, eof_value = input_file, eof_error_p = nil)
                                 while form is not input_file:
                                         forms = forms + (form,)
-                                        form_stmts = _process_top_level(form, lexenv = _make_null_lexenv())
+                                        ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
+                                        form_stmts = _process_top_level(form, lexenv = _make_null_lexenv(nil))
                                         stmts.extend(form_stmts)
                                         if trace_file:
                                                 trace_file.write(_pp(form))
