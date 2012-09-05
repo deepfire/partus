@@ -4300,7 +4300,7 @@ def __cl_condition_handler__(condspec, frame):
                         #                    (BaseException, lambda: cond),
                         #                    (str,       lambda: error_(cond)))
                 cond, upgradedp = _maybe_upgrade_condition(raw_cond)
-                if type_of(cond) not in __not_even_conditions__:
+                if type_of(cond) not in __not_even_conditions__ and isinstance(cond, condition_t):
                         # _debug_printf("signalling %s", cond)
                         if upgradedp:
                                 _here("Condition Upgrader: %s of-type %s -> %s of-type %s",
@@ -4323,22 +4323,27 @@ def __cl_condition_handler__(condspec, frame):
         with progv({_stack_top_hint_: signalling_frame}):
                 cond = _sys.call_tracing(continuation, ())
         if type_of(cond) not in __not_even_conditions__:
-                is_not_ball = type_of(cond) is not __catcher_throw__
-                _here("In thread '%s': unhandled condition of type %s: %s%s",
-                      _threading.current_thread().name, type_of(cond), princ_to_string(cond),
-                      ("\n; Disabling CL condition system." if is_not_ball else
-                       ""),
-                      callers = 15, frame = signalling_frame)
+                if isinstance(cond, condition_t):
+                        try:
+                                repr = princ_to_string(cond)
+                        except:
+                                repr = "#<error printing condition>"
+                        _here("In thread '%s': unhandled condition of type %s: %s%s",
+                              _threading.current_thread().name, type_of(cond), repr,
+                              "\n; Disabling CL condition system.",
+                              callers = 15, frame = signalling_frame)
+                else:
+                        _debug_printf("In thread %s: a non-condition of type %s was raised: %s",
+                                      _threading.current_thread().name, type_of(cond), repr(cond))
                 if not backtrace_printed:
                         _backtrace()
-                if is_not_ball:
-                        _frost.disable_pytracer()
-                        try:
-                                invoke_debugger(cond)
-                        except error_t as debugger_cond:
-                                _debug_printf("Failed to enter the debugger:\n%s\nHave a nice day!", debugger_cond)
-                                _sys.stderr.flush()
-                                exit()
+                _frost.disable_pytracer()
+                try:
+                        invoke_debugger(cond)
+                except error_t as debugger_cond:
+                        _debug_printf("Failed to enter the debugger:\n%s\nHave a nice day!", debugger_cond)
+                        _sys.stderr.flush()
+                        exit()
         ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
