@@ -1875,8 +1875,8 @@ def _print_frames(fs, stream = None, frame_ids = None):
                                  (i, _pp_frame(f, lineno = True, frame_id = frame_ids))),
              *zip(*enumerate(fs)))
 
-def _backtrace(x = -1, stream = None, frame_ids = None, offset = 0):
-        _print_frames(_frames_calling(_this_frame())[1 + offset:x],
+def _backtrace(x = -1, stream = None, frame = None, frame_ids = None, offset = 0):
+        _print_frames(_frames_calling(_defaulted(frame, _this_frame()))[1 + offset:x],
                       _defaulted_to_var(stream, _debug_io_),
                       frame_ids = frame_ids)
 
@@ -4325,11 +4325,13 @@ def __cl_condition_handler__(condspec, frame):
         if type_of(cond) not in __not_even_conditions__:
                 if isinstance(cond, condition_t):
                         try:
-                                repr = princ_to_string(cond)
-                        except:
-                                repr = "#<error printing condition>"
+                                repr_str = princ_to_string(cond)
+                        except Exception as sub_cond:
+                                _debug_printf("While printing condition, another condition was raised: %s", repr(sub_cond))
+                                # _backtrace(frame = _exception_frame())
+                                repr_str = "#<error printing condition>"
                         _here("In thread '%s': unhandled condition of type %s: %s%s",
-                              _threading.current_thread().name, type_of(cond), repr,
+                              _threading.current_thread().name, type_of(cond), repr_str,
                               "\n; Disabling CL condition system.",
                               callers = 15, frame = signalling_frame)
                 else:
@@ -6020,6 +6022,8 @@ _sync_global_scopes_to_package(__cl)
 _compiler_defconstant(t,   t)
 _compiler_defconstant(nil, nil)
 
+EmptyDict = dict()
+EmptySet = frozenset()
 
 # Matcher
 
@@ -6923,13 +6927,12 @@ def _make_lexenv(clambda, parent = nil, **initial_content):
 
 def _make_lexenv_varframe(clambda, tns, names, forms = _infinitely(None)):
         return _make_lexenv(clambda,
-                            kind_varframe  = { variable: { _variable_binding(tn, sym, variable, form)
+                            kind_varframe  = { variable: { _variable_binding(sym, tn, variable, form)
                                                            for tn, sym, form in zip(tns, names, forms) } })
 
 def _make_lexenv_funcframe(clambda, tns, bindings):
         return _make_lexenv(clambda,
-                            kind_funcframe = { function: { _function_binding(tn, sym, function,
-                                                                             _fn(name, lambda_list))
+                            kind_funcframe = { function: { _function_binding(sym, tn, function, _fn(name, lambda_list))
                                                            for tn, (sym, lambda_list, *_) in zip(tns, bindings) } })
 
 # Quasiquotation
@@ -7897,17 +7900,23 @@ def _defaulting_expr(name, default):
         return p.if_(p.eq(name, p.name("None")), default, name)
 
 def _var_tn(sym):
-        return p.name(_unit_variable_pyname(symbol_name(sym)))
+        return p.name(_unit_variable_pyname(sym))
+
+def _var_tn_no_unit(sym):
+        return p.name(_ensure_variable_pyname(sym))
 
 def _var_tns(syms):
         return [ _var_tn(x) for x in syms ]
 
 def _fun_tn(sym):
-        return p.name(_unit_function_pyname(symbol_name(sym)))
+        return p.name(_unit_function_pyname(sym))
+
+def _fun_tn_no_unit(sym):
+        return p.name(_ensure_function_pyname(sym))
 
 def _gensym_tn(x = "G"):
         sym = gensym(x)
-        sym.tn = p.name(_unit_variable_pyname(symbol_name(x)))
+        sym.tn = p.name(_unit_variable_pyname(x))
         return sym
 
 def _variable_frame_bindings(clambda, names, forms = _infinitely(None)):
@@ -8038,7 +8047,7 @@ _compiler_debug         = _defwith("_compiler_debug",
                                    lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
                                    lambda *_: _dynamic_scope_pop())
 
-def _lowered(prim):                   return prim
+def _lowered(prim):                   return prim, EmptyDict
 def _rewritten(form, scope = dict()): return form, the(dict, scope)
 def _rewritep(x):                     return isinstance(x[1], dict)
 
@@ -8413,7 +8422,8 @@ def let():
         def binds(bindings, *body):
                 bindings = (((b,    None) if isinstance(b, symbol_t) else
                              (b[0], b[1])) for b in bindings)
-                return { variable: { _variable_binding(name, variable, None) for name, _ in bindings } }
+                return { variable: { _variable_binding(name, _var_tn_no_unit(name), variable, None)
+                                     for name, _ in bindings } }
         def prologuep(bindings, *body):
                 return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body):
@@ -8452,7 +8462,8 @@ def flet():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
-                return { function: { _function_binding(name, function, None) for name, _, *__ in bindings } }
+                return { function: { _function_binding(name, _fun_tn_no_unit(name), function, None)
+                                     for name, _, *__ in bindings } }
         def prologuep(bindings, *body):
                 return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body):
@@ -8492,7 +8503,8 @@ def labels():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
-                return { function: { _function_binding(name, function, None) for name, _, *__ in bindings } }
+                return { function: { _function_binding(name, _fun_tn_no_unit(name), function, None)
+                                     for name, _, *__ in bindings } }
         def prologuep(bindings, *body):
                 return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body):
@@ -8620,7 +8632,7 @@ def macrolet():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
-                return { macro: { _function_binding(name, macro, (lambda_list, body))
+                return { macro: { _function_binding(name, _fun_tn_no_unit(name), macro, (lambda_list, body))
                                   for name, lambda_list, *body in bindings } }
         def prologuep(bindings, *body):          return _ir_body_prologuep(body)
         def lower(bindings, *body):
@@ -8646,7 +8658,8 @@ def symbol_macrolet():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
-                return { symbol_macro: { _variable_binding(name, symbol_macro, form) for name, form in bindings } }
+                return { symbol_macro: { _variable_binding(name, _var_tn_no_unit(name), symbol_macro, form)
+                                         for name, form in bindings } }
         def prologuep(bindings, *body):          return _ir_body_prologuep(body)
         def lower(bindings, *body):
                 bindings_thru_defaulting = tuple(_ensure_cons(b, nil) for b in bindings)
@@ -9114,11 +9127,16 @@ def protoloop():
 #         :END:
 
 class _compiler_lambda():
-        __slots__ = ("nonlocal_refs", "nonlocal_setqs")
-        def __init__(self, lambda_list):
+        __slots__ = ("name",
+                     "fixed", "optional", "rest", "keys", "optdefs", "keydefs",
+                     "total_bound",
+                     "nonlocal_refs", "nonlocal_setqs")
+        def __init__(self, name, lambda_list):
                 total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 _check_no_locally_rebound_constants(total)
+                self.name = name
                 (self.fixed, self.optional, self.rest, self.keys), (self.optdefs, self.keydefs) = args, defaults
+                self.total_bound = self.fixed + self.optional + self.keys + [self.rest] if self.rest else []
 
 @defknown((intern("LAMBDA")[0], " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), (_bound, _form)]))
@@ -9127,7 +9145,8 @@ def lambda_():
         def nth_value(n, orig, *_): return orig if n is 0 else nil
         def binds(lambda_list, *body, name = nil, decorators = [], evaluate_defaults_early = nil):
                 total, _, __ = _ir_prepare_lambda_list(lambda_list, "LAMBDA")
-                return { variable: { _variable_binding(name, variable, None) for name in total } }
+                return { variable: { _variable_binding(name, _var_tn_no_unit(variable), variable, None)
+                                     for name in total } }
         def prologuep(lambda_list, *body):
                 total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 return len(body) < 2 and any( _ir_body_prologuep(x) for x in body + tuple(defaults[0]) + tuple(defaults[1]))
@@ -9139,6 +9158,7 @@ def lambda_():
                 clambda = _compiler_lambda(name, lambda_list)
                 (fixed, optional, rest, keys), (optdefs, keydefs) = \
                     (clambda.fixed, clambda.optional, clambda.rest, clambda.keys), (clambda.optdefs, clambda.keydefs)
+                total = clambda.total_bound
                 constant_defaults_p = all(constantp(x) for x in optdefs + keydefs)
                 must_defer = not (constant_defaults_p or evaluate_defaults_early)
                 tns, lexenv = _variable_frame_bindings(clambda, total)

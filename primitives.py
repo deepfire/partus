@@ -85,7 +85,7 @@ class prim(metaclass = primclass):
                 self.spills = []
         def __str__(self):
                 return "(%s%s)" % (type(self).__name__.upper(),
-                                   "" if not args else (" " + " ".join(str(a) for a in self.args)))
+                                   "" if not self.args else (" " + " ".join(repr(a) for a in self.args)))
         @classmethod
         def find_method(cls, tags):
                 "Find *the* single method matching all tags."
@@ -261,17 +261,26 @@ def fixed_opt_rest_ll(fixed, opt, optval, rest): return (fixed, opt, optval, res
 ### Only applicatively positioned subforms can be conveniently spilled.
 ###
 class primitive_mismatch(Exception):
-        def __init__(self, spec = None, form = None):
-                assert(spec and form)
-                self.spec, self.form = spec, form
+        def __init__(self, mesg, prim = None, pspec = None, spec = None, form = None):
+                ni = "#<not initialised>"
+                self.prim, self.pspec, self.spec, self.form = ni, ni, ni, ni
+                assert(prim and pspec and spec and form)
+                self.mesg, self.prim, self.pspec, self.spec, self.form = mesg, prim, pspec, spec, form
         def __str__(self):
-                return "Primitive mismatch: (%s %s) is not of type %s." % \
-                    (type(self.form).__name__, " ".join(repr(x) for x in self.form.args), self.spec)
+                return "While matching primitive %s against %s, mismatch of (%s %s) with spec %s: %s." % \
+                    (self.prim, self.pspec,
+                     type(self.form).__name__,
+                     (repr(self.form) if not isinstance(self.form, prim) else
+                      " ".join(repr(x) for x in self.form.args)),
+                     self.spec,
+                     self.mesg)
 
 def prim_check_and_spill(primitive) -> (prim, list(dict())):
         def check_prim_type(arg, type):
                 if not typep(arg, type):
-                        raise primitive_mismatch(spec = type, form = arg)
+                        raise primitive_mismatch("type mismatch",
+                                                 prim = primitive, pspec = primitive.form_specifier,
+                                                 spec = type, form = arg)
         ###
         def tuple_spills(spec, args):
                 segmentp = spec and isinstance(spec[-1], list)
@@ -287,7 +296,9 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         for a in a_segment:
                                 pre_spills.append(process(s_spec, a))
                         ## only allowable spills will land here
-                        last_spilled_posn = position_if(identity, pre_spills, from_end = t, key = _indexing(1))
+                        # cl._debug_printf("pre-spills of %s: %s", primitive, pre_spills)
+                        last_spilled_posn = position_if(identity, pre_spills, from_end = t, key = cl._indexing(1)) \
+                            or 0
                         first_unspilled_posn = last_spilled_posn + 1
                         n_spilled = len(pre_spills) - first_unspilled_posn
                         n_segspill = max(0, first_unspilled_posn - len(a_fixed))
@@ -295,48 +306,52 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         return for_spill, ((spec[:-1] + (s_spec,) * n_segspill)
                                            if n_segspill else
                                            spec[:first_unspilled_posn]), unspilled
-                for_spill_as, for_spill_ss, unspilled = tuple_spill_partition(spec, args)
+                for_spill_as, for_spill_ss, unspilled = expr_tuple_spill_partition(spec, args)
                 ## Re-collecting spills, while forcing spill for unspilled spillables.
                 forms, spills = [], []
                 for s, a in zip(for_spill_ss, for_spill_as):
                         form, spill = process(s, a, force_spill = t)
                         forms += (form,)
                         spills.append(spill)
-                return (spills,
-                        forms + unspilled)
+                return (tuple(forms) + unspilled,
+                        spills)
         def options_spills(spec, arg, force_spill = nil):
                 for option in spec:
                         try:
                                 return process(option, arg, force_spill = force_spill)
                         except primitive_mismatch as _:
                                 pass
-                raise primitive_mismatch(spec = spec, form = arg)
+                raise primitive_mismatch("no option matched",
+                                         prim = primitive, pspec = primitive.form_specifier, spec = spec, form = arg)
         def map_spills(spec, arg, force_spill = nil):
                 for result, option in spec:
                         if typep(arg, option):
-                                return process(result, arg, force_spill = force_spill)
-                raise primitive_mismatch(spec = spec, form = arg)
+                                return process("no option matched",
+                                               result, arg, force_spill = force_spill)
+                raise primitive_mismatch(prim = primitive, pspec = primitive.form_specifier, spec = spec, form = arg)
         def type_check(spec, arg, force_spill = nil):
-                check_prim_type(arg, type)
-                return []
+                check_prim_type(arg, spec)
+                return (arg,
+                        [])
         processors = { tuple: tuple_spills,
                        list:  lambda misspec, *_, **__: error("List type specifier (%s), outside of appropriate context.",
                                                               misspec),
                        set:   options_spills,
                        dict:  map_spills }
         def process(spec, arg, force_spill = nil):
-                if spec is expr_spillable:
+                if spec is expr_spill:
                         check_prim_type(arg, (or_t, expr, stmt))
                         ## Spill, iff any of the conditions hold:
                         if not (force_spill           or # - spilling is required
                                 isinstance(arg, stmt) or # - the argument is not an expression
                                 arg.spills):             # - the argument has spilled itself
-                                return (arg, [])
+                                return (arg,
+                                        [])
                         tn = genname("EXP-") ## Temporary Name.
-                        return (arg.spills + [assign(tn, arg)],
-                                name(tn))
+                        return (name(tn),
+                                arg.spills + [assign(tn, arg)])
                 return processors.get(type(spec), type_check)(spec, arg, force_spill = force_spill)
-        primitive.args, primitive.spills = tuple_spills(primitive, args)
+        primitive.args, primitive.spills = tuple_spills(primitive.form_specifier, primitive.args)
         return primitive
 
 def process(p):
