@@ -548,7 +548,7 @@ def package_name(x): return x.name
 @boot_defun
 def find_package(name):
         return (name if packagep(name) else
-                _namespace["PACKAGES"].access(string(name))[0] or nil)
+                _namespace["PACKAGES"].access(name if isinstance(name, str) else symbol_name(name))[0] or nil)
 
 @boot_defun
 def package_used_by_list(package):
@@ -599,13 +599,6 @@ def _symbol_function(symbol):  return (symbol.known          or
                                        symbol.function       or
                                        _debug_printf("no fun: %s", symbol) or
                                        error(undefined_function_t, symbol))
-
-@boot_defun
-def string(x):
-        ## NOTE: These type check branches can be in bootstrap order or in usage frequency order!
-        return (x      if isinstance(x, str)      else
-                x.name if isinstance(x, symbol_t) else
-                error("%s must have been either a string or a symbol.", x))
 
 def _do_find_symbol(str, package):
         return gethash(str, package.accessible, None)[0]
@@ -868,7 +861,8 @@ def _init_package_system_0():
         def make_package(name, nicknames = [], use = []):
                 if nicknames:
                         _not_implemented("In MAKE-PACKAGE %s: package nicknames are ignored.", repr(name))
-                return package_t(string(name), ignore_python = True, use = [])
+                return package_t(name if stringp(name) else symbol_name(name),
+                                 ignore_python = True, use = [])
 
 _init_package_system_0()
 
@@ -4275,7 +4269,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
                                           backtrace = backtrace)
                         if old_hook_value:
                                 old_hook_value(cond, old_hook_value)
-                with env.maybe_let(p, **{string(hook): wrapped_hook}):
+                with env.maybe_let(p, **{hook if stringp(hook) else symbol_name(hook): wrapped_hook}):
                         return body()
         else:
                 return body()
@@ -8689,7 +8683,7 @@ def block():
                 return { block: { _block_binding(name, t) } }
         def prologuep(name, *body):          return _ir_body_prologuep(body)
         def lower(name, *body):
-                nonce = gensym("BLOCK-" + string(name) + "-")
+                nonce = gensym("BLOCK-" + symbol_name(name) + "-")
                 catch_target = (catch, (quote, nonce)) + body
                 has_return_from = nil
                 def update_has_return_from(sex):
@@ -10040,11 +10034,11 @@ load(compile_file("reader.lisp"))
 _string_set("*MODULE-PROVIDER-FUNCTIONS*", [])
 
 def _module_filename(module):
-        return "%s/%s.py" % (env.partus_path, string(module))
+        return "%s/%s.py" % (env.partus_path, module if stringp(module) else symbol_name(module))
 
 def require(name, pathnames = None):
         "XXX: not terribly compliant either"
-        namestring = string(name)
+        namestring = name if stringp(name) else symbol_name(name)
         filename = pathnames[0] if pathnames else _module_filename(namestring)
         if probe_file(filename):
                 _not_implemented()
@@ -11829,15 +11823,15 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
         ##                                 fixed, optional, args, keyword, keys,
         ##                                 nfixed):
         new_dfun_ast = _ast_functiondef(
-            string(function_name),
+            symbol_name(function_name),
             lambda_list,
             # How do we access methods themselves?
             [_ast_return(
                  _ast_funcall(_ast_funcall("compute_effective_method",
-                                           [_ast_name(string(function_name)),
+                                           [_ast_name(symbol_name(function_name)),
                                             None, # method combination
                                             _ast_funcall("dfun_compute_applicable_methods",
-                                                         [_ast_name(string(function_name)),
+                                                         [_ast_name(symbol_name(function_name)),
                                                           mapcar(_ast_name, fixed)])]),
                               mapcar(_ast_name, fixed + mapcar(car, optional)),
                               _map_into_hash_star(lambda key, default: (key, _ast_name(default)),
@@ -11852,7 +11846,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                        _find_symbol_or_fail            = _find_symbol_or_fail,
                        dfun_compute_applicable_methods = dfun_compute_applicable_methods)
         return _ast_compiled_name(
-                    string(function_name),
+                    symbol_name(function_name),
                     new_dfun_ast,
                     filename = "" # _defaulted(filename, "")
                     ,
