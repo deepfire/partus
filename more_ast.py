@@ -22,7 +22,7 @@ from cl         import _ast_Expr as ast_Expr, _ast_list as ast_list, _ast_tuple 
 from cl         import _ast_return as ast_return, _ast_assign as ast_assign, _ast_import as ast_import
 from cl         import _ast_module as ast_module
 from cl         import _not_implemented as not_implemented
-from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, tuplep, fprintf
+from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, fprintf
 from neutrality import py3p
 
 
@@ -37,7 +37,7 @@ def extract_symtable(source, filename):
 ### Pyzzle-specific AST
 ###
 def ast_strtuple(x, writep = False):
-    assert(tuplep(x))
+    assert(isinstance(x, tuple))
     return ast.Tuple(elts = mapcar(ast_string, x), ctx = ast_rw(writep))
 
 def ast_marshal(x):
@@ -337,7 +337,7 @@ cl._intern_and_bind_names_in_module("*AST-PP-DEPTH*",
                                     globals = globals())
 
 cl._string_set("*AST-PP-DEPTH*", 0, force_toplevel = t)
-def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
+def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_written_names = None):
         fmtctl = "%%%dd " % ndigits
         def indent(ast_or_lineno):
                 lineno = (ast_or_lineno.lineno if hasattr(ast_or_lineno, "lineno") else 0)
@@ -351,8 +351,10 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                         return ("%s(%s%s%s%s)" % (pp_ast_as_code(x.func),
                                                   ", ".join(iterate(x.args)),
                                                   ", ".join(iterate(x.keywords)),
-                                                  (", *%s" % pp_ast_as_code(x.starargs)) if x.starargs else "",
-                                                  (", **%s" % pp_ast_as_code(x.kwargs)) if x.kwargs else ""))
+                                                  (", " if x.starargs and (x.args or x.keywords) else "") +
+                                                  ("*%s" % pp_ast_as_code(x.starargs)) if x.starargs else "",
+                                                  (", " if x.kwargs and (x.args or x.keywords or x.starargs) else "") +
+                                                  ("**%s" % pp_ast_as_code(x.kwargs)) if x.kwargs else ""))
                 def pp_generatorexp(x):
                         return "%s%s" % (rec(x.elt), "".join(" " + rec(c) for c in x.generators))
                 def pp_comprehension(x):
@@ -361,7 +363,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3):
                 def pp_attribute(x):
                         return "%s.%s" % (pp_ast_as_code(x.value), x.attr)
                 def pp_name(x):
-                        return x.id
+                        return x.id + ("" if annotate_written_names and isinstance(x.ctx, ast.Load) else ":w")
                 def pp_arg(x):
                         return x.arg + ((": " + str(x.annotation)) if x.annotation else "")
                 def pp_alias(x):
