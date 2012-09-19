@@ -4,7 +4,7 @@
 from cl           import typep, consp, car, cdr, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref, t
 from cl           import evenp
 from functools    import reduce, partial
-from cl           import _of_type as of_type, _tuplep as tuplep, _setp as setp, _frozensetp as frozensetp
+from cl           import _of_type as of_type, _setp as setp, _frozensetp as frozensetp
 from cl           import _if_let as if_let, _when_let as when_let, _lret as lret
 from cl           import _prefix_suffix_if as prefix_suffix_if, _prefix_suffix_if_not as prefix_suffix_if_not
 from cl           import _map_into_hash as map_into_hash, _remap_hash_table as remap_hash_table
