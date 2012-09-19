@@ -1155,15 +1155,17 @@ negative boolean value is returned."""
 def typep(x, type):
         return not _type_mismatch(x, type)
 
-def _deftype(type_name_or_fn):
+def _deftype(type_name_or_fn, globals = None):
         def do_deftype(fn, type_name = type_name_or_fn):
+                nonlocal globals
                 old_global_name = (type_name_or_fn.__name__ if functionp(type_name_or_fn) else
                                    fn.__name__)
-                old_global = globals().get(old_global_name, None)
+                globals = _defaulted(globals, _py.globals())
+                old_global = globals.get(old_global_name, None)
                 symbol = _intern(type_name)[0]
                 symbol.type_predicate = fn
                 _frost.setf_global(symbol, old_global_name + ("" if old_global_name.endswith("_") else "_") + "t",
-                                   globals())
+                                   globals)
                 return old_global
         return (do_deftype(type_name_or_fn, type_name = _frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
                 do_deftype                                                                                             if isinstance(type_name_or_fn, str)   else
