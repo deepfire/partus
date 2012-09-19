@@ -5042,7 +5042,7 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                                                             ([keys] if keys else [])))))))
 
 def _ast_defun_fixed(name, names, *body):
-        return _ast_functiondef(name, (names, [], [], None, [], None),
+        return _ast_functiondef(name, (names, [], None, [], None),
                                 body)
 
 # AST interning: %READ-AST, %READ-PYTHON-TOPLEVEL-AS-LISP
