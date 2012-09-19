@@ -1,10 +1,15 @@
 import cl
 from cl import *
+from cl import _gensymname as gensymname
+from cl import _ensure_symbol_pyname as ensure_symbol_pyname
+from cl import _indexing as indexing
 
 import ast
 import frost
 import types
 import collections
+
+from more_ast import pp_ast_as_code
 
 ###
 __primitives__           = dict()
@@ -25,22 +30,24 @@ def defmethod(prim, *tags):
 def identity_method(*keys):
         return (identity, keys) # just a marker, to be processed by defprim
 
-def defstrategy(*ign, test = lambda _: True, keys = None, method = None):
+def defstrategy(*ign, test = lambda *_, **__: True, keys = None, xform = None):
         assert(not ign)
-        assert(keys or method)
-        return (defstrategy, test, (method if method                 else
+        assert(keys or xform)
+        return (defstrategy, test, (xform  if xform                  else
                                     keys   if isinstance(keys, list) else
                                     [keys]))
 
 def defprim(name, form_specifier):
         def maybe_process_as_strategy(cls, name, spec):
                 def strategyp(x): return (isinstance(x, tuple) and x and x[0] is defstrategy and x[1:]
+                                          #         See defstrategy above, for the definition of x[1:]
                                           or (None, None))
                 # cl._debug_printf("trying to process %s as strategy in %s", spec, cls)
-                test, method_or_keys = strategyp(spec)
-                if test and method_or_keys:
+                test, xform_or_keys = strategyp(spec)
+                # Due to the definition of defstrategy, test cannot be a false-equivalent.
+                if test and xform_or_keys:
                         # implementation strategy
-                        cls.help_strategies.append((name, test, method_or_keys))
+                        cls.help_strategies.append((name, test, xform_or_keys))
                         cls.help_strategies.sort()
                         return t
         def do_defprim(cls):
@@ -55,11 +62,14 @@ def defprim(name, form_specifier):
                         if (n in ("__module__", "__locals__", "__doc__",
                                   "methods", "help_strategies", "form_specifier", "help", "value") or
                             maybe_process_as_strategy(cls, n, method_spec)):
+                                if n is "help":
+                                        # decorating all the stuff into staticmethod in-text would be a real shame
+                                        cls.help = staticmethod(method_spec)
                                 continue
                         ## otherwise, must be an indet method
                         method, identityp, keys = \
                             ((method_spec,    nil, ())             if isinstance(method_spec, types.FunctionType) else
-                             (help_stdmethod, t,   method_spec[1]) if (isinstance(method_spec, tuple) and
+                             (cls, t,   method_spec[1]) if (isinstance(method_spec, tuple) and
                                                                        method_spec[0] is identity) else
                              error("Invalid method specifier: %s", method_spec))
                         indet_method_pool = find_indet_method_pool(n)
@@ -78,41 +88,54 @@ class primclass(type):
                 ## An ordered list of explicitly guarded methods.
                 self.help_strategies = list()
 
+def print_primitive(x):
+        return ('"%s"' % x                                             if     isinstance(x, str)      else
+                "'%s"  % x                                             if     isinstance(x, symbol_t) else
+                "(%s)" % " ".join(print_primitive(ix) for ix in x)     if     isinstance(x, tuple)    else
+                " [ %s ] " % " ".join(print_primitive(ix) for ix in x) if     isinstance(x, list)    else
+                str(x)                                                 if not isinstance(x, prim)     else
+                ("(%s%s%s)" % (type(x).__name__.upper(),
+                               " " if x.args else "",
+                               " ".join(print_primitive(ix) for ix in x.args))))
+
 class prim(metaclass = primclass):
         def __init__(self, *args, **keys):
                 self.args = args
+                # cl._here("  making a %s", self, offset = 2, callers = 9)
                 self.keys = keys
                 self.spills = []
         def __str__(self):
-                return "(%s%s)" % (type(self).__name__.upper(),
-                                   "" if not self.args else (" " + " ".join(repr(a) for a in self.args)))
+                return print_primitive(self)
         @classmethod
         def find_method(cls, tags):
                 "Find *the* single method matching all tags."
                 assert(tags)
                 this, *rest = tags
-                set = cls.methods[this]  ## The lack of the 'everything' set.  Oh.
+                sett = set(cls.methods[this]) ## The lack of the 'everything' set.  Oh.
                 while rest:
                         this, *rest = rest
-                        set &= cls.methods[this]
-                if not set:
-                        raise Exception("Could not find primitive method %s for tags %s.", cls.__name__, tags)
-                if len(set) > 1:
-                        raise Exception("Ambiguous method specification: primitive %s for tags %s.", cls.__name__, tags)
-                return set.pop()
+                        sett &= cls.methods[this]
+                if not sett:
+                        error("Could not find primitive method %s for tags %s.", cls.__name__, tags)
+                if len(sett) > 1:
+                        error("Ambiguous method specification: primitive %s for tags %s.", cls.__name__, tags)
+                return sett.pop()
 
 def determine(cls, args, keys):
-        for name, test, method in cls.help_strategies:
+        for name, test, xform_or_keys in cls.help_strategies:
                 if test(*args, **keys):
                         ## Simplify and compute spills.
-                        return (method if not isinstance(method, list) else
-                                cls.find_method(keys))(*args, **keys)
+                        xf = (xform_or_keys if not isinstance(xform_or_keys, list) else
+                                cls.find_method(xform_or_keys))
+                        # if cls is progn:
+                        #         # cl._debug_printf("PROGN-DET args %s", args)
+                        # cl._debug_printf("xf %s", xf)
+                        return xf(*args, **keys)
         else:
-                raise Exception("Unhandled primitive form: %s" % self)
+                error("Unhandled primitive form: %s", self)
 
 def redetermining_as(cls, **keys):
-        "Wacky?  Sure looks like it.."
-        return lambda x: help(determine(cls, x.args, keys))
+        return lambda x: determine(cls, x.args, keys)
 
 class indet(prim):
         """Those have context-sensitivity, provided by a choice of strategies.
@@ -124,21 +147,26 @@ class det(prim):
         "Those are spill-determinate, post-init."
         def __init__(self, *args, **keys):
                 prim.__init__(self, *args, **keys)
+                # cl._debug_printf("making  %s", self)
                 prim_check_and_spill(self)
+                assert isinstance(self.spills, list)
 
-class stmt(det):         pass ## lower to ([ast.stmt], ast.expr)
-class body(stmt):        pass ## lower to ([ast.stmt], ast.expr), and has an embedded body
-class name_setter(stmt): pass
+class stmt(det):               pass ## lower to ([ast.stmt], ast.expr)
+class body(stmt):              pass ## lower to ([ast.stmt], ast.expr), and has an embedded body
+class name_setter(stmt):       pass
 
-class expr(det):         pass ## lower to an ast.expr
-class expr_spill(expr):  pass
-class potefless(expr):   pass ## might have no side effect
-class efless(potefless): pass ## on side effect
-class potconst(efless):  pass ## might end up being a constant expression
-class const(potconst):   pass ## constant
+class expr(det):               pass ## lower to an ast.expr
+class expr_spill(expr):        pass
+class maybe_expr_spill(expr):  pass
+class potefless(expr):         pass ## might have no side effect
+class efless(potefless):       pass ## on side effect
+class potconst(efless):        pass ## might end up being a constant expression
+class const(potconst):         pass ## constant
 class literal(const):
         def value(self):
                 return self.args[0]
+
+class maybe(): pass
 
 ## to consider: no-return
 
@@ -164,54 +192,59 @@ def coerce_to_stmt(x):
 
 TheEmptyList = list()
 
-def help(x):
+def help(x) -> ([stmt], expr):
+        if not isinstance(x, prim):
+                error("A non-primitive leaked to the HELP phase: %s", x)
         r = x.help(*x.args, **x.keys)
-        p, v = (r if isinstance(r, tuple) else
-                ([], r))
+        p, v = (([], r) if isinstance(r, ast.expr)                               else
+                ## list(r) if isinstance(r, tuple) else
+                ## Unregistered Issue SLOW-CHECK
+                list(r) if typep(r, (pytuple_t, (pylist_t, ast.stmt), ast.expr)) else
+                error("Invalid output from lowerer for %s -- %s.", x, r))
         return x.spills + p or TheEmptyList, v
 
-def help_expr(x):
+def help_expr(x) -> expr:
         p, v = help(x)
         p and error("Helped %s to non-expr %s, %s, where an expression result was expected.", x, p, v)
         return v
 
-def help_exprs(xs):
+def help_exprs(xs) -> [expr]:
         return [ help_expr(x) for x in xs ]
 
-def help_prog(xs):
+def help_prog(xs) -> [stmt]:
         p_acc = []
-        for x in xs:
+        for x in the((pyseq_t, prim), xs):
                 p, v = help(x)
                 p_acc.extend(p)
                 p_acc.append(ast.Expr(v))
         return p_acc
 
-def help_prog_n(xs, vf):
+def help_prog_n(xs, vf) -> ([stmt], expr):
         p_acc = help_prog(xs)
         p, v = help(vf)
         p_acc.extend(p)
         return p_acc, v
 
-def help_progn(xs):
+def help_progn(xs) -> ([stmt], expr):
         assert(xs)
         return help_prog_n(xs[:-1], xs[-1])
 
-def help_progn_star(*xs):
+def help_progn_star(*xs) -> ([stmt], expr):
         return help_progn(xs)
 
 def help_tail_prog(xs, kind):
-        p, v = help_progn(xs)
-        p.append(kind(value = value))
+        p, v = help_progn(the((pyseq_t, prim), xs))
+        p.append(kind(value = v))
         return p
 
 def help_args(fixed, opts, optvals, args, keys, keyvals, restkey):
         assert(len(opts) == len(optvals) and
                len(keys) == len(keyvals))
         return ast.arguments(
-                args             = [ ast.arg(x.value(), None) for x in fixed + optnames ],
+                args             = [ ast.arg(x.value(), None) for x in fixed + opts ],
                 vararg           = args.value()    if args    else None,
                 varargannotation = None,
-                kwonlyargs       = [ ast.arg(x.value(), None) for x in         keynames ],
+                kwonlyargs       = [ ast.arg(x.value(), None) for x in         keys ],
                 kwarg            = restkey.value() if restkey else None,
                 kwargannotation  = None,
                 defaults         = help_exprs(optvals),
@@ -221,7 +254,7 @@ def help_ctx(writep):
         return (ast.Store if writep else ast.Load)()
 
 def help_nil():
-        return help_expr(name(cl._ensure_symbol_pyname(nil)))
+        return help_expr(name(ensure_symbol_pyname(nil)))
 
 def          fixed_ll(fixed):                    return (fixed, [],  [],     None, [], [], None)
 def      fixed_opt_ll(fixed, opt, optval):       return (fixed, opt, optval, None, [], [], None)
@@ -260,18 +293,16 @@ def fixed_opt_rest_ll(fixed, opt, optval, rest): return (fixed, opt, optval, res
 ### Primitive, thus, at the time it reaches this stage, must be an object, to store the cached property.
 ### Only applicatively positioned subforms can be conveniently spilled.
 ###
-class primitive_mismatch(Exception):
+class primitive_mismatch(error_t):
         def __init__(self, mesg, prim = None, pspec = None, spec = None, form = None):
                 ni = "#<not initialised>"
                 self.prim, self.pspec, self.spec, self.form = ni, ni, ni, ni
-                assert(prim and pspec and spec and form)
+                assert(prim and pspec and spec)
                 self.mesg, self.prim, self.pspec, self.spec, self.form = mesg, prim, pspec, spec, form
         def __str__(self):
-                return "While matching primitive %s against %s, mismatch of (%s %s) with spec %s: %s." % \
+                return "While matching primitive %s against its argspec %s, mismatch of %s with spec %s: %s." % \
                     (self.prim, self.pspec,
-                     type(self.form).__name__,
-                     (repr(self.form) if not isinstance(self.form, prim) else
-                      " ".join(repr(x) for x in self.form.args)),
+                     print_primitive(self.form),
                      self.spec,
                      self.mesg)
 
@@ -282,30 +313,42 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                                  prim = primitive, pspec = primitive.form_specifier,
                                                  spec = type, form = arg)
         ###
-        def tuple_spills(spec, args):
+        def tuple_spills(spec, args, force_spill = nil):
+                # if isinstance(primitive, defun):
+                #         cl._debug_printf("DEFUN args: %s", primitive.args)
+                specialp = spec and spec[0] in [maybe]
+                if specialp:
+                        if spec[0] is maybe:
+                                if args is None:
+                                        return None, []
+                                return process(spec[1], args, force_spill = force_spill)
+                check_prim_type(args, (or_t, tuple, list))
                 segmentp = spec and isinstance(spec[-1], list)
                 nspec, nargs = len(spec), len(args)
-                assert((segmentp and nargs >= (nspec - 1))
+                assert(segmentp and nargs >= (nspec - 1)
                        or nspec is nargs)
                 a_fixed, a_segment, s_spec = ((args[:nspec - 1], args[nspec - 1:], spec[-1][0]) if segmentp else
                                               (args,             [],               None))
+                # isinstance(primitive, defun) and cl._debug_printf("tuple %s, spec %s,  af %s, as %s",
+                #                                                   args, spec, a_fixed, a_segment)
                 def expr_tuple_spill_partition(spec, args):
                         pre_spills = []
                         for s, a in zip(spec, a_fixed):
-                                pre_spills.append(process(s, a))
+                                pre_spills.append(process(s, a, force_spill = force_spill))
                         for a in a_segment:
-                                pre_spills.append(process(s_spec, a))
+                                pre_spills.append(process(s_spec, a, force_spill = force_spill))
+                        # isinstance(primitive, defun) and cl._debug_printf("presp %s",
+                        #                                                   pre_spills)
                         ## only allowable spills will land here
                         # cl._debug_printf("pre-spills of %s: %s", primitive, pre_spills)
-                        last_spilled_posn = position_if(identity, pre_spills, from_end = t, key = cl._indexing(1)) \
-                            or 0
-                        first_unspilled_posn = last_spilled_posn + 1
-                        n_spilled = len(pre_spills) - first_unspilled_posn
-                        n_segspill = max(0, first_unspilled_posn - len(a_fixed))
+                        last_spilled_posn = position_if(identity, pre_spills, from_end = t, key = indexing(1))
+                        n_spilled = (last_spilled_posn + 1 if last_spilled_posn is not None else
+                                     0)
                         for_spill, unspilled = args[:n_spilled], args[n_spilled:]
+                        n_segspill = max(0, n_spilled - len(a_fixed))
                         return for_spill, ((spec[:-1] + (s_spec,) * n_segspill)
                                            if n_segspill else
-                                           spec[:first_unspilled_posn]), unspilled
+                                           spec[:n_spilled]), unspilled
                 for_spill_as, for_spill_ss, unspilled = expr_tuple_spill_partition(spec, args)
                 ## Re-collecting spills, while forcing spill for unspilled spillables.
                 forms, spills = [], []
@@ -313,7 +356,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         form, spill = process(s, a, force_spill = t)
                         forms += (form,)
                         spills.append(spill)
-                return (tuple(forms) + unspilled,
+                return (tuple(forms) + tuple(unspilled),
                         spills)
         def options_spills(spec, arg, force_spill = nil):
                 for option in spec:
@@ -326,9 +369,9 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
         def map_spills(spec, arg, force_spill = nil):
                 for result, option in spec:
                         if typep(arg, option):
-                                return process("no option matched",
-                                               result, arg, force_spill = force_spill)
-                raise primitive_mismatch(prim = primitive, pspec = primitive.form_specifier, spec = spec, form = arg)
+                                return process(result, arg, force_spill = force_spill)
+                raise primitive_mismatch("no option matched",
+                                         prim = primitive, pspec = primitive.form_specifier, spec = spec, form = arg)
         def type_check(spec, arg, force_spill = nil):
                 check_prim_type(arg, spec)
                 return (arg,
@@ -339,17 +382,20 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                        set:   options_spills,
                        dict:  map_spills }
         def process(spec, arg, force_spill = nil):
-                if spec is expr_spill:
-                        check_prim_type(arg, (or_t, expr, stmt))
+                if spec in (expr_spill, maybe_expr_spill):
+                        maybe = spec is maybe_expr_spill
+                        check_prim_type(arg, ((or_t, (eql_t, nil), expr, stmt) if maybe else
+                                              (or_t, expr, stmt)))
                         ## Spill, iff any of the conditions hold:
-                        if not (force_spill           or # - spilling is required
-                                isinstance(arg, stmt) or # - the argument is not an expression
-                                arg.spills):             # - the argument has spilled itself
+                        if (maybe and arg is nil or       # - no spilling for an optional, non-provided primitive argument
+                            not (force_spill           or # - spilling is required
+                                 isinstance(arg, stmt) or # - the argument is not an expression
+                                 arg.spills)):            # - the argument has spilled itself
                                 return (arg,
                                         [])
                         tn = genname("EXP-") ## Temporary Name.
-                        return (name(tn),
-                                arg.spills + [assign(tn, arg)])
+                        return (tn,
+                                arg.spills + [ assign(tn, arg) ])
                 return processors.get(type(spec), type_check)(spec, arg, force_spill = force_spill)
         primitive.args, primitive.spills = tuple_spills(primitive.form_specifier, primitive.args)
         return primitive
@@ -405,30 +451,49 @@ def process(p):
 ###
 ### Spycials
 ###
+@defprim(intern("STRING")[0],
+         (string_t,))
+class string(literal):
+        def help(name): return ast.Str(name)
+
 @defprim(intern("NAME")[0],
          (string_t,))
 class name(expr):
-        def value(x, writep = nil):
-                return x
+        def value(self, writep = nil):
+                return self.args[0]
         def help(x, writep = nil):
                 return ast.Name(x, help_ctx(writep))
 
 def genname(x = "#:G"):
-        return name(_gensymname(x))
+        return name(gensymname(x))
 
 @defprim(intern("ASSIGN")[0],
-         (expr, expr_spill))
+         (expr, expr))
 class assign(stmt):
-        def help(place, value, tn = nil):
+        def help(place, value, tn = nil, spills = []):
                 the_tn = tn or genname("TARGET-")
                 simple_val_p = isinstance(value, (name, const))
+                statem_val_p = isinstance(value, stmt)
                 simple_tgt_p = isinstance(place, name)
-                return ([] if simple_val_p or simple_tgt_p else
-                        [ help(set_name(the_tn, value))[0] ]
-                        ) + [ ast.Assign([ help_expr(place) ], help_expr(the_tn))
+                trivialp = simple_val_p or simple_tgt_p
+                if statem_val_p:
+                        p, v = help(value)
+                ret =  ([]                                           if trivialp     else
+                        p + [ ast.Assign([ help_expr(the_tn) ], v) ] if statem_val_p else
+                        help(assign(the_tn, value))[0]
+                        ) + [ ast.Assign([ help_expr(place) ], help_expr(value if trivialp else the_tn))
                               ], help_expr(value if simple_val_p else
                                            place if simple_tgt_p else
                                            the_tn)
+                # cl._debug_printf("ASSIGN:\nsimp-val-p  %s\nstmt-val-p  %s\nsimp-tgt-p  %s",
+                #                  simple_val_p,
+                #                  statem_val_p,
+                #                  simple_tgt_p)
+                # cl._debug_printf("ASSIGN gets:\n%s  =  %s\nASSIGN yields P:\n%s\nV:\n%s",
+                #                  place, value,
+                #                  "\n".join(pp_ast_as_code(x) for x in ret[0]),
+                #                  pp_ast_as_code(ret[1]))
+                return ret
 
 @defprim(intern("ATTR-REF")[0],
          (prim, prim))
@@ -440,7 +505,8 @@ class attr(indet):
 @defprim(intern("CONST-ATTR-REF")[0],
          (expr_spill, string))
 class const_attr(efless):
-        def help(x, attr, writep = nil): return ast.Attribute(help_expr(x), help_expr(attr), help_ctx(writep))
+        ## We assume, that within the domain of emitted code, objects do not have accessors defined.  So, efless.
+        def help(x, attr, writep = nil): return ast.Attribute(help_expr(x), attr.value(), help_ctx(writep))
         attr = identity_method("const attr")
 
 @defprim(intern("VAR-ATTR-REF")[0],
@@ -457,7 +523,7 @@ class index(expr):
                 return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
 
 @defprim(intern("SLICE")[0],
-         (expr_spill, expr_spill, expr_spill, expr_spill))
+         (expr_spill, expr_spill, maybe_expr_spill, maybe_expr_spill))
 class slice(expr):
         def help(x, start, end, step, writep = nil):
                 return ast.Subscript(help_expr(x), ast.Slice(help_expr(start),
@@ -474,39 +540,34 @@ class pylist(expr):
                 return ast.List([ help_expr(x) for x in xs ], help_ctx(nil))
 
 def prim_attr_chain(xs, writep = nil):
-        return reduce((lambda acc, attr: const_attr(acc, attr, writep)),
+        return reduce((lambda acc, attr: const_attr(acc, attr, writep = writep)),
                       xs[1:],
-                      name(xs[0], writep))
+                      xs[0])
 
 @defprim(intern("GLOBAL")[0],
          ([name],))
 class global_(stmt):
         def help(*xs):
-                return ast.Global([ x.value() for x in xs ]
-                                  ), help_expr(name("None"))
+                return [ ast.Global([ x.value() for x in xs ]
+                                  ) ], help_expr(name("None"))
 
 @defprim(intern("NONLOCAL")[0],
          ([name],))
 class nonlocal_(stmt):
         def help(*xs):
-                return ast.Nonlocal([ x.value() for x in xs ]
-                                    ), help_expr(name("None"))
+                return [ ast.Nonlocal([ x.value() for x in xs ]
+                                      ) ], help_expr(name("None"))
 
 @defprim(intern("IMPORT")[0],
          ([name],))
 class import_(stmt):
         def help(*xs):
-                return ast.Import([ ast.alias(x.value()) for x in xs ]
-                                  ), help_expr(name("None"))
+                return [ ast.Import([ ast.alias(x.value(), None) for x in xs ]
+                                    ) ], help_expr(name("None"))
 
 ###
 ### Constants
 ###
-@defprim(string,
-         (str,))
-class string(literal):
-        def help(name): return ast.Str(x)
-
 @defprim(intern("INTEGER")[0],
          (int,))
 class integer(literal):
@@ -517,14 +578,21 @@ class integer(literal):
 class float_num(literal):
         def help(x): return ast.Num(x)
 
+@defprim(intern("SYMBOL")[0],
+         (string_t,))
+class symbol(literal):
+        def value(x, writep = nil):
+                return x
+        def help(x, writep = nil):
+                return ast.Name(x, help_ctx(writep))
+
 @defprim(intern("LITERAL-LIST")[0],
          ([literal],))
 class literal_list(literal):
         def help(*xs):
-                return reduce(lambda car, cdr: ast.List([help_expr(car), cdr], help_ctx(nil)),
-                              reversed(xs),
+                return reduce(lambda cdr, car: ast.List([help_expr(car), cdr], help_ctx(nil)),
                               ## Namespace separation leak:
-                              help_nil())
+                              reversed(xs + (help_nil(),)))
 
 @defprim(intern("LITERAL-HASH-TABLE-EXPR")[0],
          ([(expr_spill, expr_spill)],))
@@ -549,20 +617,21 @@ class lambda_(indet):
                              keys = expr)
         b_stmt = defstrategy(keys = body)
 
-@defprim(defun,
+@defprim(intern("DEFUN")[0],
          (name, (([name],),
-                 ([name],), ([expr],), name,
-                 ([name],), ([expr],), name),
+                 ([name],), ([expr],), (maybe, name),
+                 ([name],), ([expr],), (maybe, name)),
+          ([expr],),
           [prim]))
 class defun(body):
-        def help(name, pyargs, decorators, *body):
+        def help(nam, pyargs, decorators, *body):
                 return [ ast.FunctionDef(
-                                name.value(),
-                                help_args(*pyargs),
+                                name = nam.value(),
+                                args = help_args(*pyargs),
                                 decorator_list = help_exprs(decorators),
                                 returns = None,
                                 body = help_tail_prog(body, kind = ast.Return))
-                         ], help_expr(name)
+                         ], help_expr(nam)
         @defmethod(lambda_)
         def lambda_(pyargs, expr, name = nil, decorators = []):
                 return defun(name or genname("DEFLAM-"), pyargs, decorators, expr)
@@ -622,11 +691,11 @@ setq = intern("SETQ")[0]
 @defprim(intern("LET*")[0],
          (([(name, prim)],),
          [prim]))
-class let_(body):
-        a_head        = defstrategy(test   = lambda _, *__, headp = nil, uncaught_tail = nil: headp or uncaught_tail,
-                                    keys   = setq)
-        b_reorderable = defstrategy(test   = lambda bindings, *_: bindings_free_eval_order_p(bindings),
-                                    method = redetermining_as(let))
+class let_(indet):
+        a_head        = defstrategy(test  = lambda _, *__, headp = nil, uncaught_tail = nil: headp or uncaught_tail,
+                                    keys  = setq)
+        b_reorderable = defstrategy(test  = lambda bindings, *_: bindings_free_eval_order_p(bindings),
+                                    xform = redetermining_as(let))
         # TODO: try to reduce frame creation, even in the non-reorderable case.
         c_expr        = defstrategy(test   = lambda bindings, *body: (all(unspilled_expr_p(x)
                                                                           for x in list(zip(*bindings))[1])
@@ -639,9 +708,11 @@ class let_(body):
           [prim])) ## This one handles binding spills by itself.
 class let__setq(body):
         "Can only be used as a tail, when it can be proved, that no unwind will use mutated variables."
-        def help(bindings, *body):
-                return help(progn(*([ assign(n, v) for n, v in bindings ]
-                                    + body)))
+        def help(bindings, *body, headp = None):
+                sum = (tuple(assign(n, v) for n, v in bindings)
+                       + body)
+                pn = progn(*sum)
+                return help(progn(*sum))
         let_ = identity_method(setq)
 
 @defprim(intern("LET*-EXPR")[0],
@@ -753,9 +824,16 @@ class labels(body):
 @defprim(intern("PROGN")[0],
          ([prim],))
 class progn(indet):
-        a_expr = defstrategy(test   = lambda *body: suite_unspilled_expr_p(body),
-                             method = help_expr)
-        b_stmt = defstrategy(method = help_progn_star)
+        a_expr = defstrategy(test  = lambda *body: suite_unspilled_expr_p(body),
+                             xform = lambda x, *_: x)
+        b_stmt = defstrategy(keys  = body)
+
+@defprim(intern("PROGN-STMT")[0],
+         ([prim],))
+class progn_stmt(body):
+        def help(*body):
+                return help_progn(body)
+        progn = identity_method()
 
 if_ = intern("IF")[0]
 
@@ -794,16 +872,16 @@ class funcall(expr):
         ## NOT LINKED UP -- deferred for usage by higher levels.
         def help(func, *fixed_args):
                 return ast.Call(help_expr(func),
-                                help_exprs(fixed_args), [])
+                                help_exprs(fixed_args), [], None, None)
 
 @defprim(intern("APPLY")[0],
          (expr_spill, expr_spill, [expr_spill]))
 class apply(expr):
         ## NOT LINKED UP -- deferred for usage by higher levels.
         def help(func, arg, *args):
-                fixed_args, arglist = (([arg] + args[:-1], args[-1]) if args else
-                                       ([],                [arg]))
-                return ast.Call(help_expr(func), help_exprs(fixed_args), [], help_expr(arglist))
+                fixed_args, restarg = (([arg] + args[:-1], args[-1]) if args else
+                                       ([],                arg))
+                return ast.Call(help_expr(func), help_exprs(fixed_args), [], help_expr(restarg), None)
 
 @defprim(intern("UNWIND-PROTECT")[0],
          (prim,
@@ -813,9 +891,9 @@ class unwind_protect(body):
                 # need a combinator for PRIM forms
                 if body:
                         tn = genname("UWP-VALUE-")
-                        return ast.TryFinally(help_prog([assign(tn, protected_form)]),
-                                              help_prog(body)
-                                              ), help_expr(tn)
+                        return [ ast.TryFinally(help_prog([assign(tn, protected_form)]),
+                                                help_prog(body)
+                                                ) ], help_expr(tn)
                 else:
                         return help_progn_star(protected_form)
 
@@ -823,20 +901,20 @@ class unwind_protect(body):
          ([prim],))
 class loop(body):
         def help(*body):
-                return ast.While(help_expr(name("True")),
-                                 help_prog(*body),
-                                 []), help_nil()
+                return [ ast.While(help_expr(name("True")),
+                                   help_prog(*body),
+                                   []) ], help_nil()
 
 @defprim(intern("ASSERT")[0], (expr_spill, expr_spill))
 class assert_(stmt):
         def help(condition, description):
-                return ast.Assert(help_expr(condition), help_expr(description)
-                                  ), help_nil()
+                return [ ast.Assert(help_expr(condition), help_expr(description)
+                                    ) ], help_nil()
 
 @defprim(intern("RESIGNAL")[0], ())
 class resignal(stmt):
         def help():
-                return ast.Raise()
+                return [ ast.Raise() ], help_nil()
 
 @defprim(intern("CATCH")[0],
          (expr_spill,
@@ -888,10 +966,10 @@ class impl_ref(expr):
                 return _ast_attribute_chain("cl", name)
 
 @defprim(intern("BUILTIN-REF")[0],
-         (string,))
+         (string_t,))
 class blin_ref(expr):
         def help(x):
-                return name(x)
+                return help_expr(name(x))
 
 ###
 ### Lists
