@@ -9170,12 +9170,13 @@ def lambda_():
                                                                     p.impl_ref("pdb", "set_trace")) )
                                                         if name and _compiler_function_trapped_p(name) else ())
                                                      + (((_var_tn(rest), gs_r.tn),) if rest else ())
-                                                     + ((tn_ht, p.funcall(p.blin_ref("dict"),
-                                                                          p.funcall(p.blin_ref("zip"),
-                                                                                    p.slice(gs_r.tn, p.integer(0), nil,
-                                                                                            p.integer(2)),
-                                                                                    p.slice(gs_r.tn, p.integer(1), nil,
-                                                                                            p.integer(2))))),)
+                                                     + (((tn_ht, p.funcall(p.blin_ref("dict"),
+                                                                           p.funcall(p.blin_ref("zip"),
+                                                                                     p.slice(the(symbol_t, gs_r).tn, p.integer(0), nil,
+                                                                                             p.integer(2)),
+                                                                                     p.slice(gs_r.tn, p.integer(1), nil,
+                                                                                             p.integer(2))))),)
+                                                        if keys else ())
                                                      + tuple((name, p.if_(p.eq(p.index(tn_ht, ksymtn), p.name("None")),
                                                                           _primitivise(expr),
                                                                           p.index(tn_ht, ksymtn)))
@@ -9392,16 +9393,19 @@ _name_context_fixer = _name_context_fixer()
 
 def _emit_ast(prim) -> [p.stmt]:
         def fixup_written_name_contexts(x):
+                import more_ast
                 with progv({ _fixupp: nil }):
-                        return _name_context_fixer.visit(x)
-        return [ fixup_written_name_contexts(x) for x in p.help_prog([prim]) ]
+                        return _name_context_fixer.visit(the(_ast.AST, x))
+        xs = p.help_prog([prim])
+        return [ fixup_written_name_contexts(x) for x in xs ]
 
 def _lower(form, lexenv = nil):
+        "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
         prim = _primitivise(form, lexenv = lexenv)
         return _emit_ast(prim)
 
 def _compile(form, lexenv = nil):
-        "Same as %LOWER, but also macroexpand."
+        "Same as %LOWER, but also macroexpand.  Requires %WITH-SYMBOL-UNIT-MAGIC context all the same."
         check_type(lexenv, (or_t, null_t, _lexenv))
         macroexpanded = macroexpand_all(form, lexenv = lexenv, compilerp = t)
         if symbol_value(_compiler_trace_macroexpansion_):
@@ -9442,7 +9446,7 @@ def _with_symbol_unit_magic(body, standalone = nil, id = "UNIT-"):
         return with_compilation_unit(in_compilation_unit,
                                      override = t, id = id)
 
-def _assemble(ast, form, filename = ""):
+def _assemble(ast: [_ast.stmt], form, filename = "") -> "code":
         import more_ast
         more_ast.assign_meaningful_locations(ast)
         if symbol_value(_compiler_trace_toplevels_):
@@ -9485,7 +9489,7 @@ def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
         #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
         return func, globals, dict(globals)
 
-def _process_top_level(form, lexenv = nil):
+def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
         "A, hopefully, faithful implementation of CLHS 3.2.3.1."
         check_type(lexenv, (or_t, null_t, _lexenv))
         ## Compiler macro expansion, unless disabled by a NOTINLINE declaration, SAME MODE
@@ -9601,14 +9605,14 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                         finally:
                                 if trace_file:
                                         trace_file.close()
-                atree = with_compilation_unit(in_compilation_unit,
+                stmts = with_compilation_unit(in_compilation_unit,
                                               ## Unregistered Issue POSSIBLE-COMPILATION-UNIT-USE-VIOLATION-HERE
                                               override = t, id = "COMPILE-FILE-")
         output_file = output_file or input_file.replace(".lisp", "." + symbol_value(_fasl_file_type_))
         try:
                 with _py.open(output_file, "wb") as f:
                         f.write(symbol_value(_fasl_file_magic_))
-                        bytecode = _atree_assemble(atree, forms)
+                        bytecode = _assemble(stmts, forms)
                         _marshal.dump(bytecode, f)
                         return output_file
         finally:
@@ -9995,7 +9999,7 @@ _configure_recursion_limit(262144)
 
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
-_compiler_config_tracing(# toplevels = t,
+_compiler_config_tracing(toplevels = t,
                          # toplevels_disasm = t,
                          # entry_forms = t,
                          # forms = t,

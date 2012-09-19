@@ -196,12 +196,12 @@ def help(x) -> ([stmt], expr):
         if not isinstance(x, prim):
                 error("A non-primitive leaked to the HELP phase: %s", x)
         r = x.help(*x.args, **x.keys)
-        p, v = (([], r) if isinstance(r, ast.expr)                               else
+        p, v = (([], r) if isinstance(r, ast.expr)                         else
                 ## list(r) if isinstance(r, tuple) else
                 ## Unregistered Issue SLOW-CHECK
-                list(r) if typep(r, (pytuple_t, (pylist_t, ast.stmt), ast.expr)) else
+                r if typep(r, (pytuple_t, (pylist_t, ast.stmt), ast.expr)) else
                 error("Invalid output from lowerer for %s -- %s.", x, r))
-        return x.spills + p or TheEmptyList, v
+        return help_prog(x.spills) + p or TheEmptyList, v
 
 def help_expr(x) -> expr:
         p, v = help(x)
@@ -254,7 +254,7 @@ def help_ctx(writep):
         return (ast.Store if writep else ast.Load)()
 
 def help_nil():
-        return help_expr(name(ensure_symbol_pyname(nil)))
+        return help_expr(name(cl._unit_symbol_pyname(nil)))
 
 def          fixed_ll(fixed):                    return (fixed, [],  [],     None, [], [], None)
 def      fixed_opt_ll(fixed, opt, optval):       return (fixed, opt, optval, None, [], [], None)
@@ -353,9 +353,9 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                 ## Re-collecting spills, while forcing spill for unspilled spillables.
                 forms, spills = [], []
                 for s, a in zip(for_spill_ss, for_spill_as):
-                        form, spill = process(s, a, force_spill = t)
+                        form, spills = process(s, a, force_spill = t)
                         forms += (form,)
-                        spills.append(spill)
+                        spills.extend(spills)
                 return (tuple(forms) + tuple(unspilled),
                         spills)
         def options_spills(spec, arg, force_spill = nil):
@@ -468,20 +468,19 @@ def genname(x = "#:G"):
         return name(gensymname(x))
 
 @defprim(intern("ASSIGN")[0],
-         (expr, expr))
+         (expr, prim))
 class assign(stmt):
         def help(place, value, tn = nil, spills = []):
                 the_tn = tn or genname("TARGET-")
                 simple_val_p = isinstance(value, (name, const))
                 statem_val_p = isinstance(value, stmt)
                 simple_tgt_p = isinstance(place, name)
-                trivialp = simple_val_p or simple_tgt_p
                 if statem_val_p:
                         p, v = help(value)
-                ret =  ([]                                           if trivialp     else
-                        p + [ ast.Assign([ help_expr(the_tn) ], v) ] if statem_val_p else
+                ret =  ([]                                           if simple_val_p or simple_tgt_p else
+                        p + [ ast.Assign([ help_expr(the_tn) ], v) ] if statem_val_p                 else
                         help(assign(the_tn, value))[0]
-                        ) + [ ast.Assign([ help_expr(place) ], help_expr(value if trivialp else the_tn))
+                        ) + [ ast.Assign([ help_expr(place) ], help_expr(value if not statem_val_p else the_tn))
                               ], help_expr(value if simple_val_p else
                                            place if simple_tgt_p else
                                            the_tn)
