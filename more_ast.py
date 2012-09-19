@@ -363,7 +363,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                 def pp_attribute(x):
                         return "%s.%s" % (pp_ast_as_code(x.value), x.attr)
                 def pp_name(x):
-                        return x.id + ("" if annotate_written_names and isinstance(x.ctx, ast.Load) else ":w")
+                        return x.id + (":w" if annotate_written_names and isinstance(x.ctx, ast.Store) else "")
                 def pp_arg(x):
                         return x.arg + ((": " + str(x.annotation)) if x.annotation else "")
                 def pp_alias(x):
