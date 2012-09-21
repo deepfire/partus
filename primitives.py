@@ -3,6 +3,7 @@ from cl import *
 from cl import _gensymname as gensymname
 from cl import _ensure_symbol_pyname as ensure_symbol_pyname
 from cl import _indexing as indexing
+from cl import _sex_space as sex_space
 
 import ast
 import frost
@@ -92,7 +93,7 @@ def print_primitive(x):
         return ('"%s"' % x                                             if     isinstance(x, str)      else
                 "'%s"  % x                                             if     isinstance(x, symbol_t) else
                 "(%s)" % " ".join(print_primitive(ix) for ix in x)     if     isinstance(x, tuple)    else
-                " [ %s ] " % " ".join(print_primitive(ix) for ix in x) if     isinstance(x, list)    else
+                " [ %s ] " % " ".join(print_primitive(ix) for ix in x) if     isinstance(x, list)     else
                 str(x)                                                 if not isinstance(x, prim)     else
                 ("(%s%s%s)" % (type(x).__name__.upper(),
                                " " if x.args else "",
@@ -191,16 +192,22 @@ def coerce_to_stmt(x):
                 ast.Expr(x))
 
 TheEmptyList = list()
+_compiler_trace_primitives_ = cl._compiler_trace_primitives_
 
 def help(x) -> ([stmt], expr):
         if not isinstance(x, prim):
                 error("A non-primitive leaked to the HELP phase: %s", x)
-        r = x.help(*x.args, **x.keys)
+        with cl.progv({ cl._pp_base_depth_: cl._pp_base_depth() + 3 }):
+                r = x.help(*x.args, **x.keys)
         p, v = (([], r) if isinstance(r, ast.expr)                         else
                 ## list(r) if isinstance(r, tuple) else
                 ## Unregistered Issue SLOW-CHECK
                 r if typep(r, (pytuple_t, (pylist_t, ast.stmt), ast.expr)) else
                 error("Invalid output from lowerer for %s -- %s.", x, r))
+        if not isinstance(x, name) and symbol_value(_compiler_trace_primitives_):
+                ssp = sex_space()
+                cl._debug_printf("%s---- helpery --->\n%s%s\n%s%s",
+                                 ssp, ssp, x, ssp, ("\n" + ssp).join(pp_ast_as_code(x) for x in p + [v]))
         return help_prog(x.spills) + p or TheEmptyList, v
 
 def help_expr(x) -> expr:

@@ -6385,6 +6385,7 @@ _string_set("*COMPILER-TRACE-MACROEXPANSION*",     nil)
 _string_set("*COMPILER-TRACE-TRUE-DEATH-OF-CODE*", nil)
 
 _string_set("*COMPILER-TRACE-FORMS*",              nil)
+_string_set("*COMPILER-TRACE-PRIMITIVES*",         nil)
 _string_set("*COMPILER-TRACE-SUBFORMS*",           nil)
 _string_set("*COMPILER-TRACE-REWRITES*",           nil)
 _string_set("*COMPILER-TRACE-CHOICES*",            nil)
@@ -6747,6 +6748,7 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                         return _defaulted(x, (ref, (quote, ("None",))))
                 with progv({ _compiler_trace_pretty_full_: nil,
                              _compiler_trace_forms_:       nil,
+                             _compiler_trace_primitives_:  nil,
                              _compiler_trace_choices_:     nil,
                              _compiler_trace_subforms_:    nil,
                              _compiler_trace_rewrites_:    nil,
@@ -7265,6 +7267,12 @@ _string_set("*PP-BASE-DEPTH*", 0)
 _string_set("*PP-DEPTH*", 0)
 def _pp_base_depth(): return _symbol_value(_pp_base_depth_)
 def _pp_depth():      return _symbol_value(_pp_depth_)
+
+def _sex_space(delta = None, char = " "):
+        return char * (_pp_base_depth() + _defaulted(delta, 0))
+def _sex_deeper(n, body):
+        with progv({ _pp_base_depth_: _pp_base_depth() + n }):
+                return body()
 
 def _combine_pp(f0, fR, orig_tuple_p):
         def orig_tuple_comb(body):
@@ -7997,12 +8005,6 @@ if probe_file("/home/deepfire/.partus-debug-compiler"):
 ##   - an obvious way to do namespace separation
 ###
 #
-
-def _sex_space(delta = None, char = " "):
-        return char * (_pp_base_depth() + _defaulted(delta, 0))
-def _sex_deeper(n, body):
-        with progv({ _pp_base_depth_: _pp_base_depth() + n }):
-                return body()
 
 def _tail_position_p(): return _symbol_value(_compiler_tailp_)
 
@@ -10003,6 +10005,7 @@ _compiler_config_tracing(toplevels = t,
                          # toplevels_disasm = t,
                          # entry_forms = t,
                          # forms = t,
+                         primitives = t,
                          # macroexpansion = t,
                          # true_death_of_code = t,
                          # result = t,
