@@ -7909,12 +7909,17 @@ def _function_frame_bindings(clambda, bindings):
         frame = _make_lexenv_funcframe(clambda, tns, bindings)
         return tns, frame
 
-def _vectorise_lisp_list(x):
+def _vectorise_cons_list(x):
         res = []
         while x:
                 res.append(x[0])
                 x = x[1]
         return res
+
+def _consify_pylist(x):
+        return reduce(lambda acc, x: [x, acc],
+                      reversed(xs),
+                      nil)
 
 __primitiviser_map__ = { str:        (nil, p.string),
                          int:        (nil, p.integer),
@@ -9171,7 +9176,8 @@ def lambda_():
                                                           p.funcall(p.impl_ref("cl", "_without_condition_system"),
                                                                     p.impl_ref("pdb", "set_trace")) )
                                                         if name and _compiler_function_trapped_p(name) else ())
-                                                     + (((_var_tn(rest), gs_r.tn),) if rest else ())
+                                                     + (((_var_tn(rest), p.funcall(p.impl_ref("_consify_pylist"), gs_r.tn)),)
+                                                        if rest else ())
                                                      + (((tn_ht, p.funcall(p.blin_ref("dict"),
                                                                            p.funcall(p.blin_ref("zip"),
                                                                                      p.slice(the(symbol_t, gs_r).tn, p.integer(0), nil,
@@ -9216,7 +9222,7 @@ def apply():
                         return _lowered(p.funcall(_primitivise(func), *(_primitivise(x) for x in fixed)))
                 else:
                         return _lowered(p.apply(_primitivise(func), *((_primitivise(x) for x in fixed)
-                                                                      + [ p.funcall(p.impl_ref("_vectorise_lisp_list"),
+                                                                      + [ p.funcall(p.impl_ref("_vectorise_cons_list"),
                                                                                     _primitivise(rest)) ])))
         def effects(func, arg, *args):
                 return (any(_ir_effects(arg) for arg in (func, arg) + args) or
