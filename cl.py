@@ -3964,117 +3964,6 @@ def _read_symbol(x, package = None, case = None):
                                           (x, _coerce_to_package(package)))))
         return _intern(_case_xform(case, name), p)[0]
 
-@__block__
-def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
-                           start = 0, end = None, preserve_whitespace = None):
-        "Does not conform."
-        # _here("from \"%s\"" % string)
-        pos, end = start, (end or len(string))
-        def handle_short_read_if(test):
-                # _here("< %s" % (test,))
-                if test:
-                        (error(end_of_file_t, "end of file on %s" % (make_string_input_stream(string),)) if eof_error_p else
-                         __return_from(_cold_read_from_string, eof_value))
-        def read():
-                skip_whitespace()
-                char = string[pos]
-                # _here("> \"%s\", by \"%s\"" % (string[pos:], char))
-                if   char == "(":  obj = read_list()
-                elif char == "\"": obj = read_string()
-                elif char == "'":  obj = read_quote()
-                else:
-                        handle_short_read_if(pos > end)
-                        obj = read_number_or_symbol()
-                        if obj == _find_symbol(".", __cl)[0]:
-                                error("Consing dot not implemented")
-                # _here("< %s" % (obj,))
-                return obj
-        def skip_whitespace():
-                nonlocal pos
-                while string[pos] in frozenset([" ", "\t", "\n"]):
-                        pos += 1
-        def read_list():
-                nonlocal pos
-                ret = []
-                pos += 1
-                while t:
-                        skip_whitespace()
-                        char = string[pos]
-                        if char == ")":
-                                pos += 1
-                                break
-                        else:
-                                obj = read()
-                                if not _listp(obj) and obj is _find_symbol(".", __cl)[0]:
-                                        error("Consing dot not implemented")
-                                ret += [obj]
-                # _here("< %s" % (ret,))
-                return ret
-        def read_string():
-                nonlocal pos
-                ret = ""
-                def add_char(c):
-                        nonlocal ret
-                        ret += c
-                while t:
-                        pos += 1
-                        char = string[pos]
-                        if char == "\"":
-                                pos += 1
-                                break
-                        elif char == "\\":
-                                pos += 1
-                                char2 = string[pos]
-                                if   char2 == "\"": add_char(char2)
-                                elif char2 == "\\": add_char(char2)
-                                else:
-                                        error("READ-FROM-STRING: unrecognized escape character \"%s\".", char2)
-                        else:
-                                add_char(char)
-                # _here("< %s" % (ret,))
-                return ret
-        def read_number_or_symbol():
-                token = read_token()
-                handle_short_read_if(not token)
-                if _without_condition_system(lambda: _re.match("^[0-9]+$", token),
-                                             reason = "re.match"):
-                        ret = int(token)
-                elif _without_condition_system(lambda: _re.match("^[0-9]+\\.[0-9]+$", token),
-                                               reason = "re.match"):
-                        ret = float(token)
-                else:
-                        ret = _read_symbol(token)
-                        # debug_printf("-- interned %s as %s", token, name)
-                        # if name is t:
-                        #         ret = True
-                        # elif name is nil:
-                        #         ret = False
-                        # else:
-                        #         ret = name
-                # _here("< %s" % ret)
-                return ret
-        def read_token():
-                nonlocal pos
-                token = ""
-                # _here(">> ..%s..%s" % (pos, end))
-                while t:
-                        if pos >= end:
-                                break
-                        char = string[pos]
-                        if char in set([" ", "\t", "\n", "(", ")", "\"", "'"]):
-                                break
-                        else:
-                                token += char
-                                pos += 1
-                # _here("< %s" % token)
-                return token
-        ret = handler_case(read,
-                           (IndexError,
-                            lambda c: handle_short_read_if(t)))
-        # _here("lastly %s" % (ret,))
-        return ret
-read_from_string = _cold_read_from_string
-
 def read_line(stream = None, eof_error_p = t, eof_value = nil):
         stream = _defaulted_to_var(stream, _standard_input_)
         return handler_case(lambda: stream.readline(),
@@ -4234,6 +4123,18 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
         # _here("lastly %s" % (ret,))
         return _expand_quasiquotation(ret)
 read = _cold_read
+
+@__block__
+def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
+                           start = 0, end = None, preserve_whitespace = None):
+        stream = io.StringIO(string)
+        try:
+                return _cold_read(stream, eof_error_p = eof_error_p, eof_value = eof_value,
+                                  start = start, end = end, preserve_whitespace = preserve_whitespace)
+        finally:
+                close(stream)
+
+read_from_string = _cold_read_from_string
 
 # Condition system
 
