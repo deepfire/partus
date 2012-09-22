@@ -204,11 +204,16 @@ def help(x) -> ([stmt], expr):
                 ## Unregistered Issue SLOW-CHECK
                 r if typep(r, (pytuple_t, (pylist_t, ast.stmt), ast.expr)) else
                 error("Invalid output from lowerer for %s -- %s.", x, r))
+        spills = help_prog(x.spills)
         if not isinstance(x, name) and symbol_value(_compiler_trace_primitives_):
                 ssp = sex_space()
-                cl._debug_printf("%s---- helpery --->\n%s%s\n%s%s",
-                                 ssp, ssp, x, ssp, ("\n" + ssp).join(pp_ast_as_code(x) for x in p + [v]))
-        return help_prog(x.spills) + p or TheEmptyList, v
+                cl._debug_printf("%s---- helpery %s --->\n%s%s%s\n%s%s\n%s",
+                                 ssp, cl._pp_chain_of_frame(cl._caller_frame(), callers = 15),
+                                 ("%s%s\n%s- spielleren ^v form -\n" %
+                                  (ssp, ("\n" + ssp).join(str(x) for x in x.spills), ssp)) if x.spills else "",
+                                 ssp, x,
+                                 ssp, ssp, ("\n" + ssp).join(pp_ast_as_code(x) for x in spills + p + [v]))
+        return spills + p or TheEmptyList, v
 
 def help_expr(x) -> expr:
         p, v = help(x)
@@ -332,8 +337,12 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                 check_prim_type(args, (or_t, tuple, list))
                 segmentp = spec and isinstance(spec[-1], list)
                 nspec, nargs = len(spec), len(args)
-                assert(segmentp and nargs >= (nspec - 1)
-                       or nspec is nargs)
+                if not (segmentp and nargs >= (nspec - 1)
+                        or nspec is nargs):
+                        error("Invalid primitive %s: subform %s has %d elements, but %s was/were expected.",
+                              primitive, args, nargs,
+                              ("at least %s" % (nspec - 1)) if segmentp else
+                              ("exactly %d" % nspec))
                 a_fixed, a_segment, s_spec = ((args[:nspec - 1], args[nspec - 1:], spec[-1][0]) if segmentp else
                                               (args,             [],               None))
                 # isinstance(primitive, defun) and cl._debug_printf("tuple %s, spec %s,  af %s, as %s",
@@ -479,14 +488,11 @@ def genname(x = "#:G"):
 class assign(stmt):
         def help(place, value, tn = nil, spills = []):
                 the_tn = tn or genname("TARGET-")
+                p, v = help(value)
                 simple_val_p = isinstance(value, (name, const))
-                statem_val_p = isinstance(value, stmt)
+                statem_val_p = not not p
                 simple_tgt_p = isinstance(place, name)
-                if statem_val_p:
-                        p, v = help(value)
-                ret =  ([]                                           if simple_val_p or simple_tgt_p else
-                        p + [ ast.Assign([ help_expr(the_tn) ], v) ] if statem_val_p                 else
-                        help(assign(the_tn, value))[0]
+                ret =  (p + ([ ast.Assign([ help_expr(the_tn) ], v) ] if p else [])
                         ) + [ ast.Assign([ help_expr(place) ], help_expr(value if not statem_val_p else the_tn))
                               ], help_expr(value if simple_val_p else
                                            place if simple_tgt_p else
@@ -966,10 +972,10 @@ class special_setq(expr):
                 return help(funcall(impl_ref("_do_set"), name, value, name("None")))
 
 @defprim(intern("IMPL-REF")[0],
-         (string,))
+         (str,))
 class impl_ref(expr):
-        def help(name):
-                return _ast_attribute_chain("cl", name)
+        def help(x):
+                return cl._ast_attribute_chain(["cl", x])
 
 @defprim(intern("BUILTIN-REF")[0],
          (string_t,))

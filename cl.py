@@ -3118,7 +3118,7 @@ def _set_function_definition(globals, x, lambda_expression):
                         x.function, x.macro_function = function, nil
                         _frost.make_object_like_python_function(x, function)
                         function.name = x
-                        globals[_ensure_function_pyname(x)] = function
+                        globals[_ensure_function_pyname(x)] = globals[function.__name__ + "_pyfun"] = function
                 return x
         return do_set_function_definition
 
@@ -6465,8 +6465,8 @@ def _fop_make_symbols_available(globals, package_names, symbol_names,
                                 function_pynames, symbol_pynames,
                                 gfunps, gvarps):
         for fop_msa_args in zip(package_names, symbol_names,
-                                      function_pynames, symbol_pynames,
-                                      gfunps, gvarps):
+                                function_pynames, symbol_pynames,
+                                gfunps, gvarps):
                 _fop_make_symbol_available(globals, *fop_msa_args)
 
 # Functions (in the sense of result of compilation)
@@ -6758,18 +6758,18 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                                 _ir_cl_module_call(
                                          "_fop_make_symbol_available",
                                          _ir_funcall("globals"),
-                                         "COMMON-LISP", "LIST", _ensure_function_pyname(list_), (ref, (quote, ("None",))),
+                                         "COMMON-LISP", "VECTOR", _ensure_function_pyname(vector), (ref, (quote, ("None",))),
                                          True, False),
                                 _ir_cl_module_call(
                                          "_fop_make_symbols_available",
                                          _ir_funcall("globals"),
-                                         _ir_funcall(list_, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
-                                                                   for sym in symbols )),
-                                         _ir_funcall(list_, *tuple(symbol_name(sym)          for sym in symbols )),
-                                         _ir_funcall(list_, *tuple(wrap(sym.function_pyname) for sym in symbols )),
-                                         _ir_funcall(list_, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                                         _ir_funcall(list_, *tuple(sym in gfuns              for sym in symbols )),
-                                         _ir_funcall(list_, *tuple(sym in gvars              for sym in symbols )))),
+                                         _ir_funcall(vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
+                                                                    for sym in symbols )),
+                                         _ir_funcall(vector, *tuple(symbol_name(sym)          for sym in symbols )),
+                                         _ir_funcall(vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
+                                         _ir_funcall(vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
+                                         _ir_funcall(vector, *tuple(sym in gfuns              for sym in symbols )),
+                                         _ir_funcall(vector, *tuple(sym in gvars              for sym in symbols )))),
                                ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
                                lexenv = _make_null_lexenv(nil))
         with _no_compiler_debugging():
@@ -7916,7 +7916,7 @@ def _vectorise_cons_list(x):
                 x = x[1]
         return res
 
-def _consify_pylist(x):
+def _consify_pyseq(xs):
         return reduce(lambda acc, x: [x, acc],
                       reversed(xs),
                       nil)
@@ -9173,10 +9173,11 @@ def lambda_():
                                                                   gs.tn))
                                                            for name, gs, def_expr in zip(optional, gsy_o, optdefs))
                                                      + (( p.import_(p.name("pdb"), p.name("cl")),
-                                                          p.funcall(p.impl_ref("cl", "_without_condition_system"),
-                                                                    p.impl_ref("pdb", "set_trace")) )
+                                                          p.funcall(p.impl_ref("_without_condition_system"),
+                                                                    p.attribute(p.name("pdb"), "set_trace")) )
                                                         if name and _compiler_function_trapped_p(name) else ())
-                                                     + (((_var_tn(rest), p.funcall(p.impl_ref("_consify_pylist"), gs_r.tn)),)
+                                                     + (((_var_tn(rest), p.funcall(p.impl_ref("_consify_pyseq"),
+                                                                                   gs_r.tn)),)
                                                         if rest else ())
                                                      + (((tn_ht, p.funcall(p.blin_ref("dict"),
                                                                            p.funcall(p.blin_ref("zip"),
@@ -9296,8 +9297,11 @@ def _primitivise(form, lexenv = nil) -> p.prim:
                     not typep(form, (or_t, symbol_t, (pytuple_t, (member_t, quote, function, ref),
                                                       (or_t, symbol_t,
                                                              (partuple_t, (eql_t, quote))))))):
-                        _debug_printf(";;; compilation primitive output for\n%s%s\n;;;\n;;; Primitive\n;;;\n%s",
-                                      _sex_space(), _pp(form), prim)
+                        ssp = _sex_space()
+                        _debug_printf(";;;\n;;; knowns ->\n;;;\n%s%s\n;;;\n;;; -> primitives\n%s%s",
+                                      ssp, _pp(form),
+                                      "\n".join(str(x) for x in prim.spills) + ("\n" if prim.spills else ""),
+                                      prim)
         def _rec(x):
                 ## XXX: what are the side-effects?
                 ## NOTE: we are going to splice unquoting processing here, as we must be able
@@ -10007,12 +10011,12 @@ _configure_recursion_limit(262144)
 
 #     Cold boot complete, now we can LOAD vpcl.lisp.
 
-_compiler_config_tracing(toplevels = t,
+_compiler_config_tracing(# toplevels = t,
                          # toplevels_disasm = t,
                          # entry_forms = t,
                          # forms = t,
-                         primitives = t,
-                         # macroexpansion = t,
+                         # primitives = t,
+                         macroexpansion = t,
                          # true_death_of_code = t,
                          # result = t,
                          # rewrites = t,
@@ -10022,13 +10026,39 @@ _compiler_config_tracing(toplevels = t,
 
 # _compiler_trap_function(intern("DEFPACKAGE")[0])
 
- # Unregistered Issue LIST-CONSNESS
+# Unregistered Issue LIST-CONSNESS
+@_set_function_definition(globals(), intern("VECTOR")[0], (lambda_, ()))
+def vector(*xs):
+        return list(xs)
+
 @_set_function_definition(globals(), intern("LIST")[0], (lambda_, ()))
-def list_(*xs):      return tuple(xs)
+def list_(*xs):
+        return _consify_pyseq(xs)
+
+@_set_function_definition(globals(), intern("LAST")[0], (lambda_, ()))
+def last(x):
+        if not x:
+               return nil
+        while True:
+                lastx = x
+                x = x[1]
+                if not x:
+                        return lastx
 
 @_set_function_definition(globals(), intern("APPEND")[0], (lambda_, ()))
-def append_(*xs):    return sum(xs, xs[0].__class__()) or ()
-# def append(*xs): return reduce(lambda x, y: x + y, xs) if (xs and xs[0]) else []
+def append(*xs):
+        if not xs:
+                return nil
+        def copy_list_with_lastcdr(x, cdr):
+                if not x:
+                        return cdr
+                ret = ptr = [x[0], cdr]
+                while True:
+                        x = x[1]
+                        if not x:
+                                return ret
+                        ptr[1] = [x[0], cdr]
+        return copy_list_with_lastcdr(xs[0], append_pyfun(*xs[1:]))
 
 # @lisp
 # def LOOPTEST():
