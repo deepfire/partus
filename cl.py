@@ -9015,6 +9015,15 @@ def nth_value():
         def effects(n, form):   return _ir_effects(n) or _ir_effects(form)
         def affected(n, form):  return _ir_affected(n) or _ir_affected(form)
 
+# PROTOLOOP
+#         :PROPERTIES:
+#         :IMPL:     [X]
+#         :K:        [ ]
+#         :VALUES:   [X]
+#         :EFFECTS:  [X]
+#         :CL:       [ ]
+#         :END:
+
 @defknown((intern("PROTOLOOP")[0], ["\n", _form]))
 def protoloop():
         "This was implemented exclusively for the sake of TAGBODY."
@@ -9204,7 +9213,7 @@ assert(bound_good)
 assert(result_good)
 print("; APPLYIFICATION: passed")
 
-# Engine and drivers: %LOWER, @LISP and COMPILE
+# Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
 
 def _dump_form(form):
         _debug_printf("%s\n", "*** " + "\n*** ".join(_pp_sex(form).split("\n")))
@@ -9372,6 +9381,8 @@ def _compile(form, lexenv = nil):
                               _sex_space(-3, ";"), _sex_space(), _pp(form))
         return _lower(macroexpanded, lexenv = lexenv)
 
+# Linkage: %ASSEMBLE, %PROCESS-AS-LOADABLE, %LOAD-MODULE-BYTECODE
+
 #
 ## High-level users of %LOWER   ---   UPDATE !!!
 #
@@ -9441,6 +9452,8 @@ def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
         # _debug_printf("; L-M-B globals: %x, content: %s",
         #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
         return func, globals, dict(globals)
+
+# High-level drivers: %PROCESS-TOP-LEVEL, COMPILE-FILE, @LISP, COMPILE, EVAL
 
 def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
         "A, hopefully, faithful implementation of CLHS 3.2.3.1."
@@ -9674,6 +9687,8 @@ and true otherwise."""
 
 def eval(form):
         return compile(nil, (lambda_, (), form))()
+
+# Auxiliary: F-L-X, FDEFINITION
 
 ################################################################################
 

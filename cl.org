@@ -8590,7 +8590,7 @@ def DEFMACRO(name, lambda_list, *body):
 
 #+end_src
 
-*** Primitive IR
+***** Primitive IR
 
 #+begin_src python
 import primitives as p
@@ -9890,7 +9890,18 @@ def nth_value():
                 return _lowered(p.funcall(p.impl_ref("_values_frame_project"), _primitivise(n), _primitivise(form)))
         def effects(n, form):   return _ir_effects(n) or _ir_effects(form)
         def affected(n, form):  return _ir_affected(n) or _ir_affected(form)
+#+END_SRC
 
+******* PROTOLOOP
+        :PROPERTIES:
+        :IMPL:     [X]
+        :K:        [ ]
+        :VALUES:   [X]
+        :EFFECTS:  [X]
+        :CL:       [ ]
+        :END:
+
+#+BEGIN_SRC python
 @defknown((intern("PROTOLOOP")[0], ["\n", _form]))
 def protoloop():
         "This was implemented exclusively for the sake of TAGBODY."
@@ -10087,7 +10098,7 @@ assert(result_good)
 print("; APPLYIFICATION: passed")
 #+end_src
 
-***** Engine and drivers: %LOWER, @LISP and COMPILE
+***** Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
 
 #+begin_src python +n
 def _dump_form(form):
@@ -10255,7 +10266,11 @@ def _compile(form, lexenv = nil):
                 _debug_printf(";;;%s compiling:\n%s%s",
                               _sex_space(-3, ";"), _sex_space(), _pp(form))
         return _lower(macroexpanded, lexenv = lexenv)
+#+END_SRC
 
+***** Linkage: %ASSEMBLE, %PROCESS-AS-LOADABLE, %LOAD-MODULE-BYTECODE
+
+#+BEGIN_SRC python
 #
 ## High-level users of %LOWER   ---   UPDATE !!!
 #
@@ -10325,7 +10340,11 @@ def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
         # _debug_printf("; L-M-B globals: %x, content: %s",
         #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
         return func, globals, dict(globals)
+#+END_SRC
 
+***** High-level drivers: %PROCESS-TOP-LEVEL, COMPILE-FILE, @LISP, COMPILE, EVAL
+
+#+BEGIN_SRC python
 def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
         "A, hopefully, faithful implementation of CLHS 3.2.3.1."
         check_type(lexenv, (or_t, null_t, _lexenv))
@@ -10558,7 +10577,11 @@ and true otherwise."""
 
 def eval(form):
         return compile(nil, (lambda_, (), form))()
+#+END_SRC
 
+***** Auxiliary: F-L-X, FDEFINITION
+
+#+BEGIN_SRC python
 ################################################################################
 
 def function_lambda_expression(function):
