@@ -9286,6 +9286,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
                 else:
                         # NOTE: we don't care about quoting here, as constants are self-evaluating.
                         return _primitivise_constant(x)
+
         ## XXX: what about side-effects?
         with progv({ _lexenv_: _coerce_to_lexenv(lexenv) }):
                 prim = the(p.prim, _rec(form))
@@ -9598,13 +9599,6 @@ def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp =
         return function
 
 ##
-#
-###
-#### BLINK BLINK BLINK    ..things below can be more nonsensical than above..
-###
-#
-##
-        
 def compile(name, definition = None):
         """compile name &optional definition => FUNCTION, WARNINGS-P, FAILURE-P
 
@@ -9943,14 +9937,14 @@ class stream_type_error_t(simple_condition_t, _io.UnsupportedOperation):
 
 # LOAD-able things
 
+#     Cold boot complete, now we can LOAD vpcl.lisp.
+
 def _configure_recursion_limit(new_limit):
         _debug_printf("; current recursion limit is: %s;  setting it to %s",
                       _sys.getrecursionlimit(), new_limit)
         _sys.setrecursionlimit(new_limit)
 
 _configure_recursion_limit(262144)
-
-#     Cold boot complete, now we can LOAD vpcl.lisp.
 
 _compiler_config_tracing(# toplevels = t,
                          # toplevels_disasm = t,
@@ -11531,7 +11525,7 @@ def _type_from_specializer(specl):
         if specl is t:
                 return t
         elif isinstance(specl, tuple):
-                if not member(car(specl), [class_, _class_eq, eql]): # protoype_
+                if not member(car_pyfun(specl), [class_, _class_eq, eql]): # protoype_
                         error("%s is not a legal specializer type.", specl)
                 return specl
         elif specializerp(specl): # Was a little bit more involved.
@@ -11545,8 +11539,8 @@ def specializer_applicable_using_type_p(specl, type):
                 return _values_frame(t, t)
         ## This is used by C-A-M-U-T and GENERATE-DISCRIMINATION-NET-INTERNAL,
         ## and has only what they need.
-        return ((nil, t) if atom(type) or car(type) is t else
-                _poor_man_case(car(type),
+        return ((nil, t) if atom_pyfun(type) or car_pyfun(type) is t else
+                _poor_man_case(car_pyfun(type),
                                # (and    (saut-and specl type)),
                                # (not    (saut-not specl type)),
                                # (class_,     saut_class(specl, type)),
@@ -11559,10 +11553,10 @@ def specializer_applicable_using_type_p(specl, type):
                                                        type))))
 
 def _saut_class_eq(specl, type):
-       if car(specl) is eql:
+       if car_pyfun(specl) is eql:
                return (nil, type_of(specl[1]) is type[1])
        else:
-               pred = _poor_man_case(car(specl),
+               pred = _poor_man_case(car_pyfun(specl),
                                      (class_eq, lambda: specl[1] is type[1]),
                                      (class_,   lambda: (specl[1] is type[1] or
                                                          memq(specl[1], cpl_or_nil(type[1])))))
@@ -11592,10 +11586,10 @@ def _order_specializers(specl1, specl2, index, compare_classes_function):
         type1 = specializer_type(specl1) # Was: (if (eq **boot-state** 'complete) ..)
         type2 = specializer_type(specl2) # Was: (if (eq **boot-state** 'complete) ..)
         return ([]     if specl1 is specl1 else
-                specl2 if atom(type1)      else # is t?
-                specl1 if atom(type2)      else # is t?
-                _poor_man_case(car(type1),
-                               (type, lambda: case(car(type2),
+                specl2 if atom_pyfun(type1)      else # is t?
+                specl1 if atom_pyfun(type2)      else # is t?
+                _poor_man_case(car_pyfun(type1),
+                               (type, lambda: case(car_pyfun(type2),
                                                        (type, compare_classes_function(specl1, specl2, index)),
                                                        (t, specl2))),
                      # (prototype (case (car type2)
@@ -11613,7 +11607,7 @@ def _order_specializers(specl1, specl2, index, compare_classes_function):
                      #             ;; methods, we could replace this with a BUG.
                      #             (class-eq nil)
                      #             (class type1)))
-                     (eql,  lambda: _poor_man_case(car(type2),
+                     (eql,  lambda: _poor_man_case(car_pyfun(type2),
                                                    # similarly
                                                    (eql, []),
                                                    (t, specl1)))))
@@ -12001,7 +11995,7 @@ The second argument is FUNCTION-NAME. The remaining arguments are the
 complete set of keyword arguments received by
 ENSURE-GENERIC-FUNCTION."""
         maybe_gfun, therep = _defaulted(_frost.global_(the(symbol_t, function_name),
-                                                       _defaulted(globals, globals())), nil)
+                                                       _defaulted(globals, _py.globals())), nil)
         if functionp(maybe_gfun) and not generic_function_p(maybe_gfun):
                 error("%s already names an ordinary function.", function_name)
         return ensure_generic_function_using_class(maybe_gfun, function_name, **keys)
@@ -12936,7 +12930,7 @@ def _make_method_specializers(specializers):
                                                                   # ..special-case, since T isn't a type..
                         name                                      if isinstance(name, type)      else
                                                                   # Was: ((symbolp name) `(find-class ',name))
-                        _poor_man_ecase(car(name),
+                        _poor_man_ecase(car_pyfun(name),
                                         (eql,       lambda: intern_eql_specializer(name[1])),
                                         (class_eq_, lambda: class_eq_specializer(name[1]))) if isinstance(name, tuple)      else
                         ## Was: FIXME: Document CLASS-EQ specializers.

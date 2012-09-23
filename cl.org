@@ -10093,208 +10093,397 @@ print("; APPLYIFICATION: passed")
 def _dump_form(form):
         _debug_printf("%s\n", "*** " + "\n*** ".join(_pp_sex(form).split("\n")))
 
-# Urgent Issue COMPILER-MACRO-SYSTEM
-def _lower(form):
+# Unregistered Issue COMPILER-MACRO-SYSTEM
+def _primitivise(form, lexenv = nil) -> p.prim:
         # - tail position tracking
         # - scopes
         # - symbols not terribly clear
         # - proper quote processing
-        if _debugging_compiler():
-                _compiler_track_compiled_form(form)
-                # _debug_printf(";;; compiling:\n%s", _pp_sex(form))
-                # _compiler_report_context()
+        def compiler_note_form(x):
+                if (symbol_value(_compiler_trace_forms_) and _debugging_compiler() and
+                    not isinstance(x, (symbol_t, bool))                            and
+                    not (consp_pyfun(x) and x[0] in [ref, function, quote])):
+                        _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp(x))
+        def compiler_note_parts(known_name, xs):
+                if symbol_value(_compiler_trace_subforms_) and _debugging_compiler() and known_name is not symbol:
+                        _debug_printf("%s>>> %s\n%s%s", _sex_space(), name,
+                                      _sex_space(), ("\n" + _sex_space()).join(_pp(f) for f in xs))
+        def compiler_note_rewrite(known_name, known_subforms, result_form):
+                if symbol_value(_compiler_trace_rewrites_) and _debugging_compiler() and known_name not in (symbol, ref):
+                        _debug_printf("%s======================================================\n%s\n"
+                                      "%s--------------------- rewrote ------------------------>\n%s\n"
+                                      # "%s--------------------- rewrote ------------------------>",
+                                      "%s......................................................",
+                                      _sex_space(), _sex_space() + _pp((known_name,) + known_subforms),
+                                      _sex_space(), _sex_space() + _pp(result_form),
+                                      _sex_space())
+        def compiler_note_result(form, prim):
+                if (symbol_value(_compiler_trace_result_) and _debugging_compiler() and
+                    ## Too trivial to take notice
+                    not typep(form, (or_t, symbol_t, (cons_t, (member_t, quote, function, ref), t)))):
+                        ssp = _sex_space()
+                        _debug_printf(";;;\n;;; knowns ->\n;;;\n%s%s\n;;;\n;;; -> primitives\n%s%s",
+                                      ssp, _pp(form),
+                                      "\n".join(str(x) for x in prim.spills) + ("\n" if prim.spills else ""),
+                                      prim)
         def _rec(x):
                 ## XXX: what are the side-effects?
                 ## NOTE: we are going to splice unquoting processing here, as we must be able
                 ## to work in READ-less environment.
-                _debug_printf_if(_debugging_compiler(), ";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
-                if listp(x): ## nil or _tuplep
-                        def noisep(x): return x in [symbol]
-                        def puntedp(x):
-                                "Whether the primitive compiler requested recompilation."
-                                return x and isinstance(x, tuple) and symbolp(x[0])
-                        def maybe_call_primitive_compiler(name, forms, args):
-                                known = _find_known(name)
-                                if not known:
-                                        return nil, nil
-                                _debug_printf_if(_debugging_compiler() and not noisep(name),
-                                                 "%s>>> %s\n%s%s", _sex_space(), name, _sex_space(), ("\n" + _sex_space()).join(_pp_sex(f) for f in forms))
+                compiler_note_form(x)
+                if listp(x): ## nil, () or _tuplep
+                        def call_known(known, forms, args):
+                                compiler_note_parts(known.name, forms)
                                 ret = known.lower(*forms, **_alist_hash_table(args))
-                                if puntedp(ret):
-                                        _debug_printf_if(_debugging_compiler() and not noisep(name),
-                                                         "%s===========================\n"
-                                                         "%s\n%s-------------------------->\n%s\n"
-                                                         "%s...........................",
-                                                         _sex_space(),
-                                                         _sex_space() + _pp_sex((name,) + forms),
-                                                         _sex_space(),
-                                                         _sex_space() + _pp_sex(ret),
-                                                         _sex_space())
-                                        return _sex_deeper(4, lambda: _rec(ret)), t
+                                if _rewritep(ret):
+                                        form, scope = ret
+                                        compiler_note_rewrite(known.name, forms, form)
+                                        if scope:
+                                                with progv(scope):
+                                                        return _sex_deeper(4, lambda: _rec(form))
+                                        else:
+                                                return _sex_deeper(4, lambda: _rec(form))
                                 else:
-                                        not noisep(name) and _compiler_debug_printf("=== %s done", name)
-                                        return ret, t
-                        if not x: ## Either an empty list or NIL itself.
-                                return _rec((nil,))
-                        if symbolp(x[0]):
-                                argsp, form, args = _maybe_ir_args(x)
-                                # Urgent Issue COMPILER-MACRO-SYSTEM
-                                ret, primitivep = maybe_call_primitive_compiler(form[0], form[1:], args)
-                                if primitivep:
-                                        # Unregistered Issue COMPILE-CANNOT-EVEN-MENTION-KWARGS
                                         return ret
-                                form, expanded = macroexpand(x)
-                                if expanded:
-                                        return _rec(form)
+                        if not x: ## Either an empty list or NIL itself.
+                                return _rec((ref, nil))
+                        if isinstance(x[0], symbol_t):
+                                argsp, form, args = _destructure_possible_ir_args(x)
+                                # Urgent Issue COMPILER-MACRO-SYSTEM
+                                known = _find_known(form[0])
+                                if known:
+                                        # Unregistered Issue COMPILE-CANNOT-EVEN-MENTION-KWARGS
+                                        return call_known(known, form[1:], args)
                                 # basic function call
-                                return _rec((apply,) + form + (nil,))
-                        elif (_tuplep(x[0]) and x[0] and x[0][0] is lambda_):
-                                return _rec((apply,) + x + (nil,))
-                        elif stringp(x[0]): # basic function call
-                                return _rec((apply,) + x + (nil,))
+                                ## APPLY-conversion, likewise, is expected to have already happened.
+                                # return _rec((apply,) + form + (nil,))
+                                error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
+                        elif (consp_pyfun(x[0]) and x[0] and x[0][0] is lambda_):
+                                return _rec((apply,) + x + ((quote, nil),))
+                        elif isinstance(x[0], str): # basic function call
+                                return _rec((apply,) + x + ((quote, nil),))
                         else:
                                 error("Invalid form: %s.", princ_to_string(x))
-                elif symbolp(x) and not constantp(x):
-                        return _attr_chain_atree(_ir_cl_module_name("nil"))
+                elif isinstance(x, symbol_t) and not constantp(x):
+                        ## Unregistered Issue SYMBOL-MODEL
+                        return _rec((ref, x))
                 else:
                         # NOTE: we don't care about quoting here, as constants are self-evaluating.
-                        atree, successp = _try_atreeify_constant(x) # NOTE: this allows to directly pass through ASTs.
-                        if successp:
-                                # ..in turn, this requires the atree astifier to directly pass through ASTs,
-                                # or, alternatively (and more desirably), we could call _try_atreeify_constant.
-                                return ([],
-                                        atree)
-                        else:
-                                error("UnASTifiable non-symbol/tuple %s.", princ_to_string(x))
+                        return _primitivise_constant(x)
 
         ## XXX: what about side-effects?
-        pv = _rec(form)
-        # _debug_printf_if(_debugging_compiler(),
-        #                  ";;; compilation atree output for\n%s\n;;;\n;;; Prologue\n;;;\n%s\n;;;\n;;; Value\n;;;\n%s",
-        #                  _pp_sex(form), *pv)
-        expected_return_type = (pytuple_t, pylist_t, (maybe_t, (partuple_t, string_t)))
-        if not typep(pv, expected_return_type):
-                error("While lowering %s: returned value %s is not TYPEP %s.", form, pv, expected_return_type)
-        return pv
+        with progv({ _lexenv_: _coerce_to_lexenv(lexenv) }):
+                prim = the(p.prim, _rec(form))
+                compiler_note_result(form, prim)
+                return prim
 
-def _do_compile(form, lexenv = nil):
-        _debug_printf_if(_debugging_compiler(), ";;;%s compiling:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(form))
-        macroexpanded = macroexpand_all(form, env = lexenv)
-        _debug_printf_if(_debugging_compiler(), ";;;%s macroexpanded:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(macroexpanded))
-        return _lower(macroexpanded)
+_fixupp = gensym("FIXUPP")
 
-def function_lambda_expression(function_):
-        """function-lambda-expression function
+class _name_context_fixer(_ast.NodeTransformer):
+        def visit_Name(w, o):
+                return (_ast.Name(o.id, _ast.Store()) if symbol_value(_fixupp) else
+                        o)
+        def visit_Assign(w, o):
+                import more_ast
+                with progv({ _fixupp: t }):
+                        targets = [ w.visit(x)
+                                    for x in o.targets ]
+                return _ast.Assign(targets = targets,
+                                   value = w.visit(o.value))
+        def visit_AugAssign(w, o):
+                with progv({ _fixupp: t }):
+                        target = w.visit(o.target)
+                return _ast.AugAssign(target = target,
+                                      op = o.op,
+                                      value = w.visit(o.value))
+        def visit_For(w, o):
+                with progv({ _fixupp: t }):
+                        target = w.visit(o.target)
+                return _ast.For(target = target,
+                                iter = w.visit(o.iter),
+                                body = [ w.visit(x) for x in o.body ],
+                                orelse = [ w.visit(x) for x in o.orelse ])
+        def visit_With(w, o):
+                with progv({ _fixupp: t }):
+                        optional_vars = w.visit(o.optional_vars)
+                return _ast.With(context_expr = w.visit(o.context_expr),
+                                 optional_vars = optional_vars,
+                                 body = [ w.visit(x) for x in o.body ])
+        def visit_comprehension(w, o):
+                with progv({ _fixupp: t }):
+                        target = w.visit(o.target)
+                return _ast.comprehension(target = target,
+                                          iter = w.visit(o.iter),
+                                          ifs = [ w.visit(x) for x in o.ifs ])
+        def visit_Subscript(w, o):
+                with progv({ _fixupp: nil }):
+                        return _ast.Subscript(value = w.visit(o.value),
+                                              slice = w.visit(o.slice),
+                                              ctx = o.ctx)
+        def visit_Attribute(w, o):
+                with progv({ _fixupp: nil }):
+                        return _ast.Attribute(value = w.visit(o.value),
+                                              attr = o.attr,
+                                              ctx = o.ctx)
 
-=> LAMBDA-EXPRESSION, CLOSURE-P, NAME
+_name_context_fixer = _name_context_fixer()
 
-Arguments and Values:
+def _emit_ast(prim) -> [p.stmt]:
+        def fixup_written_name_contexts(x):
+                import more_ast
+                with progv({ _fixupp: nil }):
+                        return _name_context_fixer.visit(the(_ast.AST, x))
+        xs = p.help_prog([prim])
+        return [ fixup_written_name_contexts(x) for x in xs ]
 
-FUNCTION---a function.
+def _lower(form, lexenv = nil):
+        "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
+        prim = _primitivise(form, lexenv = lexenv)
+        return _emit_ast(prim)
 
-LAMBDA-EXPRESSION---a lambda expression or NIL.
+def _compile(form, lexenv = nil):
+        "Same as %LOWER, but also macroexpand.  Requires %WITH-SYMBOL-UNIT-MAGIC context all the same."
+        check_type(lexenv, (or_t, null_t, _lexenv))
+        macroexpanded = macroexpand_all(form, lexenv = lexenv, compilerp = t)
+        if symbol_value(_compiler_trace_macroexpansion_):
+                if form != macroexpanded:
+                        _debug_printf(";;;%s macroexpanded:\n%s%s",
+                                      _sex_space(-3, ";"), _sex_space(), _pp(macroexpanded))
+                else:
+                        _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
+        if symbol_value(_compiler_trace_entry_forms_):
+                _debug_printf(";;;%s compiling:\n%s%s",
+                              _sex_space(-3, ";"), _sex_space(), _pp(form))
+        return _lower(macroexpanded, lexenv = lexenv)
 
-CLOSURE-P---a generalized boolean.
+#
+## High-level users of %LOWER   ---   UPDATE !!!
+#
+## eval, _eval_tlf
+##   _do_eval
+##     _eval_in_lexenv        <-_
+##       _simple_eval_in_lexenv /
+##         _simple_eval =-> _compile_in_lexenv
+## _read_function_object_ast_compile_load_and_pymport, _compile_lambda_as_named_toplevel (<-= _compile), _compile_in_lexenv (<-= macro_function, _simple_eval)
+##   _compile_and_load_function
+##     _compile_loadable_unit :: form -> code-object
+##       _expand_process_and_lower_in_lexenv =-> _lower
+##       _compilation_unit_prologue =-> _lower
+## @defknown -> _lower
+#
 
-NAME---an object.
+def _with_symbol_unit_magic(body, standalone = nil, id = "UNIT-"):
+        "Ensure symbol availability, for the code emitted by BODY, by prepending it with name initialisers."
+        def in_compilation_unit():
+                stmts = body()
+                check_type(stmts, list)
+                unit_data = _compilation_unit_symbols()
+                return ((_compilation_unit_prologue(*unit_data) if standalone else []) +
+                        stmts,) + tuple(unit_data)
+        return with_compilation_unit(in_compilation_unit,
+                                     override = t, id = id)
 
-Description:
+def _assemble(ast: [_ast.stmt], form, filename = "") -> "code":
+        import more_ast
+        more_ast.assign_meaningful_locations(ast)
+        if symbol_value(_compiler_trace_toplevels_):
+                _debug_printf(";;; Lisp ================\n%s\n;;; Python ------------->\n%s\n;;; .....................\n",
+                              _pp(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
+                                                  for x in ast))
+                ############################ This is an excess newline, so it is a bug workaround.
+                ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
+                if isinstance(ast[0], _ast.FunctionDef):
+                        _debug_printf("type of ast: %s\ndecorators: %s", type_of(ast[0]), ast[0].decorator_list)
+        bytecode = _py.compile(_ast.fix_missing_locations(_ast_module(ast)), filename, "exec")
+        if symbol_value(_compiler_trace_toplevels_disasm_):
+                _debug_printf(";;; Bytecode ================\n")
+                import dis
+                def rec(x):
+                        dis.dis(x)
+                        for sub in x.co_consts:
+                                if isinstance(sub, _types.CodeType):
+                                        _debug_printf(";;; child code -------------\n")
+                                        rec(sub)
+                rec(bytecode)
+        return bytecode
 
-Returns information about function as follows:
+def _process_as_loadable(processor, form, lexenv = nil, id = "PROCESSED-"):
+        stmts, *_ =_with_symbol_unit_magic(lambda: processor(form, lexenv = lexenv),
+                                           standalone = t, id = id)
+        return _assemble(stmts, form)
 
-The primary value, LAMBDA-EXPRESSION, is function's defining lambda
-expression, or NIL if the information is not available.  The lambda
-expression may have been pre-processed in some ways, but it should
-remain a suitable argument to COMPILE or FUNCTION.  Any implementation
-may legitimately return NIL as the LAMBDA-EXPRESSION of any FUNCTION.
+def _load_module_bytecode(bytecode, func_name = nil, filename = ""):
+        mod, globals, locals = _load_code_object_as_module(filename, bytecode, register = nil)
+        if func_name:
+                sf = the((or_t, symbol_t, function_t), # globals[_get_function_pyname(name)]
+                         mod.__dict__[_get_function_pyname(func_name)])
+                func = sf if functionp(sf) else symbol_function(sf)
+                # _without_condition_system(_pdb.set_trace) # { k:v for k,v in globals().items() if v is None }
+                func.name = func_name # Debug name, as per F-L-E spec.
+        else:
+                func = nil
+        # _debug_printf("; L-M-B globals: %x, content: %s",
+        #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
+        return func, globals, dict(globals)
 
-The secondary value, CLOSURE-P, is NIL if FUNCTION's definition was
-enclosed in the null lexical environment or something non-NIL if
-FUNCTION's definition might have been enclosed in some non-null
-lexical environment.  Any implementation may legitimately return true
-as the CLOSURE-P of any function.
+def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
+        "A, hopefully, faithful implementation of CLHS 3.2.3.1."
+        check_type(lexenv, (or_t, null_t, _lexenv))
+        ## Compiler macro expansion, unless disabled by a NOTINLINE declaration, SAME MODE
+        ## Macro expansion, SAME MODE
+        if symbol_value(_compile_verbose_):
+                kind, maybe_name = ((form[0], form[1]) if listp(form) and length_pyfun(form) > 1 else
+                                    (form[0], "")      if listp(form) and form                   else
+                                    (form, ""))
+                _debug_printf("; compiling (%s%s%s%s)",
+                              kind, " " if len(form) > 1 else "", maybe_name, " ..." if len(form) > 2 else "")
+        if symbol_value(_compiler_trace_entry_forms_):
+                _debug_printf(";;;%s compiling:\n%s%s",
+                              _sex_space(-3, ";"), _sex_space(), _pp(form))
+        macroexpanded = macroexpand_all(form, lexenv = lexenv, compilerp = t)
+        if symbol_value(_compiler_trace_macroexpansion_):
+                if form != macroexpanded:
+                        _debug_printf(";;;%s macroexpanded:\n%s%s",
+                                      _sex_space(-3, ";"), _sex_space(), _pp(macroexpanded))
+                else:
+                        _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
+        ## Accumulation of results arranged for the run time:
+        run_time_results = []
+        def make_processor(skip_subforms, doc_and_decls):
+                ## Unregistered Issue TOPLEVEL-PROCESSOR-IGNORES-DECLARATIONS
+                def processor(compile_time_too, process, eval, *forms):
+                        "Dispatch top-level (by deconstruction) FORMS through REC."
+                        relevant = forms[skip_subforms:]
+                        body = _parse_body(relevant)[0]
+                        for f in body:
+                                rec(compile_time_too, process, eval, f)
+                return processor
+        def process_eval_when(compile_time_too, process, eval, _, situations, *body):
+                new_ctt, new_process, new_eval = _analyse_eval_when_situations(compile_time_too,
+                                                                               *_parse_eval_when_situations(situations))
+                for f in body:
+                        rec(new_ctt, process and new_process, new_eval, f)
+        def default_processor(compile_time_too, process, eval, *form):
+                ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-ARGUMENT-HANDLING
+                ## This is where LEXENV isn't true, as it's always empty.
+                ## ..but re-walking it.. who would care?  CLtL2 environments?
+                ## Additional note: this is %PROCESS, split in half, due to cases.
+                if process or eval:
+                        stmts, *unit_data = _with_symbol_unit_magic(lambda: _lower(form, lexenv = lexenv),
+                                                                    id = "PROCESS-TOPLEVEL-")
+                if process:
+                        run_time_results.extend(stmts)
+                        _compilation_unit_adjoin_symbols(*unit_data)
+                if eval:
+                        bytecode = _assemble(_compilation_unit_prologue(*unit_data) +
+                                             stmts,
+                                             form)
+                        # _debug_printf(";; ..compile-time code object execution")
+                        _, broken_globals, good_globals = _load_module_bytecode(bytecode)
+                        ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
+                        broken_globals.update(good_globals)
+                        # _debug_printf("; D-P: globals: %x, content: %s",
+                        #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
+        actions = {
+                progn:           make_processor(skip_subforms = 1, doc_and_decls = nil),
+                locally:         make_processor(skip_subforms = 1, doc_and_decls = t),
+                macrolet:        make_processor(skip_subforms = 2, doc_and_decls = t),
+                symbol_macrolet: make_processor(skip_subforms = 2, doc_and_decls = t),
+                eval_when:       process_eval_when,
+                }
+        def rec(compile_time_too, process, eval, form):
+                ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-HANDLING
+                if not consp_pyfun(form):
+                        return
+                actions.get(form[0], default_processor)(compile_time_too, process, eval, *form)
+        rec(nil, t, nil, macroexpanded)
+        return run_time_results
 
-The tertiary value, NAME, is the ``name'' of FUNCTION.  The name is
-intended for debugging only and is not necessarily one that would be
-valid for use as a name in DEFUN or FUNCTION, for example.  By
-convention, NIL is used to mean that FUNCTION has no name.  Any
-implementation may legitimately return NIL as the name of any
-FUNCTION."""
-        return _values_frame(*(gethash(slot, the(function, function_).__dict__, default)[0]
-                               for slot, default in [("lambda_expression", nil),
-                                                     ("closure_p",         t),
-                                                     ("name",              nil)]))
+_string_set("*COMPILE-PRINT*",         t)
+_string_set("*COMPILE-VERBOSE*",       t)
 
-##
-### What is the status of this?
-def _make_compilation_unit():
-        unit = dict(conditions = [])
-        return unit
-_compilation_unit = _defwith("_compilation_unit",
-                             lambda *_: _dynamic_scope_push({_compilation_unit_: _make_compilation_unit()}
-                                                            if not boundp(_compilation_unit_) else
-                                                            make_hash_table()),
-                             lambda *_: _dynamic_scope_pop())
-def _compilation_unit_set(k, v):
-        _symbol_value(_compilation_unit_)[k] = v
-def _compilation_unit_get(k):
-        return _symbol_value(_compilation_unit_)[k]
+_string_set("*COMPILE-FILE-PATHNAME*", nil)
+_string_set("*COMPILE-FILE-TRUENAME*", nil)
 
-# getsource
-#   getsourcelines
-#     findsource
-#       file = fn.__code__.co_filename
-#       sourcefile = getsourcefile = f(fn.__code__.co_filename)
-#       file = sourcefile or file
-#       module = getmodule()
-#       linecache.getlines(file)
-#     getblock
-#       <boring>
-__def_sources__ = _without_condition_system(lambda: _collections.OrderedDict())
-__def_sources__[""] = "" # placeholder
-__def_sources_filename__ = "<lisp>"
-def _lisp_add_def(name, source):
-        if name in __def_sources__:
-                del __def_sources__[name]
-        __def_sources__[name] = source
-        total = "\n".join(__def_sources__.values())
-        linecache.cache[__def_sources_filename__] = len(total), int(time.time()), total.split("\n"), __def_sources_filename__
+_string_set("*COMPILE-OBJECT*",          nil)
+_string_set("*COMPILE-TOPLEVEL-OBJECT*", nil)
 
+def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None, print = None):
+        verbose = _defaulted_to_var(verbose, _compile_verbose_)
+        print   = _defaulted_to_var(verbose, _compile_print_)
+        if verbose:
+                format(t, "; compiling file \"%s\" (written %s):\n", input_file, file_write_date(input_file))
+        ## input/output file conformance is bad here..
+        abort_p, warnings_p, failure_p = nil, nil, nil
+        forms = (progn,)
+        with _py.open(input_file, "r") as input:
+                def in_compilation_unit():
+                        nonlocal trace_file, forms
+                        if trace_file:
+                                trace_filename = (trace_file if stringp(trace_file) else
+                                                  input_file.replace(".lisp", "." + symbol_value(_trace_file_type_)))
+                                trace_file = _py.open(trace_filename, "w")
+                        try:
+                                stmts = []
+                                form = read(input, eof_value = input_file, eof_error_p = nil)
+                                while form is not input_file:
+                                        forms = forms + (form,)
+                                        ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
+                                        form_stmts = _process_top_level(form, lexenv = _make_null_lexenv(nil))
+                                        stmts.extend(form_stmts)
+                                        if trace_file:
+                                                trace_file.write(_pp(form))
+                                                for stmt in form_stmts:
+                                                        trace_file.write(str(stmt))
+                                                        trace_file.write("\n")
+                                        form = read(input, eof_value = input_file, eof_error_p = nil)
+                                return (_compilation_unit_prologue(*_compilation_unit_symbols()) +
+                                        stmts)
+                        finally:
+                                if trace_file:
+                                        trace_file.close()
+                stmts = with_compilation_unit(in_compilation_unit,
+                                              ## Unregistered Issue POSSIBLE-COMPILATION-UNIT-USE-VIOLATION-HERE
+                                              override = t, id = "COMPILE-FILE-")
+        output_file = output_file or input_file.replace(".lisp", "." + symbol_value(_fasl_file_type_))
+        try:
+                with _py.open(output_file, "wb") as f:
+                        f.write(symbol_value(_fasl_file_magic_))
+                        bytecode = _assemble(stmts, forms)
+                        _marshal.dump(bytecode, f)
+                        return output_file
+        finally:
+                verbose and format(t, "; %s written\n", output_file)
 
-def lisp(body):
-        def read_python_toplevel_name(f):
-                symbol_name = _frost.python_name_lisp_symbol_name(f.__name__)
-                symbol = _intern(symbol_name)[0]
-                return symbol, symbol_name, f.__name__
+def _read_function_as_toplevel_compile_and_load(body):
         ## What should it be like?
         ##  - COMPILE-FILE + LOAD
         ##  - COMPILE-TOPLEVEL-FORM + ?
-        symbol, symbol_name, _ = read_python_toplevel_name(body)
-        args_ast, body_ast = _function_ast(body)
-        if len(body_ast) > 1:
-                error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
-                      "No more than one toplevel form is allowed per definition.", symbol)
-        form = _read_ast(body_ast[0])
-        __def_allowed_toplevels__ = set([defun, defmacro])
-        if form[0] not in __def_allowed_toplevels__:
-                error("In LISP %s: only toplevels in %s are allowed.",
-                      form[0], __def_allowed_toplevels__)
-        name, warnedp, failedp, _ = _compile_toplevel_def_in_lexenv(symbol, form, _make_null_lexenv(),
-                                                                    globalp = t,
-                                                                    macrop = form[0] is defmacro,
-                                                                    lambda_expression = (lambda_,) + form[2:])
-        if failedp:
-                error("Compilation failed: errors while compiling %s.", name)
-        elif warnedp:
-                pass # Unregistered Issue LISP-TOPLEVEL-PROCESSOR-IGNORES-WARNINGS
-        return name
+        name, form = _read_python_toplevel_as_lisp(body)
+        bytecode = _process_as_loadable(_process_top_level, form, lexenv = _make_null_lexenv(), id = "LISP-")
+        function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
+        bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
+        return function.name
 
+def lisp(function):
+        return _read_function_as_toplevel_compile_and_load(function)
+
+def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
+        "There really is no other way.  Trust me.  Please."
+        form = _ir_args_when(globalp, _ir_lambda_to_def(name, lambda_expression),
+                             decorators = [_ir_cl_module_call("_set_macro_definition",
+                                                              _ir_funcall("globals"), name, lambda_expression)
+                                           if macrop else
+                                           _ir_cl_module_call("_set_function_definition",
+                                                              _ir_funcall("globals"), name, lambda_expression)])
+        bytecode = _process_as_loadable(_linearise_processor(_compile), form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
+        function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
+        bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
+        ## Doesn't this make %READ-FUNCTION-AS-TOPLEVEL-COMPILE-AND-LOAD somewhat of an excess?
+        return function
+
+##
 def compile(name, definition = None):
-        # Multiple values would have reduced, if not obviated, the need for such..
-        # Research Issue COMPLIANCE-SPECIFIED-FUNCTIONS-RETURNING-ADDITIONAL-VALUES
-        return _compile(name, definition)[:3]
-
-def _compile(name, definition = None):
         """compile name &optional definition => FUNCTION, WARNINGS-P, FAILURE-P
 
 Arguments and Values:
@@ -10350,15 +10539,15 @@ and true otherwise."""
         ##    function from the resulting module by N-O-W-B-C-L-A-N-T.
         ## 2. Choose a lambda expression, and handle exceptions.
         ## 3. Inevitably, punt to N-O-W-B-C-L-A-N-T.
-        if isinstance(definition, tuple):
-                lambda_expression = the((partuple, (eql, lambda_), pytuple), definition)
+        if consp_pyfun(definition):
+                lambda_expression = the((cons_t, (eql_t, lambda_), cons_t), definition)
         else:
                 fun = definition or macro_function(name) or fdefinition(name)
                 _, lambda_expression, _, _ = function_lambda_expression(fun)
                 if not definition:
                         # Not much we can do, but return the original function.
                         return fun, nil, nil, nil
-        final_name = the(symbol, name) or gensym("compiled_lambda")
+        final_name = the(symbol_t, name) or gensym("COMPILED-LAMBDA-")
         # Must has a name, for two reasons:
         #  - _ast_compiled_name() requires one
         #  - THERE-EXIST lambdas non-expressible in Python
@@ -10367,421 +10556,182 @@ and true otherwise."""
                                                  globalp = not not name,
                                                  macrop = name and not not macro_function(name))
 
-def _compile_in_lexenv(name, lambda_expression, lexenv):
-        def _convert_lambda_to_defun(name, lambda_expression):
-                return (defun, the(symbol, name)) + lambda_expression[1:]
-        final_name = the(symbol, name) or gensym("compiled_lambda")
-        return _compile_toplevel_def_in_lexenv(final_name, _convert_lambda_to_defun(final_name, lambda_expression), lexenv,
-                                               lambda_expression = lambda_expression)
+def eval(form):
+        return compile(nil, (lambda_, (), form))()
 
-def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
-        "There really is no other way.  Trust me.  Please."
-        def _convert_lambda_to_def(name, lambda_expression):
-                return (def_, the(symbol, name)) + lambda_expression[1:]
-        _, arglist, *body = lambda_expression
-        fn = _fn.python_type(name = name,
-                             arglist = arglist, body = body,
-                             globalp = globalp)
-        ## fn.clear_dependencies() -- not needed, for as long as we create functions anew (HAR, um, HAR, I suppose..)
-        with progv({ _compiler_fn_: fn }):
-                return _compile_toplevel_def_in_lexenv(
-                        ## This decorator-passing scheme is fairly archaic -- we would be better served by macros.
-                        name, _ir_args_when(globalp, _convert_lambda_to_def(name, lambda_expression),
-                                            decorators = [(ref, _set_macro_definition) if macrop else
-                                                          (ref, _set_function_definition)]),
-                        lexenv,
-                        globalp = globalp, macrop = globalp and macrop,
-                        lambda_expression = lambda_expression)
+################################################################################
 
-def _compile_toplevel_def_in_lexenv(name, form, lexenv, globalp = nil, macrop = nil, lambda_expression = None):
-        ## Actually, only DEFUN and DEFMACRO would work at the moment, not DEF_.
-        def _in_compilation_unit():
-                pro, value = _do_compile(form, lexenv) # We're only interested in the resulting DEF.
-                cu_pro = _compilation_unit_prologue()
-                final_pv = cu_pro + pro, value
-                if len(pro) != 1:   # The FunctionDef and the symbol Assign
-                        _debug_printf("*** invariant failed - %s prologue - while compiling form:", ("no" if not pro else
-                                                                                                     "long"))
-                        _dump_form(form)
-                        if pro:
-                                _debug_printf("*** prologue:")
-                                mapc(_dump_form, pro)
-                        assert(len(pro) == 1)
-                pro_ast = mapcar(_compose(_ast_ensure_stmt, _atree_ast), _tuplerator(final_pv))
-                import more_ast
-                more_ast.assign_meaningful_locations(pro_ast)
-                if _debugging_compiler():
-                        import more_ast
-                        _debug_printf("cu_pro: %s\n", cu_pro)
-                        _debug_printf(";;; In C-T-D-I-L: Lisp ================\n%s:\n;;; Python ------------->\n%s\n;;; .....................\n",
-                                      _pp_sex(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
-                                                               for x in pro_ast))
-                        ############################ This is an excess newline, so it is a bug workaround.
-                        ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
-                        if typep(pro_ast[0], _ast.FunctionDef):
-                                _debug_printf("type of ast: %s\ndecorators: %s", type_of(pro_ast[0]), pro_ast[0].decorator_list)
-                # Unregistered Issue COMPLIANCE-WITH-COMPILATION-UNIT-WARNINGS-P-FAILURE-P
-                acn = _ast_compiled_name(_frost.full_symbol_name_python_name(name),
-                                         *pro_ast,
-                                         globals = globals(),
-                                         locals  = locals())
-                sym = the(symbol, acn)
-                func = the(function, symbol_function(sym))
-                # Unregistered Issue COMPILE-PYSTAGE-ERROR-CHECKING
-                # Feed FUNCTION-LAMBDA-EXPRESSION:
-                if _specifiedp(lambda_expression):
-                        func.lambda_expression = lambda_expression
-                func.closure_p         = nil
-                func.name              = name # Debug name, as per F-L-E spec.
-                warnings, style_warnings, errors = [], [], []
-                ## XXX: was too lazy to fix compilation unit stuff, so commented out..
-                # for cond in _compilation_unit_get("conditions"):
-                #         if typep(cond, error):
-                #                 errors.append(cond)
-                #         elif typep(cond, style_warning):
-                #                 style_warnings.append(cond)
-                #         elif typep(cond, warning):
-                #                 warnings.append(cond)
-                warnedp, failedp = (not not (errors or warnings or style_warnings),
-                                    not not (errors or warnings))
-                return ((name if globalp else func),
-                        warnedp,
-                        failedp,
-                        pro)
-        with progv({_lexenv_: lexenv}):
-                return with_compilation_unit(_in_compilation_unit)
+def function_lambda_expression(function):
+        """function-lambda-expression function
 
-#+end_src
+=> LAMBDA-EXPRESSION, CLOSURE-P, NAME
 
-***** @LISP tests
+Arguments and Values:
 
-#+begin_src python +n
-@lisp
-# ((intern("DEFUN")[0], " ", _name, " ", ([(_notlead, " "), _name],),
-#    1, [(_notlead, "\n"), (_bound, _form)]))
-def DEFUN(name, lambda_list, *body):
-        (defmacro, defun, (name, lambda_list, _body, body),
-          (quasiquote,
-            (progn,
-              ## SBCL has a :COMPILE-TOPLEVEL part, but it's not very clear what we need in this respect.
-              (eval_when, (_load_toplevel, _execute),
-                (apply, ("cl", "_set_function_definition"),
-                        (lambda_, (comma, lambda_list), (splice, body)),
-                        nil)))))
+FUNCTION---a function.
 
-@lisp
-def cond(*clauses):
-        (defmacro, cond, (_rest, clauses),
-         (if_, (not_, clauses),
-          nil,
-          (let, ((clause, (first, clauses)),
-                 (rest, (rest, clauses))),
-           (let, ((test, (first, clause)),
-                  (body, (rest, clause))),
-            (quasiquote, (if_, (unquote, test),
-                         (progn, (splice, body)),
-                         (cond, (splice, rest))))))))
+LAMBDA-EXPRESSION---a lambda expression or NIL.
 
-@lisp
+CLOSURE-P---a generalized boolean.
+
+NAME---an object.
+
+Description:
+
+Returns information about function as follows:
+
+The primary value, LAMBDA-EXPRESSION, is function's defining lambda
+expression, or NIL if the information is not available.  The lambda
+expression may have been pre-processed in some ways, but it should
+remain a suitable argument to COMPILE or FUNCTION.  Any implementation
+may legitimately return NIL as the LAMBDA-EXPRESSION of any FUNCTION.
+
+The secondary value, CLOSURE-P, is NIL if FUNCTION's definition was
+enclosed in the null lexical environment or something non-NIL if
+FUNCTION's definition might have been enclosed in some non-null
+lexical environment.  Any implementation may legitimately return true
+as the CLOSURE-P of any function.
+
+The tertiary value, NAME, is the ``name'' of FUNCTION.  The name is
+intended for debugging only and is not necessarily one that would be
+valid for use as a name in DEFUN or FUNCTION, for example.  By
+convention, NIL is used to mean that FUNCTION has no name.  Any
+implementation may legitimately return NIL as the name of any
+FUNCTION."""
+        return _values_frame(*(gethash(slot, the(function_t, function).__dict__, default)[0]
+                               for slot, default in [("lambda_expression", nil),
+                                                     ("closure_p",         t),
+                                                     ("name",              nil)]))
+
+# getsource
+#   getsourcelines
+#     findsource
+#       file = fn.__code__.co_filename
+#       sourcefile = getsourcefile = f(fn.__code__.co_filename)
+#       file = sourcefile or file
+#       module = getmodule()
+#       linecache.getlines(file)
+#     getblock
+#       <boring>
+__def_sources__ = _without_condition_system(lambda: _collections.OrderedDict())
+__def_sources__[""] = "" # placeholder
+__def_sources_filename__ = "<lisp>"
+def _lisp_add_def(name, source):
+        if name in __def_sources__:
+                del __def_sources__[name]
+        __def_sources__[name] = source
+        total = "\n".join(__def_sources__.values())
+        linecache.cache[__def_sources_filename__] = len(total), int(time.time()), total.split("\n"), __def_sources_filename__
+
+def _peek_func_globals(x, desc = "FUNC"):
+        func = the(function_t, (x if functionp(x) else
+                              symbol_function(x) or macro_function(x)))
+        _debug_printf("\n  %s %s (0x%x): globals %x (of type %s)\n%s",
+                      desc, func.__name__, id(func),
+                      id(func.__globals__), type_of(func.__globals__),
+                      { k:v for k,v in func.__globals__.items() if k != '__builtins__' })
+        _backtrace(15, frame_ids = t, offset = 1)
+
+@defun
 def fdefinition(name):
-        (defun, fdefinition, (name,),
-         (symbol_function, (the, symbol, name)))
-describe(fdefinition)
-#+end_src
+        ## DEFMACRO expands into this (DEFUN should too)
+        return symbol_function(the(symbol_t, name))
 
-***** Source info (rudimentary)
+# @LISP tests
+# _trace("atom")
+# _trace(_return, "crec")
+# _trace(_return, "maybe")
+# _trace("segment")
+# _trace(_return, "segment")
+# _trace("form")
+# _trace(_return, "form")
+# _trace("match")
+# _trace(_return, "match")
+# _debug_compiler()
 
-#+begin_src python +n
-@defclass
-class _source_info():
-        def __init__(self, pathname):
-                self.pathname = pathname
-#+end_src
+# @defun(intern("ONEMORE")[0])
+# def onemore(x): return x + 1
 
-***** EVAL (incl. %EVAL-TLF)
+## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
+# _pp_sex((defmacro, defun, ("name", lambda_list, _body, "body"),
+#           (quasiquote,
+#             (progn,
+#               (eval_when, (_load_toplevel, _execute),
+#                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (comma, "name"), (quote, nil)),
+#                         (lambda_, (comma, lambda_list), (splice, "body")),
+#                         (quote, nil))))))
+#         # (1, 1, (1, 1, 1, 1),
+#         #     (function, (quote, ("cl", "_set_function_definition"))))
+#         )
 
-#+begin_src python +n
-_string_set("*EVAL-SOURCE-CONTEXT*", nil)
-_string_set("*EVAL-TLF-INDEX*", nil)
-_string_set("*EVAL-SOURCE-INFO*", nil)
+# @lisp
+# def DEFUN(name, lambda_list, *body):
+#         (defmacro, defun, (name, lambda_list, _body, body),
+#           (quasiquote,
+#             (progn,
+#               (eval_when, (_compile_toplevel,),
+#                 ## _compile_and_load_function() expects the compiler-level part of function to be present.
+#                 (apply, (function, (quote, ("cl", "_compiler_defun"))),
+#                  (quote, (comma, name)), (quote, (lambda_, (comma, lambda_list), (splice, body))),
+#                  (quote, nil))),
+#               (eval_when, (_load_toplevel, _execute),
+#                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))),
+#                          (quote, (comma, name)), (quote, (lambda_, (comma, lambda_list), (splice, body))),
+#                          (quote, nil)),
+#                         (progn,
+#                           (def_, (comma, name), (comma, lambda_list),
+#                            (block, (comma, name),
+#                             (splice, body))),
+#                           (function, (comma, name))),
+#                         (quote, nil))))))
 
-def _simple_eval(expr, lexenv):
-        lam = (lambda_, tuple()) + expr
-        fun = _compile_in_lexenv(nil, lam, lexenv)[0]
-        # _debug_printf("got: %s", fun)
-        return fun()
-
-def _simple_eval_in_lexenv(original_exp, lexenv):
-        exp = macroexpand(original_exp, lexenv)
-        if symbolp(exp):
-                return symbol_value(exp)
-        elif listp_pyfun(exp):
-                name = car_pyfun(exp)
-                n_args = len(exp) - 1
-                if   name is function:        _not_implemented("%SIMPLE-EVAL-IN-LEXENV FUNCTION case")
-                elif name is quote:           return the((pytuple, symbol, t), exp)[1]
-                elif name is setq:            _not_implemented("%SIMPLE-EVAL-IN-LEXENV SETQ case")
-                elif name is progn:           _not_implemented("%SIMPLE-EVAL-IN-LEXENV PROGN case")
-                elif name is eval_when:       _not_implemented("%SIMPLE-EVAL-IN-LEXENV EVAL-WHEN case")
-                elif name is locally:         _not_implemented("%SIMPLE-EVAL-IN-LEXENV LOCALLY case")
-                elif name is macrolet:        _not_implemented("%SIMPLE-EVAL-IN-LEXENV MACROLET case")
-                elif name is symbol_macrolet: _not_implemented("%SIMPLE-EVAL-IN-LEXENV SYMBOL-MACROLET case")
-                elif name is if_:             return _eval_in_lexenv((exp[2] if _eval_in_lexenv(exp[1], lexenv) else
-                                                                      nil    if len(exp) == 3               else
-                                                                      exp[3]), lexenv)
-                elif name in [let, let_]:     return _simple_eval(exp, lexenv)
-                else:                         return _simple_eval(exp, lexenv) # This directly invoked a function, whenever
-                                                                               # it was already in the FNDB.  We just punt.
-        else:
-                return exp
-
-def _eval_in_lexenv(exp, lexenv):
-        return _simple_eval_in_lexenv(exp, lexenv)
-
-def _do_eval(exp, tlf_index, source_info, lexenv):
-        with progv({_eval_source_context_: exp,
-                    _eval_tlf_index_:      tlf_index,
-                    _eval_source_info_:    source_info}):
-                return _eval_in_lexenv(exp, lexenv)
-
-def _eval_tlf(original_exp, tlf_index, lexenv = None):
-        return _do_eval(original_exp, tlf_index, _symbol_value(_source_info_),
-                        _defaulted(lexenv, _make_null_lexenv()))
-
-def eval(original_exp):
-        return _do_eval(original_exp, nil, nil, _make_null_lexenv())
-#+end_src
-
-***** File compiler, as stolen from SBCL (%EVAL-COMPILE-TOPLEVEL / %PROCESS-TOPLEVEL-FORM and COMPILE-FILE)
-
-#+begin_src python +n
-def _compiler_mumble(control, *args):
-        _debug_printf(control, *args)
-
-_string_set("*TOP-LEVEL-FORM-NOTED*", nil)
-
-_string_set("*COMPILE-PRINT*", t)
-_string_set("*COMPILE-VERBOSE*", t)
-_string_set("*COMPILE-PROGRESS*", nil) # Not CL.
-
-_string_set("*COMPILE-FILE-PATHNAME*", nil)
-_string_set("*COMPILE-FILE-TRUENAME*", nil)
-
-_string_set("*COMPILE-OBJECT*", nil)
-_string_set("*COMPILE-TOPLEVEL-OBJECT*", nil)
-
-# with_compilation_unit() is above, due to dependency
-
-# name-reserved-by-ansi-p name kind
-# summarize-compilation-unit abort-p
-# with-compilation-values body
-# ir1-optimize-until-done component
-# dfo-as-needed component
-# ir1-phases component
-# %compile-component component
-# delete-if-no-entries component
-# compile-component component
-# clear-constant-info
-# clear-ir1-info component
-# clear-stuff
-# describe-component component *standard-output*
-# describe-ir2-component component
-# def!struct file-info
-# def!struct source-info
-# make-file-source-info file external-format
-# make-lisp-source-info form parent
-# get-toplevelish-file-info source-info
-# read-for-compile-file stream position
-# get-source-stream info
-# close-source-info info
-# defmacro do-forms-from-info (forms keys) info
-# sub-sub-compile-file info
-# find-source-root index info
-# convert-and-maybe-compile form path
-
-def _preprocessor_macroexpand_1(form):
-        def _macroexpand_1(form, env):
-                ## Like MACROEXPAND-1, but takes care not to expand special forms.
-                # (if (or (atom form)
-                #      (let ((op (car form)))
-                #       (not (and (symbolp op) (sb!xc:special-operator-p op)))))
-                #  (sb!xc:macroexpand-1 form env)
-                #  (values form nil))
-                return (macroexpand_1(form, env) if atom_pyfun(form) or not (symbolp(car_pyfun(form)) and special_operator_p(car_pyfun(form)))
-                                                 else _values_frame(form, nil))
-        ## Macroexpand FORM in the current environment with an error handler.
-        ## We only expand one level, so that we retain all the intervening
-        ## forms in the source path.
-        try:
-                return _macroexpand_1(form, _symbol_value(_lexenv_))
-        except error.python_type as condition:
-                _compiler_error("(during macroexpansion of %s)\n%s", format(nil, "%s", form), condition)
-
-## The %CONVERT-AND-MAYBE-COMPILE function returns whatever LOWER returns.
-## The PROCESS-* functions return possibly empty lists of %C-A-M-C return values.
-def _process_toplevel_progn(forms, path, compile_time_too):
-        return mapcan(lambda f: _process_toplevel_form(f, path, compile_time_too), forms)
-
-def _process_toplevel_locally(body, path, compile_time_too, vars = [], funs = []):
-        forms, decls = _parse_body(body, doc_string_allowed = nil, toplevel = t)[:2]
-        with progv({_lexenv_: _process_decls(decls, vars, funs)}):
-                return _process_toplevel_progn(forms, path, compile_time_too)
-
-_eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
-_eval_when_keywords = set(_eval_when_ordered_keywords)
-def _parse_eval_when_situations(situ_form):
-        if not (isinstance(situ_form, tuple) and set(situ_form) == _eval_when_keywords):
-                error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
-        return [x in situ_form for x in _eval_when_ordered_keywords]
-
-# functional-components f
-# make-functional-from-toplevel-lambda lambda-expression name path
-# %compile lambda-expression *compile-object* name path
-# process-toplevel-cold-fset name lambda-expression path
-
-def _note_top_level_form(form, finalp = nil):
-        if _symbol_value(_compile_print_):
-                if not _symbol_value(_top_level_form_noted_):
-                        _compiler_mumble("; compiling %s\n", _pp_sex(form[:min(2, len(form))]))
-                        return form
-                else:
-                        return _symbol_value(_top_level_form_noted_)
-
-## This returns a list of %C-A-M-C retvals, just as PROCESS-* do.
-def _eval_compile_toplevel(body, path):
-        ## Handle the evaluation the a :COMPILE-TOPLEVEL body during
-        ## compilation. Normally just evaluate in the appropriate
-        ## environment, but also compile if outputting a CFASL.
-        eval_tlf((progn,) + body, source_path_tlf_number(path), _symbol_value(_lexenv_))
-        cto = _symbol_value(_compile_toplevel_object_)
-        if cto:
-                with progv({_compile_object_: cto}):
-                        return [_convert_and_maybe_compile((progn,) + body, path)]
-        else:
-                return []
-
-def _process_toplevel_form(form, path, compile_time_too):
-        def funcall_in_macrolet_lexenv(bindings, fn):
-                with progv({_lexenv_: _not_implemented()}):
-                        return fn()
-        def funcall_in_symbol_macrolet_lexenv(bindings, fn):
-                with progv({_lexenv_: _not_implemented()}):
-                        return fn()
-        path = _get_source_path(form) or cons(form, path)
-        def default_processor(form):
-                with progv({_toplevel_form_noted_: _note_top_level_form(form)}):
-                        expanded = _values_frame_project(0, _preprocessor_macroexpand_1(form))
-                        if expanded is form:
-                                if compile_time_too:
-                                        # Done purely for side-effect.
-                                        _eval_compile_toplevel((form,), path)
-                                return [_convert_and_maybe_compile(form, path)]
-                        else:
-                                return _process_toplevel_form(expanded, path, compile_time_too)
-        if atom_pyfun(form):
-                return default_processor(form)
-        else:
-                if form[0] in [eval_when, macrolet, symbol_macrolet]:
-                        if len(form) < 2:
-                                _compiler_error("%s form is too short: %s", form[0], form)
-                        special_operator, magic, *body = form
-                        if special_operator is eval_when:
-                                ## CT, LT, and E here are as in Figure 3-7 of ANSI
-                                ## "3.2.3.1 Processing of Top Level Forms".
-                                ct, lt, e = _parse_eval_when_situations(magic)
-                                new_compile_time_too = ct or (compile_time_too and e)
-                                return (_process_toplevel_progn(body, path, new_compile_time_too) if lt                   else
-                                        _eval_compile_toplevel(body, path)                        if new_compile_time_too else
-                                        [])
-                        elif special_operator is macrolet:
-                                return funcall_in_macrolet_lexenv(
-                                        magic,
-                                        lambda funs = [], prepend = []:
-                                                (the(null, prepend) or
-                                                 _process_toplevel_locally(body, path, compile_time_too)))
-                        elif special_operator is symbol_macrolet:
-                                return funcall_in_symbol_macrolet_lexenv(
-                                        magic,
-                                        lambda vars = [], prepend = []:
-                                                (the(null, prepend) or
-                                                 _process_toplevel_locally(body, path, compile_time_too, vars = vars)))
-                elif form[0] is locally:
-                        return _process_toplevel_locally(form[1:], path, compile_time_too)
-                elif form[0] is progn:
-                        return _process_toplevel_progn(form[1:], path, compile_time_too)
-                else:
-                        return default_processor(form)
-
-def _sub_sub_compile_file():
-        pass
-
-def compile_file_pathname(input_file, output_file = None):
-        _not_implemented()
-        return
-
-def compile_file(input_file, output_file = None,
-                 compile_verbose = None,
-                 compile_print = None,
-                 external_format = None,
-                 # Extension:
-                 trace_file = None):
-        def _compile_file_default_pathname(input_file, output_file = None):
-                if not input_file.endswith(".lisp"):
-                        error("In COMPILE-FILE %s: must end with .lisp.", repr(input_file))
-                return _defaulted(output_file, input_file[:-2] + "fas")
-        compile_verbose, compile_print = mapcar(lambda x: _defaulted_to_var(compile_verbose, x), [_compile_verbose_,
-                                                                                                  _compile_print_])
-        output_file = _compile_file_default_pathname(input_file, output_file = output_file)
-        abort_p, warnings_p, failure_p = nil, nil, nil
-        with open(input_file, "r") as input:
-                form = read(input)
-                while form:
-                        # However, we need a total module here, not just a single form.
-                        # The actual compilation must come as a last pass.
-                        ################ Thought process paused here...
-                        cfun, errp, warnp = 1
-                        failure_p  = failure_p or errp
-                        warnings_p = warnings_p or warnp
-                        form = read(input)
-        with open(output_file, "w") as output:
-                _compiler_mumble("; writing %s..\n", output_file)
-                _not_implemented()
-        return (abort_p,
-                warnings_p,
-                failure_p)
+# @lisp
+# def cond(*clauses):
+#         (defmacro, cond, (_rest, clauses),
+#          (if_, (not_, clauses),
+#           nil,
+#           (let, ((clause, (first, clauses)),
+#                  (rest, (rest, clauses))),
+#            (let, ((test, (first, clause)),
+#                   (body, (rest, clause))),
+#             (quasiquote, (if_, (unquote, test),
+#                          (progn, (splice, body)),
+#                          (cond, (splice, rest))))))))
 #+end_src
 
 * LOAD
 *** LOAD (+ stray stream_type_error)
 
 #+begin_src python +n
-_string_set("*LOAD-VERBOSE*", nil)
+_string_set("*LOAD-VERBOSE*", t)
 _string_set("*LOAD-PRINT*", nil)
+_string_set("*SOURCE-INFO*", nil)
 
 def _load_as_source(stream, verbose = nil, print = nil):
-        pathname = _file_name(stream)
+        ## This is botched.
+        pathname = _file_stream_name(stream)
         verbose and format(t, "; loading %s\n", repr(pathname))
         def with_abort_restart_body():
                 def eval_form(form, index):
                         spref = "; evaluating "
-                        print and format(t, spref + "%s\n", _pp_sex(form, initial_depth = length(spref)))
+                        print and format(t, spref + "%s\n", _pp(form, initial_depth = len(spref)))
                         def with_continue_restart_body():
                                 while t:
                                         def with_retry_restart_body():
-                                                results = _eval_tlf(form, index)
-                                                results = (results,) if not isinstance(results, tuple) else results
-                                                if print:
-                                                        format(t, "%s\n", ", ".join(repr(x) for x in results))
-                                        with_simple_restart("RETRY", ("Retry EVAL of current toplevel form.",),
-                                                            with_retry_restart_body)
-                                        return
+                                                results = eval(form)
+                                                results = ((results,) if not _values_frame_p(results) else
+                                                           _values_frame_values(results))
+                                                print and format(t, "%s\n", ", ".join(repr(x) for x in results))
+                                        return with_simple_restart("RETRY", ("Retry EVAL of current toplevel form.",),
+                                                                   with_retry_restart_body)
                         with_simple_restart("CONTINUE", ("Ignore error and continue loading file %s.", repr(pathname)),
                                             with_continue_restart_body)
                 ## Unregistered Issue DEBUG-LOAD-FILE-SOURCE-INFO-IGNORED
                 def next(): return read(stream, eof_error_p = nil, eof_value = stream)
                 form = next()
                 if pathname:
-                        with progv({ _source_info_: _source_info.python_type(pathname = pathname) }):
+                        with progv({ _source_info_: nil # _source_info_type(pathname = pathname)
+                                     }):
                                 while form != stream:
                                         eval_form(form, nil)
                                         form = next()
@@ -10790,10 +10740,34 @@ def _load_as_source(stream, verbose = nil, print = nil):
                                 while form != stream:
                                         eval_form(form, nil)
                                         form = next()
-        return with_simple_restart("ABORT", ("Abort loading file %s.", _file_name(stream)),
+        return with_simple_restart("ABORT", ("Abort loading file %s.", _file_stream_name(stream)),
                                    with_abort_restart_body)
 
-_string_set("*FASL-FILE-TYPE*", "vpfas")
+_string_set("*LOAD-PATHNAME*", nil)
+_string_set("*LOAD-TRUENAME*", nil)
+
+_string_set("*FASL-FILE-TYPE*",  "vpfas")
+_string_set("*TRACE-FILE-TYPE*", "trace")
+_string_set("*FASL-FILE-MAGIC*", ";VPCL FAS\n".encode("utf-8"))
+
+def _fasl_header_p(stream, errorp = nil):
+        magic = stream.read(10)
+        if magic == symbol_value(_fasl_file_magic_):
+                return t
+        if errorp:
+                error("The file pointed at by stream %s does not contain a FASL file.", stream)
+        return nil
+
+def _load_as_fasl(stream, verbose = None, print = None):
+        ## The stream is expected to have been seeked past the magic.
+        verbose = _defaulted_to_var(verbose, _load_verbose_)
+        print   = _defaulted_to_var(verbose, _load_print_)
+        filename = truename(stream)
+        verbose and format(t, "; loading %s...\n", filename)
+        bytecode = _marshal.load(stream)
+        _, broken_globals, good_globals = _load_module_bytecode(bytecode, filename = filename)
+        ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
+        broken_globals.update(good_globals)
 
 @_cold_defun_with_block
 def load(pathspec, verbose = None, print = None,
@@ -10801,32 +10775,27 @@ def load(pathspec, verbose = None, print = None,
          external_format = _keyword("default")):
         verbose = _defaulted_to_var(verbose, _load_verbose_)
         print   = _defaulted_to_var(verbose, _load_print_)
-        def fasl_header_p(stream, errorp = nil):
-                _warn_not_implemented()
-                if errorp:
-                        error("The file pointed at by stream %s does not contain a FASL file.", stream)
-                return nil
         def load_stream(stream, faslp):
                 with progv({ _readtable_:     _symbol_value(_readtable_),
                              _package_:       _symbol_value(_package_),
                              _load_pathname_: pathname(stream),
                              _load_truename_: handler_case(lambda: truename(stream),
-                                                             (error, lambda _: nil)) }):
-                        return_from(load, (_load_as_fasl if faslp else
-                                           _load_as_source)(stream, verbose = verbose, print = print))
+                                                           (error_t, lambda _: nil)) }):
+                        __return_from(load, (_load_as_fasl if faslp else
+                                             _load_as_source)(stream, verbose = verbose, print = print))
         ## Case 1: stream.
         if streamp(pathspec):
-                return load_stream(pathspec, _stream_faslp(pathspec))
+                return load_stream(pathspec, _fasl_header_p(pathspec))
         pathname_ = pathname(pathspec)
         ## Case 2: Open as binary, try to process as a fasl.
         def with_open_stream_body(stream):
                 if not stream:
-                        return_from(load, nil)
+                        __return_from(load, nil)
                 real = probe_file(stream)
                 should_be_fasl_p = real and string_equal(pathname_type(real), _symbol_value(_fasl_file_type_))
                 if ((should_be_fasl_p or file_length(stream)) and
-                    fasl_header_p(stream, errorp = should_be_fasl_p)):
-                        return_from(load, load_stream(stream, t))
+                    _fasl_header_p(stream, errorp = should_be_fasl_p)):
+                        __return_from(load, load_stream(stream, t))
         def typeless_pathname_branch():
                 nonlocal pathname_
                 defaulted_pathname = probe_load_defaults(pathspec)
@@ -10834,12 +10803,13 @@ def load(pathspec, verbose = None, print = None,
                         pathname_ = defaulted_pathname
                         return open(pathname_, if_does_not_exist = (_keyword("ERROR") if if_does_not_exist else
                                                                     nil),
-                                    element_type = (unsigned_byte, 8))
-        with_open_stream((open(pathspec, element_type = (unsigned_byte, 8),
-                               if_does_not_exist = nil) or
+                                    element_type = (unsigned_byte_t, 8))
+        with_open_stream(((pathspec                 if streamp(pathspec)                          else
+                           _py.open(pathspec, "rb") if stringp(pathspec) and probe_file(pathspec) else
+                           nil) or
                           (null(pathname_type(pathspec)) and typeless_pathname_branch()) or
                           (if_does_not_exist and
-                           error(simple_file_error, pathname = pathspec,
+                           error(simple_file_error_t, pathname = pathspec,
                                  format_control = "Couldn't load %s: file does not exist.",
                                  format_arguments = [pathspec]))),
                          with_open_stream_body)
@@ -10849,7 +10819,7 @@ def load(pathspec, verbose = None, print = None,
                        external_format = external_format)
 
 @defclass
-class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
+class stream_type_error_t(simple_condition_t, _io.UnsupportedOperation):
         pass
 #+end_src
 
@@ -10859,8 +10829,59 @@ class stream_type_error(simple_condition.python_type, _io.UnsupportedOperation):
     Cold boot complete, now we can LOAD vpcl.lisp.
 
 #+begin_src python +n
-# _debug_compiler()
-load("vpcl.lisp", verbose = t)
+def _configure_recursion_limit(new_limit):
+        _debug_printf("; current recursion limit is: %s;  setting it to %s",
+                      _sys.getrecursionlimit(), new_limit)
+        _sys.setrecursionlimit(new_limit)
+
+_configure_recursion_limit(262144)
+
+_compiler_config_tracing(# toplevels = t,
+                         # toplevels_disasm = t,
+                         # entry_forms = t,
+                         # forms = t,
+                         # primitives = t,
+                         macroexpansion = t,
+                         # true_death_of_code = t,
+                         # result = t,
+                         # rewrites = t,
+                         # choices = t,
+                         pretty_full = t
+                         )
+
+# _compiler_trap_function(intern("DEFPACKAGE")[0])
+
+# @lisp
+# def LOOPTEST():
+#         (defun, looptest, (x,),
+#           (tagbody,
+#             re,
+#             (setq, x, (onemore, x)),
+#             (if_, (oddp, x),
+#                   (go, re),
+#                   (format, t, "x: %s\n", x)),
+#             (go, re)))
+
+# LOOPTEST(0)
+
+# import cProfile as _cProfile, pstats as _pstats
+# _cProfile.runctx("fasl_filename = traced()", globals(), locals(), sort = "cumulative")
+
+def fx():
+        _debug_printf("  fname: %s", _caller_frame(11).f_code.co_name)
+        _debug_printf(" locals: %s", _caller_frame(11).f_locals)
+        _debug_printf("  glsid: %x", id(_caller_frame(11).f_globals))
+        _debug_printf("   coid: %x", id(_caller_frame(11).f_code))
+        _debug_printf("DEFUN's: %x", id(find_symbol("DEFUN")[0].macro_function.__code__))
+
+# _compiler_trap_function(intern("DEFUN")[0])
+
+load(compile_file("vpcl.lisp"))
+load(compile_file("reader.lisp"))
+
+# load(compile_file("reader.lisp"))
+
+# load("vpcl.lisp", verbose = t)
 #+end_src
 
 *** REQUIRE
@@ -10869,11 +10890,11 @@ load("vpcl.lisp", verbose = t)
 _string_set("*MODULE-PROVIDER-FUNCTIONS*", [])
 
 def _module_filename(module):
-        return "%s/%s.py" % (env.partus_path, string(module))
+        return "%s/%s.py" % (env.partus_path, module if stringp(module) else symbol_name(module))
 
 def require(name, pathnames = None):
         "XXX: not terribly compliant either"
-        namestring = string(name)
+        namestring = name if stringp(name) else symbol_name(name)
         filename = pathnames[0] if pathnames else _module_filename(namestring)
         if probe_file(filename):
                 _not_implemented()
@@ -10925,12 +10946,12 @@ def _describe_function(name, function, stream):
                 else:
                         fun = function or fdefinition(name)
                         what = "a function"
-                               # ("a generic function"      if typep(fun, generic_function) else
-                               #  "a compiled function"     if compiled_function_p(fun)     else
+                               # ("a generic function"      if typep(fun, generic_function_t) else
+                               #  "a compiled function"     if compiled_function_p(fun)       else
                                #  "an interpreted function")
                         lambda_list = (fun.lambda_list if hasattr(fun, "lambda_list") else
                                        None)
-                        methods = (# generic_function_methods(fun) if typep(fun, generic_function) else
+                        methods = (# generic_function_methods(fun) if typep(fun, generic_function_t) else
                                    None)
                         if not function:
                                 format(stream, "\n%s names %s:", name, what)
@@ -10965,7 +10986,7 @@ def _describe_class(name, class_, stream):
         pass
 
 def _describe_python_object(x, stream):
-        type = type(x)
+        type = type_of(x)
         slots = [ x for x in dir(x) if "__" not in x ]
         maxslotnamelen = max(len(x) for x in slots)
         def describe_slot(x, slot):
@@ -11014,64 +11035,6 @@ def describe(object, stream_designator = None):
                 describe_object(object, stream_designator)
 #+end_src
 
-*** Functions: FUNCTION, CONSTANTP
-
-#+begin_src python +n
-@defun
-def constantp(form, environment = None):
-        """constantp form &optional environment => generalized-boolean
-
-Arguments and Values:
-
-FORM---a form.
-
-environment---an environment object. The default is nil.
-
-GENERALIZED-BOOLEAN---a generalized boolean.
-
-Description:
-
-Returns true if FORM can be determined by the implementation to be a
-constant form in the indicated ENVIRONMENT;  otherwise, it returns
-false indicating either that the form is not a constant form or that
-it cannot be determined whether or not FORM is a constant form.
-
-The following kinds of forms are considered constant forms:
-
- * Self-evaluating objects (such as numbers, characters, and the
-   various kinds of arrays) are always considered constant forms and
-   must be recognized as such by CONSTANTP.
-
- * Constant variables, such as keywords, symbols defined by Common Lisp
-   as constant (such as NIL, T, and PI), and symbols declared as
-   constant by the user in the indicated ENVIRONMENT using DEFCONSTANT
-   are always considered constant forms and must be recognized as such
-   by CONSTANTP.
-
- * QUOTE forms are always considered constant forms and must be
-   recognized as such by CONSTANTP.
-
- * An implementation is permitted, but not required, to detect
-   additional constant forms.  If it does, it is also permitted, but
-   not required, to make use of information in the
-   ENVIRONMENT.  Examples of constant forms for which CONSTANTP might or
-   might not return true are: (SQRT PI), (+ 3 2), (LENGTH '(A B C)),
-   and (LET ((X 7)) (ZEROP X)).
-
-If an implementation chooses to make use of the environment
-information, such actions as expanding macros or performing function
-inlining are permitted to be used, but not required; however,
-expanding compiler macros is not permitted.
-
-Affected By:
-
-The state of the global environment (e.g., which symbols have been
-declared to be the names of constant variables)."""
-        return (typep(form, (or_, integer, float, complex, string)) or
-                keywordp(form) or form in [t, nil, pi]                 or
-                (isinstance(form, tuple) and len(form) == 2 and form[0] is quote_))
-#+end_src
-
 *** Rudimentary CLOS imitation
 
 ***** STANDARD-OBJECT and basic protocols
@@ -11082,7 +11045,7 @@ def class_of(x):
         return getattr(x, "__class__")
 
 @defclass
-class standard_object():
+class standard_object_t():
         def __init__(self, **initargs):
                 super().__init__() # Unregistered Issue PYTHON-OBJECT-DOES-NOT-ACCEPT-ARGUMENTS-BUT-SEE-SUPER-CONSIDERED-HARMFUL
                 initialize_instance(self, **initargs)
@@ -11254,17 +11217,17 @@ nor evaluated."""
 
 #+begin_src python +n
 @defclass
-class method(standard_object.python_type):
+class method_t(standard_object_t):
         "All methods are of this type."
 
 @defclass
-class funcallable_standard_class(standard_object.python_type):
+class funcallable_standard_class_t(standard_object_t):
         "All funcallable instances are of this type."
         def __call__(self, *args, **keys):
                 return self.function(*args, **keys)
 
 @defclass
-class generic_function(funcallable_standard_class.python_type):
+class generic_function_t(funcallable_standard_class_t):
         "All generic functions are of this type."
         def __init__(self, **initargs): # Simulate a :BEFORE method.
                 self.__dependents__ = set()
@@ -11472,11 +11435,11 @@ code:
 
 #+begin_src python +n
 @defclass
-class method_combination():
+class method_combination_t():
         "All method combinations are of this type."
 
 @defclass
-class standard_method(method.python_type):
+class standard_method_t(method_t):
         def __init__(self, **initargs):
                 super().__init__(**initargs)
                 _standard_method_shared_initialize(self, **initargs)
@@ -11484,7 +11447,7 @@ class standard_method(method.python_type):
                 return self.function(gfun_args, next_methods)
 
 @defclass
-class standard_generic_function(generic_function.python_type):
+class standard_generic_function_t(generic_function_t):
         def __init__(self, **initargs):
                 super().__init__(**initargs)
                 _standard_generic_function_shared_initialize(self, **initargs)
@@ -11658,24 +11621,24 @@ the specified initialization has taken effect."""
                 generic_function.argument_precedence_order = tuple(argument_precedence_order)
         elif _specifiedp(lambda_list):
                 generic_function.argument_precedence_order = tuple(lambda_list[0])
-        generic_function.declarations        = tuple(_defaulted(declarations, list(),
-                                                                 type = (pylist,
-                                                                         (satisfies, _valid_declaration_p))))
+        generic_function.declarations        = tuple(_defaulted(declarations, nil,
+                                                                type = (pylist_t,
+                                                                        (satisfies_t, _valid_declaration_p))))
         generic_function.documentation       = _defaulted(documentation, nil,
-                                              type = (or_, string, (eql, nil)))
+                                              type = (or_t, string_t, (eql_t, nil)))
         if _specifiedp(lambda_list):
                 # XXX: _not_implemented("lambda-list validation")
                 generic_function.lambda_list = lambda_list
-        generic_function.method_combination  = _defaulted(method_combination, standard_method_combination.python_type,
+        generic_function.method_combination  = _defaulted(method_combination, standard_method_combination_t,
                                                           type = _cold_class_type)
-        generic_function.method_class        = _defaulted(method_class, standard_method.python_type,
+        generic_function.method_class        = _defaulted(method_class, standard_method_t,
                                                           type = _cold_class_type) # method metaclass
         generic_function.name                = _defaulted(name, nil)
         # The discriminating function may reuse the
         # list of applicable methods without calling
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
         # (ii) the generic function has not been reinitialized,
-        generic_function.__applicable_method_cache__ = make_hash_table() # (list, _type) -> _list
+        generic_function.__applicable_method_cache__ = make_hash_table() # (list_, _type) -> list
         generic_function.__methods__ = make_hash_table()
         filename, lineno = (_defaulted(filename, "<unknown>"),
                             _defaulted(lineno,   0))
@@ -11707,7 +11670,7 @@ def generic_function_name(x):                      return x.name
 def generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")  # XXX: CL+
 def method_p(x):           return functionp(x) and hasattr(x, "specializers") # XXX: CL+
 def _specializerp(x):       return ((x is t)        or
-                                    typep(x, (or_, type, (pytuple, (eql, eql), t))))
+                                    typep(x, (or_t, type, (pytuple_t, (eql_t, eql), t))))
 
 def _get_generic_fun_info(generic_function):
         return (len(generic_function.lambda_list[0]), # nreq
@@ -12045,33 +12008,33 @@ executed."""
         # Unregistered Issue COMPLIANCE-SPECIAL-CASE-(APPLY #'FORMAT STREAM FORMAT-CONTROL (METHOD-QUALIFIERS METHOD))-NOT-IMPLEMENTED
         # Unregistered Issue PERFORMANCE-SINGLE-APPLICABLE-METHOD-OPTIMISATION
         check_type(method_group_specifiers,
-                  (pylist,
-                   (varituple,
-                    symbol,       # group name
-                    (or_, (pylist, (or_, pytuple, (eql, star))), # We're off the spec a little here,
-                                                                 # but it's a minor syntactic issue.
-                          function),
+                  (pylist_t,
+                   (varituple_t,
+                    symbol_t,       # group name
+                    (or_t, (pylist_t, (or_t, pytuple_t, (eql_t, star))), # We're off the spec a little here,
+                                                                         # but it's a minor syntactic issue.
+                          function_t),
                     # the rest is actually a plist, but we cannot (yet) describe it
                     # in terms of a type.
-                    (maybe, (pytuple,
-                             (eql, _keyword("description")),
-                             string)),
-                    (maybe, (pytuple,
-                              (eql, _keyword("order")),
-                              (member,
-                               _keyword("most-specific-first"),
-                               _keyword("most-specific-last")))),
-                    (maybe, (pytuple,
-                             (eql, _keyword("required")),
-                             (member, t, nil))))))
+                    (maybe_t, (pytuple_t,
+                               (eql_t, _keyword("description")),
+                               string_t)),
+                    (maybe_t, (pytuple_t,
+                               (eql_t, _keyword("order")),
+                               (member_t,
+                                _keyword("most-specific-first"),
+                                _keyword("most-specific-last")))),
+                    (maybe_t, (pytuple_t,
+                               (eql_t, _keyword("required")),
+                               (member_t, t, nil))))))
         # check_type(arguments, (maybe, lambda_list_))
-        check_type(arguments, (maybe, (pytuple,
-                                       (pylist, string),
-                                       (pylist, string),
-                                       (maybe, string),
-                                       (pylist, string),
-                                       (maybe, string))))
-        check_type(generic_function, (maybe, symbol))
+        check_type(arguments, (maybe_t, (pytuple_t,
+                                         (pylist_t, string_t),
+                                         (pylist_t, string_t),
+                                         (maybe_t, string_t),
+                                         (pylist_t, string_t),
+                                         (maybe_t, string_t))))
+        check_type(generic_function, (maybe_t, symbol_t))
         ### VARI-BIND, anyone?
         # def vari_bind(x, body):
         #         # don't lambda lists actually rule this, hands down?
@@ -12124,8 +12087,8 @@ executed."""
                        for group in groups.values():
                                qualifier_spec = group.qualifier_spec
                                ## qualifier_spec:
-                               # (or_, (pylist, (or_, star, list)),
-                               #       function),
+                               # (or_t, (pylist_t, (or_t, star, list)),
+                               #        function_t),
                                if ((_listp(qualifier_spec) and
                                     some(_curry(method_qualifiers_match_pattern_p, qualifiers),
                                          qualifier_spec))
@@ -12158,7 +12121,7 @@ executed."""
                        method_lambda
                body_args.update({ "call_method": call_method })
                return body(**body_args)
-        method_combination.name                        = the(symbol, name)
+        method_combination.name                        = the(symbol_t, name)
         method_combination.__method_group_specifiers__ = method_group_specifiers
         return method_combination
 #+end_src
@@ -12258,7 +12221,7 @@ executed."""
 # If only primary methods are used and if call-next-method is not used,
 # only the most specific method is invoked; that is, more specific
 # methods shadow more general ones.
-standard_method_combination = method_combination # Crude XXX
+standard_method_combination_t = method_combination_t # Crude XXX
 # standard_method_combination = define_method_combination(
 #         _i("STANDARD"),
 #         [(_i("around"),  [(_keyword("around"),)]),
@@ -12605,24 +12568,24 @@ def error_need_at_least_n_args(function, n):
         error("The function %s requires at least %d arguments.", function, n)
 
 __sealed_classes__ = set([object,
-                              integer, boolean, float, complex,
-                              string,
-                              hash_table,
-                              function,
-                              stream,
-                              pytuple, pybytes, pylist, pybytearray, pyset, pyfrozenset,
-                              BaseException, Exception] +
-                             mapcar(type_of,
-                                    [None,           # NoneType
-                                     Ellipsis,       # ellipsis
-                                     NotImplemented, # NotImplementedType
-                                     integer,        # type
-                                     "".find,        # builtin_function_or_method
-                                     _ast,           # module
-                                     _sys.stdin,     # __io.TextIOWrapper
-                                     car.__code__,   # code object
-                                     _this_frame(),  # frame
-                                     ]))
+                          integer_t, boolean_t, float_t, complex_t,
+                          string_t,
+                          hash_table_t,
+                          function_t,
+                          stream_t,
+                          pytuple_t, pybytes_t, pylist_t, pybytearray_t, pyset_t, pyfrozenset_t,
+                          BaseException, Exception] +
+                         mapcar(type_of,
+                                [None,           # NoneType
+                                 Ellipsis,       # ellipsis
+                                 NotImplemented, # NotImplementedType
+                                 integer_t,      # type
+                                 "".find,        # builtin_function_or_method
+                                 _ast,           # module
+                                 _sys.stdin,     # __io.TextIOWrapper
+                                 car.__code__,   # code object
+                                 _this_frame(),  # frame
+                                 ]))
 
 def _class_sealed_p(x):
         return x in __sealed_classes__
@@ -12715,7 +12678,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                 unsealed_classes = set(x for x in dispatch_arg_types if not _class_sealed_p(x))
                 applicable_method_cache_key = dispatch_arg_types + reduce(lambda acc, x: acc + x.__mro__,
                                                                           _sorted(unsealed_classes, key = lambda type: type.__name__),
-                                                                          tuple())
+                                                                          ())
                 # We ought to pay the high price of (iv) and (v), because we can't hook
                 # into the Python's object system.
                 applicable, hit = gethash(applicable_method_cache_key, applicable_method_cache)
@@ -12739,15 +12702,15 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
         ##                                 fixed, optional, args, keyword, keys,
         ##                                 nfixed):
         new_dfun_ast = _ast_functiondef(
-            string(function_name),
+            symbol_name(function_name),
             lambda_list,
             # How do we access methods themselves?
             [_ast_return(
                  _ast_funcall(_ast_funcall("compute_effective_method",
-                                           [_ast_name(string(function_name)),
+                                           [_ast_name(symbol_name(function_name)),
                                             None, # method combination
                                             _ast_funcall("dfun_compute_applicable_methods",
-                                                         [_ast_name(string(function_name)),
+                                                         [_ast_name(symbol_name(function_name)),
                                                           mapcar(_ast_name, fixed)])]),
                               mapcar(_ast_name, fixed + mapcar(car, optional)),
                               _map_into_hash_star(lambda key, default: (key, _ast_name(default)),
@@ -12762,12 +12725,13 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                        _find_symbol_or_fail            = _find_symbol_or_fail,
                        dfun_compute_applicable_methods = dfun_compute_applicable_methods)
         return _ast_compiled_name(
-                    string(function_name),
+                    symbol_name(function_name),
                     new_dfun_ast,
                     filename = "" # _defaulted(filename, "")
                     ,
                     lineno   = 0 # lineno
                     ,
+                    function = _function_name(function_name),
                     globals  = env,
                     locals   = env)
 #+end_src
@@ -12779,7 +12743,7 @@ def ensure_generic_function_using_class(generic_function, function_name,
                                         argument_precedence_order = None,
                                         declarations = None,
                                         documentation = None,
-                                        generic_function_class = standard_generic_function,
+                                        generic_function_class = standard_generic_function_t,
                                         lambda_list = None,
                                         method_class = None,
                                         method_combination = None,
@@ -12888,9 +12852,9 @@ GENERIC-FUNCTION argument is then returned."""
                 # specified by the :GENERIC-FUNCTION-CLASS argument is created by
                 # calling MAKE-INSTANCE with the previously computed initialization arguments.
                 # The function name FUNCTION-NAME is set to name the generic function.
-                generic_function = make_instance(generic_function_class, **initargs)
+                generic_function = make_instance(generic_function_class_t, **initargs)
                 # _standard_generic_function_shared_initialize is called by s-g-f.__init__
-                _frost.setf_global(generic_function, function_name, globals = _defaulted(globals, globals()))
+                _frost.setf_global(generic_function, function_name, globals = _defaulted(globals, _py.globals()))
         else:
                 if class_of(generic_function) is not generic_function_class:
                         # If the class of the GENERIC-FUNCTION argument is not the same as the
@@ -12947,8 +12911,8 @@ as follows:
 The second argument is FUNCTION-NAME. The remaining arguments are the
 complete set of keyword arguments received by
 ENSURE-GENERIC-FUNCTION."""
-        maybe_gfun, therep = _defaulted(_frost.global_(the(symbol, function_name),
-                                                       _defaulted(globals, globals())), nil)
+        maybe_gfun, therep = _defaulted(_frost.global_(the(symbol_t, function_name),
+                                                       _defaulted(globals, _py.globals())), nil)
         if functionp(maybe_gfun) and not generic_function_p(maybe_gfun):
                 error("%s already names an ordinary function.", function_name)
         return ensure_generic_function_using_class(maybe_gfun, function_name, **keys)
@@ -12956,9 +12920,9 @@ ENSURE-GENERIC-FUNCTION."""
 def defgeneric(_ = None,
                argument_precedence_order = None,
                documentation = None,
-               method_combination = standard_method_combination.python_type,
-               generic_function_class = standard_generic_function.python_type,
-               method_class = standard_method.python_type):
+               method_combination = standard_method_combination_t,
+               generic_function_class = standard_generic_function_t,
+               method_class = standard_method_t):
 # Unregistered Issue: COMPLIANCE-DEFGENERIC-METHOD-DESCRIPTIONS-UNIMPLEMENTABLE
         """defgeneric function-name gf-lambda-list [[option | {method-description}*]]
 
@@ -13443,7 +13407,7 @@ associated with the method metaobject. These values can then be
 accessed by calling the corresponding generic function. The
 correspondences are as follows:"""
         method.qualifiers = _defaulted(qualifiers, [],
-                                       type = (pylist, (and_, symbol, (not_, (eql, nil)))))
+                                       type = (pylist_t, (and_t, symbol_t, (not_t, (eql_t, nil)))))
         if not _specifiedp(lambda_list):
                 error("SHARED-INITIALIZE STANDARD-METHOD: :LAMBDA-LIST must be supplied.")
         # Unregistered Issue COMPLIANCE-STANDARD-METHOD-SHARED-INITIALIZE-LAMBDA-LIST-VALIDATION-NOT-IMPLEMENTED
@@ -13465,7 +13429,7 @@ correspondences are as follows:"""
         #         if not typep(slot_definition, direct_slot_definition):
         #                 error("SHARED-INITIALIZE STANDARD-METHOD: the supplied value of :SLOT-DEFINITION must be an instance of a subclass of DIRECT-SLOT-DEFINITION.")
         method.documentation = _defaulted(documentation, nil,
-                                          type = (or_, string, (eql, nil)))
+                                          type = (or_t, string_t, (eql_t, nil)))
         return method
 
 def method_qualifiers(x):       return x.qualifiers
@@ -13884,10 +13848,10 @@ object."""
 
 def _make_method_specializers(specializers):
         def parse(name):
-                return (# name                                                    if specializerp(name) else
-                        name                                                      if name is t                   else
+                return (# name                                    if specializerp(name) else
+                        name                                      if name is t                   else
                                                                   # ..special-case, since T isn't a type..
-                        name                                                      if typep(name, type) else
+                        name                                      if isinstance(name, type)      else
                                                                   # Was: ((symbolp name) `(find-class ',name))
                         _poor_man_ecase(car_pyfun(name),
                                         (eql,       lambda: intern_eql_specializer(name[1])),
@@ -13900,7 +13864,6 @@ def _make_method_specializers(specializers):
 * Init
 
 #+begin_src python +n
-_init_package_system_2()
 def _init():
         "Initialise the Common Lisp compatibility layer."
         _init_condition_system()
@@ -13928,20 +13891,20 @@ def _evaluated_code_source(co):
         return gethash(co, __eval_source_cache__)
 
 def _coerce_to_expr(x):
-        return (x.value if typep(x, _ast.Expr) else
+        return (x.value if isinstance(x, _ast.Expr) else
                 x)
 
 def _eval_python(expr_or_stmt):
         "In AST form, naturally."
         package = _symbol_value(_package_)
-        exprp = typep(the(_ast.AST, expr_or_stmt), (or_, _ast.expr, _ast.Expr))
+        exprp = isinstance(the(_ast.AST, expr_or_stmt), (_ast.expr, _ast.Expr))
         call = _ast.fix_missing_locations(_ast_module(
                         [_ast_import_from("cl", ["__evset__", "_read_symbol"]),
                          _ast_Expr(_ast_funcall(_ast_name("__evset__"), [_coerce_to_expr(expr_or_stmt)]))]
                         if exprp else
                         [expr_or_stmt]))
-        code = handler_case(lambda: compile(call, "", "exec"),
-                            (error,
+        code = handler_case(lambda: _py.compile(call, "", "exec"),
+                            (error_t,
                              lambda cond:
                                      error("EVAL: error while trying to compile <%s>: %s",
                                            more_ast.pp_ast_as_code(expr_or_stmt), cond)))
@@ -13950,13 +13913,13 @@ def _eval_python(expr_or_stmt):
         # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
         exec(code, _find_module(_frost.lisp_symbol_name_python_name(package_name(package))).__dict__)
         values = (__evget__() if exprp else
-                  tuple())
+                  ())
         return values if isinstance(values, tuple) else (values,)
 
 def _callify(form, package = None, quoted = nil):
         package = _defaulted_to_var(package, _package_)
         def callify_call(sym, args):
-                func = function(the(symbol, sym))
+                func = function(the(symbol_t, sym))
                 paramspec = _inspect.getfullargspec(func)
                 nfix = _argspec_nfixargs(paramspec)
                 _here("func: %s -> %s, paramspec: %s", sym, func, paramspec)
@@ -13983,11 +13946,11 @@ def _callify(form, package = None, quoted = nil):
                                lambda k, x: (k, _callify(x, package)),
                                       keyargs))
         obj2ast_xform = {
-                False   : _ast_name("False"),
-                None    : _ast_name("None"),
-                True    : _ast_name("True"),
-                string  : _ast_string,
-                integer : _ast_num,
+                False     : _ast_name("False"),
+                None      : _ast_name("None"),
+                True      : _ast_name("True"),
+                string_t  : _ast_string,
+                integer_t : _ast_num,
                 }
         if _listp(form):
                 if quoted or (form[0] is _find_symbol("QUOTE", __cl)[0]):
