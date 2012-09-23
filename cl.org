@@ -1667,18 +1667,18 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
         def cold_definer(name_or_obj):
                 obj, sym, name = _interpret_toplevel_value(name_or_obj, predicate)
                 def do_cold_def(o):
+                        setattr(sym, slot, o)
                         # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
                         #           if stringp(name) else
                         #           name if symbolp(name) else
                         #           error("In %s: bad name %s for a cold object.", definer_name))
                         o = preprocess(o)
-                        _frost.frost_def(o, sym, slot, _py.globals())
                         mimicry(sym, o)
-                        return sym
-                return (do_cold_def(obj) if obj                                          else
-                        do_cold_def      if stringp(name_or_obj) or symbolp(name_or_obj) else
+                        return o
+                return (do_cold_def(obj) if obj                                      else
+                        do_cold_def      if isinstance(name_or_obj, (str, symbol_t)) else
                         error("In %s: argument must be either satisfy %s or be a string;  was: %s.",
-                              definer_name, predicate, _py.repr(name_or_obj)))
+                              definer_name, predicate, repr(name_or_obj)))
         cold_definer.__name__ = definer_name
         return cold_definer
 
@@ -1687,13 +1687,12 @@ del boot_defclass
 
 defun            = _cold_defun    = _make_cold_definer("%COLD-DEFUN",    functionp,
                                                        "function",    identity, _frost.make_object_like_python_function)
-defclass         = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: _py.isinstance(x, _py.type),
+defclass         = _cold_defclass = _make_cold_definer("%COLD-DEFCLASS", lambda x: isinstance(x, type),
                                                        "python_type", identity,  _frost.make_object_like_python_class)
 defun_with_block = _cold_defun_with_block = _make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp,
                                                                "function", __block__, _frost.make_object_like_python_function)
-
-for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  _py.globals())
-for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, _py.globals())
+for fn  in __boot_defunned__:   _frost.setf_global(defun(fn),     fn.__name__,  globals())
+for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, globals())
 doit = True
 #+end_src
 
@@ -1705,25 +1704,27 @@ doit = True
 ***** Delayed class definitions
 
 #+begin_src python +n
-def _attrify_args(self, locals, *names):
-        for name in names:
-                setattr(self, name, locals[name])
-
 @defclass
 class nil():
         @classmethod
         def __instancecheck__(_, __): return False # This is an empty type
+_symbolicate(nil, "NIL", "python_type", globals())
 
 @defclass
 class t():
         @classmethod
         def __instancecheck__(_, __): return True  # This is the absolute sum type
+_symbolicate(t, "T", "python_type", globals())
+
+def _attrify_args(self, locals, *names):
+        for name in names:
+                setattr(self, name, locals[name])
 
 @defclass
-class simple_condition(condition.python_type):
+class simple_condition_t(condition_t):
         def __init__(self, format_control, format_arguments):
                 _attrify_args(self, locals(), "format_control", "format_arguments")
-                # _debug_printf("About to signal a simple condition of type %s:\n%s", _py.type(self), self)
+                # _debug_printf("About to signal a simple condition of type %s:\n%s", type(self), self)
         def __str__(self):
                 try:
                         return self.format_control % (1,).__class__(self.format_arguments)
@@ -1735,13 +1736,13 @@ class simple_condition(condition.python_type):
                 return self.__str__()
 
 @defclass
-class simple_error(simple_condition.python_type, error.python_type):
+class simple_error_t(simple_condition_t, error_t):
         pass
 @defclass
-class package_error(error.python_type):
+class package_error_t(error_t):
         pass
 @defclass
-class simple_package_error(simple_error.python_type, package_error.python_type):
+class simple_package_error_t(simple_error_t, package_error_t):
         pass
 #+end_src
 
@@ -1751,16 +1752,19 @@ class simple_package_error(simple_error.python_type, package_error.python_type):
     participating in the M-V frame protocol.
 
 #+begin_src python +n
-_intern_and_bind_pynames("%MV-MARKER")
+_intern_and_bind_names_in_module("%MV-MARKER")
 
 def _values_frame(*xs):
         return (_mv_marker,) + xs
 
 def _values_frame_p(x):
-        return _tuplep(x) and x[0] is _mv_marker
+        return isinstance(x, tuple) and x[0] is _mv_marker
+
+def _values_frame_values(x):
+        return x[1:]
 
 def _values_frame_project(n, values_form):
-        return ((nil if n > _py.len(values_form) - 2 else
+        return ((nil if n > len(values_form) - 2 else
                  values_form[n + 1])
                 if _values_frame_p(values_form) else
                 (nil if n else values_form))
@@ -1775,11 +1779,10 @@ def find_class(x, errorp = t):
 
 @defun
 def make_instance(class_or_name, **initargs):
-        return (class_or_name             if _py.isinstance(class_or_name, _cold_class_type) else
-                class_or_name.python_type if symbolp(class_or_name)                          else
+        return (class_or_name             if isinstance(class_or_name, _cold_class_type) else
+                class_or_name.python_type if isinstance(class_or_name, symbol_t)         else
                 error("In MAKE-INSTANCE %s: first argument must be a class specifier.", class_or_name))(**initargs)
 
-@defun
 def _make_missing_method(cls, name):
         return lambda *_, **_k: error("Missing method %s in class %%s." % name.upper(), cls)
 
@@ -1794,7 +1797,7 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
                 format(stream, "%s ", type_of(object).__name__)
         body()
         if identity:
-                format(stream, " {%x}", _py.id(object))
+                format(stream, " {%x}", id(object))
         write_string(">", stream)
 
 #+end_src
@@ -1803,32 +1806,32 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
 
 #+begin_src python +n
 @defclass
-class readtable(_collections.UserDict):
+class readtable_t(_collections.UserDict):
         def __init__(self, case = _keyword("upcase")):
-                self.case = the((member, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")),
+                self.case = the((member_t, _keyword("upcase"), _keyword("downcase"), _keyword("preserve"), _keyword("invert")),
                                 case)
                 self.data = make_hash_table()
 
-def readtablep(x):     return typep(x, readtable)
-def readtable_case(x): return the(readtable, x).case
+def readtablep(x):     return isinstance(x, readtable_t)
+def readtable_case(x): return the(readtable_t, x).case
 
 def copy_readtable(x):
-        check_type(x, readtable)
+        check_type(x, readtable_t)
         new = readtable(case = readtable_case(x))
         new.dict = make_hash_table()
         return new
 
-__standard_pprint_dispatch__ = make_hash_table() # XXX: this is crap!
-__standard_readtable__       = make_instance(readtable) # XXX: this is crap!
+__standard_pprint_dispatch__ = make_hash_table()          # XXX: this is crap!
+__standard_readtable__       = make_instance(readtable_t) # XXX: this is crap!
 
-_intern_and_bind_pynames("*PRINT-ARRAY*", "*PRINT-BASE*", "*PRINT-CASE*", "*PRINT-CIRCLE*",
-                         "*PRINT-ESCAPE*", "*PRINT-GENSYM*", "*PRINT-LENGTH*", "*PRINT-LEVEL*",
-                         "*PRINT-LINES*", "*PRINT-MISER-WIDTH*", "*PRINT-PPRINT-DISPATCH*",
-                         "*PRINT-PRETTY*", "*PRINT-RADIX*", "*PRINT-READABLY*", "*PRINT-RIGHT-MARGIN*",
-                         "*READ-BASE*", "*READ-DEFAULT-FLOAT-FORMAT*", "*READ-EVAL*",
-                         "*READ-SUPPRESS*",
-                         "*READTABLE*")
-__standard_io_syntax__ = _py.dict({_package_               : find_package("COMMON-LISP-USER"),
+_intern_and_bind_names_in_module("*PRINT-ARRAY*", "*PRINT-BASE*", "*PRINT-CASE*", "*PRINT-CIRCLE*",
+                                 "*PRINT-ESCAPE*", "*PRINT-GENSYM*", "*PRINT-LENGTH*", "*PRINT-LEVEL*",
+                                 "*PRINT-LINES*", "*PRINT-MISER-WIDTH*", "*PRINT-PPRINT-DISPATCH*",
+                                 "*PRINT-PRETTY*", "*PRINT-RADIX*", "*PRINT-READABLY*", "*PRINT-RIGHT-MARGIN*",
+                                 "*READ-BASE*", "*READ-DEFAULT-FLOAT-FORMAT*", "*READ-EVAL*",
+                                 "*READ-SUPPRESS*",
+                                 "*READTABLE*")
+__standard_io_syntax__ = dict({_package_               : find_package("COMMON-LISP-USER"),
                                    _print_array_           : t,
                                    _print_base_            : 10,
                                    _print_case_            : _keyword("UPCASE"),
@@ -1935,19 +1938,19 @@ _set_settable_standard_globals()
 ***** Derived names:  %NoneType, REDUCE, SORT, %CURRY, STRINGP, %CLASSP, %NONEP etc.
 
 #+begin_src python +n
-_NoneType         = _py.type(None)
+_NoneType         = type(None)
 
-pi                = _math.pi
 reduce            = _functools.reduce
-sort              = _py.sorted
+_repeat           = _itertools.repeat
+sort              = sorted
 _curry            = _functools.partial
 
 stringp           = _neutrality.stringp
 _write_string     = _neutrality._write_string
 
-def _classp(x):     return _py.isinstance(x, _py.type)
-def _frozensetp(o): return _py.isinstance(o, _py.frozenset)
-def _setp(o):       return _py.isinstance(o, (_py.set, _py.frozenset))
+def _classp(x):     return isinstance(x, type)
+def _frozensetp(o): return isinstance(o, frozenset)
+def _setp(o):       return isinstance(o, (set, frozenset))
 def _nonep(o):      return o is None
 #+end_src
 
@@ -1965,49 +1968,48 @@ def _poor_man_defstruct(name, *slots):
 
 def _poor_man_when(test, body):
         if test:
-                return body() if functionp(body) else body
+                return body() if isinstance(body, _cold_function_type) else body
 
 def _poor_man_case(val, *clauses):
         for (cval, body) in clauses:
-                if ((val == cval or (cval is True) or (cval is t)) if not _py.isinstance(cval, _py.list) else
+                if ((val == cval or (cval is True) or (cval is t)) if not isinstance(cval, list) else
                     val in cval):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, _cold_function_type) else body
 
 def _poor_man_ecase(val, *clauses):
         for (cval, body) in clauses:
-                if ((val == cval) if not _py.isinstance(cval, _py.list) else
+                if ((val == cval) if not isinstance(cval, list) else
                     val in cval):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, _cold_function_type) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
 
 def _poor_man_typecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, _cold_function_type) else body
 
 def _poor_man_etypecase(val, *clauses):
         for (ctype, body) in clauses:
                 if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if functionp(body) else body
+                        return body() if isinstance(body, _cold_function_type) else body
         else:
-                error(simple_type_error, "%s fell through ETYPECASE expression. Wanted one of (%s).",
-                      val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
+                simple_type_error("%s fell through ETYPECASE expression. Wanted one of (%s).",
+                                  val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
 
 def _cold_constantp(form):
         # Coldness:
         #  - slow handling of constant variables
         #  - no handling of DEFCONSTANT-introduced variables
         #  - additional constant forms
-        return (_py.isinstance(form, (_py.int, _py.float, _py.complex, _py.str)) or
+        return (isinstance(form, (int, float, complex, str)) or
                 (type_of(form).__name__ == "symbol" and
                  ((form.package.name == "KEYWORD") or
-                  (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL", "PI"]))) or
-                (_tuplep(form) and
-                 ((not form) or
-                  (_py.len(form) == 2                    and
-                   type_of(form[0]).__name__ == "symbol" and
-                   form.package.name == "COMMON-LISP"    and
-                   form.name in ["QUOTE"]))))
+                  (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
+                (isinstance(form, list) and
+                 (len(form) == 2                        and
+                  type_of(form[0]).__name__ == "symbol" and
+                  form.package.name == "COMMON-LISP"    and
+                  form.name in ["QUOTE"])))
 constantp = _cold_constantp
 #+end_src
 
@@ -2030,14 +2032,14 @@ def upper_case_p(x):      return x.isupper()
 @defun
 def lower_case_p(x):      return x.islower()
 
-_case_attribute_map = _py.dict(UPCASE     = string_upcase,
+_case_attribute_map = dict(UPCASE     = string_upcase,
                                DOWNCASE   = string_downcase,
                                CAPITALIZE = string_capitalize,
                                PRESERVE   = identity)
-def _case_xform(type, s):
-        if not (symbolp(type) and type.package.name == "KEYWORD"):
-                error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", _py.type(type), _print_symbol(type))
-        return _case_attribute_map[type.name](s)
+def _case_xform(type_, s):
+        if not (isinstance(type_, symbol_t) and type_.package.name == "KEYWORD"):
+                error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", type(type_), _print_symbol(type_))
+        return _case_attribute_map[type_.name](s)
 #+end_src
 
 ***** Possibly dangling cold boot code
@@ -2049,7 +2051,7 @@ def _case_xform(type, s):
 def _global(x):
         """This is important due to the single namespace, and the
 consequent shadowing of various specifiers."""
-        return _frost.global_(x, _py.globals())[0]
+        return _frost.global_(x, globals())[0]
 
 def _cold_format(destination, control_string, *args):
         string = control_string % args
@@ -2059,12 +2061,12 @@ def _cold_format(destination, control_string, *args):
                 _write_string(string, _sys.stderr if destination is t else destination)
 format = _cold_format
 def _cold_princ_to_string(x):
-        return _py.repr(x)
+        return repr(x)
 princ_to_string = _cold_princ_to_string
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
 def _cold_probe_file(pathname):
         assert(stringp(pathname))
-        return _os.path.exists(the(string, pathname))
+        return _os.path.exists(the(string_t, pathname))
 probe_file = _cold_probe_file
 #+end_src
 
@@ -2073,7 +2075,7 @@ probe_file = _cold_probe_file
 
 #+begin_src python +n
 def _load_code_object_as_module(name, co, filename = "", builtins = None, globals = None, locals = None, register = True):
-        check_type(co, _py.type(_load_code_object_as_module.__code__))
+        check_type(co, type(_load_code_object_as_module.__code__))
         mod = _imp.new_module(name)
         mod.__filename__ = filename
         if builtins:
@@ -2082,7 +2084,7 @@ def _load_code_object_as_module(name, co, filename = "", builtins = None, global
                 _sys.modules[name] = mod
         globals = _defaulted(globals, mod.__dict__)
         locals  = _defaulted(locals, mod.__dict__)
-        _py.exec(co, globals, locals)
+        exec(co, globals, locals)
         return mod, globals, locals
 
 def _load_text_as_module(name, text, filename = "", **keys):
@@ -2096,23 +2098,23 @@ def _reregister_module_as_package(mod, parent_package = None):
                 dotpos = mod.name.rindex(".")
                 assert dotpos
                 postdot_name = mod.name[dotpos + 1:]
-                _py.setattr(parent_package, postdot_name, mod)
+                setattr(parent_package, postdot_name, mod)
                 parent_package.__children__.add(mod)
                 mod.__parent__ = parent_package
         if packagep:
-                mod.__children__ = _py.set()
+                mod.__children__ = set()
 
 def _py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
         return _load_code_object_as_module(
                 modname,
-                _py.compile(_ast.fix_missing_locations(_ast_module(_py.list(body), lineno = lineno)), filename, "exec"),
+                _py.compile(_ast.fix_missing_locations(_ast_module(list(body), lineno = lineno)), filename, "exec"),
                 register = nil,
                 filename = filename,
                 **keys)
 
-def _ast_compiled_name(name, *body, **keys):
+def _ast_compiled_name(name, *body, function = nil, **keys):
         mod, globals, locals = _py_compile_and_load(*body, **keys)
-        return locals[name]
+        return locals[function or name]
 #+end_src
 
 ******* Python frames
@@ -2124,10 +2126,10 @@ def _all_threads_frames():
 def _this_frame():
         return _sys._getframe(1)
 
-_frame = _py.type(_this_frame())
+_frame = type(_this_frame())
 
 def _framep(x):
-        return typep(x, _frame)
+        return isinstance(x, _frame)
 
 def _next_frame(f):
         return f.f_back if f.f_back else error("Frame \"%s\" is the last frame.", _pp_frame(f, lineno = True))
@@ -2170,11 +2172,11 @@ def _frame_globals(f):           return f.f_globals
 def _frame_local_value(f, name): return f.f_locals[name]
 
 ### XXX: this is the price of Pythonic pain
-__ordered_frame_locals__ = _py.dict()
+__ordered_frame_locals__ = dict()
 def _frame_ordered_locals(f):
         global __ordered_frame_locals__
         if f not in __ordered_frame_locals__:
-                __ordered_frame_locals__[f] = _py.list(f.f_locals.keys())
+                __ordered_frame_locals__[f] = list(f.f_locals.keys())
         return __ordered_frame_locals__[f]
 
 def _fun_info(f):
@@ -2205,25 +2207,28 @@ def _print_function_arglist(f):
                          (["*" + argspec.varargs]   if argspec.varargs  else []) +
                          (["**" + argspec.keywords] if argspec.keywords else []))
 
-def _pp_frame(f, align = None, handle_overflow = None, lineno = None):
+def _pp_frame(f, align = None, handle_overflow = None, lineno = None, frame_id = None):
         fun = _frame_fun(f)
         fun_name, fun_params, filename = _fun_info(fun)[:3]
         align = ((align or 10) if handle_overflow else
                  _defaulted(align, 0))
-        return ("%s%s %s(%s)" % (filename + ("" if align else ":") + (" " * (align - (_py.len(filename) % align if align else 0))),
-                                 ("%d:" % _frame_lineno(f)) if lineno else "",
-                                 fun_name, ", ".join(fun_params)))
+        return ("%s%s%s %s(%s)" % (((_frame_id(f)[:4] + " ") if frame_id else ""),
+                                   filename + ("" if align else ":") + (" " * (align - (len(filename) % align if align else 0))),
+                                   ("%d:" % _frame_lineno(f)) if lineno else "",
+                                   fun_name, ", ".join(fun_params)))
 
 def _print_frame(f, stream = None, **keys):
         write_string(_pp_frame(f, **keys), _defaulted_to_var(stream, _debug_io_))
 
-def _print_frames(fs, stream = None):
-        mapc(lambda i, f: format(_defaulted_to_var(stream, _debug_io_), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
-             *_py.zip(*_py.enumerate(fs)))
+def _print_frames(fs, stream = None, frame_ids = None):
+        mapc(lambda i, f: format(_defaulted_to_var(stream, _debug_io_), "%2d: %s\n" %
+                                 (i, _pp_frame(f, lineno = True, frame_id = frame_ids))),
+             *zip(*enumerate(fs)))
 
-def _backtrace(x = -1, stream = None):
-        _print_frames(_frames_calling(_this_frame())[1:x],
-                      _defaulted_to_var(stream, _debug_io_))
+def _backtrace(x = -1, stream = None, frame = None, frame_ids = None, offset = 0):
+        _print_frames(_frames_calling(_defaulted(frame, _this_frame()))[1 + offset:x],
+                      _defaulted_to_var(stream, _debug_io_),
+                      frame_ids = frame_ids)
 
 def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_line = None):
         def _pp_frame_in_chain(f, pretty = None):
@@ -2233,7 +2238,7 @@ def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_lin
                                      if not pretty else
                                      ("%s%s@%s:%d",
                                       _fun_name(fun),
-                                      (":" + _py.str(_frame_lineno(f) - _fun_firstlineno(fun))) if print_fun_line else "",
+                                      (":" + str(_frame_lineno(f) - _fun_firstlineno(fun))) if print_fun_line else "",
                                       _fun_filename(fun),
                                       _frame_lineno(f))))
         return ("..".join(mapcar(lambda f: _pp_frame_in_chain(f, t), xs) if all_pretty else
@@ -2253,7 +2258,7 @@ def _escape_percent(x):
 
 #+begin_src python +n
 # lf = open("/home/deepfire/lf", "w")
-def _frame_chain_hash(f, ignore_callers = _py.set(["<lambda>"])):
+def _frame_chain_hash(f, ignore_callers = set(["<lambda>"])):
         "Return an MD5 digest of the caller name chain, with callers listed in IGNORE-CALLERS omitted."
         def f_digestible(f):
                 name = f.f_code.co_name
@@ -2262,16 +2267,16 @@ def _frame_chain_hash(f, ignore_callers = _py.set(["<lambda>"])):
         retv = reduce((lambda acc, f:
                                acc.update(f_digestible(f)) or acc),
                       fchain, _hashlib.new("md5")).hexdigest()
-        # _fprintf(lf, "%s %s\n", mapcar(f_str, _py.reversed(chain)), r)
+        # _fprintf(lf, "%s %s\n", mapcar(f_str, reversed(chain)), r)
         return retv
 
 def _frame_id(f):
         return _hashlib.new("md5", ("%x" % id(f)).encode()).hexdigest()
 
-def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.stderr, frame = None, print_fun_line = None, all_pretty = None):
+def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.stderr, frame = None, print_fun_line = None, all_pretty = None, offset = 0):
         def _do_format(x, args):
                 try:
-                        return x % (_py.tuple(args))
+                        return x % (tuple(args))
                 except _cold_error_type as cond:
                         return "#<error formatting %s into %s: %s>" % (args.__repr__(), note.__repr__(), cond)
         def format_args():
@@ -2281,7 +2286,7 @@ def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.
                         _do_format(note, args))
         return _debug_printf("    (%s)  %s:\n      %s",
                              _threading.current_thread().name.upper(),
-                             _pp_chain_of_frame(_defaulted(frame, _caller_frame()),
+                             _pp_chain_of_frame(_defaulted(frame, _caller_frame(offset)),
                                                 callers = callers - 1,
                                                 print_fun_line = print_fun_line,
                                                 all_pretty = all_pretty),
@@ -2320,7 +2325,7 @@ def _locals_printf(locals, *local_names):
 def _example_frame():
         "cellvars: closed over non-globals;  varnames: bound"
         def xceptor(xceptor_arg):
-                "names: globals;  varnames: args + otherbind;  locals: _py.len(varnames)"
+                "names: globals;  varnames: args + otherbind;  locals: len(varnames)"
                 try:
                         error("This is xceptor talking: %s.", xceptor_arg)
                 except Exception as cond:
@@ -2340,7 +2345,7 @@ def _example_frame():
 #                        "== co %s\n  %s\n== def %s\n  %s\n" %
 #                        (f, listattr(f), cl._fun_name(cl._frame_fun(f)), listattr(cl._frame_fun(f))),
 #                        cl._frames_calling(cl._example_frame())))
-#                 (lambda x: "\n  ".join(map(lambda s: s + ": " + _py.str(getattr(x, s)),
+#                 (lambda x: "\n  ".join(map(lambda s: s + ": " + str(getattr(x, s)),
 #                                            cl.remove_if(lambda attr: "__" in attr or "builtins" in attr or "locals" in attr or "globals" in attr,
 #                                                         dir(x)))))))
 
@@ -2354,7 +2359,7 @@ def _example_frame():
 #   co_argcount: 1
 #   co_cellvars: ()
 #   co_code: b'y\x11\x00t\x00\x00d\x01\x00|\x00\x00\x83\x02\x00\x01Wn,\x00\x04t\x01\x00k\n\x00r?\x00\x01\x01\x00\x01z\x0c\x00t\x02\x00\x83\x00\x00SWYd\x02\x00d\x02\x00\x01\x00~\x01\x00Xn\x01\x00Xd\x02\x00S'
-#   co_consts: ('names: globals;  varnames: args + otherbind;  locals: _py.len(varnames)', 'This is xceptor talking: %s.', None)
+#   co_consts: ('names: globals;  varnames: args + otherbind;  locals: len(varnames)', 'This is xceptor talking: %s.', None)
 #   co_filename: cl.py
 #   co_firstlineno: 199
 #   co_flags: 83
@@ -2491,12 +2496,9 @@ def _example_frame():
 ******* Alist/plist extensions
 
 #+begin_src python +n
-def _alist_plist(xs):
-        return append(*xs)
-
 def _plist_alist(xs):
         acc = []
-        for i in _py.range(0, _py.len(xs), 2):
+        for i in range(0, len(xs), 2):
                 acc.append((xs[i], xs[i + 1]))
         return acc
 
@@ -2508,7 +2510,7 @@ def _hash_table_alist(xs):
         return xs.items()
 
 def _alist_hash_table(xs):
-        return _py.dict(xs)
+        return dict(xs)
 #+end_src
 
 ******* %CACHE
@@ -2517,9 +2519,9 @@ def _alist_hash_table(xs):
 class _cache(_collections.UserDict):
         def __init__(self, filler):
                 self.filler = filler
-                self.data = _py.dict()
+                self.data = dict()
         def __getitem__(self, key):
-                check_type(key, pytuple)
+                check_type(key, pytuple_t)
                 key, access_timestamp = key
                 if key not in self.data:
                         res = self.filler(key)
@@ -2563,57 +2565,57 @@ def _compose(f, g):
 def _ensure_list(x):
         return x if _listp(x) else [x]
 def _ensure_car(x):
-        return x[0] if _tuplep(x) else x
+        return x[0] if isinstance(x, list) else x
 def _ensure_cons(x, default = None):
-        return x if _tuplep(x) and _py.len(x) == 2 else (x, default)
+        return x if isinstance(x, list) and len(x) == 2 else [x, default]
 
 def _mapset(f, xs):
-        acc = _py.set()
+        acc = set()
         for x in xs:
                 acc.add(f(x))
         return acc
 
 def _mapsetn(f, xs):
-        acc = _py.set()
+        acc = set()
         for x in xs:
                 acc |= f(x)
         return acc
 
 def _mapseparaten(f, xs):
-        s0, s1 = _py.set(), _py.set()
+        s0, s1 = set(), set()
         for s0r, s1r in (f(x) for x in xs):
                 s0 |= s0r; s1 |= s1r
         return s0, s1
 
 def _separate(n, f, xs):
-        ss = _py.tuple(_py.set() for _ in _py.range(n))
+        ss = tuple(set() for _ in range(n))
         for rss in (f(x) for x in xs):
-                for s, rs in _py.zip(ss, rss):
+                for s, rs in zip(ss, rss):
                         s |= rs
         return ss
 
-__combiners__ = { _py.set: _py.set.add, _py.list: _py.list.append }
+__combiners__ = { set: set.add, list: list.append }
 def _recombine(spec, f, xss):
-        accs  = _py.tuple(f() for f in spec)
-        combs = _py.tuple(__combiners__[_py.type(a)] for a in accs)
+        accs  = tuple(f() for f in spec)
+        combs = tuple(__combiners__[type(a)] for a in accs)
         for xs in xss:
-                for acc, comb, reselt in _py.zip(accs, combs, f(xs)):
+                for acc, comb, reselt in zip(accs, combs, f(xs)):
                         comb(acc, reselt)
         return accs
 def _recombine_star(spec, f, *xss):
-        accs  = _py.tuple(f() for f in spec)
-        combs = _py.tuple(__combiners__[_py.type(a)] for a in accs)
-        for xs in _py.zip(*xss):
-                for acc, comb, reselt in _py.zip(accs, combs, f(*xs)):
+        accs  = tuple(f() for f in spec)
+        combs = tuple(__combiners__[type(a)] for a in accs)
+        for xs in zip(*xss):
+                for acc, comb, reselt in zip(accs, combs, f(*xs)):
                         comb(acc, reselt)
         return accs
 
 def _mapcar_star(f, xs):
         return [ f(*x) for x in xs ]
 
-def _slotting(x):             return lambda y: _py.getattr(y, x, None)
-def _slot_of(x):              return lambda y: _py.getattr(x, y, None)
-def _slot_equal(slot, val):   return lambda y: _py.getattr(y, slot, None) == val
+def _slotting(x):             return lambda y: getattr(y, x, None)
+def _slot_of(x):              return lambda y: getattr(x, y, None)
+def _slot_equal(slot, val):   return lambda y: getattr(y, slot, None) == val
 
 def _indexing(*is_):          return lambda y: aref(y, *is_)
 def _index_of(xs):            return lambda *is_: aref(xs, *is_)
@@ -2624,7 +2626,7 @@ def _updated_dict(to, from_):
         return to
 
 def _prefix_suffix_if(f, xs, key = identity):
-        for i, x in _py.enumerate(xs):
+        for i, x in enumerate(xs):
                 if not f(key(x)):
                         return xs[:i], xs[i:]
         return xs, []
@@ -2633,9 +2635,9 @@ def _prefix_suffix_if_not(f, xs, key = identity):
         return _prefix_suffix_if(lambda x: not f(x), xs, key = key)
 
 def _defwith(name, enter, exit, **initargs):
-        initargs.update(_py.dict(__enter__ = enter,
+        initargs.update(dict(__enter__ = enter,
                                  __exit__  = exit))
-        return _py.type(name, (object,), initargs)
+        return type(name, (object,), initargs)
 
 def _lookup(scope, name):
         if not scope: return nil, nil
@@ -2647,7 +2649,7 @@ def _lookup(scope, name):
 
 def _defscope(name, varname, **initargs):
         def make_frame(bindings):
-                return _py.tuple(bindings.items())
+                return tuple(bindings.items())
         def push_frame(**bindings):
                 # This dictionary<->alist-ing is a waste.
                 return _dynamic_scope_push({ varname: (make_frame(bindings), _symbol_value(var)) })
@@ -2668,7 +2670,7 @@ class _withless():
 
 class _servile():
         def __repr__(self):
-                return "#%s(%s)" % (_py.type(self).__name__,
+                return "#%s(%s)" % (type(self).__name__,
                                     ", ".join(_maphash(lambda k, v: "%s = %s" % (k, v),
                                                        self.__dict__)))
         def __init__(self, **keys):
@@ -2677,8 +2679,8 @@ class _servile():
 def _gen(n = 1, x = "G", gen = gensym):
         if zerop(n):
                 error("_GEN: we are very very much against this, please stop doing it!")
-        return (_py.tuple(gen(x)
-                for i in _py.range(n)))
+        return tuple(gen(x)
+               for i in range(n))
 def _gensyms(**initargs):     return _gen(gen = gensym,      **initargs)
 def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
@@ -2700,19 +2702,15 @@ def eql(x, y):
         # True
         # >>> 257 is (256 + 1)
         # False
-        return (x is y) if not _py.isinstance(x, _py.int) else x == y
+        return (x is y) if not isinstance(x, int) else x == y
 
 @defun
 def equal(x, y):
         return x == y
 
-def _infinite(x):
-        while True:
-                yield x
-
 def _seek(n, iterator):
         for i in range(n):
-                _py.next(iterator, nil)
+                next(iterator, nil)
 
 def _from(n, xs):
         iterator = iter(xs)
@@ -2731,29 +2729,41 @@ def _take(n, xs):
 
 @defun
 def every(fn, *xss, start = 0):
-        for xs in _from(start, _py.zip(*xss)):
+        for xs in _from(start, zip(*xss)):
                 if not fn(*xs): return nil
-        return (xs or t) if "xs" in _py.locals() else t
+        return (xs or t) if "xs" in locals() else t
 
 @defun
 def notevery(fn, *xss, start = 0):
-        for xs in _from(start, _py.zip(*xss)):
+        for xs in _from(start, zip(*xss)):
                 ret = fn(*xs)
                 if not ret: return ret or t
         return nil
 
 @defun
 def some(fn, *xss, start = 0):
-        for xs in _from(start, _py.zip(*xss)):
+        for xs in _from(start, zip(*xss)):
                 ret = fn(*xs)
+                if ret: return ret or t
+        return nil
+
+def _some_fast(fn, xs):
+        for x in xs:
+                ret = fn(x)
+                if ret: return ret or t
+        return nil
+
+def _some_fast_2(fn, xs, ys):
+        for x, y in _py.zip(xs, ys):
+                ret = fn(x, y)
                 if ret: return ret or t
         return nil
 
 @defun
 def notany(fn, *xss, start = 0):
-        for xs in _from(start, _py.zip(*xss)):
+        for xs in _from(start, zip(*xss)):
                 if fn(*xs): return nil
-        return (xs or t) if "xs" in _py.locals() else t
+        return (xs or t) if "xs" in locals() else t
 
 def _xorf(x, y):
         return (x or y) and not (x and y)
@@ -2783,13 +2793,13 @@ def minusp(x):        return x < 0
 @defun
 def cdr(x):           return x[1:]  if x  else nil
 @defun
-def second(xs):       return xs[1]  if _py.len(xs) > 1 else nil
+def second(xs):       return xs[1]  if len(xs) > 1 else nil
 @defun
-def third(xs):        return xs[2]  if _py.len(xs) > 2 else nil
+def third(xs):        return xs[2]  if len(xs) > 2 else nil
 @defun
 def rest(xs):         return xs[1:] if xs else nil
 @defun
-def nth(n, xs):       return xs[n] if n < _py.len(xs) else nil
+def nth(n, xs):       return xs[n] if n < len(xs) else nil
 
 @defun
 def copy_list(x):
@@ -2838,7 +2848,7 @@ def vector_push_extend(vec, x):
 
 @defun
 def getf(xs, key, default = None):
-        for i, x in _py.enumerate(xs):
+        for i, x in enumerate(xs):
                 if not i%2 and x == key:
                         return xs[i + 1]
         else:
@@ -2846,7 +2856,7 @@ def getf(xs, key, default = None):
 
 @defun
 def setf_getf(value, xs, key):
-        for i, x in _py.enumerate(xs):
+        for i, x in enumerate(xs):
                 if not i%2 and x == key:
                         xs[i + 1] = value
                         return xs
@@ -2877,22 +2887,29 @@ def make_list(size, initial_element = None):
 
 @defun
 def mapcar(f, *xs):
-        return [ f(*x) for x in _py.zip(*xs) ]
+        return [ f(*x) for x in zip(*xs) ]
 
 @defun
 def mapcan(f, *xs):
-        return reduce(append, [ f(*x) for x in _py.zip(*xs) ]) if (xs and xs[0]) else []
+        return reduce(lambda x, y: x + y, [ f(*x) for x in zip(*xs) ]) if (xs and xs[0]) else []
+
+@defun
+def mapcon(f, *xs):
+        acc = []
+        for i in range(min(len(x) for x in xs)):
+                acc.extend(f(*(x[i:] for x in xs)))
+        return acc
 
 @defun
 def mapc(f, *xs):
-        for x in _py.zip(*xs):
+        for x in zip(*xs):
                 f(*x)
         return xs[0]
 
-__allowed__ = _py.frozenset([_py.str, _py.set, _py.frozenset, _py.tuple, _py.list, _py.bytes, _py.bytearray])
+__allowed__ = frozenset([str, set, frozenset, tuple, list, bytes, bytearray])
 def _maprestype(x):
         type = type_of(x)
-        return type if type in __allowed__ else _py.list
+        return type if type in __allowed__ else list
 
 @defun
 def remove_if(f, xs, key = identity):
@@ -2918,11 +2935,11 @@ def remove(elt, xs, test = eql, key = identity):
 @defun
 def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
         # Unregistered Issue FIND-IF-NOT-ITERATOR-FRIENDLY
-        end = end or _py.len(xs)
+        end = end or len(xs)
         if start or end:
-                seq = _py.zip(xs, _py.range(_py.len(xs)))
+                seq = zip(xs, range(len(xs)))
                 if from_end:
-                        seq = _py.reversed(_py.list(seq))
+                        seq = reversed(list(seq))
                 for (x, i) in seq:
                         if (start <= i < end) and p(key(x)):
                                 return x
@@ -2942,18 +2959,9 @@ def find(elt, xs, **keys):
         return find_if(lambda x: x == elt, xs, **keys)
 
 @defun
-def memq(item, list):
-        "Return tail of LIST beginning with first element EQ to ITEM."
-        # List views?
-        for i, x in _py.enumerate(xs):
-                if x is elt:
-                        return xs[i:]
-        return []
-
-@defun
 def member_if(test, xs):
         "XXX: not terribly compliant."
-        for i, x in _py.enumerate(xs):
+        for i, x in enumerate(xs):
                 if test(x):
                         return xs[i:]
 
@@ -2964,11 +2972,11 @@ def member(x, xs):
 
 @defun
 def position_if(p, xs, key = identity, start = 0, end = None, from_end = None):
-        end = end or _py.len(xs)
+        end = end or len(xs)
         if start or end:
-                seq = _py.zip(xs, _py.range(_py.len(xs)))
+                seq = zip(xs, range(len(xs)))
                 if from_end:
-                        seq = _py.reversed(_py.list(seq))
+                        seq = reversed(list(seq))
                 for (x, i) in seq:
                         if (start <= i < end) and p(key(x)):
                                 return i
@@ -2992,7 +3000,7 @@ def position(elt, xs, **keys):
 @defun
 def count(elt, xs, key = identity, start = 0):
         c = 0
-        for (x, i) in _py.zip(xs, _py.range(_py.len(xs))):
+        for (x, i) in zip(xs, range(len(xs))):
                 if (i >= start) and key(x) == elt:
                         c += 1
         return c
@@ -3000,7 +3008,7 @@ def count(elt, xs, key = identity, start = 0):
 @defun
 def count_if(p, xs, key = identity, start = 0):
         c = 0
-        for (x, i) in _py.zip(xs, _py.range(_py.len(xs))):
+        for (x, i) in zip(xs, range(len(xs))):
                 if (i >= start) and p(key(x)):
                         c += 1
         return c
@@ -3026,10 +3034,10 @@ subsequence-2 bounded by start2 and end2. """
 def tailp(object, list):
         """If OBJECT is the same as some tail of LIST, TAILP returns
 true; otherwise, it returns false."""
-        if _py.len(object) > _py.len(list):
+        if len(object) > len(list):
                 return None
         else:
-                list_start = _py.len(list) - _py.len(object)
+                list_start = len(list) - len(object)
                 return list[list_start:] == object
 
 # XXX: This is geared at cons-style lists, and so is fucking costly
@@ -3040,14 +3048,14 @@ def ldiff(object, list_):
 fresh list of the elements of LIST that precede OBJECT in the
 list structure of LIST; otherwise, it returns a copy[2] of
 LIST."""
-        if _py.len(object) > _py.len(list_):
-                return _py.list(list_)
+        if len(object) > len(list_):
+                return list(list_)
         else:
-                list_start = _py.len(list_) - _py.len(object)
+                list_start = len(list_) - len(object)
                 if list_[list_start:] == object:
                         return list_[:list_start]
                 else:
-                        return _py.list(list_)
+                        return list(list_)
 
 def _intersperse(x, xs):
         """Return a sequence of elements, with X inserted between every two
@@ -3105,27 +3113,27 @@ def intersection(x, y):
 #+begin_src python +n
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
 def _dictappend(*dicts):
-        acc = _py.dict()
+        acc = dict()
         for dict in dicts:
                 acc.update(dict)
         return acc
 
-def _dict_select_keys(dict, *keys):
-        acc = _py.dict()
+def _dict_select_keys(dict_, *keys):
+        acc = dict()
         for k in keys:
-                if k in dict:
-                        acc[k] = dict[k]
+                if k in dict_:
+                        acc[k] = dict_[k]
         return acc
 
-def _maphash(f, dict) -> _py.list:
+def _maphash(f, dict) -> list:
         return [ f(k, v) for k, v in dict.items() ]
 
-def _remap_hash_table(f, xs: _py.dict) -> _py.dict:
+def _remap_hash_table(f, xs: dict) -> dict:
         return { k: f(k, v) for k, v in xs.items() }
 
 def _map_into_hash_star(f, xs,
                         key_test = lambda k: k is not None,
-                        value_test = lambda _: t) -> _py.dict:
+                        value_test = lambda _: t) -> dict:
         acc = make_hash_table()
         for x in xs:
                 k, v = f(*x)
@@ -3133,18 +3141,18 @@ def _map_into_hash_star(f, xs,
                         acc[k] = v
         return acc
 
-def _map_hash_table(f, hash_table, **keys) -> _py.dict:
+def _map_hash_table(f, hash_table, **keys) -> dict:
         return _map_into_hash_star(f, hash_table.items(), **keys)
 
-def _symbol_known(symbol_):
-        return symbol_.known
-def _symbol_python_type(symbol_, if_not_a_type = "error"):
-        return (symbol_.python_type                                  if _py.hasattr(the(symbol, symbol_), "python_type") else
+def _symbol_known(symbol):
+        return symbol.known
+def _symbol_python_type(symbol, if_not_a_type = "error"):
+        return (symbol.python_type                                   if hasattr(the(symbol_t, symbol), "python_type") else
                 nil                                                                        if if_not_a_type == "continue" else
                 error("In %%SYMBOL-TYPE %s: symbol does not designate a known type.", symbol) if if_not_a_type == "error" else
                 error("In %%SYMBOL-TYPE: the :IF-NOT-A-TYPE keyword argument must be one of ('error, 'continue')."))
 def _symbol_type_predicate(symbol):
-        return symbol.type_predicate if _py.hasattr(the(symbol, symbol_), "type_predicate") else nil
+        return symbol.type_predicate if hasattr(the(symbol_t, symbol), "type_predicate") else nil
 #+end_src
 
 * Pre-compiler
@@ -3164,7 +3172,7 @@ def _find_module(name, if_does_not_exist = "error"):
                                 ("continue",
                                  None),
                                 ("error",
-                                 lambda: error(simple_package_error, "The name %s does not designate any package.",
+                                 lambda: error(simple_package_error_t, "The name %s does not designate any package.",
                                                name))))
 
 def _lisp_symbol_python_addr(sym):
@@ -3175,7 +3183,7 @@ def _lisp_symbol_python_value(sym):
         name, module = _lisp_symbol_python_addr(sym)
         value, presentp = gethash(name, module.__dict__)
         return (value if presentp else
-                error(simple_package_error, "This name is not accessible in the '%s' module: '%s'.",
+                error(simple_package_error_t, "This name is not accessible in the '%s' module: '%s'.",
                       module.__name__, name))
 
 def _lisp_symbol_ast(sym, current_package):
@@ -3237,7 +3245,7 @@ def _lisp_symbol_ast(sym, current_package):
 
 #+begin_src python +n
 def _variable_kind(name):
-        check_type(name, symbol)
+        check_type(name, symbol_t)
         # (ecase kind
         #   (:special "a special variable")
         #   (:macro "a symbol macro")
@@ -3264,8 +3272,8 @@ GENERALIZED-BOOLEAN---a generalized boolean.
 Description:
 
 Returns true if NAME is fbound; otherwise, returns false."""
-        return t if (the(symbol, name).function or
-                     symbol.macro_function) else nil
+        return t if (the(symbol_t, name).function or
+                     name.macro_function) else nil
 
 @defun
 def fmakunbound(name):
@@ -3283,15 +3291,15 @@ Description:
 
 Removes the function or macro definition, if any, of NAME in the
 global environment."""
-        (the(symbol, name).function,
-         symbol.macro_function,
-         symbol.compiler_macro_function) = nil, nil, nil
+        (the(symbol_t, name).function,
+         name.macro_function,
+         name.compiler_macro_function) = nil, nil, nil
         return name
 
 ## @defun def function was moved lower, due to dependency on @defun and CL:T
 
 @defun
-def symbol_function(symbol_):
+def symbol_function(symbol):
         """symbol-function symbol => contents
 
 (setf (symbol-function symbol) new-contents)
@@ -3323,10 +3331,11 @@ Should signal an error of type TYPE-ERROR if SYMBOL is not a symbol.
 Should signal UNDEFINED-FUNCTION if SYMBOL is not fbound and an
 attempt is made to read its definition. (No such error is signaled on
 an attempt to write its definition.)"""
-        return _symbol_function(the(symbol, symbol_))
+        ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
+        return _symbol_function(the(symbol_t, symbol))
 
 @defun
-def macro_function(symbol_, environment = nil):
+def macro_function(symbol, environment = nil):
         """macro-function symbol &optional environment => function
 
 (setf (macro-function symbol &optional environment) new-function)
@@ -3364,59 +3373,60 @@ Exceptional Situations:
 
 The consequences are undefined if ENVIRONMENT is non-NIL in a use of
 SETF of MACRO-FUNCTION."""
-        b_or_res = (the(_lexenv, environment).lookup_func_kind(macro, symbol_, nil) if environment else
-                    the(symbol, symbol_).macro_function)
-        if b_or_res and _bindingp(b_or_res) and _tuplep(b_or_res.value):
+        b_or_res = (the(_lexenv, environment).lookup_func_kind(macro, symbol, nil) if environment else
+                    nil) or the(symbol_t, symbol).macro_function
+        if b_or_res and _bindingp(b_or_res) and isinstance(b_or_res.value, tuple):
                lambda_list, body = b_or_res.value
-               b_or_res = the(function, _compile_in_lexenv(nil,
-                                                           (lambda_, lambda_list) + body,
-                                                           environment))
-        return the((or_, function, null),
+               _not_implemented("compilation of lambda expression form of macro function")
+               # b_or_res = the(function_t, _compile_in_lexenv(nil,
+               #                                             (lambda_, lambda_list) + body,
+               #                                             environment))
+        return the((or_t, function_t, null_t),
                    (b_or_res.value if _bindingp(b_or_res) else b_or_res) or nil)
 
 @defun
-def compiler_macro_function(symbol_, environment = nil, check_shadow = t):
+def compiler_macro_function(symbol, environment = nil, check_shadow = t):
         """compiler-macro-function symbol &optional environment => function"""
-        shadow = check_shadow and environment and environment.funcscope_binds_p(symbol_)
-        return (the((or_, function, null),
-                     the(symbol, symbol_).compiler_macro_function) if not shadow else
+        shadow = check_shadow and environment and environment.funcscope_binds_p(symbol)
+        return (the((or_t, function_t, null_t),
+                     the(symbol_t, symbol).compiler_macro_function) if not shadow else
                 nil)
 
 @defun
 def setf_compiler_macro_function(new_function, symbol, environment = nil):
         "<See documentation for COMPILER-MACRO-FUNCTION>"
         ## Ensure compliance.
-        check_type(environment, null)
-        symbol.compiler_macro_function = the(function, new_function)
+        check_type(environment, null_t)
+        symbol.compiler_macro_function = the(function_t, new_function)
         return new_function
 
-def _symbol_macro_expander(symbol_, environment = None):
+def _symbol_macro_expander(sym, environment = None):
         ## -> (-> expansion) | None
         lexical = environment and the(_lexenv, environment).lookup_var_kind(symbol_macro, symbol)
-        expansion = (the(symbol, symbol_).symbol_macro_expansion if not lexical else
+        expansion = (the(symbol_t, sym).symbol_macro_expansion if not lexical else
                      lexical.value)
         return (lambda: expansion) if expansion is not None else None
 
 def _style_warn(control, *args):
-        warn(simple_style_warning, control, *args)
+        warn(simple_style_warning_t, format_control = control, format_arguments = args)
 
 def _warn_incompatible_function_redefinition(symbol, tons, fromns):
         _style_warn("%s is being redefined as a %s when it was previously defined to be a %s.", symbol, tons, fromns)
 
 def _warn_possible_redefinition(x, type):
         if x:
-                _style_warn("In %s: %s is being redefined.", type, x.name)
+                _style_warn("In %s: %s is being redefined.", type, x)
 
 @defun
 def setf_macro_function(new_function, symbol, environment = nil):
         "<See documentation for MACRO-FUNCTION>"
         ## Ensure compliance.
-        check_type(environment, null)
+        check_type(environment, null_t)
         if symbol.function:
                 _warn_incompatible_function_redefinition(symbol, "macro", "function")
                 symbol.function = nil
         _warn_possible_redefinition(symbol.macro_function, defmacro)
-        symbol.macro_function = the(function, new_function)
+        symbol.macro_function = the(function_t, new_function)
         return new_function
 
 @defun
@@ -3441,11 +3451,11 @@ representing a special form or macro.  The value returned by
 FDEFINITION when FBOUNDP returns true but the FUNCTION-NAME denotes a
 macro or special form is not well-defined, but FDEFINITION does not
 signal an error."""
-        the(symbol, function_name).function = new_definition
+        the(symbol_t, function_name).function = new_definition
         return new_definition
 
 @defun
-def special_operator_p(symbol_):
+def special_operator_p(symbol):
         """Syntax:
 
 special-operator-p symbol => generalized-boolean
@@ -3464,7 +3474,7 @@ false.
 Exceptional Situations:
 
 Should signal TYPE-ERROR if its argument is not a symbol."""
-        return t if _find_known(symbol_) else nil
+        return t if _find_known(symbol) else nil
 
 # * (do-external-symbols (s :common-lisp) (when (special-operator-p s) (print s)))
 #  TAGBODY
@@ -3503,32 +3513,64 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 #  MULTIPLE-VALUE-CALL
 #  MULTIPLE-VALUE-PROG1
 
-def _do_set_function_definition(function, x):
-        if the(symbol, x).macro_function:
-                _warn_incompatible_function_redefinition(x, "function", "macro")
-        else:
-                _warn_possible_redefinition(x.function, the(symbol, defun))
-        x.function, x.macro_function = function, nil
-        function and _frost.make_object_like_python_function(x, function)
-        return x
+_intern_and_bind_names_in_module("DEFMACRO")
+#+end_src
 
-_intern_and_bind_pynames("DEFMACRO")
-def _do_set_macro_definition(function, x):
-        if the(symbol, x).function:
-                _warn_incompatible_function_redefinition(x, "macro", "function")
-        else:
-                _warn_possible_redefinition(x.macro_function, the(symbol, defmacro))
-        x.function, x.macro_function = nil, function
-        function and _frost.make_object_like_python_function(x, function)
-        return x
+*** Namespace separation.
 
-@defun(intern("_set_function_definition")[0])
-def _set_function_definition(function):
-        return _do_set_function_definition(function, intern(function.__name__)[0])
+#+begin_src python +n
+_compiler_safe_namespace_separation = t
 
-@defun(intern("_set_macro_definition")[0])
-def _set_macro_definition(function):
-        return _do_set_macro_definition(function, intern(function.__name__)[0])
+def _ensure_function_pyname(symbol):
+        if symbol.function_pyname is not None:
+                return symbol.function_pyname
+        symbol.function_pyname = (_gensymname("FUN_" + str(symbol) + "-") if _compiler_safe_namespace_separation else
+                                  str(symbol))
+        return symbol.function_pyname
+def _ensure_symbol_pyname(symbol):
+        if symbol.symbol_pyname is not None:
+                return symbol.symbol_pyname
+        symbol.symbol_pyname = (_gensymname("SYM_" + str(symbol) + "-") if _compiler_safe_namespace_separation else
+                                str(symbol))
+        return symbol.symbol_pyname
+
+def _ensure_variable_pyname(x):
+        return _frost.full_symbol_name_python_name(x)
+
+def _get_function_pyname(symbol):
+        if symbol.function_pyname is None:
+                error("Function %s has no mapping to a python name.", symbol)
+        return symbol.function_pyname
+def _get_symbol_pyname(symbol):
+        if symbol.symbol_pyname is None:
+                error("Symbol %s has no mapping to a python name.", symbol)
+        return symbol.symbol_pyname
+
+def _set_function_definition(globals, x, lambda_expression = None):
+        lambda_expression = _defaulted(lambda_expression, [lambda_, nil])
+        identity_redef = _compiler_defun(x, lambda_expression)
+        def do_set_function_definition(function):
+                if not identity_redef and function:
+                        x.function, x.macro_function = function, nil
+                        _frost.make_object_like_python_function(x, function)
+                        pyfname = function.__name__
+                        function.name = x
+                        globals[_ensure_function_pyname(x)] = globals[(pyfname
+                                                                       + ("" if pyfname.endswith("_") else "_")
+                                                                       + "pyfun")] = function
+                return x
+        return do_set_function_definition
+
+def _set_macro_definition(globals, x, lambda_expression):
+        identity_redef = _compiler_defmacro(x, lambda_expression)
+        def do_set_macro_definition(function):
+                if not identity_redef and function:
+                        _frost.make_object_like_python_function(x, function)
+                        function.name = x
+                        x.function, x.macro_function = nil, function
+                        globals[_ensure_function_pyname(x)] = function
+                return x
+        return do_set_macro_definition
 #+end_src
 
 *** Early condition system

@@ -2137,6 +2137,7 @@ def _alist_hash_table(xs):
         return dict(xs)
 
 # %CACHE
+
 class _cache(_collections.UserDict):
         def __init__(self, filler):
                 self.filler = filler
@@ -2297,7 +2298,7 @@ def _gen(n = 1, x = "G", gen = gensym):
         if zerop(n):
                 error("_GEN: we are very very much against this, please stop doing it!")
         return tuple(gen(x)
-                     for i in range(n))
+               for i in range(n))
 def _gensyms(**initargs):     return _gen(gen = gensym,      **initargs)
 def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
@@ -2720,7 +2721,7 @@ def _dict_select_keys(dict_, *keys):
         acc = dict()
         for k in keys:
                 if k in dict_:
-                        acc[k] = _dict[k]
+                        acc[k] = dict_[k]
         return acc
 
 def _maphash(f, dict) -> list:
@@ -3061,7 +3062,7 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 
 _intern_and_bind_names_in_module("DEFMACRO")
 
-## Namespace separation.
+# Namespace separation.
 
 _compiler_safe_namespace_separation = t
 
