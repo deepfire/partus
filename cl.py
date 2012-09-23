@@ -4108,7 +4108,6 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
         return _expand_quasiquotation(ret)
 read = _cold_read
 
-@__block__
 def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
                            start = 0, end = None, preserve_whitespace = None):
         stream = io.StringIO(string)
@@ -4163,7 +4162,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
         else:
                 return body()
 
-__not_even_conditions__ = frozenset([_py.GeneratorExit, _py.SystemExit, __catcher_throw__])
+__not_even_conditions__ = frozenset([GeneratorExit, SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
 _intern_and_bind_names_in_module("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")

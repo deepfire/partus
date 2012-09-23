@@ -4310,7 +4310,7 @@ def write_to_string(object,
                 string = ""
                 def write_to_string_loop(object):
                         nonlocal string
-                        if _listp(object) or _tuplep(object):
+                        if _listp(object):
                                 string += "("
                                 max = len(object)
                                 if max:
@@ -4337,7 +4337,7 @@ def write_to_string(object,
                                 string += _print_unreadable_compound(object)
                         elif functionp(object):
                                 string += _print_function(object)
-                        elif (not escape) and typep(object, (or_, restart, condition)):
+                        elif (not escape) and isinstance(object, (restart_t, condition_t)):
                                 string += str(object)
                         else:
                                 string += _print_unreadable(object)
@@ -4427,129 +4427,18 @@ def _read_symbol(x, package = None, case = None):
                                           (x, _coerce_to_package(package)))))
         return _intern(_case_xform(case, name), p)[0]
 
-@__block__
-def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
-                           start = 0, end = None, preserve_whitespace = None):
-        "Does not conform."
-        # _here("from \"%s\"" % string)
-        pos, end = start, (end or len(string))
-        def handle_short_read_if(test):
-                # _here("< %s" % (test,))
-                if test:
-                        (error(end_of_file, "end of file on %s" % (make_string_input_stream(string),)) if eof_error_p else
-                         return_from(_cold_read_from_string, eof_value))
-        def read():
-                skip_whitespace()
-                char = string[pos]
-                # _here("> \"%s\", by \"%s\"" % (string[pos:], char))
-                if   char == "(":  obj = read_list()
-                elif char == "\"": obj = read_string()
-                elif char == "'":  obj = read_quote()
-                else:
-                        handle_short_read_if(pos > end)
-                        obj = read_number_or_symbol()
-                        if obj == _find_symbol(".", __cl)[0]:
-                                error("Consing dot not implemented")
-                # _here("< %s" % (obj,))
-                return obj
-        def skip_whitespace():
-                nonlocal pos
-                while string[pos] in frozenset([" ", "\t", "\n"]):
-                        pos += 1
-        def read_list():
-                nonlocal pos
-                ret = []
-                pos += 1
-                while t:
-                        skip_whitespace()
-                        char = string[pos]
-                        if char == ")":
-                                pos += 1
-                                break
-                        else:
-                                obj = read()
-                                if not _listp(obj) and obj is _find_symbol(".", __cl)[0]:
-                                        error("Consing dot not implemented")
-                                ret += [obj]
-                # _here("< %s" % (ret,))
-                return ret
-        def read_string():
-                nonlocal pos
-                ret = ""
-                def add_char(c):
-                        nonlocal ret
-                        ret += c
-                while t:
-                        pos += 1
-                        char = string[pos]
-                        if char == "\"":
-                                pos += 1
-                                break
-                        elif char == "\\":
-                                pos += 1
-                                char2 = string[pos]
-                                if   char2 == "\"": add_char(char2)
-                                elif char2 == "\\": add_char(char2)
-                                else:
-                                        error("READ-FROM-STRING: unrecognized escape character \"%s\".", char2)
-                        else:
-                                add_char(char)
-                # _here("< %s" % (ret,))
-                return ret
-        def read_number_or_symbol():
-                token = read_token()
-                handle_short_read_if(not token)
-                if _without_condition_system(lambda: _re.match("^[0-9]+$", token),
-                                             reason = "re.match"):
-                        ret = int(token)
-                elif _without_condition_system(lambda: _re.match("^[0-9]+\\.[0-9]+$", token),
-                                               reason = "re.match"):
-                        ret = float(token)
-                else:
-                        ret = _read_symbol(token)
-                        # debug_printf("-- interned %s as %s", token, name)
-                        # if name is t:
-                        #         ret = True
-                        # elif name is nil:
-                        #         ret = False
-                        # else:
-                        #         ret = name
-                # _here("< %s" % ret)
-                return ret
-        def read_token():
-                nonlocal pos
-                token = ""
-                # _here(">> ..%s..%s" % (pos, end))
-                while t:
-                        if pos >= end:
-                                break
-                        char = string[pos]
-                        if char in set([" ", "\t", "\n", "(", ")", "\"", "'"]):
-                                break
-                        else:
-                                token += char
-                                pos += 1
-                # _here("< %s" % token)
-                return token
-        ret = handler_case(read,
-                           (IndexError,
-                            lambda c: handle_short_read_if(t)))
-        # _here("lastly %s" % (ret,))
-        return ret
-read_from_string = _cold_read_from_string
-
 def read_line(stream = None, eof_error_p = t, eof_value = nil):
         stream = _defaulted_to_var(stream, _standard_input_)
         return handler_case(lambda: stream.readline(),
-                            (error,
-                             lambda c: error(end_of_file, "end of file on %s" % (stream,))))
+                            (error_t,
+                             lambda c: error(end_of_file_t, "end of file on %s" % (stream,))))
 
 def read_char(stream = None, eof_error_p = t, eof_value = nil, recursivep = nil):
         stream = _defaulted_to_var(stream, _standard_input_)
-        ret = the(_global("stream"), stream).read(1)
+        ret = the(_global("stream_t"), stream).read(1)
         return (ret       if ret             else
                 eof_value if not eof_error_p else
-                error(end_of_file, "end of file on %s" % (stream,)))
+                error(end_of_file_t, "end of file on %s" % (stream,)))
 
 def unread_char(x, stream = _sys.stdin):
         "XXX: conformance"
@@ -4588,11 +4477,31 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
         def read_inner():
                 skip_whitespace()
                 char = read_char(stream)
+                # char = read_char_maybe_eof()
+                # if char is nil:
+                #         if not eof_error_p:
+                #                 __return_from(_cold_read, eof_value)
+                #         else:
+                #                 read_char(stream)
                 unread_char(char, stream)
                 # _here("> \"%s\", by \"%s\"" % (string[pos:], char))
                 if   char == chr(40):  obj = read_list() # Org is a bit too picky
-                elif char == "\"":         obj = read_string()
-                elif char == "'":          obj = read_quote()
+                elif char == "\"":     obj = read_string()
+                elif char == "'":
+                        read_char(stream)
+                        obj = list_pyfun(quote, read_inner())
+                elif char == "`":
+                        read_char(stream)
+                        obj = list_pyfun(quasiquote, read_list())
+                elif char == ",":
+                        ## This is a simplified take, but it'll do for bootstrapping purposes.
+                        read_char(stream);
+                        char = read_char(stream)
+                        if char == "@":
+                                obj = list_pyfun(splice, read_inner())
+                        else:
+                                unread_char(char, stream)
+                                obj = list_pyfun(comma, read_inner())
                 else:
                         # handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
@@ -4626,9 +4535,9 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                                 obj = read_inner()
                                 if not _listp(obj) and obj is _find_symbol(".", __cl)[0]:
                                         error("Consing dot not implemented")
-                                ret += [obj]
+                                ret.append(obj)
                 # _here("< %s" % (ret,))
-                return tuple(ret)
+                return _consify_pyseq(ret)
         def read_string():
                 ret = ""
                 read_char(stream) # seek the opening double-quote
@@ -4671,22 +4580,33 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                 # _here("< %s" % token)
                 return token
         ret = handler_case(read_inner,
-                           (end_of_file,
+                           (end_of_file_t,
                             lambda c: error(c) if eof_error_p else
-                                      return_from(_cold_read, eof_value)))
+                                      __return_from(_cold_read, eof_value)))
         # _here("lastly %s" % (ret,))
-        return ret
+        return _expand_quasiquotation(ret)
 read = _cold_read
+
+def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
+                           start = 0, end = None, preserve_whitespace = None):
+        stream = io.StringIO(string)
+        try:
+                return _cold_read(stream, eof_error_p = eof_error_p, eof_value = eof_value,
+                                  start = start, end = end, preserve_whitespace = preserve_whitespace)
+        finally:
+                close(stream)
+
+read_from_string = _cold_read_from_string
 #+end_src
 
 *** Condition system
 
 #+begin_src python +n
 def _conditionp(x):
-        return typep(x, condition)
+        return isinstance(x, condition_t)
 
 def make_condition(type, *args, **keys):
-        check_type(type, symbol)
+        check_type(type, symbol_t)
         if not (hasattr(type, "python_type") and
                 _conditionp(type.python_type)):
                 error("In MAKE-CONDITION: %s does not designate a condition type.", type)
@@ -4718,7 +4638,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
                                           backtrace = backtrace)
                         if old_hook_value:
                                 old_hook_value(cond, old_hook_value)
-                with env.maybe_let(p, **{string(hook): wrapped_hook}):
+                with env.maybe_let(p, **{hook if stringp(hook) else symbol_name(hook): wrapped_hook}):
                         return body()
         else:
                 return body()
@@ -4726,7 +4646,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
 __not_even_conditions__ = frozenset([GeneratorExit, SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
-_intern_and_bind_pynames("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")
+_intern_and_bind_names_in_module("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")
 
 def __cl_condition_handler__(condspec, frame):
         backtrace_printed = nil
@@ -4736,18 +4656,16 @@ def __cl_condition_handler__(condspec, frame):
                 # _print_frames(_frames_calling(frame))
                 def _maybe_upgrade_condition(cond):
                         "Fix up the shit routinely being passed around."
-                        return ((cond, nil) if typep(cond, condition) else
+                        return ((cond, nil) if isinstance(cond, condition_t) else
                                 (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
                                                cond)), t))
                         # _poor_man_typecase(cond,
                         #                    (BaseException, lambda: cond),
                         #                    (str,       lambda: error_(cond)))
                 cond, upgradedp = _maybe_upgrade_condition(raw_cond)
-                if type_of(cond) not in __not_even_conditions__:
+                if type_of(cond) not in __not_even_conditions__ and isinstance(cond, condition_t):
                         # _debug_printf("signalling %s", cond)
                         if upgradedp:
-                                _backtrace()
-                                backtrace_printed = t
                                 _here("Condition Upgrader: %s of-type %s -> %s of-type %s",
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
@@ -4766,24 +4684,31 @@ def __cl_condition_handler__(condspec, frame):
                 return cond
         signalling_frame = _caller_frame(caller_relative = 1)
         with progv({_stack_top_hint_: signalling_frame}):
-                cond = _sys.call_tracing(continuation, tuple())
+                cond = _sys.call_tracing(continuation, ())
         if type_of(cond) not in __not_even_conditions__:
-                is_not_ball = type_of(cond) is not __catcher_throw__
-                _here("In thread '%s': unhandled condition of type %s: %s%s",
-                      _threading.current_thread().name, type_of(cond), princ_to_string(cond),
-                      ("\n; Disabling CL condition system." if is_not_ball else
-                       ""),
-                      callers = 15, frame = signalling_frame)
+                if isinstance(cond, condition_t):
+                        try:
+                                repr_str = princ_to_string(cond)
+                        except Exception as sub_cond:
+                                _debug_printf("While printing condition, another condition was raised: %s", repr(sub_cond))
+                                # _backtrace(frame = _exception_frame())
+                                repr_str = "#<error printing condition>"
+                        _here("In thread '%s': unhandled condition of type %s: %s%s",
+                              _threading.current_thread().name, type_of(cond), repr_str,
+                              "\n; Disabling CL condition system.",
+                              callers = 15, frame = signalling_frame)
+                else:
+                        _debug_printf("In thread %s: a non-condition of type %s was raised: %s",
+                                      _threading.current_thread().name, type_of(cond), repr(cond))
                 if not backtrace_printed:
                         _backtrace()
-                if is_not_ball:
-                        _frost.disable_pytracer()
-                        try:
-                                invoke_debugger(cond)
-                        except error.python_type as debugger_cond:
-                                _debug_printf("Failed to enter the debugger:\n%s\nHave a nice day!", debugger_cond)
-                                _sys.stderr.flush()
-                                exit()
+                _frost.disable_pytracer()
+                try:
+                        invoke_debugger(cond)
+                except error_t as debugger_cond:
+                        _debug_printf("Failed to enter the debugger:\n%s\nHave a nice day!", debugger_cond)
+                        _sys.stderr.flush()
+                        exit()
         ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
@@ -4823,12 +4748,12 @@ def handler_bind(fn, *handlers, no_error = identity):
 
 def handler_case(body, *handlers, no_error = identity):
         "Works like real HANDLER-CASE, when the conditions are right.  Ha."
-        nonce            = gensym("HANDLER-CASE")
+        nonce            = gensym("HANDLER-CASE-")
         wrapped_handlers = _mapcar_star(lambda type, handler:
-                                                (type, lambda cond: return_from(nonce, handler(cond))),
+                                                (type, lambda cond: __return_from(nonce, handler(cond))),
                                         handlers)
-        return catch(nonce,
-                     lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
+        return __catch(nonce,
+                       lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
 
 def ignore_errors(body):
         return handler_case(body,
@@ -4840,36 +4765,36 @@ def ignore_errors(body):
 
 #+begin_src python
 @defclass
-class warning(condition.python_type):                                              pass
+class warning_t(condition_t):                                              pass
 @defclass
-class simple_warning(simple_condition.python_type, warning.python_type):           pass
+class simple_warning_t(simple_condition_t, warning_t):                     pass
 
 @defclass
-class style_warning(warning.python_type):                                          pass
+class style_warning_t(warning_t):                                          pass
 @defclass
-class simple_style_warning(simple_warning.python_type, style_warning.python_type): pass
+class simple_style_warning_t(simple_warning_t, style_warning_t):           pass
 @defun
 def simple_style_warning(format_control, *format_arguments):
-        warn(simple_style_warning, format_control = format_control, format_arguments = format_arguments)
+        warn(simple_style_warning_t, format_control = format_control, format_arguments = format_arguments)
 
 @defclass
-class type_error(error.python_type):                                               pass
+class type_error_t(error_t):                                               pass
 @defclass
-class simple_type_error(simple_error.python_type, type_error.python_type):         pass
+class simple_type_error_t(simple_error_t, type_error_t):                   pass
 @defun
 def simple_type_error(format_control, *format_arguments):
-        error(simple_type_error, format_control = format_control, format_arguments = format_arguments)
+        error(simple_type_error_t, format_control = format_control, format_arguments = format_arguments)
 
 @defclass
-class program_error(error.python_type):                                            pass
+class program_error_t(error_t):                                            pass
 @defclass
-class simple_program_error(simple_error.python_type, program_error.python_type):   pass
+class simple_program_error_t(simple_error_t, program_error_t):             pass
 @defun
 def simple_program_error(format_control, *format_arguments):
-        error(simple_program_error, format_control = format_control, format_arguments = format_arguments)
+        error(simple_program_error_t, format_control = format_control, format_arguments = format_arguments)
 
 @defclass
-class undefined_function(error.python_type):
+class undefined_function_t(error_t):
         def __init__(self, fname):
                 self.name = fname
         def __str__(self):
@@ -4878,7 +4803,7 @@ class undefined_function(error.python_type):
                 return self.__str__()
 
 @defclass
-class _not_implemented_condition(condition.python_type):
+class _not_implemented_condition(condition_t):
         def __init__(*args):
                 self, name = args[0], args[1]
                 self.name = name
@@ -4887,9 +4812,9 @@ class _not_implemented_condition(condition.python_type):
         def __repr__(self):
                 return self.__str__()
 @defclass
-class _not_implemented_error(_not_implemented_condition.python_type, error.python_type): pass
+class _not_implemented_error(_not_implemented_condition, error_t):     pass
 @defclass
-class _not_implemented_warning(_not_implemented_condition.python_type, warning.python_type): pass
+class _not_implemented_warning(_not_implemented_condition, warning_t): pass
 
 def _not_implemented(x = None):
         error(_not_implemented_error,
@@ -4906,7 +4831,7 @@ def _warn_not_implemented(x = None):
 
 #+begin_src python +n
 @defclass
-class restart(_servile):
+class restart_t(_servile):
         def __str__(self):
                 # XXX: must conform by honoring *PRINT-ESCAPE*:
                 # http://www.lispworks.com/documentation/lw51/CLHS/Body/m_rst_ca.htm#restart-case
@@ -4957,7 +4882,7 @@ class restart(_servile):
 _string_set("*RESTART-CLUSTERS*", [])
 
 def _restartp(x):
-        return typep(x, restart)
+        return isinstance(x, restart_t)
 
 def restart_name(x):
         return x.name
@@ -4966,7 +4891,7 @@ def _specs_restarts_args(restart_specs):
         # format (t, "_s_r: %s", restart_specs)
         restarts_args = make_hash_table()
         for name, spec in restart_specs.items():
-                function, options = ((spec[0], spec[1]) if _tuplep(spec) else
+                function, options = ((spec[0], spec[1]) if isinstance(spec, tuple) else
                                      (spec, make_hash_table()))
                 restarts_args[name.upper()] = _updated_dict(options, dict(function = function)) # XXX: name mangling!
         return restarts_args
@@ -4976,7 +4901,7 @@ def _specs_restarts_args(restart_specs):
 ##
 def _restart_bind(body, restarts_args):
         with progv({_restart_clusters_: (_symbol_value(_restart_clusters_) +
-                                           [_remap_hash_table(lambda _, restart_args: make_instance(restart, **restart_args), restarts_args)])}):
+                                           [_remap_hash_table(lambda _, restart_args: make_instance(restart_t, **restart_args), restarts_args)])}):
                 return body()
 
 def restart_bind(body, **restart_specs):
@@ -4986,9 +4911,9 @@ __valid_restart_options__ = frozenset(["interactive", "report", "test", "functio
 def _restart_case(body, **restarts_args):
         def validate_restart_options(options):
                 unknown = set(options.keys()) - __valid_restart_options__
-                return t if not unknown else error(simple_type_error, "Acceptable restart options are: (%s), not (%s)",
-                                                   " ".join(__valid_restart_options__), " ".join(options.keys()))
-        nonce = gensym("RESTART-CASE")
+                return t if not unknown else simple_type_error("Acceptable restart options are: (%s), not (%s)",
+                                                               " ".join(__valid_restart_options__), " ".join(options.keys()))
+        nonce = gensym("RESTART-CASE-")
         wrapped_restarts_args = {
                 restart_name: _poor_man_let(restart_args["function"],
                                   restart_args["interactive"] if "interactive" in restart_args else nil,
@@ -4999,7 +4924,7 @@ def _restart_case(body, **restarts_args):
                                                          dict(name                 = restart_name,
                                                                   function             =
                                                                   lambda *args, **keys:
-                                                                          return_from(nonce, function(*args, **keys)),
+                                                                          __return_from(nonce, function(*args, **keys)),
                                                                   interactive_function =
                                                                   (interactive                  if functionp(interactive) else
                                                                    lambda: []                   if null(interactive) else
@@ -5010,8 +4935,8 @@ def _restart_case(body, **restarts_args):
                                                                    nil                          if null(report) else
                                                                    error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
                 for restart_name, restart_args in restarts_args.items () }
-        return catch(nonce,
-                     lambda: _restart_bind(body, wrapped_restarts_args))
+        return __catch(nonce,
+                       lambda: _restart_bind(body, wrapped_restarts_args))
 
 def restart_case(body, **restart_specs):
         return _restart_case(body, **_specs_restarts_args(restart_specs))
