@@ -6312,6 +6312,8 @@ def _match(matcher, exp, pat):
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
         return matcher.match(dict(), name, exp, prepped, (True, False), None, -1)
 
+# Compilation environment (incl. tracing controls)
+
 _compiler_max_mockup_level = 3
 
 _string_set("*COMPILER-TRACE-TOPLEVELS*",          nil)
@@ -6369,6 +6371,8 @@ def _compiler_config_tracing(**keys):
 
 def _pp(x, **args):
         return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex)(x, **args)
+
+# Target environment
 
 ## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
 
@@ -6486,6 +6490,7 @@ def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
         return None
 
 # Generic pieces
+
 _intern_and_bind_names_in_module("DECLARE")
 def _parse_body(body, doc_string_allowed = t):
         doc = nil
@@ -6527,6 +6532,8 @@ def _process_decls(decls, vars, fvars):
 
 def _self_evaluating_form_p(x):
         return isinstance(x, (int, str, float)) or x in [t, nil]
+
+# Primitive IR emission toolkit
 
 def _ir_funcall(func, *args):
         return (apply, (function, ((quote, (func,)) if isinstance(func, str) else

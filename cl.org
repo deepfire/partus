@@ -6912,7 +6912,6 @@ def _match(matcher, exp, pat):
         matcher.per_use_init()
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
         return matcher.match(dict(), name, exp, prepped, (True, False), None, -1)
-        return matcher.match(dict(), name, exp, prepped, (True, False), None, None)
 #+end_src
 
 *** Compiler
@@ -6926,97 +6925,194 @@ def _match(matcher, exp, pat):
                 - %lower o macroexpand-all
       - TODO: COMPILE-FILE
 
+***** Compilation environment (incl. tracing controls)
+
+#+BEGIN_SRC python
+_compiler_max_mockup_level = 3
+
+_string_set("*COMPILER-TRACE-TOPLEVELS*",          nil)
+_string_set("*COMPILER-TRACE-TOPLEVELS-DISASM*",   nil)
+_string_set("*COMPILER-TRACE-ENTRY-FORMS*",        nil)
+_string_set("*COMPILER-TRACE-QQEXPANSION*",        nil)
+_string_set("*COMPILER-TRACE-MACROEXPANSION*",     nil)
+_string_set("*COMPILER-TRACE-TRUE-DEATH-OF-CODE*", nil)
+
+_string_set("*COMPILER-TRACE-FORMS*",              nil)
+_string_set("*COMPILER-TRACE-PRIMITIVES*",         nil)
+_string_set("*COMPILER-TRACE-SUBFORMS*",           nil)
+_string_set("*COMPILER-TRACE-REWRITES*",           nil)
+_string_set("*COMPILER-TRACE-CHOICES*",            nil)
+_string_set("*COMPILER-TRACE-RESULT*",             nil)
+_string_set("*COMPILER-TRACE-PRETTY-FULL*",        nil)
+
+_string_set("*COMPILER-FN*",                       nil)
+# Unregistered Issue DEBUG-SCAFFOLDING
+_string_set("*COMPILER-DEBUG-P*",                  nil)
+_string_set("*COMPILER-TRAPPED-FUNCTIONS*",        set()) ## Emit a debug entry for those functions.
+
+_intern_and_bind_names_in_module(
+        "*COMPILER-ERROR-COUNT*",
+        "*COMPILER-WARNINGS-COUNT*",
+        "*COMPILER-STYLE-WARNINGS-COUNT*",
+        "*COMPILER-NOTE-COUNT*",
+        "*UNDEFINED-WARNINGS*",
+        ##
+        "*UNIT-FUNCTIONS*",
+        "*UNIT-SYMBOLS*",
+        "*UNIT-GFUNS*",
+        "*UNIT-GVARS*",
+        ##
+        "*TOP-COMPILATION-UNIT-P*")
+
+## Should, probably, be bound by the compiler itself.
+_string_set("*COMPILER-TAILP*", nil)
+
+_string_set("*COMPILER-LAMBDA*", nil)
+
+__known_trace_args__ = {"toplevels", "entry_forms", "qqexpansion", "macroexpansion",
+                        "forms", "subforms", "rewrites", "choices", "result", "pretty_full"}
+
+def _compiler_explain_tracing():
+        def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
+        _debug_printf(";;  compiler trace config:")
+        for var in __known_trace_args__:
+                _debug_printf(";;    %s: %s", control_var_name(var), symbol_value(find_symbol(control_var_name(var))[0]))
+
+def _compiler_config_tracing(**keys):
+        def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
+        for namespec, value in keys.items():
+                _string_set(control_var_name(namespec), value)
+
+def _pp(x, **args):
+        return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex)(x, **args)
+#+END_SRC
+
+***** Target environment
+
+#+BEGIN_SRC python
+## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
+
+### Global compiler state carry-over, and module state initialisation.
+def _fop_make_symbol_available(globals, package_name, symbol_name,
+                               function_pyname, symbol_pyname,
+                               gfunp, gvarp):
+        symbol = (intern(symbol_name, find_package(package_name))[0] if package_name is not None else
+                  make_symbol(symbol_name))
+        if function_pyname is not None:
+                symbol.function_pyname = function_pyname
+                # _debug_printf("   c-t %%U-S-G-F-P %s FUN: %s  - %s, %s %s",
+                #               "G" if gfunp else "l", symbol_name, function_pyname, symbol.function, symbol.macro_function)
+                if gfunp:
+                        globals[function_pyname] = (symbol_function(symbol)
+                                                    if symbol.function or symbol.macro_function else
+                                                    lambda *_, **__: error("Function not defined: %s.", symbol))
+        if gvarp:
+                if _find_global_variable(symbol):
+                        value = symbol_value(symbol)
+                        assert(value is not None)
+                        globals[_unit_variable_pyname(symbol)] = value
+                else:
+                        ## Unregistered Issue UNDEFINED-GLOBAL-REFERENCE-ERROR-DETECTION
+                        pass # This will fail obscurely.
+        if symbol_pyname is not None:
+                symbol.symbol_pyname = symbol_pyname
+                globals[symbol_pyname] = symbol
+
+def _fop_make_symbols_available(globals, package_names, symbol_names,
+                                function_pynames, symbol_pynames,
+                                gfunps, gvarps):
+        for fop_msa_args in zip(package_names, symbol_names,
+                                function_pynames, symbol_pynames,
+                                gfunps, gvarps):
+                _fop_make_symbol_available(globals, *fop_msa_args)
+#+END_SRC
+
 ***** Functions (in the sense of result of compilation)
 
 #+begin_src python
-  _fns = make_hash_table()
+## Critical Issue COALESCE-FNS-WITH-FUNCTION-SCOPE
+_fns = make_hash_table()
 
-  @defclass
-  class _fn():
-          ## Omnidefined:
-          # name
-          # arglist
-          # body
-          # globalp
-          # args_types    - a tuple of types
-          #
-          ## Optional (can be None):
-          # values_types  - T or a list of types
-          # effects       - T or NIL
-          # affected      - T or NIL
-          def __init__(self, name,
-                       arglist = None, body = None,
-                       globalp = t,
-                       args_types = None, values_types = None,
-                       effects = None, affected = None):
-                  check_type(arglist, tuple)
-                  args_types = tuple(t for _ in arglist)
-                  check_type(name, symbol_t)
-                  if name in _fns:
-                          error("Asked to overwrite FN record %s.", name)
-                  _attrify_args(self, locals(), "name",
-                                "arglist", "args_types", "values_types",
-                                "effects", "affected")
-                  self.dependents, self.dependencies = (make_hash_table(default_constructor = set),
-                                                        make_hash_table(default_constructor = set))
-                  if globalp:
-                          _fns[name] = self
-          def add_dependent(self, reason, depee):
-                  self.dependents[reason].add(depee)
-                  depee.dependencies[reason].add(self)
-          def map_dependents(self, fn):
-                  for reason, depees in self.dependents:
-                          for d in depees:
-                                  fn(d, reason)
-          def clear_dependencies(self):
-                  for reason, deps in self.dependencies.items():
-                          for d in deps:
-                                  d.dependents[reason].remove(self)
-                                  if not d.dependents[reason]:
-                                         del d.dependents[reason]
-                  self.dependencies.clear()
+@defclass
+class _fn():
+        ## Omnidefined:
+        # name
+        # arglist
+        # body
+        # globalp
+        # args_types    - a tuple of types
+        #
+        ## Optional (can be None):
+        # values_types  - T or a list of types
+        # effects       - T or NIL
+        # affected      - T or NIL
+        def __init__(self, name,
+                     arglist = None, body = None,
+                     globalp = t,
+                     args_types = None, values_types = None,
+                     effects = None, affected = None):
+                check_type(arglist, tuple)
+                args_types = tuple(t for _ in arglist)
+                check_type(name, symbol_t)
+                if name in _fns:
+                        error("Asked to overwrite FN record %s.", name)
+                _attrify_args(self, locals(), "name",
+                              "arglist", "args_types", "values_types",
+                              "effects", "affected")
+                self.dependents, self.dependencies = (make_hash_table(default_constructor = set),
+                                                      make_hash_table(default_constructor = set))
+                if globalp:
+                        _fns[name] = self
+        def add_dependent(self, reason, depee):
+                self.dependents[reason].add(depee)
+                depee.dependencies[reason].add(self)
+        def map_dependents(self, fn):
+                for reason, depees in self.dependents:
+                        for d in depees:
+                                fn(d, reason)
+        def clear_dependencies(self):
+                for reason, deps in self.dependencies.items():
+                        for d in deps:
+                                d.dependents[reason].remove(self)
+                                if not d.dependents[reason]:
+                                       del d.dependents[reason]
+                self.dependencies.clear()
 
-  @defun
-  def _fn(name):
-          return _fns.get(name, nil)
+def _find_fn(name):
+        return _fns.get(name, nil)
 
-  _string_set("*COMPILER-FN*", nil)
+def _depend_on(fn_or_name, reason = t):
+        fn = fn_or_name if isinstance(fn_or_name, _cold_function_type) else _find_fn(fn_or_name)
+        fn.add_dependent(reason, symbol_value(_compiler_fn_))
 
-  def _compiling_fn():
-          return symbol_value(_compiler_fn_)
-
-  def _depend_on(fn_or_name, reason = t):
-          fn = fn_or_name if functionp(fn_or_name) else _fn(fn_or_name)
-          fn.add_dependent(reason, _compiling_fn())
-
-  def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
-          ## TODO: we should depend for the de-pessimisation sense likewise.
-          ## ..or should we?  I think, at least for rechecking of conditions.. which is only possible
-          ## in case of full recompilation..
-          ##
-          ## ..And we didn't even start to consider dependency loops..
-          if symbolp(function_form):
-                  fn = _fn(function_form)
-                  if fn:
-                          prop_vals = []
-                          for prop_test in prop_test_pairs:
-                                  prop, test = (prop_test if isinstance(prop_test, tuple) else
-                                                (prop_test, constantly(t)))
-                                  val = getattr(fn, prop)
-                                  if val is None or not test(val):
-                                          return None
-                                  prop_vals.append(val)
-                          for prop, _ in prop_test_pairs:
-                                  _depend_on(fn, prop)
-                          return body(fn, *prop_vals)
-          return None
-
+def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
+        ## TODO: we should depend for the de-pessimisation sense likewise.
+        ## ..or should we?  I think, at least for rechecking of conditions.. which is only possible
+        ## in case of full recompilation..
+        ##
+        ## ..And we didn't even start to consider dependency loops..
+        if symbolp(function_form):
+                fn = _find_fn(function_form)
+                if fn:
+                        prop_vals = []
+                        for prop_test in prop_test_pairs:
+                                prop, test = (prop_test if isinstance(prop_test, tuple) else
+                                              (prop_test, constantly(t)))
+                                val = getattr(fn, prop)
+                                if val is None or not test(val):
+                                        return None
+                                prop_vals.append(val)
+                        for prop, _ in prop_test_pairs:
+                                _depend_on(fn, prop)
+                        return body(fn, *prop_vals)
+        return None
 #+end_src
 
 ***** Generic pieces
 
 #+begin_src python +n
-def _parse_body(body, doc_string_allowed = t, toplevel = nil):
+_intern_and_bind_names_in_module("DECLARE")
+def _parse_body(body, doc_string_allowed = t):
         doc = nil
         def doc_string_p(x, remaining_forms):
                 return ((error("duplicate doc string %s", x) if doc else t)
@@ -7037,13 +7133,45 @@ def _parse_body(body, doc_string_allowed = t, toplevel = nil):
                 decls,
                 doc)
 
+_eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
+_eval_when_keywords = set(_eval_when_ordered_keywords)
+def _parse_eval_when_situations(situ_form):
+        if not (isinstance(situ_form, tuple) and not (set(situ_form) - _eval_when_keywords)):
+                error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
+        return [x in situ_form for x in _eval_when_ordered_keywords]
+
+def _analyse_eval_when_situations(compile_time_too, ct, lt, e):
+        "Implement the EVAL-WHEN chart of section #5 of CLHS 3.2.3.1."
+        process = lt
+        eval = ct or (compile_time_too and e)
+        new_compile_time_too = lt and eval
+        return new_compile_time_too, process, eval
+
 def _process_decls(decls, vars, fvars):
         _warn_not_implemented()
 
 def _self_evaluating_form_p(x):
         return isinstance(x, (int, str, float)) or x in [t, nil]
-
 #+end_src
+
+***** Primitive IR emission toolkit
+
+#+BEGIN_SRC python
+def _ir_funcall(func, *args):
+        return (apply, (function, ((quote, (func,)) if isinstance(func, str) else
+                                   func))) + args + ((quote, nil),)
+
+def _ir_cl_module_name(name):
+        return ("cl", name)
+
+def _ir_cl_module_call(name, *ir_args):
+        return _ir_funcall((quote, _ir_cl_module_name(name)), *ir_args)
+
+def _ir_lambda_to_def(name, lambda_expression):
+        return _ir_args(lambda_, the(symbol_t, name), *lambda_expression[1:],
+                        name = name)
+
+#+END_SRC
 
 ***** Compiler conditions
 
