@@ -3598,10 +3598,6 @@ def _condition_system_enabled_p():
         return (_frost.pytracer_enabled_p() and
                 _frost.tracer_hook("exception") is __cl_condition_handler__)
 
-def _init_package_system_2():
-        "Is called once CL is loaded completely."
-        in_package("COMMON-LISP-USER")
-
 _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
                                                                 "COMPILE-TOPLEVEL",
                                                                 "EXECUTE"])
@@ -3614,16 +3610,16 @@ _init_condition_system()
 
 #+begin_src python +n
 @defclass
-class base_char(): pass
+class base_char_t(): pass
 #+end_src
 
 ***** Early-earlified streaming
 
 #+begin_src python +n
 @defun
-def streamp(x):                     return typep(x, stream)
+def streamp(x):                     return isinstance(x, stream_t)
 
-def _file_stream_p(x):              return typep(x, file_stream)
+def _file_stream_p(x):              return isinstance(x, (__io._TextIOBase, __io._BufferedIOBase))
 
 @defun
 def with_open_stream(stream, fn):
@@ -3633,7 +3629,7 @@ def with_open_stream(stream, fn):
                 close(stream)
 
 @defun
-def open(pathname, direction = _keyword("INPUT"), element_type = base_char,
+def open(pathname, direction = _keyword("INPUT"), element_type = base_char_t,
          if_exists = _keyword("ERROR"), if_does_not_exist = _keyword("ERROR"),
          external_format = _keyword("DEFAULT")):
         """Return a stream which reads from or writes to FILENAME.
@@ -3655,7 +3651,7 @@ Defined keywords:
                                         (_keyword("PROBE"),  lambda: _not_implemented("direction :PROBE"))))
 
 @defun
-def with_open_file(pathname, body, direction = _keyword("INPUT"), element_type = base_char,
+def with_open_file(pathname, body, direction = _keyword("INPUT"), element_type = base_char_t,
                    if_exists = _keyword("ERROR"), if_does_not_exist = _keyword("ERROR"),
                    external_format = _keyword("DEFAULT")):
         return with_open_stream(open(pathname, direction, element_type, if_exists, if_does_not_exist, external_format),
@@ -3684,7 +3680,7 @@ def file_write_date(pathspec):
         """Returns a universal time representing the time
 at which the file specified by PATHSPEC was last written
 (or created), or returns NIL if such a time cannot be determined. """
-        f = namestring(pathname(stream))
+        f = namestring(pathname(pathspec))
         # XXX: doesn't conform terribly well:
         # 1. NIL isn't returned if the time cannot be determined: python will,
         #    in most likelihood, raise an error.
@@ -3695,17 +3691,17 @@ at which the file specified by PATHSPEC was last written
         #
         # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
         # os.path.getmtime() returns microseconds..
-        return _py.int(_os.path.getmtime(f))
+        return int(_os.path.getmtime(f))
 
-def _file_name(x):
-        return _values_frame_project(0, parse_namestring(the(file_stream, x).name))
+def _file_stream_name(x):
+        return _values_frame_project(0, parse_namestring(x.name))
 #+end_src
 
 ***** Stream types and functions
 
 #+begin_src python +n
 def open_stream_p(x):
-        return not the(stream, x).closed
+        return not the(stream_t, x).closed
 
 def input_stream_p(x):
         return open_stream_p(x) and x.readable()
@@ -3714,7 +3710,7 @@ def output_stream_p(x):
         return open_stream_p(x) and x.writable()
 
 @defclass
-class two_way_stream(stream.python_type):
+class two_way_stream_t(stream_t):
         def __init__(self, input, output):
                 self.input, self.output  = input, output
         def read(self, amount):
@@ -3734,16 +3730,16 @@ class two_way_stream(stream.python_type):
         def readable(self): return t
         def writable(self): return t
 
-def make_two_way_stream(input, output):   return two_way_stream.python_type(input, output)
+def make_two_way_stream(input, output):   return two_way_stream_t(input, output)
 def two_way_stream_input_stream(stream):  return stream.input
 def two_way_stream_output_stream(stream): return stream.output
 
 _string_set("*DEBUG-IO*", make_two_way_stream(_symbol_value(_standard_input_), _symbol_value(_standard_output_)))
 _string_set("*QUERY-IO*", make_two_way_stream(_symbol_value(_standard_input_), _symbol_value(_standard_output_)))
-# raise simple_condition.python_type("Boo %s.", 2)
+# raise simple_condition("Boo %s.", 2)
 
 @defclass
-class broadcast_stream(stream.python_type):
+class broadcast_stream_t(stream_t):
         def __init__(self, *streams):
                 self.streams  = streams
         def write(self, data):
@@ -3755,11 +3751,11 @@ class broadcast_stream(stream.python_type):
         def readable(self): return nil
         def writable(self): return t
 
-def make_broadcast_stream(*streams):  return broadcast_stream.python_type(*streams)
+def make_broadcast_stream(*streams):  return broadcast_stream_t(*streams)
 def broadcast_stream_streams(stream): return stream.streams
 
 @defclass
-class synonym_stream(stream.python_type):
+class synonym_stream_t(stream_t):
         def __init__(self, symbol):
                 self.symbol  = symbol
         def stream():
@@ -3773,7 +3769,7 @@ class synonym_stream(stream.python_type):
         def readable(self): return self.stream.readable()
         def writable(self): return self.stream.writable()
 
-def make_synonym_stream(symbol):   return synonym_stream.python_type(symbol)
+def make_synonym_stream(symbol):   return synonym_stream_t(symbol)
 def synonym_stream_symbol(stream): return stream.symbol
 
 def _coerce_to_stream(x):
@@ -3789,6 +3785,7 @@ def write_char(c, stream = t):
         write_string(c, stream)
         return c
 
+@defun
 def terpri(stream = t):
         write_string("\n", stream)
 
@@ -3798,7 +3795,7 @@ def write_string(string, stream = t):
                         try:
                                 return _write_string(string, _coerce_to_stream(stream))
                         except _io.UnsupportedOperation as cond:
-                                error(stream_type_error, "%s is not an %s stream: \"%s\".",
+                                error(stream_type_error_t, "%s is not an %s stream: \"%s\".",
                                       stream, ("output" if cond.args[0] == "not writable" else
                                                "adequate"),
                                       cond.args[0])
@@ -3810,12 +3807,13 @@ def write_line(string, stream = t):
         return write_string(string + "\n", stream)
 
 def finish_output(stream = t):
-        check_type(stream, (or_, stream, (member, t, nil)))
+        check_type(stream, (or_t, stream_t, (member_t, t, nil)))
         (stream is not nil) and _coerce_to_stream(stream).flush()
 
 def force_output(*args, **keys):
         finish_output(*args, **keys)
 
+@defun
 def format(destination, control_string, *args):
         """FORMAT produces formatted output by outputting the characters
 of CONTROL-STRING and observing that a tilde introduces a
