@@ -6973,7 +6973,7 @@ assert(_runtest(_expand_quasiquotation,
                          7)))))
 print("; QUASIQUOTATION-NESTED: passed")
 
-# DEFKNOWN
+# Matcher: MetaSEX preprocessing
 
 _intern_and_bind_names_in_module_specifically(
         ("_newline",                "%NEWLINE"),
@@ -7006,6 +7006,8 @@ def _preprocess_metasex(pat):
                                                           (_preprocess_metasex(x) for x in pat[1:])))
         # _here("\n ==> %s   -   %s", pat, ret, callers = 15)
         return ret
+
+# DEFKNOWN
 
 _known = _poor_man_defstruct("known",
                              "name",
@@ -7366,6 +7368,8 @@ def _match_sex(sex, pattern = None):
 ## WIP: set specifiers (got bored)
 _string_set("*SETSPEC-SCOPE*", nil)
 _setspec = _defscope("_setspec", _setspec_scope_)
+
+# Mapping
 
 def _combine_identity(f0, fR):
         f0r = f0()
