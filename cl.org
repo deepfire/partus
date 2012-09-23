@@ -686,21 +686,21 @@ def _conditionp(x):
         return isinstance(x, _cold_condition_type)
 
 @boot("typep", lambda _, datum, *args, default_type = None, **keys:
-              Exception(datum % args) if stringp(datum) else
+              Exception(datum % args) if isinstance(datum, str) else
               (datum if not (args or keys) else
                error("Bad, bad evil is rising.  Now go and kill everybody.")) if _conditionp(datum) else
               datum(*args, **keys))
 def _coerce_to_condition(datum, *args, default_type = None, **keys):
         def not_a_condition_specifier_error(x):
                 raise Exception("Cannot coerce %s to a condition." % repr(x))
-        type_specifier = _defaulted(default_type, error_t) if stringp(datum) else datum
+        type_specifier = _defaulted(default_type, error_t) if isinstance(datum, str) else datum
 
         type_ = (type_specifier             if isinstance(type_specifier, type)                                     else
                  None                       if _conditionp(type_specifier)                                          else
                  type_specifier.python_type if isinstance(type_specifier, symbol_t) and _symbol_type_specifier_p(type_specifier) else
                  not_a_condition_specifier_error(datum))
         cond = (datum              if type_ is None   else # Already a condition.
-                type_(datum % args) if stringp(datum) else
+                type_(datum % args) if isinstance(datum, str) else
                 type_(*args, **keys))
         return cond
 
@@ -743,7 +743,7 @@ def _symbol_conflict_error(op, obj, pkg, x, y):
 
 def _symbols_not_accessible_error(package, syms):
         def pp_sym_or_string(x):
-                return "\"%s\"" % x if stringp(x) else _print_nonkeyword_symbol(x)
+                return "\"%s\"" % x if isinstance(x, str) else _print_nonkeyword_symbol(x)
         error(simple_package_error_t, "These symbols are not accessible in the %s package: (%s).",
               package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
 #+end_src
@@ -783,7 +783,7 @@ class package_t(_collections.UserDict):
                                         assert isinstance(u_p, type(p))
                                         use_package(p, u_p)
                 ## __init__()
-                assert stringp(name)
+                assert isinstance(name, str)
                 self.name = name
                 self.nicknames = nicknames
 
@@ -1122,7 +1122,7 @@ def _init_package_system_0():
                            for n in __core_symbol_names__ + __more_symbol_names__],
                __cl)
         for spec in __core_symbol_names__ + __more_symbol_names__:
-                lisp_name, python_name = (spec, _frost.lisp_symbol_name_python_name(spec)) if stringp(spec) else spec
+                lisp_name, python_name = (spec, _frost.lisp_symbol_name_python_name(spec)) if isinstance(spec, str) else spec
                 _frost.setf_global(_find_symbol_or_fail(lisp_name, __cl), python_name, globals())
                 # Unregistered Issue PACKAGE-SYSTEM-INIT-SHOULD-USE-GLOBAL-SETTER-INSTEAD-OF-CUSTOM-HACKERY
         # secondary
@@ -1137,7 +1137,7 @@ def _init_package_system_0():
         def make_package(name, nicknames = [], use = []):
                 if nicknames:
                         _not_implemented("In MAKE-PACKAGE %s: package nicknames are ignored.", repr(name))
-                return package_t(name if stringp(name) else symbol_name(name),
+                return package_t(name if isinstance(name, str) else symbol_name(name),
                                  ignore_python = True, use = [])
 
 _init_package_system_0()
@@ -1292,7 +1292,7 @@ def signal(cond):
         for n, cluster in enumerate(reversed(handler_clusters)):
                 ## Unregistered Issue CLUSTERS-NOT-PROPERLY-UNWOUND-FOR-HANDLERS
                 for type, handler in cluster:
-                        if not stringp(type):
+                        if not isinstance(type, str):
                                 if isinstance(cond, type):
                                         hook = _symbol_value(_prehandler_hook_)
                                         if hook:
@@ -1479,7 +1479,7 @@ def _deftype(type_name_or_fn):
                                    globals())
                 return old_global
         return (do_deftype(type_name_or_fn, type_name = _frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
-                do_deftype                                                                                             if stringp(type_name_or_fn)   else
+                do_deftype                                                                                             if isinstance(type_name_or_fn, str)   else
                 error("In DEFTYPE: argument must be either a function or a string, was: %s.",
                       repr(symbol_name_or_fn)))
 
@@ -1566,8 +1566,8 @@ def eql(x, type):
 
 @_deftype
 def unsigned_byte(x, type):
-        return (((x, type, False) if not integerp(x) or minusp(x) else nil)                        if len(type) is 1 else
-                ((x, type, False) if not integerp(x) or minusp(x) or (x >= 1 << type[1]) else nil) if len(type) is 2 else
+        return (((x, type, False) if not isinstance(x, int) or minusp(x) else nil)                        if len(type) is 1 else
+                ((x, type, False) if not isinstance(x, int) or minusp(x) or (x >= 1 << type[1]) else nil) if len(type) is 2 else
                 (x, type, True))
 
 ## Non-standard
@@ -1669,7 +1669,7 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
                 def do_cold_def(o):
                         setattr(sym, slot, o)
                         # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
-                        #           if stringp(name) else
+                        #           if isinstance(name, str) else
                         #           name if symbolp(name) else
                         #           error("In %s: bad name %s for a cold object.", definer_name))
                         o = preprocess(o)
@@ -2065,7 +2065,7 @@ def _cold_princ_to_string(x):
 princ_to_string = _cold_princ_to_string
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
 def _cold_probe_file(pathname):
-        assert(stringp(pathname))
+        assert(isinstance(pathname, str))
         return _os.path.exists(the(string_t, pathname))
 probe_file = _cold_probe_file
 #+end_src
@@ -2296,9 +2296,9 @@ def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.
 
 def _locals_printf(locals, *local_names):
         # Unregistered Issue NEWLINE-COMMA-SEPARATION-NOT-PRETTY
-        _fprintf(_sys.stderr, ", ".join((("%s: %%s" % x) if stringp(x) else "%s")
+        _fprintf(_sys.stderr, ", ".join((("%s: %%s" % x) if isinstance(x, str) else "%s")
                                         for x in local_names) + "\n",
-                 *((locals[x] if stringp(x) else "\n") for x in local_names))
+                 *((locals[x] if isinstance(x, str) else "\n") for x in local_names))
 #+end_src
 
 ******* Raw data of frame research
@@ -3981,7 +3981,7 @@ def make_pathname(*args, host = None, device = None, directory = None, name = No
                         device = nil, directory = nil, name = nil, type = nil, version = nil))
         effective_host = _defaulted(host, default.host)
         supplied_pathname = dict(
-                (k, effective_host.apply_case(case, v) if stringp(v) else v)
+                (k, effective_host.apply_case(case, v) if isinstance(v, str) else v)
                 for k, v in _only_specified_keys(host = host, device = device, directory = directory, name = name, type = type, version = version).items())
         ## Unregistered Issue RESEARCH-COMPLIANCE-MAKE-PATHNAME-CANONICALISATION
         return merge_pathnames(supplied_pathname, default)
@@ -4052,7 +4052,7 @@ a file stream after it is closed as it did when it was open.
 If the PATHSPEC designator is a file stream created by opening a
 logical pathname, a logical pathname is returned."""
         return (x                                             if pathnamep(x)      else
-                _values_frame_project(0, parse_namestring(x)) if stringp(x)        else
+                _values_frame_project(0, parse_namestring(x)) if isinstance(x, str)        else
                 _file_stream_name(x)                          if _file_stream_p(x) else
                 error("PATHNAME only accepts pathnames, namestrings and file streams, was given: %s.", x))
 
@@ -4323,13 +4323,13 @@ def write_to_string(object,
                                 # Honors *PACKAGE*, *PRINT-CASE*, *PRINT-ESCAPE*, *PRINT-GENSYM*, *PRINT-READABLY*.
                                 # XXX: in particular, *PRINT-ESCAPE* is honored only partially.
                                 string += _print_symbol(object)
-                        elif integerp(object) or floatp(object):
+                        elif isinstance(object, int) or floatp(object):
                                 string += str(object)
                         elif object is False or object is None or object is True:
                                 string += obj2lisp_xform[object]
                         elif type(object).__name__ == "builtin_function_or_method":
                                 string += "\"#<BUILTIN-FUNCTION-OR-METHOD %s 0x%x>\"" % (object.__name__, id(object))
-                        elif stringp(object):
+                        elif isinstance(object, str):
                                 # Honors *PRINT-ESCAPE* and *PRINT-READABLY*.
                                 string += _print_string(object)
                         elif hash_table_p(object) or _setp(object):
@@ -4461,7 +4461,7 @@ If RECURSIVE-P is true, this call is expected to be embedded in a higher-level c
 When INPUT-STREAM is an echo stream, characters that are only peeked at are not echoed. In the case that PEEK-TYPE is not NIL, the characters that are passed by PEEK-CHAR are treated as if by READ-CHAR, and so are echoed unless they have been marked otherwise by UNREAD-CHAR."""
         criterion = (lambda _: t                if peek_type is nil                                     else
                      lambda c: c not in " \t\n" if peek_type is t                                       else
-                     lambda c: c == peek_type   if stringp(peek_type) and len(peek_type) == 1 else
+                     lambda c: c == peek_type   if isinstance(peek_type, str) and len(peek_type) == 1 else
                      error("Invalid peek-type: '%s'.", peek_type))
         stream = _defaulted(input_stream, _symbol_value(_standard_input_))
         while t:
@@ -4638,7 +4638,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
                                           backtrace = backtrace)
                         if old_hook_value:
                                 old_hook_value(cond, old_hook_value)
-                with env.maybe_let(p, **{hook if stringp(hook) else symbol_name(hook): wrapped_hook}):
+                with env.maybe_let(p, **{hook if isinstance(hook, str) else symbol_name(hook): wrapped_hook}):
                         return body()
         else:
                 return body()
@@ -4657,7 +4657,7 @@ def __cl_condition_handler__(condspec, frame):
                 def _maybe_upgrade_condition(cond):
                         "Fix up the shit routinely being passed around."
                         return ((cond, nil) if isinstance(cond, condition_t) else
-                                (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
+                                (condspec[0](*([cond] if not sequencep(cond) or isinstance(cond, str) else
                                                cond)), t))
                         # _poor_man_typecase(cond,
                         #                    (BaseException, lambda: cond),
@@ -4931,7 +4931,7 @@ def _restart_case(body, **restarts_args):
                                                                    error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
                                                                   report_function      =
                                                                   (report                       if functionp(report) else
-                                                                   _curry(write_string, report) if stringp(report) else
+                                                                   _curry(write_string, report) if isinstance(report, str) else
                                                                    nil                          if null(report) else
                                                                    error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
                 for restart_name, restart_args in restarts_args.items () }
@@ -4954,7 +4954,7 @@ If name is NIL, an anonymous restart is established.
 
 The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
 """
-        description = (format_control_and_arguments if stringp(format_control_and_arguments) else
+        description = (format_control_and_arguments if isinstance(format_control_and_arguments, str) else
                        format(nil, format_control_and_arguments[0], *format_control_and_arguments[1:]))
         return restart_case(body, **{ name: (lambda: None,
                                              dict(report = lambda stream: format(stream, "%s", description))) })
@@ -5037,7 +5037,7 @@ def invoke_restart(restart, *args, **keys):
 Calls the function associated with RESTART, passing arguments to
 it. Restart must be valid in the current dynamic environment.
 """
-        assert(stringp(restart) or _restartp(restart))
+        assert(isinstance(restart, str) or _restartp(restart))
         restart = restart if _restartp(restart) else find_restart(restart)
         return restart.function(*args, **keys)
 
@@ -5061,7 +5061,7 @@ executes the following:
 
  (apply #'invoke-restart restart arguments)
 """
-        assert(stringp(restart) or _restartp(restart))
+        assert(isinstance(restart, str) or _restartp(restart))
         restart = restart if _restartp(restart) else find_restart(restart)
         return invoke_restart(restart, *restart.interactive_function())
 #+end_src
@@ -5126,7 +5126,7 @@ executes the following:
                         (", ".join([x.upper() for x, _ in method_specs[:-1]]) +
                          (" and " if len(method_specs) > 1 else "") +
                          (method_specs[-1][0].upper() if method_specs else "")),
-                        x if stringp(x) else more_ast.pp_ast_as_code(x), type_of(x))
+                        x if isinstance(x, str) else more_ast.pp_ast_as_code(x), type_of(x))
           def process(method_name, default_maker):
                   "Return a validated and normalised named method body 'return'-wise."
                   x = find(method_name, body_ast, key = _slotting("name"))
@@ -6539,17 +6539,17 @@ def append(*xs):
       concept, is an important, but basic step in the general direction.
 
 #+begin_src python
-  _intern_and_bind_pynames("%NAME", "%MAYBE")
+  _intern_and_bind_names_in_module("%NAME", "%MAYBE")
 
   def _maybe_destructure_binding(pat):
-          return ((None, pat)               if not typep(pat, dict) else
+          return ((None, pat)               if not isinstance(pat, dict) else
                   tuple(pat.items())[0] if len(pat) == 1        else
                   error_bad_pattern(pat))
 
   def _error_bad_pattern(pat):
           raise Exception("Bad pattern: %s." % (pat,))
 
-  _intern_and_bind_pynames("%CALL", "%RETURN")
+  _intern_and_bind_names_in_module("%CALL", "%RETURN")
 
   _trace_table = dict()
   def _do_tracep(*props):
@@ -6573,8 +6573,8 @@ def append(*xs):
   _untrace()
 
   def _trace_printf(tracespec, control, *args):
-          if _tracep(*(tracespec                    if _tuplep(tracespec) else
-                       (tracespec,)                 if stringp(tracespec) else
+          if _tracep(*(tracespec                    if isinstance(tracespec, tuple) else
+                       (tracespec,)                 if isinstance(tracespec, str) else
                        (tracespec, _caller_name(1)))):
                   _debug_printf(control, *(args if not (len(args) == 1 and functionp(args[0])) else
                                            args[0]()))
@@ -6661,8 +6661,8 @@ def append(*xs):
           def   register_simplex_matcher(m, name, matcher):     m.__simplex_patterns__[name] = matcher
           def   register_complex_matcher(m, name, matcher):     m.__complex_patterns__[name] = matcher
           def deregister_complex_matcher(m, name):          del m.__complex_patterns__[name]
-          def simplex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
-          def complex_pat_p(m, x): return _tuplep(x) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
+          def simplex_pat_p(m, x): return isinstance(x, tuple) and x and symbolp(x[0]) and x[0] in m.__simplex_patterns__
+          def complex_pat_p(m, x): return isinstance(x, tuple) and x and symbolp(x[0]) and x[0] in m.__complex_patterns__
           def simplex(m, bound, name, exp, pat, orifst):
                   _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -[] %s\n -() %s",
                                 lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
@@ -6695,8 +6695,8 @@ def append(*xs):
                           for i, ix in enumerate(xs):
                                   if x == ix: return i
                   def constant_pat_p(pat):
-                          def nonconstant_pat_p(x): return _tuplep(x) or m.nonliteral_atom_p(x)
-                          return not nonconstant_pat_p(tuple(pat.items())[0][1] if typep(pat, dict) else
+                          def nonconstant_pat_p(x): return isinstance(x, tuple) or m.nonliteral_atom_p(x)
+                          return not nonconstant_pat_p(tuple(pat.items())[0][1] if isinstance(pat, dict) else
                                                        pat)
                   ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                   seg_pat, rest_pat = pat[0][1:], pat[1:]
@@ -6723,7 +6723,7 @@ def append(*xs):
                                                       m.fail(bound, exp, pat)                                if limit == 0    else
                                                       ## Try biting one more iteration off seg_exp:
                                                       m.match(bound, name,  seg_exp,     aux,  (False,
-                                                                                                firstp), aux, (limit - 1 if integerp(limit) else
+                                                                                                firstp), aux, (limit - 1 if isinstance(limit, int) else
                                                                                                                None))))),
                                           lambda seg_bound:
                                                   m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, None),
@@ -6764,7 +6764,7 @@ def append(*xs):
                   ## I just caught myself feeling so comfortable thinking about life matters,
                   ## while staring at a screenful of code.  In "real" life I'd be pressed by
                   ## the acute sense of time being wasted..
-                  atomp, null = not _tuplep(pat), pat == ()
+                  atomp, null = not isinstance(pat, tuple), pat == ()
                   _trace_printf("match", "       _match  %x  %10s  %20s\n -[] %s\n -() %s\n -<> %s  %s  %s, atomp: %s, null: %s, complexp: %s, simplexp: %s",
                                 lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
                                          atomp, null,
@@ -6775,14 +6775,14 @@ def append(*xs):
                          (m.test((m.atom(exp, pat) if atomp else
                                   exp == ()),
                                  bound, name, lambda: m.prod(exp, orifst[0]), exp, pat)     if atomp or null        else
-                          m.simplex(bound, name, exp,  pat, (_tuplep(exp),
+                          m.simplex(bound, name, exp,  pat, (isinstance(exp, tuple),
                                                              orifst[1]))              if m.simplex_pat_p(pat) else
                           m.complex(bound, name, (exp,), (pat,), orifst, None, limit) if m.complex_pat_p(pat) else
                           (lambda pat0name, pat0, pat0simplexp, patR, clean_pat:
                                    (m.equo(name, exp,
                                            m.complex(bound, pat0name, exp, clean_pat, orifst, aux, limit))
                                     if m.complex_pat_p(pat0)         else
-                                    m.fail(bound, exp, pat)   if not _tuplep(exp) or exp == () else # pat tupleful, exp tupleful
+                                    m.fail(bound, exp, pat)   if not isinstance(exp, tuple) or exp == () else # pat tupleful, exp tupleful
                                     m.equo(name, exp,
                                            m.crec(exp,
                                                   lambda:        m.match(bound, pat0name, exp[0],  pat0, (_tuplep(exp[0]),
@@ -6836,7 +6836,7 @@ def append(*xs):
                        effects = None, affected = None):
                   check_type(arglist, tuple)
                   args_types = tuple(t for _ in arglist)
-                  check_type(name, symbol)
+                  check_type(name, symbol_t)
                   if name in _fns:
                           error("Asked to overwrite FN record %s.", name)
                   _attrify_args(self, locals(), "name",
@@ -6885,7 +6885,7 @@ def append(*xs):
                   if fn:
                           prop_vals = []
                           for prop_test in prop_test_pairs:
-                                  prop, test = (prop_test if _tuplep(prop_test) else
+                                  prop, test = (prop_test if isinstance(prop_test, tuple) else
                                                 (prop_test, constantly(t)))
                                   val = getattr(fn, prop)
                                   if val is None or not test(val):
@@ -6905,10 +6905,10 @@ def _parse_body(body, doc_string_allowed = t, toplevel = nil):
         doc = nil
         def doc_string_p(x, remaining_forms):
                 return ((error("duplicate doc string %s", x) if doc else t)
-                        if stringp(x) and doc_string_allowed and remaining_forms else
+                        if isinstance(x, str) and doc_string_allowed and remaining_forms else
                         None)
         def declaration_p(x):
-                return _tuplep(x) and x[0] is declare
+                return isinstance(x, tuple) and x[0] is declare
         decls, forms = [], []
         for i, form in enumerate(body):
                if doc_string_p(form, body[i:]):
@@ -6950,7 +6950,7 @@ def _compiler_error(control, *args):
 
 #+begin_src python +n
 _string_set("*IN-COMPILATION-UNIT*", nil)
-_intern_and_bind_pynames("*ABORTED-COMPILATION-UNIT-COUNT*",
+_intern_and_bind_names_in_module("*ABORTED-COMPILATION-UNIT-COUNT*",
                          "*COMPILER-ERROR-COUNT*",
                          "*COMPILER-WARNINGS-COUNT*",
                          "*COMPILER-STYLE-WARNINGS-COUNT*",
@@ -7065,7 +7065,7 @@ def _compilation_unit_prologue():
 ******* Code
 
 #+begin_src python +n
-_intern_and_bind_pynames("*LEXENV*",
+_intern_and_bind_names_in_module("*LEXENV*",
                          "VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO", "MACRO", "COMPILER-MACRO", "BLOCK")
                          ## "FUNCTION"
 
@@ -7252,7 +7252,7 @@ def _make_lexenv(parent = nil, **initial_content):
 ## If the backquote syntax is nested, the innermost backquoted form should be expanded first. This means that if several
 ## commas occur in a row, the leftmost one belongs to the innermost backquote.
 
-_intern_and_bind_pynames("QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
+_intern_and_bind_names_in_module("QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
 
 ## Unregistered Issue COMPLIANCE-BACKQUOTE-EXPANSION-DOTTED-LIST-HANDLING
 
@@ -7260,17 +7260,17 @@ def _expand_quasiquotation(quasiquotation_form):
         """Expand abbreviation of QUASIQUOTATION-FORM (in a simple, yet suboptimal way)."""
         def malform(x): error("Invalid %s form: %s.", x[0], x)
         def process_form(x):
-                return (x                                         if atom(x)            else
+                return (x                                         if atom_pyfun(x)            else
                         (process_qq(x[1]) if len(x) is 2 else
                          malform(x))                              if x[0] is quasiquote else
                         tuple(process_form(ix) for ix in x))
         def process_qq(x):
-                if atom(x):
+                if atom_pyfun(x):
                         return (quote, x)
                 else:
                         acc = [append]
                         for xi in x:
-                                if atom(xi):
+                                if atom_pyfun(xi):
                                         acc.append((list, (quote, xi)))
                                 elif xi[0] in (comma, splice):
                                         len(xi) is 2 or malform(xi)
@@ -7396,7 +7396,7 @@ print("; QUASIQUOTATION-NESTED: passed")
                   metasex = _defaulted(metasex, _compute_default_metasex(name))
                   return do_defknown(fn, name, pyname, metasex)
           return (_defknown(metasex_or_fn, metasex = None) if functionp(metasex_or_fn) else
-                  _defknown                                if _tuplep(metasex_or_fn)   else
+                  _defknown                                if isinstance(metasex_or_fn, tuple)   else
                   error("In DEFKNOWN: argument must be either a function or a pretty-printer code tuple, was: %s.",
                         repr(metasex_or_fn)))
   def _find_known(x):
@@ -7491,14 +7491,14 @@ print("; QUASIQUOTATION-NESTED: passed")
         MetaSEX presents us with an excellent lesson.  Let's try to understand.
 
 #+begin_src python +n
-  _intern_and_bind_pynames("%NAME", "%MAYBE", "%NOTLEAD", "%NOTTAIL",
+  _intern_and_bind_names_in_module("%NAME", "%MAYBE", "%NOTLEAD", "%NOTTAIL",
                            "%NEWLINE", "%INDENT", "%FORM", "%BOUND", "%SYMBOL", "%TYPEP", "%COUNT-SCOPE",
                            "%MAYBE-ONCE", "%ONCE",
                            "%SET-MINUS")
 
   def _form_known(form):
           ## METASEX-MATCHER guts it, due to case analysis
-          complex_form_p = _tuplep(form) and symbolp(form[0])
+          complex_form_p = isinstance(form, tuple) and symbolp(form[0])
           return complex_form_p and _find_known(form[0])
 
   def _combine_t_or_None(f0, fR, orig_tuple_p):
@@ -7525,13 +7525,13 @@ print("; QUASIQUOTATION-NESTED: passed")
                           k, v = tuple(b.items())[0]
                           return {k: m.preprocess(v)}
                   return ((_count_scope, (some,) +
-                           m.preprocess(tuple(pat))) if typep(pat, list)       else
-                          prep_binding(pat)              if typep(pat, dict)       else
+                           m.preprocess(tuple(pat))) if isinstance(pat, list)       else
+                          prep_binding(pat)              if isinstance(pat, dict)       else
                           (_form,)                       if pat == _form               else
                           (_newline, 0)                  if pat == "\n"                else
-                          (_newline, pat)                if integerp(pat)              else
+                          (_newline, pat)                if isinstance(pat, int)              else
                           (_indent, 1)                   if pat == " "                 else
-                          pat                            if not (pat and _tuplep(pat)) else
+                          pat                            if not (pat and isinstance(pat, tuple)) else
                           (m.preprocess(pat[0]),) + m.preprocess(pat[1:]))
           @staticmethod
           def prod(x, orig_tuple_p): return ""
@@ -7560,7 +7560,7 @@ print("; QUASIQUOTATION-NESTED: passed")
           @staticmethod
           def form_metasex(form):
                   ####### Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
-                  return ((_typep, t)                             if not _tuplep(form)                                      else
+                  return ((_typep, t)                             if not isinstance(form, tuple)                                      else
                           ()                                      if not form                                               else
                           _find_known(form[0]).metasex            if symbolp(form[0]) and _find_known(form[0])              else
                           (_name, [(_nottail, " "), _form])       if symbolp(form[0])                                       else
@@ -7569,7 +7569,7 @@ print("; QUASIQUOTATION-NESTED: passed")
           def form(m, bound, name, form, pat, orifst):
                   prepped = m.preprocess(m.form_metasex(form))
                   _trace_printf("form", "=== form for %s:\n    %s", lambda: (repr(form), prepped))
-                  return _r(form, pat, m.match(bound, name, form, prepped, (_tuplep(form), orifst[1]), None, None))
+                  return _r(form, pat, m.match(bound, name, form, prepped, (isinstance(form, tuple), orifst[1]), None, None))
           def symbol(m, bound, name, form, pat, orifst):
                   return m.test(form is pat[1], bound, name, lambda: m.prod(form, orifst),
                                 form, pat)
@@ -7644,7 +7644,7 @@ print("; QUASIQUOTATION-NESTED: passed")
                   ############## act as identity
                   return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
 
-  _intern_and_bind_pynames("%LAX")
+  _intern_and_bind_names_in_module("%LAX")
 
   class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
           def __init__(m):
@@ -7669,13 +7669,13 @@ print("; QUASIQUOTATION-NESTED: passed")
                           nonlocal bound0, failex, failpat
                           _, failex, failpat = l0()
                           if failpat is None: return failex
-                          return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (_typep, t),
+                          return m.match({}, None, exp, ([(_lax,)],) if isinstance(exp, tuple) else (_typep, t),
                                          (None, None), None, None)
                   def try_R():
                           nonlocal boundR, failex, failpat
                           _, failex, failpat = lR(bound0)
                           if failpat is None: return failex
-                          return m.match({}, None, exp, ([(_lax,)],) if _tuplep(exp) else (_typep, t),
+                          return m.match({}, None, exp, ([(_lax,)],) if isinstance(exp, tuple) else (_typep, t),
                                          (None, None), None, None)
                   result = (m.comh if horisontal else
                             m.comr)(try_0, try_R, orig_tuple_p)
@@ -7764,7 +7764,7 @@ print("; QUASIQUOTATION-NESTED: passed")
                   _debug_printf("%15s bound: %s", fun.__name__, b)
                   _debug_printf("%15s res: %s", fun.__name__, r)
 
-  # _intern_and_bind_pynames("LET", "FIRST", "SECOND", "CAR", "&BODY")
+  # _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "&BODY")
   # def just_match():
   #         return _match(_metasex,
   #                       (let, ((first, ()),
@@ -7855,7 +7855,7 @@ print("; QUASIQUOTATION-NESTED: passed")
   # assert(result_good)
   # print("; ALTERNATES: passed")
 
-  # _intern_and_bind_pynames("PI")
+  # _intern_and_bind_names_in_module("PI")
   # def simplex():
   #         pat = ({'head':[()]}, {'tail':_name})
   #         exp = ((), pi)
@@ -7939,7 +7939,7 @@ print("; QUASIQUOTATION-NESTED: passed")
                               (macro_function(form[0], env) or
                                (compilerp and
                                 knownifier_and_maybe_compiler_macroexpander(form, _find_known(form[0]))))),
-                             form[1:])                              if _tuplep(form) else
+                             form[1:])                              if isinstance(form, tuple) else
                             (_symbol_macro_expander(form, env), ()) if symbolp(form) else ## Notice, how NIL is not expanded.
                             (nil, nil))
           return ((form, nil) if not expander else
@@ -7970,7 +7970,7 @@ print("; QUASIQUOTATION-NESTED: passed")
           env = _symbol_value(_macroexpander_env_)
           expanded_form, _ = macroexpand(form, env, compilerp = compilerp)
           ## 2. Compute bindings contributed by this outer form.
-          known = _find_known(expanded_form[0]) if _tuplep(expanded_form) else nil
+          known = _find_known(expanded_form[0]) if isinstance(expanded_form, tuple) else nil
           (symbol_frame,
            mfunc_frame,
            ffunc_frame) = ((_dict_select_keys(_ir_binds(expanded_form), symbol_macro),
@@ -8078,7 +8078,7 @@ def _debugging_compiler():
 def _compiler_debug_printf(control, *args):
         if _debugging_compiler():
                 justification = _sex_space()
-                def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
+                def fix_string(x): return x.replace("\n", "\n" + justification) if isinstance(x, str) else x
                 _debug_printf(justification + fix_string(control), *tuple(fix_string(a) for a in args))
 
 if probe_file("/home/deepfire/.partus-debug-compiler"):
@@ -8187,7 +8187,7 @@ def _prepend_prologue(pro, tuple):
 
   def _maybe_ir_args(x):
           "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
-          return ((t, x[1], x[2:]) if _tuplep(x) and x and x[0] is _ir_args else
+          return ((t, x[1], x[2:]) if isinstance(x, tuple) and x and x[0] is _ir_args else
                   (nil, x, tuple()))
 
   def _ir(*ir, **keys):
@@ -8229,7 +8229,7 @@ def _prepend_prologue(pro, tuple):
         #         with _no_tail_position():
         #                 # Consciously discarding the values returned by (SETF VALUES)
         #                 bind_pro, _ = _lower((setf_values,
-        #                                       [ car(x) for x in bindings_thru_defaulting ],
+        #                                       [ car_pyfun(x) for x in bindings_thru_defaulting ],
         #                                       ("tuple",) + tuple(cdr(x) for x in bindings_thru_defaulting)))
         #         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
         #         body_pro, body_val = _lower((progn,) + body)
@@ -8241,10 +8241,10 @@ def _prepend_prologue(pro, tuple):
 #+begin_src python
 def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, default_expr = None):
         default_expr = _defaulted(default_expr, (_name, "None"))
-        if not _tuplep(lambda_list_):
+        if not isinstance(lambda_list_, tuple):
                 error("In %s: lambda list must be a tuple, was: %s.", context, lambda_list_)
         def valid_parameter_specifier_p(x): return typep(x, (and_, symbol, (not_, keyword)))
-        test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (_tuplep(x) and len(x) == 2 and
+        test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (isinstance(x, tuple) and len(x) == 2 and
                                                                                valid_parameter_specifier_p(x[0])),
                                  "In %s: lambda lists can only contain non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
                                  if allow_defaults else
@@ -8276,12 +8276,12 @@ def _ir_prepare_lispy_lambda_list(lambda_list_, context, allow_defaults = None, 
         restkey = restkeyposp and lambda_list_[restkeypos + 1] or None
         _keys = list(lambda_list_[keypos + 1:restkeypos or None]) if keypos else tuple()
         keys, keydefs = (list(_ensure_car(x) for x in _keys),
-                         list((x[1] if _tuplep(x) else default_expr)
+                         list((x[1] if isinstance(x, tuple) else default_expr)
                                   for x in _keys))
         rest = restposp and lambda_list_[restpos + 1] or None
         optional = list(lambda_list_[optpos + 1:restpos or keypos or restkeypos or None]) if optposp else []
         optional, optdefs = (list(_ensure_car(x) for x in optional),
-                             list((x[1] if _tuplep(x) else default_expr)
+                             list((x[1] if isinstance(x, tuple) else default_expr)
                                       for x in optional))
         fixed = list(lambda_list_[0:_defaulted(optpos, (restpos    if restposp    else
                                                             keypos     if keyposp     else
@@ -8367,9 +8367,9 @@ def _ir_cl_module_call(name, *ir_args):
 #+begin_src python
 def _lower_name(name, ctx = "Load"):
         check_type(name, (or_, symbol, (pytuple, (eql, symbol), symbol)))
-        if _tuplep(name) and ctx != "Load":
+        if isinstance(name, tuple) and ctx != "Load":
                 error("COMPILE-NAME: only 'Load' context possible while lowering (SYMBOL ..) forms.")
-        return ("Name", _frost.full_symbol_name_python_name(name[1] if _tuplep(name) else name), (ctx,))
+        return ("Name", _frost.full_symbol_name_python_name(name[1] if isinstance(name, tuple) else name), (ctx,))
 
 @defknown((intern("SETQ")[0], " ", _name, " ", _form))
 def setq():
@@ -8520,7 +8520,7 @@ def if_():
         def nvalues(test, consequent, antecedent):
                 nconseq, nante = _ir_nvalues(consequent), _ir_nvalues(antecedent)
                 return (nconseq                 if nconseq == nante                      else
-                        max(nconseq, nante) if integerp(nconseq) and integerp(nante) else
+                        max(nconseq, nante) if isinstance(nconseq, int) and isinstance(nante, int) else
                         t)
         def nth_value(n, orig, test, consequent, antecedent):
                 vconseq, vante = _ir_nth_value(consequent), _ir_nth_value(antecedent)
@@ -8576,7 +8576,7 @@ def let():
                 return { variable: { _variable_binding(name, variable, None) for name, _ in bindings } }
         def lower(bindings, *body):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
-                if not (_tuplep(bindings) and
+                if not (isinstance(bindings, tuple) and
                         every(_of_type((or_, symbol, (pytuple, symbol, t))))):
                         error("LET: malformed bindings: %s.", bindings)
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
@@ -8697,7 +8697,7 @@ def labels():
         Unregistered Issue COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST.
 
 #+begin_src python
-_intern_and_bind_pynames("SETF")
+_intern_and_bind_names_in_module("SETF")
 
 @defknown((intern("FUNCTION")[0], " ", (or_, _name,
                                              (setf, _name))))
@@ -9194,7 +9194,7 @@ def ref():
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
         def lower(name):
-                check_type(name, symbol)
+                check_type(name, symbol_t)
                 _compilation_note_symbol(name)
                 return ([],
                         ("Name", _frost.full_symbol_name_python_name(name), ("Load",)))
@@ -9216,7 +9216,7 @@ def ref():
 def nth_value():
         def nvalues(_, __):    return 1
         def nth_value(n, orig, form_n, form):
-                return ((nth_value, n, orig) if not (integerp(n) and integerp(form_n)) else ## Give up.  Too early?
+                return ((nth_value, n, orig) if not (isinstance(n, int) and isinstance(form_n, int)) else ## Give up.  Too early?
                         nil                  if n != form_n and not _ir_effects(form)  else
                         (progn, form, nil)   if n != form_n                            else
                         _ir_nth_value(n, form)) ## We don't risque unbounded recursion here, so let's further analysis..
@@ -9384,10 +9384,10 @@ def apply():
         def nvalues(func, _, *__):            return _ir_function_form_nvalues(func)
         def nth_value(n, orig, func, _, *__): return _ir_function_form_nth_value_form(n, func, orig)
         def lower(func, arg, *args):
-                def pycall_p(x): return stringp(x) or (_tuplep(x) and all(stringp(x) for x in x))
+                def pycall_p(x): return isinstance(x, str) or (isinstance(x, tuple) and all(isinstance(x, str) for x in x))
                 ## Unregistered Issue IMPROVEMENT-APPLY-COULD-VALIDATE-CALLS-OF-KNOWNS
                 with _no_tail_position():
-                        func_pro, func_val = (([], _attr_chain_atree((func,) if stringp(func) else func))
+                        func_pro, func_val = (([], _attr_chain_atree((func,) if isinstance(func, str) else func))
                                               # Unregistered Issue ENUMERATE-COMPUTATIONS-RELIANT-ON-STRING-APPLY
                                               # - quote_ compilation in lower_
                                               if pycall_p(func) else
@@ -9426,7 +9426,7 @@ def apply():
 ***** Known tests
 
 #+begin_src python
-  _intern_and_bind_pynames("COND")
+  _intern_and_bind_names_in_module("COND")
 
   def applyification():
           return _macroexpander_inner(_macroexpander, dict(), None,
@@ -9469,7 +9469,7 @@ def _lower(form):
                         def noisep(x): return x in [symbol]
                         def puntedp(x):
                                 "Whether the primitive compiler requested recompilation."
-                                return x and _tuplep(x) and symbolp(x[0])
+                                return x and isinstance(x, tuple) and symbolp(x[0])
                         def maybe_call_primitive_compiler(name, forms, args):
                                 known = _find_known(name)
                                 if not known:
@@ -9707,7 +9707,7 @@ and true otherwise."""
         ##    function from the resulting module by N-O-W-B-C-L-A-N-T.
         ## 2. Choose a lambda expression, and handle exceptions.
         ## 3. Inevitably, punt to N-O-W-B-C-L-A-N-T.
-        if _tuplep(definition):
+        if isinstance(definition, tuple):
                 lambda_expression = the((partuple, (eql, lambda_), pytuple), definition)
         else:
                 fun = definition or macro_function(name) or fdefinition(name)
@@ -9872,8 +9872,8 @@ def _simple_eval_in_lexenv(original_exp, lexenv):
         exp = macroexpand(original_exp, lexenv)
         if symbolp(exp):
                 return symbol_value(exp)
-        elif _tuplep(exp):
-                name = car(exp)
+        elif listp_pyfun(exp):
+                name = car_pyfun(exp)
                 n_args = len(exp) - 1
                 if   name is function:        _not_implemented("%SIMPLE-EVAL-IN-LEXENV FUNCTION case")
                 elif name is quote:           return the((pytuple, symbol, t), exp)[1]
@@ -9964,7 +9964,7 @@ def _preprocessor_macroexpand_1(form):
                 #       (not (and (symbolp op) (sb!xc:special-operator-p op)))))
                 #  (sb!xc:macroexpand-1 form env)
                 #  (values form nil))
-                return (macroexpand_1(form, env) if atom(form) or not (symbolp(car(form)) and special_operator_p(car(form)))
+                return (macroexpand_1(form, env) if atom_pyfun(form) or not (symbolp(car_pyfun(form)) and special_operator_p(car_pyfun(form)))
                                                  else _values_frame(form, nil))
         ## Macroexpand FORM in the current environment with an error handler.
         ## We only expand one level, so that we retain all the intervening
@@ -9987,7 +9987,7 @@ def _process_toplevel_locally(body, path, compile_time_too, vars = [], funs = []
 _eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
 _eval_when_keywords = set(_eval_when_ordered_keywords)
 def _parse_eval_when_situations(situ_form):
-        if not (_tuplep(situ_form) and set(situ_form) == _eval_when_keywords):
+        if not (isinstance(situ_form, tuple) and set(situ_form) == _eval_when_keywords):
                 error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
         return [x in situ_form for x in _eval_when_ordered_keywords]
 
@@ -10035,7 +10035,7 @@ def _process_toplevel_form(form, path, compile_time_too):
                                 return [_convert_and_maybe_compile(form, path)]
                         else:
                                 return _process_toplevel_form(expanded, path, compile_time_too)
-        if atom(form):
+        if atom_pyfun(form):
                 return default_processor(form)
         else:
                 if form[0] in [eval_when, macrolet, symbol_macrolet]:
@@ -10126,7 +10126,7 @@ def _load_as_source(stream, verbose = nil, print = nil):
                                 while t:
                                         def with_retry_restart_body():
                                                 results = _eval_tlf(form, index)
-                                                results = (results,) if not _tuplep(results) else results
+                                                results = (results,) if not isinstance(results, tuple) else results
                                                 if print:
                                                         format(t, "%s\n", ", ".join(repr(x) for x in results))
                                         with_simple_restart("RETRY", ("Retry EVAL of current toplevel form.",),
@@ -10426,7 +10426,7 @@ The state of the global environment (e.g., which symbols have been
 declared to be the names of constant variables)."""
         return (typep(form, (or_, integer, float, complex, string)) or
                 keywordp(form) or form in [t, nil, pi]                 or
-                (_tuplep(form) and len(form) == 2 and form[0] is quote_))
+                (isinstance(form, tuple) and len(form) == 2 and form[0] is quote_))
 #+end_src
 
 *** Rudimentary CLOS imitation
@@ -11833,8 +11833,8 @@ def _compute_applicable_methods_using_types(generic_function, types_):
 def _type_from_specializer(specl):
         if specl is t:
                 return t
-        elif _tuplep(specl):
-                if not member(car(specl), [class_, _class_eq, eql]): # protoype_
+        elif isinstance(specl, tuple):
+                if not member(car_pyfun(specl), [class_, _class_eq, eql]): # protoype_
                         error("%s is not a legal specializer type.", specl)
                 return specl
         elif specializerp(specl): # Was a little bit more involved.
@@ -11848,8 +11848,8 @@ def specializer_applicable_using_type_p(specl, type):
                 return _values_frame(t, t)
         ## This is used by C-A-M-U-T and GENERATE-DISCRIMINATION-NET-INTERNAL,
         ## and has only what they need.
-        return ((nil, t) if atom(type) or car(type) is t else
-                _poor_man_case(car(type),
+        return ((nil, t) if atom_pyfun(type) or car_pyfun(type) is t else
+                _poor_man_case(car_pyfun(type),
                                # (and    (saut-and specl type)),
                                # (not    (saut-not specl type)),
                                # (class_,     saut_class(specl, type)),
@@ -11862,10 +11862,10 @@ def specializer_applicable_using_type_p(specl, type):
                                                        type))))
 
 def _saut_class_eq(specl, type):
-       if car(specl) is eql:
+       if car_pyfun(specl) is eql:
                return (nil, type_of(specl[1]) is type[1])
        else:
-               pred = _poor_man_case(car(specl),
+               pred = _poor_man_case(car_pyfun(specl),
                                      (class_eq, lambda: specl[1] is type[1]),
                                      (class_,   lambda: (specl[1] is type[1] or
                                                          memq(specl[1], cpl_or_nil(type[1])))))
@@ -11895,10 +11895,10 @@ def _order_specializers(specl1, specl2, index, compare_classes_function):
         type1 = specializer_type(specl1) # Was: (if (eq **boot-state** 'complete) ..)
         type2 = specializer_type(specl2) # Was: (if (eq **boot-state** 'complete) ..)
         return ([]     if specl1 is specl1 else
-                specl2 if atom(type1)      else # is t?
-                specl1 if atom(type2)      else # is t?
-                _poor_man_case(car(type1),
-                               (type, lambda: case(car(type2),
+                specl2 if atom_pyfun(type1)      else # is t?
+                specl1 if atom_pyfun(type2)      else # is t?
+                _poor_man_case(car_pyfun(type1),
+                               (type, lambda: case(car_pyfun(type2),
                                                        (type, compare_classes_function(specl1, specl2, index)),
                                                        (t, specl2))),
                      # (prototype (case (car type2)
@@ -11916,7 +11916,7 @@ def _order_specializers(specl1, specl2, index, compare_classes_function):
                      #             ;; methods, we could replace this with a BUG.
                      #             (class-eq nil)
                      #             (class type1)))
-                     (eql,  lambda: _poor_man_case(car(type2),
+                     (eql,  lambda: _poor_man_case(car_pyfun(type2),
                                                    # similarly
                                                    (eql, []),
                                                    (t, specl1)))))
@@ -13246,9 +13246,9 @@ def _make_method_specializers(specializers):
                                                                   # ..special-case, since T isn't a type..
                         name                                                      if typep(name, type) else
                                                                   # Was: ((symbolp name) `(find-class ',name))
-                        _poor_man_ecase(car(name),
+                        _poor_man_ecase(car_pyfun(name),
                                         (eql,       lambda: intern_eql_specializer(name[1])),
-                                        (class_eq_, lambda: class_eq_specializer(name[1]))) if _tuplep(name)      else
+                                        (class_eq_, lambda: class_eq_specializer(name[1]))) if isinstance(name, tuple)      else
                         ## Was: FIXME: Document CLASS-EQ specializers.
                         error("%s is not a valid parameter specializer name.", name))
         return mapcar(parse, specializers)
@@ -13308,7 +13308,7 @@ def _eval_python(expr_or_stmt):
         exec(code, _find_module(_frost.lisp_symbol_name_python_name(package_name(package))).__dict__)
         values = (__evget__() if exprp else
                   tuple())
-        return values if _tuplep(values) else (values,)
+        return values if isinstance(values, tuple) else (values,)
 
 def _callify(form, package = None, quoted = nil):
         package = _defaulted_to_var(package, _package_)

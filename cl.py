@@ -403,21 +403,21 @@ def _conditionp(x):
         return isinstance(x, _cold_condition_type)
 
 @boot("typep", lambda _, datum, *args, default_type = None, **keys:
-              Exception(datum % args) if stringp(datum) else
+              Exception(datum % args) if isinstance(datum, str) else
               (datum if not (args or keys) else
                error("Bad, bad evil is rising.  Now go and kill everybody.")) if _conditionp(datum) else
               datum(*args, **keys))
 def _coerce_to_condition(datum, *args, default_type = None, **keys):
         def not_a_condition_specifier_error(x):
                 raise Exception("Cannot coerce %s to a condition." % repr(x))
-        type_specifier = _defaulted(default_type, error_t) if stringp(datum) else datum
+        type_specifier = _defaulted(default_type, error_t) if isinstance(datum, str) else datum
 
         type_ = (type_specifier             if isinstance(type_specifier, type)                                     else
                  None                       if _conditionp(type_specifier)                                          else
                  type_specifier.python_type if isinstance(type_specifier, symbol_t) and _symbol_type_specifier_p(type_specifier) else
                  not_a_condition_specifier_error(datum))
         cond = (datum              if type_ is None   else # Already a condition.
-                type_(datum % args) if stringp(datum) else
+                type_(datum % args) if isinstance(datum, str) else
                 type_(*args, **keys))
         return cond
 
@@ -455,7 +455,7 @@ def _symbol_conflict_error(op, obj, pkg, x, y):
 
 def _symbols_not_accessible_error(package, syms):
         def pp_sym_or_string(x):
-                return "\"%s\"" % x if stringp(x) else _print_nonkeyword_symbol(x)
+                return "\"%s\"" % x if isinstance(x, str) else _print_nonkeyword_symbol(x)
         error(simple_package_error_t, "These symbols are not accessible in the %s package: (%s).",
               package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
 
@@ -493,7 +493,7 @@ class package_t(_collections.UserDict):
                                         assert isinstance(u_p, type(p))
                                         use_package(p, u_p)
                 ## __init__()
-                assert stringp(name)
+                assert isinstance(name, str)
                 self.name = name
                 self.nicknames = nicknames
 
@@ -828,7 +828,7 @@ def _init_package_system_0():
                            for n in __core_symbol_names__ + __more_symbol_names__],
                __cl)
         for spec in __core_symbol_names__ + __more_symbol_names__:
-                lisp_name, python_name = (spec, _frost.lisp_symbol_name_python_name(spec)) if stringp(spec) else spec
+                lisp_name, python_name = (spec, _frost.lisp_symbol_name_python_name(spec)) if isinstance(spec, str) else spec
                 _frost.setf_global(_find_symbol_or_fail(lisp_name, __cl), python_name, globals())
                 # Unregistered Issue PACKAGE-SYSTEM-INIT-SHOULD-USE-GLOBAL-SETTER-INSTEAD-OF-CUSTOM-HACKERY
         # secondary
@@ -843,7 +843,7 @@ def _init_package_system_0():
         def make_package(name, nicknames = [], use = []):
                 if nicknames:
                         _not_implemented("In MAKE-PACKAGE %s: package nicknames are ignored.", repr(name))
-                return package_t(name if stringp(name) else symbol_name(name),
+                return package_t(name if isinstance(name, str) else symbol_name(name),
                                  ignore_python = True, use = [])
 
 _init_package_system_0()
@@ -988,7 +988,7 @@ def signal(cond):
         for n, cluster in enumerate(reversed(handler_clusters)):
                 ## Unregistered Issue CLUSTERS-NOT-PROPERLY-UNWOUND-FOR-HANDLERS
                 for type, handler in cluster:
-                        if not stringp(type):
+                        if not isinstance(type, str):
                                 if isinstance(cond, type):
                                         hook = _symbol_value(_prehandler_hook_)
                                         if hook:
@@ -1166,7 +1166,7 @@ def _deftype(type_name_or_fn):
                                    globals())
                 return old_global
         return (do_deftype(type_name_or_fn, type_name = _frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
-                do_deftype                                                                                             if stringp(type_name_or_fn)   else
+                do_deftype                                                                                             if isinstance(type_name_or_fn, str)   else
                 error("In DEFTYPE: argument must be either a function or a string, was: %s.",
                       repr(symbol_name_or_fn)))
 
@@ -1251,8 +1251,8 @@ def eql(x, type):
 
 @_deftype
 def unsigned_byte(x, type):
-        return (((x, type, False) if not integerp(x) or minusp(x) else nil)                        if len(type) is 1 else
-                ((x, type, False) if not integerp(x) or minusp(x) or (x >= 1 << type[1]) else nil) if len(type) is 2 else
+        return (((x, type, False) if not isinstance(x, int) or minusp(x) else nil)                        if len(type) is 1 else
+                ((x, type, False) if not isinstance(x, int) or minusp(x) or (x >= 1 << type[1]) else nil) if len(type) is 2 else
                 (x, type, True))
 
 ## Non-standard
@@ -1350,7 +1350,7 @@ def _make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
                 def do_cold_def(o):
                         setattr(sym, slot, o)
                         # symbol = (_intern(_defaulted(name, _frost.python_name_lisp_symbol_name(o.__name__)))[0]
-                        #           if stringp(name) else
+                        #           if isinstance(name, str) else
                         #           name if symbolp(name) else
                         #           error("In %s: bad name %s for a cold object.", definer_name))
                         o = preprocess(o)
@@ -1703,7 +1703,7 @@ def _cold_princ_to_string(x):
 princ_to_string = _cold_princ_to_string
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
 def _cold_probe_file(pathname):
-        assert(stringp(pathname))
+        assert(isinstance(pathname, str))
         return _os.path.exists(the(string_t, pathname))
 probe_file = _cold_probe_file
 
@@ -1925,9 +1925,9 @@ def _here(note = None, *args, callers = 5, stream = None, default_stream = _sys.
 
 def _locals_printf(locals, *local_names):
         # Unregistered Issue NEWLINE-COMMA-SEPARATION-NOT-PRETTY
-        _fprintf(_sys.stderr, ", ".join((("%s: %%s" % x) if stringp(x) else "%s")
+        _fprintf(_sys.stderr, ", ".join((("%s: %%s" % x) if isinstance(x, str) else "%s")
                                         for x in local_names) + "\n",
-                 *((locals[x] if stringp(x) else "\n") for x in local_names))
+                 *((locals[x] if isinstance(x, str) else "\n") for x in local_names))
 
 # Raw data of frame research
 
@@ -3508,7 +3508,7 @@ def make_pathname(*args, host = None, device = None, directory = None, name = No
                         device = nil, directory = nil, name = nil, type = nil, version = nil))
         effective_host = _defaulted(host, default.host)
         supplied_pathname = dict(
-                (k, effective_host.apply_case(case, v) if stringp(v) else v)
+                (k, effective_host.apply_case(case, v) if isinstance(v, str) else v)
                 for k, v in _only_specified_keys(host = host, device = device, directory = directory, name = name, type = type, version = version).items())
         ## Unregistered Issue RESEARCH-COMPLIANCE-MAKE-PATHNAME-CANONICALISATION
         return merge_pathnames(supplied_pathname, default)
@@ -3579,7 +3579,7 @@ a file stream after it is closed as it did when it was open.
 If the PATHSPEC designator is a file stream created by opening a
 logical pathname, a logical pathname is returned."""
         return (x                                             if pathnamep(x)      else
-                _values_frame_project(0, parse_namestring(x)) if stringp(x)        else
+                _values_frame_project(0, parse_namestring(x)) if isinstance(x, str)        else
                 _file_stream_name(x)                          if _file_stream_p(x) else
                 error("PATHNAME only accepts pathnames, namestrings and file streams, was given: %s.", x))
 
@@ -3846,13 +3846,13 @@ def write_to_string(object,
                                 # Honors *PACKAGE*, *PRINT-CASE*, *PRINT-ESCAPE*, *PRINT-GENSYM*, *PRINT-READABLY*.
                                 # XXX: in particular, *PRINT-ESCAPE* is honored only partially.
                                 string += _print_symbol(object)
-                        elif integerp(object) or floatp(object):
+                        elif isinstance(object, int) or floatp(object):
                                 string += str(object)
                         elif object is False or object is None or object is True:
                                 string += obj2lisp_xform[object]
                         elif type(object).__name__ == "builtin_function_or_method":
                                 string += "\"#<BUILTIN-FUNCTION-OR-METHOD %s 0x%x>\"" % (object.__name__, id(object))
-                        elif stringp(object):
+                        elif isinstance(object, str):
                                 # Honors *PRINT-ESCAPE* and *PRINT-READABLY*.
                                 string += _print_string(object)
                         elif hash_table_p(object) or _setp(object):
@@ -3982,7 +3982,7 @@ If RECURSIVE-P is true, this call is expected to be embedded in a higher-level c
 When INPUT-STREAM is an echo stream, characters that are only peeked at are not echoed. In the case that PEEK-TYPE is not NIL, the characters that are passed by PEEK-CHAR are treated as if by READ-CHAR, and so are echoed unless they have been marked otherwise by UNREAD-CHAR."""
         criterion = (lambda _: t                if peek_type is nil                                     else
                      lambda c: c not in " \t\n" if peek_type is t                                       else
-                     lambda c: c == peek_type   if stringp(peek_type) and len(peek_type) == 1 else
+                     lambda c: c == peek_type   if isinstance(peek_type, str) and len(peek_type) == 1 else
                      error("Invalid peek-type: '%s'.", peek_type))
         stream = _defaulted(input_stream, _symbol_value(_standard_input_))
         while t:
@@ -4157,7 +4157,7 @@ def _maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
                                           backtrace = backtrace)
                         if old_hook_value:
                                 old_hook_value(cond, old_hook_value)
-                with env.maybe_let(p, **{hook if stringp(hook) else symbol_name(hook): wrapped_hook}):
+                with env.maybe_let(p, **{hook if isinstance(hook, str) else symbol_name(hook): wrapped_hook}):
                         return body()
         else:
                 return body()
@@ -4176,7 +4176,7 @@ def __cl_condition_handler__(condspec, frame):
                 def _maybe_upgrade_condition(cond):
                         "Fix up the shit routinely being passed around."
                         return ((cond, nil) if isinstance(cond, condition_t) else
-                                (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
+                                (condspec[0](*([cond] if not sequencep(cond) or isinstance(cond, str) else
                                                cond)), t))
                         # _poor_man_typecase(cond,
                         #                    (BaseException, lambda: cond),
@@ -4446,7 +4446,7 @@ def _restart_case(body, **restarts_args):
                                                                    error(":INTERACTIVE argument to RESTART-CASE must be either a function or NIL.")),
                                                                   report_function      =
                                                                   (report                       if functionp(report) else
-                                                                   _curry(write_string, report) if stringp(report) else
+                                                                   _curry(write_string, report) if isinstance(report, str) else
                                                                    nil                          if null(report) else
                                                                    error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
                 for restart_name, restart_args in restarts_args.items () }
@@ -4469,7 +4469,7 @@ If name is NIL, an anonymous restart is established.
 
 The FORMAT-CONTROL and FORMAT-ARGUMENTS are used report the restart.
 """
-        description = (format_control_and_arguments if stringp(format_control_and_arguments) else
+        description = (format_control_and_arguments if isinstance(format_control_and_arguments, str) else
                        format(nil, format_control_and_arguments[0], *format_control_and_arguments[1:]))
         return restart_case(body, **{ name: (lambda: None,
                                              dict(report = lambda stream: format(stream, "%s", description))) })
@@ -4552,7 +4552,7 @@ def invoke_restart(restart, *args, **keys):
 Calls the function associated with RESTART, passing arguments to
 it. Restart must be valid in the current dynamic environment.
 """
-        assert(stringp(restart) or _restartp(restart))
+        assert(isinstance(restart, str) or _restartp(restart))
         restart = restart if _restartp(restart) else find_restart(restart)
         return restart.function(*args, **keys)
 
@@ -4576,7 +4576,7 @@ executes the following:
 
  (apply #'invoke-restart restart arguments)
 """
-        assert(stringp(restart) or _restartp(restart))
+        assert(isinstance(restart, str) or _restartp(restart))
         restart = restart if _restartp(restart) else find_restart(restart)
         return invoke_restart(restart, *restart.interactive_function())
 
@@ -4638,7 +4638,7 @@ def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast
                       (", ".join([x.upper() for x, _ in method_specs[:-1]]) +
                        (" and " if len(method_specs) > 1 else "") +
                        (method_specs[-1][0].upper() if method_specs else "")),
-                      x if stringp(x) else more_ast.pp_ast_as_code(x), type_of(x))
+                      x if isinstance(x, str) else more_ast.pp_ast_as_code(x), type_of(x))
         def process(method_name, default_maker):
                 "Return a validated and normalised named method body 'return'-wise."
                 x = find(method_name, body_ast, key = _slotting("name"))
@@ -5941,8 +5941,8 @@ def append(*xs):
 _intern_and_bind_names_in_module("%NAME", "%MAYBE")
 
 def _maybe_destructure_binding(pat):
-        return ((None, pat)           if not isinstance(pat, dict) else
-                tuple(pat.items())[0] if len(pat) == 1             else
+        return ((None, pat)               if not isinstance(pat, dict) else
+                tuple(pat.items())[0] if len(pat) == 1        else
                 error_bad_pattern(pat))
 
 def _error_bad_pattern(pat):
@@ -5973,7 +5973,7 @@ _untrace()
 
 def _trace_printf(tracespec, control, *args):
         if _tracep(*(tracespec                    if isinstance(tracespec, tuple) else
-                     (tracespec,)                 if isinstance(tracespec, str)   else
+                     (tracespec,)                 if isinstance(tracespec, str) else
                      (tracespec, _caller_name(1)))):
                 _debug_printf(control, *(args if not (len(args) == 1 and functionp(args[0])) else
                                          args[0]()))
@@ -6469,7 +6469,7 @@ def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
         ## in case of full recompilation..
         ##
         ## ..And we didn't even start to consider dependency loops..
-        if isinstance(function_form, symbol_t):
+        if symbolp(function_form):
                 fn = _find_fn(function_form)
                 if fn:
                         prop_vals = []
