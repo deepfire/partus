@@ -4631,7 +4631,7 @@ table of VALID-DECLARATIONS, return the body, documentation and declarations if 
 
 def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast = None):
         method_specs = list((mspec if isinstance(mspec, tuple) else
-                             (mspec, _defbody_make_required_method_error(desc))) for mspec in method_specs)
+                            (mspec, _defbody_make_required_method_error(desc))) for mspec in method_specs)
         def fail(x):
                 import more_ast
                 error("In %s: definition body may only contain definitions of %s methods, encountered: %s, an object of type %s", desc,
@@ -5153,7 +5153,7 @@ def _ast_FunctionDef(name:            string_t,
                 free = args_f | body_free | deco_f | retn_f
                 return (body_xtnl_writes, # names declared global/nonlocal and assigned to
                         free,
-                        set())            # these do not escape..
+                        set())        # these do not escape..
 #       | ClassDef(identifier name,
 #                  expr* bases,
 #                  keyword* keywords,
@@ -5183,7 +5183,7 @@ def _ast_ClassDef(name:            string_t,
                 free = base_f | keyw_f | star_f | karg_f | body_free | deco_f
                 return (body_xtnl_writes, # names declared global/nonlocal and assigned to
                         free,
-                        set())            # these do not escape..
+                        set())        # these do not escape..
 #       | Return(expr? value)
 @defast
 def _ast_Return(value: (maybe_t, _ast.expr)): pass
@@ -5605,8 +5605,6 @@ def _ast_alias(name:    string_t,
                            set(),
                            set())
 
-# Python value -> Atree
-
 # Atree -> AST
 
 def _atree_ast(tree):
@@ -5657,8 +5655,6 @@ all AST-trees .. except for the case of tuples."""
                 unknown_ast_type_error(tree[0], tree)                   if tree[0] not in _ast.__dict__            else
                 (astify_known(tree[0], [ _atree_ast(x) for x in tree[1:] ])))
         return ret
-
-# Atree tools
 
 # Code
 
@@ -5726,6 +5722,7 @@ def _function_bindingp(x): return isinstance(x, _function_binding)
 def _block_bindingp(x):    return isinstance(x, _block_binding)
 
 # Global scope: as seen by the compiler
+
 class _scope(): pass
 class _variable_scope(_scope, _collections.UserDict):
         def __hasattr__(self, name): return name in self.data
@@ -5863,7 +5860,8 @@ declared to be the names of constant variables)."""
                 (isinstance(form, symbol_t) and _global_variable_constant_p(form)) or
                 (isinstance(form, list) and len(form) is 2 and form[0] is quote))
 
-## Intern globals
+# Intern globals
+
 def _sync_global_scopes_to_package(package):
         for sym in package.own:
                 if sym.function:
@@ -5880,7 +5878,7 @@ _compiler_defconstant(nil, nil)
 EmptyDict = dict()
 EmptySet = frozenset()
 
-## Conses
+# Conses
 
 lambda_ = intern("LAMBDA")[0]
 
