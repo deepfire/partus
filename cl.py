@@ -279,21 +279,6 @@ def _python_type_p(x): return isinstance(o, _cold_class_type)
 def type_of(x):
         return type(x)
 
-# Boot listery and consery (beware model issues)
-
-@boot_defun
-def atom(x):        return not isinstance(x, tuple) or x == ()
-@boot_defun # Unregistered Issue LIST-CONSNESS
-def consp(x):       return isinstance(x, tuple) and x != ()
-@boot_defun # Unregistered Issue LIST-CONSNESS
-def listp(x):       return x is nil or isinstance(x, tuple) ## covers x == ()
-@boot_defun
-def cons(car, cdr): return (x, y)
-@boot_defun
-def car(x):         return x[0] if x else nil
-@boot_defun
-def first(x):       return x[0] if x else nil
-
 # Unspecific Wave 1
 
 @boot_defun
@@ -308,10 +293,6 @@ def make_hash_table(default_constructor = None):
 def gethash(key, dict, default = None):
         therep = key in dict
         return (dict[key] if therep else default), therep
-
-@boot_defun
-def length(x):
-        return len(the(string_t, x))
 
 def _map_into_hash(f, xs,
                    key_test = lambda k: k is not None,
@@ -1309,6 +1290,13 @@ def pyseq(x, type):
                 _some_fast(lambda ix: _type_mismatch(ix, type[1]), x))
 
 @_deftype
+def cons(x, type):
+        return ((x, type, True)                           if len(type) not in (1, 3)                   else
+                (x, type, False)                          if not (isinstance(x, list) and len(x) == 2) else
+                _some_fast_2(_type_mismatch, x, type[1:]) if len(type) is 3                            else
+                nil) 
+
+@_deftype
 def pytuple(x, type):
         return ((x, type, False) if not (isinstance(x, tuple) and len(x) == len(type) - 1) else
                 _some_fast_2(_type_mismatch, x, type[1:]))
@@ -1332,17 +1320,6 @@ def varituple(x, type):
                 _some_fast_2(_type_mismatch, x[:fixlen], fixed_t) or
                 _some_fast(lambda ix: _type_mismatch(ix, ctype), x[fixlen:]))
 
-@_deftype
-def lambda_list(x, type):
-        if type:
-                return (x, type, True) # fail
-        return typep(x, (pytuple_t,
-                         (pylist_t, string_t),
-                         (pylist_t, string_t),
-                         (maybe_t,  string_t),
-                         (pylist_t, string_t),
-                         (maybe_t,  string_t)))
-
 def _eql_type_specifier_p(x): return isinstance(x, tuple) and len(x) is 2 and x[0] is eql_t
 
 _unboot_set("typep")
@@ -1357,11 +1334,11 @@ def subtypep(sub, super):
         def do_subclass_check(sub, super):
                 return issubclass(coerce_to_python_type(sub),
                                       coerce_to_python_type(super))
-        return (do_subclass_check(sub, super)                  if super is not t                            else
+        return (do_subclass_check(sub, super)                  if super is not t                                     else
                 _not_implemented("complex type relatioships: %s vs. %s.",
-                                 sub, super)                   if isinstance(sub, tuple) or isinstance(super, tuple)            else
+                                 sub, super)                   if isinstance(sub, tuple) or isinstance(super, tuple) else
                 error("%s is not a valid type specifier", sub) if not (typep(sub, (or_t, type, (eql_t, t))) and
-                                                                       typep(sub, (or_t, type, (eql_t, t)))) else
+                                                                       typep(sub, (or_t, type, (eql_t, t))))         else
                 sub is super or super is t)
 
 # Toplevel definitions: @DEFUN and @DEFCLASS
@@ -1454,6 +1431,9 @@ def _values_frame(*xs):
 
 def _values_frame_p(x):
         return isinstance(x, tuple) and x[0] is _mv_marker
+
+def _values_frame_values(x):
+        return x[1:]
 
 def _values_frame_project(n, values_form):
         return ((nil if n > len(values_form) - 2 else
@@ -1667,12 +1647,11 @@ def _cold_constantp(form):
                 (type_of(form).__name__ == "symbol" and
                  ((form.package.name == "KEYWORD") or
                   (form.package.name == "COMMON-LISP" and form.name in ["T", "NIL"]))) or
-                (isinstance(form, tuple) and
-                 ((not form) or
-                  (len(form) == 2                        and
-                   type_of(form[0]).__name__ == "symbol" and
-                   form.package.name == "COMMON-LISP"    and
-                   form.name in ["QUOTE"]))))
+                (isinstance(form, list) and
+                 (len(form) == 2                        and
+                  type_of(form[0]).__name__ == "symbol" and
+                  form.package.name == "COMMON-LISP"    and
+                  form.name in ["QUOTE"])))
 constantp = _cold_constantp
 
 # Basic string/char functions and %CASE-XFORM
@@ -2205,9 +2184,9 @@ def _compose(f, g):
 def _ensure_list(x):
         return x if _listp(x) else [x]
 def _ensure_car(x):
-        return x[0] if isinstance(x, tuple) else x
+        return x[0] if isinstance(x, list) else x
 def _ensure_cons(x, default = None):
-        return x if isinstance(x, tuple) and len(x) == 2 else (x, default)
+        return x if isinstance(x, list) and len(x) == 2 else [x, default]
 
 def _mapset(f, xs):
         acc = set()
@@ -2317,8 +2296,8 @@ class _servile():
 def _gen(n = 1, x = "G", gen = gensym):
         if zerop(n):
                 error("_GEN: we are very very much against this, please stop doing it!")
-        return (tuple(gen(x)
-                for i in range(n)))
+        return tuple(gen(x)
+                     for i in range(n))
 def _gensyms(**initargs):     return _gen(gen = gensym,      **initargs)
 def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
@@ -3111,14 +3090,18 @@ def _get_symbol_pyname(symbol):
                 error("Symbol %s has no mapping to a python name.", symbol)
         return symbol.symbol_pyname
 
-def _set_function_definition(globals, x, lambda_expression):
+def _set_function_definition(globals, x, lambda_expression = None):
+        lambda_expression = _defaulted(lambda_expression, [lambda_, nil])
         identity_redef = _compiler_defun(x, lambda_expression)
         def do_set_function_definition(function):
                 if not identity_redef and function:
                         x.function, x.macro_function = function, nil
                         _frost.make_object_like_python_function(x, function)
+                        pyfname = function.__name__
                         function.name = x
-                        globals[_ensure_function_pyname(x)] = globals[function.__name__ + "_pyfun"] = function
+                        globals[_ensure_function_pyname(x)] = globals[(pyfname
+                                                                       + ("" if pyfname.endswith("_") else "_")
+                                                                       + "pyfun")] = function
                 return x
         return do_set_function_definition
 
@@ -3849,7 +3832,7 @@ def write_to_string(object,
                 string = ""
                 def write_to_string_loop(object):
                         nonlocal string
-                        if _listp(object) or isinstance(object, tuple):
+                        if _listp(object):
                                 string += "("
                                 max = len(object)
                                 if max:
@@ -4026,19 +4009,19 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                 elif char == "\"":     obj = read_string()
                 elif char == "'":
                         read_char(stream)
-                        obj = (quote, read_inner())
+                        obj = list_pyfun(quote, read_inner())
                 elif char == "`":
                         read_char(stream)
-                        obj = (quasiquote, read_list())
+                        obj = list_pyfun(quasiquote, read_list())
                 elif char == ",":
                         ## This is a simplified take, but it'll do for bootstrapping purposes.
                         read_char(stream);
                         char = read_char(stream)
                         if char == "@":
-                                obj = (splice, read_inner())
+                                obj = list_pyfun(splice, read_inner())
                         else:
                                 unread_char(char, stream)
-                                obj = (comma, read_inner())
+                                obj = list_pyfun(comma, read_inner())
                 else:
                         # handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
@@ -4072,9 +4055,9 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                                 obj = read_inner()
                                 if not _listp(obj) and obj is _find_symbol(".", __cl)[0]:
                                         error("Consing dot not implemented")
-                                ret += [obj]
+                                ret.append(obj)
                 # _here("< %s" % (ret,))
-                return tuple(ret)
+                return _consify_pyseq(ret)
         def read_string():
                 ret = ""
                 read_char(stream) # seek the opening double-quote
@@ -4871,9 +4854,9 @@ def _literal_ast_sex(ast_):
         def fail(sex):
                 import more_ast
                 error("Invalid sexp: %s.", more_ast.pp_ast_as_code(sex))
-        return (ast_.id                                       if isinstance(ast_, _ast.Name)  else
-                ast_.n                                        if isinstance(ast_, _ast.Num)   else
-                tuple(extract_sexp(x) for x in ast_.elts) if isinstance(ast_, _ast.Tuple) else
+        return (ast_.id                                                if isinstance(ast_, _ast.Name)  else
+                ast_.n                                                 if isinstance(ast_, _ast.Num)   else
+                _consify_pyseq([ extract_sexp(x) for x in ast_.elts ]) if isinstance(ast_, _ast.Tuple) else
                 fail(ast_))
 
 def _read_ast(x):
@@ -4883,12 +4866,12 @@ def _read_ast(x):
                         name, keywordp = (lisp_name, nil) if lisp_name[0] != ":" else (lisp_name[1:], t)
                         package = symbol_value(_package_) if not keywordp else __keyword
                         return _intern(name, package)[0]
-                return (x.n                               if isinstance(x, _ast.Num)   else
-                        x.s                               if isinstance(x, _ast.Str)   else
-                        read_symbol(x.id)                 if isinstance(x, _ast.Name)  else
-                        tuple(rec(e) for e in x)          if isinstance(x, list)       else
-                        tuple(rec(e) for e in x.elts)     if isinstance(x, _ast.Tuple) else
-                        _read_ast(x.value)                if isinstance(x, _ast.Expr)  else
+                return (x.n                                      if isinstance(x, _ast.Num)   else
+                        x.s                                      if isinstance(x, _ast.Str)   else
+                        read_symbol(x.id)                        if isinstance(x, _ast.Name)  else
+                        _consify_pyseq([rec(e) for e in x])      if isinstance(x, list)       else
+                        _consify_pyseq([rec(e) for e in x.elts]) if isinstance(x, _ast.Tuple) else
+                        _read_ast(x.value)                       if isinstance(x, _ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
         with progv(# {_read_case_: _keyword("preserve")}
                    ):
@@ -5774,7 +5757,7 @@ def _compiler_defvar(name, value):
 _intern_and_bind_names_in_module("SETF")
 def _compiler_defun(name, lambda_expression, check_redefinition = t):
         "Return a boolean, which denotes whether the situation is an identity redefinition."
-        check_type(name, (or_t, symbol_t, (pytuple_t, (eql_t, setf), symbol_t)))
+        check_type(name, (or_t, symbol_t, list))
         oldef, _ = gethash(name, _function_scope)
         if oldef and oldef.lambda_expression == lambda_expression:
                 return t
@@ -5789,7 +5772,7 @@ def _compiler_defun(name, lambda_expression, check_redefinition = t):
 
 def _compiler_defmacro(name, lambda_expression, check_redefinition = t):
         "Return a boolean, which denotes whether the situation is an identity redefinition."
-        check_type(name, (or_t, symbol_t, (pytuple_t, (eql_t, setf), symbol_t)))
+        check_type(name, (or_t, symbol_t, list))
         oldef, _ = gethash(name, _function_scope)
         ## Unregistered Issue MACRO-REDEFINITION-REPLACED-BY-ONE-WITH-NONEIFIED-GLOBALS
         if oldef and oldef.lambda_expression == lambda_expression:
@@ -5878,7 +5861,7 @@ declared to be the names of constant variables)."""
         return (isinstance(form, (int, float, complex, str))                       or
                 keywordp(form)                                                     or
                 (isinstance(form, symbol_t) and _global_variable_constant_p(form)) or
-                (isinstance(form, tuple) and (not form or (len(form) is 2 and form[0] is quote))))
+                (isinstance(form, list) and len(form) is 2 and form[0] is quote))
 
 ## Intern globals
 def _sync_global_scopes_to_package(package):
@@ -5896,6 +5879,61 @@ _compiler_defconstant(nil, nil)
 
 EmptyDict = dict()
 EmptySet = frozenset()
+
+## Conses
+
+lambda_ = intern("LAMBDA")[0]
+
+@_set_function_definition(globals(), intern("VECTOR")[0])
+def vector(*xs):    return list(xs)
+
+@_set_function_definition(globals(), intern("ATOM")[0])
+def atom(x):        return not isinstance(x, list) or x == () or x is nil
+
+@_set_function_definition(globals(), intern("CONSP")[0])
+def consp(x):       return isinstance(x, list) and len(x) is 2
+
+@_set_function_definition(globals(), intern("LISTP")[0])
+def listp(x):       return x is nil or isinstance(x, list) and len(x) is 2
+
+@_set_function_definition(globals(), intern("CAR")[0])
+def car(x):         return x[0] if x else nil
+
+@_set_function_definition(globals(), intern("LIST")[0])
+def list_(*xs):     return _consify_pyseq(xs)
+
+@_set_function_definition(globals(), intern("LENGTH")[0])
+def length(x):
+        len = 0
+        while x:
+                len += 1
+                x = x[1]
+        return len
+
+@_set_function_definition(globals(), intern("LAST")[0])
+def last(x):
+        if not x:
+               return nil
+        while True:
+                lastx = x
+                x = x[1]
+                if not x:
+                        return lastx
+
+@_set_function_definition(globals(), intern("APPEND")[0])
+def append(*xs):
+        if not xs:
+                return nil
+        def copy_list_with_lastcdr(x, cdr):
+                if not x:
+                        return cdr
+                ret = ptr = [x[0], cdr]
+                while True:
+                        x = x[1]
+                        if not x:
+                                return ret
+                        ptr[1] = [x[0], cdr]
+        return copy_list_with_lastcdr(xs[0], append_pyfun(*xs[1:]))
 
 # Matcher
 
@@ -6183,12 +6221,12 @@ class _matcher():
                                                                  m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
                                                                         if_exists = replace))
                                                         (*(## Test for success -- segment piece exhausted.
-                                                                m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
-                                                                ## Test specific for bounded matching.
-                                                                m.fail(bound, exp, pat)                                if limit == 0    else
-                                                                ## Try biting one more iteration off seg_exp:
-                                                                        m.match(bound, name,  seg_exp,     aux,  (False,
-                                                                                                                  firstp), aux, limit - 1)))),
+                                                           m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
+                                                           ## Test specific for bounded matching.
+                                                           m.fail(bound, exp, pat)                                if limit == 0    else
+                                                           ## Try biting one more iteration off seg_exp:
+                                                           m.match(bound, name,  seg_exp,     aux,  (False,
+                                                                                                     firstp), aux, limit - 1)))),
                                                lambda seg_bound:
                                                        m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
                                                orig_tuple_p = firstp and orifst[0] and seg_exp != (),
@@ -6862,17 +6900,17 @@ def _expand_quasiquotation(form):
         """Expand quasiquotation abbreviations in FORM (in a simple, yet suboptimal way)."""
         def malform(x): error("Invalid %s form: %s.", x[0], x)
         def process_form(x):
-                return (x                                         if atom(x)            else
+                return (x                                         if atom_pyfun(x)      else
                         (process_qq(x[1]) if len(x) is 2 else
                          malform(x))                              if x[0] is quasiquote else
                         tuple(process_form(ix) for ix in x))
         def process_qq(x):
-                if atom(x):
+                if atom_pyfun(x):
                         return (quote, x)
                 else:
                         acc = [append]
                         for xi in x:
-                                if atom(xi):
+                                if atom_pyfun(xi):
                                         acc.append((list_, (quote, xi)))
                                 elif xi[0] in (comma, splice):
                                         len(xi) is 2 or malform(xi)
@@ -6885,7 +6923,7 @@ def _expand_quasiquotation(form):
                                                 xi = nxi
                                         acc.append((list_, process_qq(xi)))
                         ## Simplify an obvious case of APPEND having only LIST subforms.
-                        if all(consp(x) and x[0] is list_ for x in acc[1:]):
+                        if all(consp_pyfun(x) and x[0] is list_ for x in acc[1:]):
                                 acc = (list_,) + tuple(x[1] for x in acc[1:])
                         return tuple(acc)
         result = process_form(form)
@@ -7051,7 +7089,7 @@ def _find_known(x):
 
 def _form_known(form):
         ## METASEX-MATCHER guts it, due to case analysis
-        complex_form_p = consp(form) and isinstance(form[0], symbol_t)
+        complex_form_p = consp_pyfun(form) and isinstance(form[0], symbol_t)
         return complex_form_p and _find_known(form[0])
 
 def _form_metasex(form):
@@ -7130,7 +7168,7 @@ class _metasex_matcher(_matcher):
                                  _for_not_matchers_xform: (lambda arg: m not in arg[1:],
                                                            lambda arg: arg[0](form)),
                                  }
-                if consp(pat):
+                if consp_pyfun(pat):
                         _, *args = pat
                         # _debug_printf("args of %s: %s, ", pat, args)
                         for (argname, *argval) in args:
@@ -7391,14 +7429,14 @@ def _mockup_sex(sex, initial_depth = None, max_level = None):
         def rec(sex, level):
                 if level > max_level:
                         return "#"
-                elif atom(sex):
+                elif atom_pyfun(sex):
                         return mock_atom(sex)
                 else:
                         head, *tail = sex
                         complex_tail_start = position_if_not(atom, tail)
                         simple_tail, complex_tail = (tail[0:complex_tail_start],
                                                      tail[_defaulted(complex_tail_start, len(tail)):])
-                        if atom(head):
+                        if atom_pyfun(head):
                                 return ("(" + " ".join(mock_atom(x)
                                                  for x in [head] + simple_tail) +
                                         ("" if not complex_tail else
@@ -7673,7 +7711,7 @@ def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignor
         expanded_form, _ = macroexpand(form, env, compilerp = compilerp)
         ## 2. Compute bindings contributed by this outer form.
         # _debug_printf("\nexpanded %s -> %s", form, expanded_form)
-        known = _find_known(expanded_form[0]) if consp(expanded_form) else nil
+        known = _find_known(expanded_form[0]) if consp_pyfun(expanded_form) else nil
         (symbol_frame,
          mfunc_frame,
          ffunc_frame) = ((_dict_select_keys(_ir_binds(expanded_form), symbol_macro),
@@ -7764,14 +7802,15 @@ _ensure_function_pyname(defmacro) ## This is only needed due to the special defi
 # ((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
-        return (eval_when, (_compile_toplevel, _load_toplevel, _execute),
-                ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
-                # (function, (def_, name, lambda_list) + body),
-                 (ir_args,
-                  (lambda_, lambda_list) + body,
-                  ("decorators", [_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
-                                                     (quote, name), (quote, (name, lambda_list) + body))]),
-                  ("name", name)))
+        return _consify_tuples(eval_when, (_compile_toplevel, _load_toplevel, _execute),
+                               ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
+                               # (function, (def_, name, lambda_list) + body),
+                               (ir_args,
+                                (lambda_, lambda_list) + body,
+                                ("decorators", [_consify_tuple(_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
+                                                                                  [quote, name], [quote, [name, lambda_list] +
+                                                                                                  _consify_tuple(body)]))]),
+                                ("name", name)))
 
 # Primitive IR
 import primitives as p
@@ -7821,6 +7860,13 @@ def _consify_pyseq(xs):
         return reduce(lambda acc, x: [x, acc],
                       reversed(xs),
                       nil)
+
+def _consify_tuple(xs):
+        return _consify_pyseq([ (_consify_tuple(x) if isinstance(x, tuple) else x)
+                                for x in xs ])
+
+def _consify_tuples(*xs):
+        return _consify_tuple(xs)
 
 __primitiviser_map__ = { str:        (nil, p.string),
                          int:        (nil, p.integer),
@@ -8563,7 +8609,7 @@ def block():
                 has_return_from = nil
                 def update_has_return_from(sex):
                         nonlocal has_return_from
-                        if consp(sex) and sex[0] is return_from:
+                        if consp_pyfun(sex) and sex[0] is return_from:
                                 has_return_from = t
                 _map_sex(update_has_return_from, catch_target)
                 if has_return_from:
@@ -8682,7 +8728,7 @@ def tagbody():
                 fun_names    = { tag: gensym("TAG-%s-" % symbol_name(tag)) for tag in tags }
                 def lam_(seq):
                         label, s = seq[0], seq[1:]
-                        if not atom(label):
+                        if not atom_pyfun(label):
                                 return ()
                         p = position_if(atom, s)
                         return ((fun_names[label], ()) + s[:p if p is not None else len(s)] +
@@ -9009,7 +9055,7 @@ class _compiler_lambda():
                 self.total_bound = self.fixed + self.optional + self.keys + [self.rest] if self.rest else []
                 self.nonlocal_refs, self.nonlocal_setqs = set(), set()
 
-@defknown((intern("LAMBDA")[0], " ", ([(_notlead, " "), _form],),
+@defknown((lambda_, " ", ([(_notlead, " "), _form],),
             1, [(_notlead, "\n"), (_bound, _form)]))
 def lambda_():
         def nvalues(*_):            return 1
@@ -9177,7 +9223,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
         def compiler_note_form(x):
                 if (symbol_value(_compiler_trace_forms_) and _debugging_compiler() and
                     not isinstance(x, (symbol_t, bool))                            and
-                    not (consp(x) and x[0] in [ref, function, quote])):
+                    not (consp_pyfun(x) and x[0] in [ref, function, quote])):
                         _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp(x))
         def compiler_note_parts(known_name, xs):
                 if symbol_value(_compiler_trace_subforms_) and _debugging_compiler() and known_name is not symbol:
@@ -9195,9 +9241,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
         def compiler_note_result(form, prim):
                 if (symbol_value(_compiler_trace_result_) and _debugging_compiler() and
                     ## Too trivial to take notice
-                    not typep(form, (or_t, symbol_t, (pytuple_t, (member_t, quote, function, ref),
-                                                      (or_t, symbol_t,
-                                                             (partuple_t, (eql_t, quote))))))):
+                    not typep(form, (or_t, symbol_t, (cons_t, (member_t, quote, function, ref), t)))):
                         ssp = _sex_space()
                         _debug_printf(";;;\n;;; knowns ->\n;;;\n%s%s\n;;;\n;;; -> primitives\n%s%s",
                                       ssp, _pp(form),
@@ -9235,7 +9279,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
                                 ## APPLY-conversion, likewise, is expected to have already happened.
                                 # return _rec((apply,) + form + (nil,))
                                 error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
-                        elif (isinstance(x[0], tuple) and x[0] and x[0][0] is lambda_):
+                        elif (consp_pyfun(x[0]) and x[0] and x[0][0] is lambda_):
                                 return _rec((apply,) + x + ((quote, nil),))
                         elif isinstance(x[0], str): # basic function call
                                 return _rec((apply,) + x + ((quote, nil),))
@@ -9408,8 +9452,8 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
         ## Compiler macro expansion, unless disabled by a NOTINLINE declaration, SAME MODE
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
-                kind, maybe_name = ((form[0], form[1]) if isinstance(form, tuple) and len(form) > 1 else
-                                    (form[0], "")      if isinstance(form, tuple) and form          else
+                kind, maybe_name = ((form[0], form[1]) if listp(form) and length_pyfun(form) > 1 else
+                                    (form[0], "")      if listp(form) and form                   else
                                     (form, ""))
                 _debug_printf("; compiling (%s%s%s%s)",
                               kind, " " if len(form) > 1 else "", maybe_name, " ..." if len(form) > 2 else "")
@@ -9469,7 +9513,7 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
                 }
         def rec(compile_time_too, process, eval, form):
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-HANDLING
-                if not consp(form):
+                if not consp_pyfun(form):
                         return
                 actions.get(form[0], default_processor)(compile_time_too, process, eval, *form)
         rec(nil, t, nil, macroexpanded)
@@ -9622,8 +9666,8 @@ and true otherwise."""
         ##    function from the resulting module by N-O-W-B-C-L-A-N-T.
         ## 2. Choose a lambda expression, and handle exceptions.
         ## 3. Inevitably, punt to N-O-W-B-C-L-A-N-T.
-        if isinstance(definition, tuple):
-                lambda_expression = the((partuple_t, (eql_t, lambda_), pytuple_t), definition)
+        if consp_pyfun(definition):
+                lambda_expression = the((cons_t, (eql_t, lambda_), cons_t), definition)
         else:
                 fun = definition or macro_function(name) or fdefinition(name)
                 _, lambda_expression, _, _ = function_lambda_expression(fun)
@@ -9788,21 +9832,22 @@ _string_set("*LOAD-PRINT*", nil)
 _string_set("*SOURCE-INFO*", nil)
 
 def _load_as_source(stream, verbose = nil, print = nil):
+        ## This is botched.
         pathname = _file_stream_name(stream)
         verbose and format(t, "; loading %s\n", repr(pathname))
         def with_abort_restart_body():
                 def eval_form(form, index):
                         spref = "; evaluating "
-                        print and format(t, spref + "%s\n", _pp(form, initial_depth = length(spref)))
+                        print and format(t, spref + "%s\n", _pp(form, initial_depth = len(spref)))
                         def with_continue_restart_body():
                                 while t:
                                         def with_retry_restart_body():
                                                 results = eval(form)
-                                                results = (results,) if not isinstance(results, tuple) else results
+                                                results = ((results,) if not _values_frame_p(results) else
+                                                           _values_frame_values(results))
                                                 print and format(t, "%s\n", ", ".join(repr(x) for x in results))
-                                        with_simple_restart("RETRY", ("Retry EVAL of current toplevel form.",),
-                                                            with_retry_restart_body)
-                                        return
+                                        return with_simple_restart("RETRY", ("Retry EVAL of current toplevel form.",),
+                                                                   with_retry_restart_body)
                         with_simple_restart("CONTINUE", ("Ignore error and continue loading file %s.", repr(pathname)),
                                             with_continue_restart_body)
                 ## Unregistered Issue DEBUG-LOAD-FILE-SOURCE-INFO-IGNORED
@@ -9926,40 +9971,6 @@ _compiler_config_tracing(# toplevels = t,
                          )
 
 # _compiler_trap_function(intern("DEFPACKAGE")[0])
-
-# Unregistered Issue LIST-CONSNESS
-@_set_function_definition(globals(), intern("VECTOR")[0], (lambda_, ()))
-def vector(*xs):
-        return list(xs)
-
-@_set_function_definition(globals(), intern("LIST")[0], (lambda_, ()))
-def list_(*xs):
-        return _consify_pyseq(xs)
-
-@_set_function_definition(globals(), intern("LAST")[0], (lambda_, ()))
-def last(x):
-        if not x:
-               return nil
-        while True:
-                lastx = x
-                x = x[1]
-                if not x:
-                        return lastx
-
-@_set_function_definition(globals(), intern("APPEND")[0], (lambda_, ()))
-def append(*xs):
-        if not xs:
-                return nil
-        def copy_list_with_lastcdr(x, cdr):
-                if not x:
-                        return cdr
-                ret = ptr = [x[0], cdr]
-                while True:
-                        x = x[1]
-                        if not x:
-                                return ret
-                        ptr[1] = [x[0], cdr]
-        return copy_list_with_lastcdr(xs[0], append_pyfun(*xs[1:]))
 
 # @lisp
 # def LOOPTEST():
@@ -10714,9 +10725,9 @@ the specified initialization has taken effect."""
                 generic_function.argument_precedence_order = tuple(argument_precedence_order)
         elif _specifiedp(lambda_list):
                 generic_function.argument_precedence_order = tuple(lambda_list[0])
-        generic_function.declarations        = tuple(_defaulted(declarations, list_(),
-                                                                 type = (pylist_t,
-                                                                         (satisfies_t, _valid_declaration_p))))
+        generic_function.declarations        = tuple(_defaulted(declarations, nil,
+                                                                type = (pylist_t,
+                                                                        (satisfies_t, _valid_declaration_p))))
         generic_function.documentation       = _defaulted(documentation, nil,
                                               type = (or_t, string_t, (eql_t, nil)))
         if _specifiedp(lambda_list):
