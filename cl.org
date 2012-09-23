@@ -6525,6 +6525,25 @@ def append(*xs):
                                 return ret
                         ptr[1] = [x[0], cdr]
         return copy_list_with_lastcdr(xs[0], append_pyfun(*xs[1:]))
+
+def _vectorise_cons_list(x):
+        res = []
+        while x:
+                res.append(x[0])
+                x = x[1]
+        return res
+
+def _consify_pyseq(xs):
+        return reduce(lambda acc, x: [x, acc],
+                      reversed(xs),
+                      nil)
+
+def _consify_tuple(xs):
+        return _consify_pyseq([ (_consify_tuple(x) if isinstance(x, tuple) else x)
+                                for x in xs ])
+
+def _consify_tuples(*xs):
+        return _consify_tuple(xs)
 #+end_src
 
 ***** Dynamic scope
@@ -8204,475 +8223,599 @@ def _mockup_sex(sex, initial_depth = None, max_level = None):
 ******* IR method -based services
 
 #+begin_src python
-  def _ir_nvalues(form):
-          return (lambda known: (known.nvalues(*form[1:])            if known else
-                                 None))                (_form_known(form))
-  def _ir_nth_value(n, form):
-          return (lambda known: (known.nth_value(n, form, *form[1:]) if known else
-                                 (nth_value, n, form)))(_form_known(form))
-  def _ir_binds(form):
-          return (lambda known: (known.binds(*form[1:])              if known else
-                                 dict()))          (_form_known(form))
-  def _ir_effects(form):
-          return (lambda known: (known.effects(*form[1:])            if known else
-                                 t))                   (_form_known(form))
-  def _ir_affected(form):
-          return (lambda known: (known.affected(*form[1:])           if known else
-                                 t))                   (_form_known(form))
+def _ir_nvalues(form):
+        return (lambda known: (known.nvalues(*form[1:])            if known else
+                               None))                (_form_known(form))
+def _ir_nth_value(n, form):
+        return (lambda known: (known.nth_value(n, form, *form[1:]) if known else
+                               (nth_value, n, form)))(_form_known(form))
+def _ir_prologue_p(form):
+        return (lambda known: (known.prologuep(*form[1:])          if known                                         else
+                               nil                                 if isinstance(form, symbol_t) or constantp(form) else
+                               error("Prologue queries only defined on known forms, not %s.", repr(form))))(_form_known(form))
+def _ir_binds(form):
+        return (lambda known: (known.binds(*form[1:])              if known else
+                               dict()))          (_form_known(form))
+def _ir_effects(form):
+        return (lambda known: (known.effects(*form[1:])            if known else
+                               t))                   (_form_known(form))
+def _ir_affected(form):
+        return (lambda known: (known.affected(*form[1:])           if known else
+                               t))                   (_form_known(form))
 #+end_src
 
 ******* Testing
 
 #+begin_src python
-  _results_ = []
-  def _runtest(fun, bindings, result):
-          b, r, f = fun()
-          _results_.append((fun, b, r, f))
-          return (b == bindings,
-                  r == result,
-                  f is None)
-  def _results():
-          for fun, b, r, f in _results_:
-                  _debug_printf("%15s bound: %s", fun.__name__, b)
-                  _debug_printf("%15s res: %s", fun.__name__, r)
+_results_ = []
+def _runtest(fun, bindings, result):
+        b, r, f = fun()
+        _results_.append((fun, b, r, f))
+        return (b == bindings,
+                r == result,
+                f is None)
 
-  # _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "&BODY")
-  # def just_match():
-  #         return _match(_metasex,
-  #                       (let, ((first, ()),
-  #                              (second, (car,))),
-  #                         _body),
-  #                       (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
-  #                          1, {"body":[(_notlead, "\n"), _form]}))
-  # bound_good, result_good, nofail = _runtest(just_match,
-  #                                            { 'bindings': ((first, ()),
-  #                                                           (second, (car,))),
-  #                                              'body':     (_body,)},
-  #                                            t)
-  # _results()
-  # assert(nofail)
-  # assert(bound_good)
-  # assert(result_good)
-  # print("; JUST-MATCH: passed")
+_intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
+def _run_tests(print_results = None):
+        def _print_results():
+                for fun, b, r, f in _results_[-1:]:
+                        _debug_printf("%15s bound: %s", fun.__name__, b)
+                        _debug_printf("%15s res: %s", fun.__name__, r)
+        def just_match():
+                _metasex.per_use_init()
+                return _match(_metasex,
+                              (let, ((first, ()),
+                                     (second, (car,))),
+                                _body),
+                              (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+                                 1, {"body":[(_notlead, "\n"), _form]}))
+        bound_good, result_good, nofail = _runtest(just_match,
+                                                   { 'bindings': ((first, ()),
+                                                                  (second, (car,))),
+                                                     'body':     (_body,)},
+                                                   t)
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; JUST-MATCH: passed")
 
-  # def pp():
-  #         return _match(_metasex_pp,
-  #                       (let, ((first, ()),
-  #                              (second, (car,))),
-  #                         _body),
-  #                       (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
-  #                          1, {"body":[(_notlead, "\n"), _form]}))
-  # bound_good, result_good, nofail = _runtest(pp,
-  #                                            { 'bindings': ((first, ()),
-  #                                                           (second, (car,))),
-  #                                              'body':     (_body,)},
-  #                                            """(LET ((FIRST ())
-  #       (SECOND (CAR)))
-  #   &BODY)""")
-  # _results()
-  # assert(nofail)
-  # assert(bound_good)
-  # assert(result_good)
-  # print("; PP: passed")
+        def pp():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp,
+                              (let, ((first, ()),
+                                     (second, (car,))),
+                                _body),
+                              (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+                                 1, {"body":[(_notlead, "\n"), _form]}))
+        bound_good, result_good, nofail = _runtest(pp,
+                                                   { 'bindings': ((first, ()),
+                                                                  (second, (car,))),
+                                                     'body':     (_body,)},
+                                                   """(LET ((FIRST ())
+      (SECOND (CAR)))
+  &BODY)""")
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; PP: passed")
 
-  # def mal_pp():
-  #         return _match(_metasex_nonstrict_pp,
-  #                       (let, ((first),
-  #                              (second, (car,), ())),
-  #                         _body),
-  #                       (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
-  #                          1, [(_notlead, "\n"), _form]))
-  # bound_good, result_good, nofail = _runtest(mal_pp,
-  #                                            {},
-  #                                            """(LET ((FIRST ())
-  #       (SECOND (CAR)))
-  #   &BODY)""")
-  # _results()
-  # assert(nofail)
-  # assert(bound_good)
-  # assert(result_good)
-  # print("; MAL-PP: passed")
+        def mal_pp():
+                _metasex_nonstrict_pp.per_use_init()
+                return _match(_metasex_nonstrict_pp,
+                              (let, ((first),
+                                     (second, (car,), ())),
+                                _body),
+                              (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
+                                 1, [(_notlead, "\n"), _form]))
+        #       bound_good, result_good, nofail = _runtest(mal_pp,
+        #                                                  {},
+        #                                                  """(LET ((FIRST ())
+        #     (SECOND (CAR)))
+        # &BODY)""")
+        #       print_results and _print_results()
+        #       assert(nofail)
+        #       assert(bound_good)
+        #       assert(result_good)
+        #       print("; MAL-PP: passed")
 
-  # def empty():
-  #         return _match(_metasex_pp, (), {"whole":()})
-  # bound_good, result_good, nofail = _runtest(empty,
-  #                                            { 'whole': () },
-  #                                            "()")
-  # _results()
-  # assert(nofail)
-  # assert(bound_good)
-  # assert(result_good)
-  # print("; EMPTY: passed")
+        def empty():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp, (), {"whole":()})
+        bound_good, result_good, nofail = _runtest(empty,
+                                                   { 'whole': () },
+                                                   "()")
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; EMPTY: passed")
 
-  # def empty_cross():
-  #         return _match(_metasex_pp, (), ({"a":[_name]}, {"b":[(_name,)]},))
-  # bound_good, result_good, nofail = _runtest(empty_cross,
-  #                                            { 'a': (), 'b': () },
-  #                                            "()")
-  # _results()
-  # assert(nofail)
-  # assert(bound_good)
-  # assert(result_good)
-  # print("; EMPTY-CROSS: passed")
+        def empty_cross():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp, (), ({"a":[_name]}, {"b":[(_name,)]},))
+        bound_good, result_good, nofail = _runtest(empty_cross,
+                                                   { 'a': (), 'b': () },
+                                                   "()")
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; EMPTY-CROSS: passed")
 
-  # def alternates():
-  #         return _match(_metasex_pp, (1, "a"), {"whole":([(or_, (_typep, int),
-  #                                                               (_typep, str))],)})
-  # bound_good, result_good, nofail = _runtest(alternates,
-  #                                            { 'whole': (1, "a") },
-  #                                            "(1a)")
-  # _results()
-  # assert(nofail)
-  # assert(bound_good)
-  # assert(result_good)
-  # print("; ALTERNATES: passed")
+        def alternates():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp, (1, "a"), {"whole":([(_or, (_typep, int),
+                                                                      (_typep, str))],)})
+        bound_good, result_good, nofail = _runtest(alternates,
+                                                   { 'whole': (1, "a") },
+                                                   '(1"a")')
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; ALTERNATES: passed")
 
-  # _intern_and_bind_names_in_module("PI")
-  # def simplex():
-  #         pat = ({'head':[()]}, {'tail':_name})
-  #         exp = ((), pi)
-  #         return _match(_metasex_pp, exp, pat)
-  # bound_good, result_good, nofail = _runtest(simplex,
-  #                                            { 'head': ((),),
-  #                                              'tail': pi },
-  #                                            "(()PI)"
-  #                                            )
-  # _results()
-  # assert(nofail)
-  # assert(bound_good)
-  # assert(result_good)
-  # print("; SIMPLEX: passed")
+        _intern_and_bind_names_in_module("PI")
+        def simplex():
+                _metasex_pp.per_use_init()
+                pat = ({'head':[()]}, {'tail':_name})
+                exp = ((), pi)
+                return _match(_metasex_pp, exp, pat)
+        bound_good, result_good, nofail = _runtest(simplex,
+                                                   { 'head': ((),),
+                                                     'tail': pi },
+                                                   "(()PI)"
+                                                   )
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; SIMPLEX: passed")
 
-  # def mid_complex():
-  #         pat = ({"headname":_name},
-  #                   {"headtupname":(_name,)},
-  #                            {"varitupseq":[(_name, [_name])]},
-  #                                                     {"fix1tupseq":[(_name,)]},
-  #                                                                            {"nameseq":[_name]},
-  #                                                                                 {"tailname":_name})
-  #         exp =              (pi,   (pi,),   (pi,), (pi, pi), (pi, pi, pi), (pi,), (pi,), (pi,),   pi, pi, pi)
-  #         return _match(_metasex_pp, exp, pat)
-  # bound_good, result_good, nofail = _runtest(mid_complex,
-  #                                            { 'headname': pi,
-  #                                              'headtupname': (pi,),
-  #                                              'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
-  #                                              'fix1tupseq': ((pi,), (pi,), (pi,)),
-  #                                              'nameseq': (pi, pi),
-  #                                              'tailname': pi },
-  #                                            "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)"
-  #                                            # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
-  #                                            )
-  # _results()
-  # assert(nofail)
-  # assert(bound_good)
-  # assert(result_good)
-  # print("; MID-COMPLEX: passed")
+        def mid_complex():
+                _metasex_pp.per_use_init()
+                pat = ({"headname":_name},
+                          {"headtupname":(_name,)},
+                                   {"varitupseq":[(_name, [_name])]},
+                                                            {"fix1tupseq":[(_name,)]},
+                                                                                   {"nameseq":[_name]},
+                                                                                        {"tailname":_name})
+                exp =              (pi,   (pi,),   (pi,), (pi, pi), (pi, pi, pi), (pi,), (pi,), (pi,),   pi, pi, pi)
+                return _match(_metasex_pp, exp, pat)
+        bound_good, result_good, nofail = _runtest(mid_complex,
+                                                   { 'headname': pi,
+                                                     'headtupname': (pi,),
+                                                     'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
+                                                     'fix1tupseq': ((pi,), (pi,), (pi,)),
+                                                     'nameseq': (pi, pi),
+                                                     'tailname': pi },
+                                                   "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)"
+                                                   # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
+                                                   )
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; MID-COMPLEX: passed")
 
-  # def simple_maybe():
-  #         return _match(_metasex_pp, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
-  # bound_good, result_good, nofail = _runtest(simple_maybe,
-  #                                            { 'pi': (pi,), 'car': car, 'cdr': cdr, },
-  #                                            "(PICARCDR)")
-  # _results()
-  # assert(nofail)
-  # assert(bound_good)
-  # assert(result_good)
-  # print("; SIMPLE-MAYBE: passed")
+        def simple_maybe():
+                _metasex_pp.per_use_init()
+                return _match(_metasex_pp, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
+        bound_good, result_good, nofail = _runtest(simple_maybe,
+                                                   { 'pi': (pi,), 'car': car, 'cdr': cdr, },
+                                                   "(PICARCDR)")
+        print_results and _print_results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; SIMPLE-MAYBE: passed")
 
+# _run_tests(print_results = nil)
 #+end_src
 
 ***** Macroexpansion
 
 #+begin_src python +n
-  def _do_macroexpand_1(form, env = nil, compilerp = nil):
-          """This handles:
-               - macro expansion, and,
-             optionally, if COMPILERP is non-NIL:
-               - conversion of implicit funcalls to knowns, and
-               - compiler macro expansion"""
-          ## Unregistered Issue COMPLIANCE-IMPLICIT-FUNCALL-INTERPRETATION
-          # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
-          def find_compiler_macroexpander(form):
-                  ### XXX: we rely on the FUNCALL form to have been validated! (Joys of MetaSEX, yet?)
-                  b, _, fail = _match_sex(form[1:], ((or_, (quote,    { "global_function_name":  (_typep, symbol)}),
-                                                           (function, { "lexical_function_name": (_typep, symbol)})), [_form]))
-                  global_, lexical_ = (b.get("global_function_name",  nil),
-                                       b.get("lexical_function_name", nil))
-                  return (compiler_macro_function(global_ or lexical_, check_shadow = lexical_) if fail is None else
+def _do_macroexpand_1(form, env = nil, compilerp = nil):
+        """This handles:
+             - macro expansion, and,
+           optionally, if COMPILERP is non-NIL:
+             - conversion of implicit funcalls to knowns, and
+             - compiler macro expansion"""
+        ## Unregistered Issue COMPLIANCE-IMPLICIT-FUNCALL-INTERPRETATION
+        # SYMBOL-MACRO-FUNCTION is what forced us to require the package system.
+        def find_compiler_macroexpander(form):
+                ### XXX: we rely on the FUNCALL form to have been validated! (Joys of MetaSEX, yet?)
+                maybe_fnref = form[1]
+                lookupable = (isinstance(maybe_fnref, tuple) and len(maybe_fnref) == 2 and
+                              isinstance(maybe_fnref[1], symbol_t))
+                global_, lexical_ = ((nil, nil)            if not lookupable             else
+                                     (maybe_fnref[1], nil) if maybe_fnref[0] is quote    else
+                                     (nil, maybe_fnref[1]) if maybe_fnref[0] is function else
+                                     (nil, nil))
+                return (compiler_macro_function(global_ or lexical_, check_shadow = lexical_)
+                        if global_ or lexical_ else
                           nil)
-          def knownifier_and_maybe_compiler_macroexpander(form, known):
-                  if not known: ## ..then it's a funcall, because all macros
-                          xformed = (apply, (function, form[0])) + form[1:] + (nil,)
-                          return lambda *_: (find_compiler_macroexpander(xformed) or identity)(xformed)
-                  else:
-                          return (find_compiler_macroexpander(form) if known.name is apply else
-                                  nil)
-          expander, args = (((form and symbolp(form[0]) and
-                              (macro_function(form[0], env) or
-                               (compilerp and
-                                knownifier_and_maybe_compiler_macroexpander(form, _find_known(form[0]))))),
-                             form[1:])                              if isinstance(form, tuple) else
-                            (_symbol_macro_expander(form, env), ()) if symbolp(form) else ## Notice, how NIL is not expanded.
-                            (nil, nil))
-          return ((form, nil) if not expander else
-                  (expander(*args), t))
+        def knownifier_and_maybe_compiler_macroexpander(form, known):
+                if not known: ## ..then it's a funcall, because all macros
+                        xformed = _ir_funcall(form[0], *form[1:])
+                        return lambda *_: (find_compiler_macroexpander(xformed) or identity)(xformed)
+                else:
+                        return (find_compiler_macroexpander(form) if known.name is apply else
+                                nil)
+        expander, args = (((form and isinstance(form[0], symbol_t) and
+                            (macro_function(form[0], env) or
+                             (compilerp and
+                              knownifier_and_maybe_compiler_macroexpander(form, _find_known(form[0]))))),
+                           form[1:])                              if isinstance(form, tuple) else
+                          (_symbol_macro_expander(form, env), ()) if isinstance(form, symbol_t) else ## Notice, how NIL is not expanded.
+                          (nil, nil))
+        return ((form, nil) if not expander else
+                (expander(*args), t))
 
-  ## Unregistered Issue COMPLIANCE-MACROEXPAND-HOOK-MUST-BE-FUNCALL-BUT-IT-IS-NOT-A-FUNCTION
-  _string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
-  _string_set("*ENABLE-MACROEXPAND-HOOK*", t)
+## Unregistered Issue COMPLIANCE-MACROEXPAND-HOOK-MUST-BE-FUNCALL-BUT-IT-IS-NOT-A-FUNCTION
+_string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
+_string_set("*ENABLE-MACROEXPAND-HOOK*", t)
 
-  def macroexpand_1(form, env = nil, compilerp = nil):
-          if symbol_value(_enable_macroexpand_hook_):
-                  return symbol_value(_macroexpand_hook_)(_do_macroexpand_1, form, env, compilerp = compilerp)
-          return _do_macroexpand_1(form, env, compilerp)
+def macroexpand_1(form, env = nil, compilerp = nil):
+        if symbol_value(_enable_macroexpand_hook_):
+                return symbol_value(_macroexpand_hook_)(_do_macroexpand_1, form, env, compilerp = compilerp)
+        return _do_macroexpand_1(form, env, compilerp)
 
-  def macroexpand(form, env = nil, compilerp = nil):
-          def do_macroexpand(form, expanded):
-                  expansion, expanded_again = macroexpand_1(form, env, compilerp)
-                  return (do_macroexpand(expansion, t) if expanded_again else
-                          (form, expanded))
-          return do_macroexpand(form, nil)
+def macroexpand(form, env = nil, compilerp = nil):
+        def do_macroexpand(form, expanded):
+                expansion, expanded_again = macroexpand_1(form, env, compilerp)
+                return (do_macroexpand(expansion, t) if expanded_again else
+                        (form, expanded))
+        return do_macroexpand(form, nil)
 
-  _string_set("*MACROEXPANDER-ENV*", nil)       ## This is for regular macro expansion.
-  _string_set("*MACROEXPANDER-FORM-BINDS*", nil)
+_string_set("*MACROEXPANDER-ENV*", nil)       ## This is for regular macro expansion.
+_string_set("*MACROEXPANDER-FORM-BINDS*", nil)
 
-  def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t):
-          # _debug_printf("%%MXER-INNER: -->\n%s", exp)
-          ## 1. Expose the knowns and implicit funcalls:
-          env = _symbol_value(_macroexpander_env_)
-          expanded_form, _ = macroexpand(form, env, compilerp = compilerp)
-          ## 2. Compute bindings contributed by this outer form.
-          known = _find_known(expanded_form[0]) if isinstance(expanded_form, tuple) else nil
-          (symbol_frame,
-           mfunc_frame,
-           ffunc_frame) = ((_dict_select_keys(_ir_binds(expanded_form), symbol_macro),
-                            _dict_select_keys(_ir_binds(expanded_form), macro),
-                            _dict_select_keys(_ir_binds(expanded_form), function)) if known else
-                           (dict(), dict(), dict()))
-          ## 3. Pass the binding extension information down.
-          with (progv({_macroexpander_form_binds_: _make_lexenv(env,
-                                                                kind_varframe = symbol_frame,
-                                                                kind_funcframe = _dictappend(mfunc_frame, ffunc_frame))})
-                if symbol_frame or mfunc_frame or ffunc_frame else
-                _withless()):
-                  b, r, f = _metasex_matcher.form(m, bound, name, expanded_form, "ignored", orifst)
-                  # if not f:
-                  #         _debug_printf("%%MXER-INNER: <--\n%s", r)
-                  return b, r, f
-  ##
-  ####
-  #####
-  ####
-  ###
-  ### The Grand point-of-continuation TODO is here.
-  ###
-  ###  - explore final IR-ification through APPLY-conversion
-  ###    - not necessarily final, due to:
-  ###      - inlining
-  ###      - complex transformations, not possible early, which enable further compiler macro expansion
-  ###    - but, possibly, still final, if we cache macroexpanded/applyified forms of functions
-  ###    - but, even then, complex transformations can recurse, potentially affecting pre-cached expansions
-  ###      - FINALLY - DEPENDENT TRACKING!
-  ###  - explore generic inline-context-change-aware walking (which doesn't affect the walking itself,
-  ###    unlike the case with macroexpansion)
-  ###    - sounds bland, doesn't it?
-  ###
-  ####
-  #####
-  ####
-  ##
-  class _macroexpander_matcher(_metasex_matcher):
-          def __init__(m):
-                  ## Unregistered Issue MACROEXPANDER-COMPILERP-STATE-PASSING-TANGLED
-                  _metasex_matcher.__init__(m)
-                  m.register_simplex_matcher(_form,  lambda *args: _macroexpander_inner(m, *args, compilerp = t))
-                  m.register_simplex_matcher(_bound, m.activate_binding_extension)
-          def activate_binding_extension(m, bound, name, exp, pat, orifst):
-                  ## The dynamic scope expansion is unavoidable, because we have to
-                  ## terminate the binding extension marker.
-                  with progv({_macroexpander_env_: (_symbol_value(_macroexpander_form_binds_) or
-                                                    _symbol_value(_macroexpander_env_)),
-                              ## marker scope ends here:
-                              _macroexpander_form_binds_: nil}):
-                          return _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t)
-          @staticmethod
-          def prod(x, orig_tuple_p): return x
-          @staticmethod
-          def comh(f0, fR, orig_tuple_p):
-                  f0r = f0()
-                  if f0r is not None:
-                          fRr = fR()
-                          return _r(f0r, fRr, f0r + fRr)
-          @staticmethod
-          def comr(f0, fR, orig_tuple_p):
-                  f0r = f0()
-                  if f0r is not None:
-                          fRr = fR()
-                          return _r(f0r, fRr, (f0r,) + fRr)
+def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignore_args = None):
+        "Used as a simplex matcher in _macroexpander_matcher."
+        # _debug_printf("%%MXER-INNER: -->\n%s", exp)
+        ## 1. Expose the knowns and implicit funcalls:
+        handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
+        if handled:
+                return m.succ(bound, ret)
+        env = _symbol_value(_macroexpander_env_)
+        expanded_form, _ = macroexpand(form, env, compilerp = compilerp)
+        ## 2. Compute bindings contributed by this outer form.
+        # _debug_printf("\nexpanded %s -> %s", form, expanded_form)
+        known = _find_known(expanded_form[0]) if consp_pyfun(expanded_form) else nil
+        (symbol_frame,
+         mfunc_frame,
+         ffunc_frame) = ((_dict_select_keys(_ir_binds(expanded_form), symbol_macro),
+                          _dict_select_keys(_ir_binds(expanded_form), macro),
+                          _dict_select_keys(_ir_binds(expanded_form), function)) if known else
+                         (dict(), dict(), dict()))
+        ## 3. Pass the binding extension information down.
+        with (progv({_macroexpander_form_binds_: _make_lexenv(parent = env,
+                                                              kind_varframe = symbol_frame,
+                                                              kind_funcframe = _dictappend(mfunc_frame, ffunc_frame))})
+              if symbol_frame or mfunc_frame or ffunc_frame else
+              _withless()):
+                b, r, f = _metasex_matcher.form(m, bound, name, expanded_form, pat, orifst, ignore_args = ignore_args)
+                # if not f:
+                #         _debug_printf("%%MXER-INNER: <--\n%s", r)
+                return b, r, f
+##
+####
+#####
+####
+###
+### The Grand point-of-continuation TODO is here.
+###
+###  - explore final IR-ification through APPLY-conversion
+###    - not necessarily final, due to:
+###      - inlining
+###      - complex transformations, not possible early, which enable further compiler macro expansion
+###    - but, possibly, still final, if we cache macroexpanded/applyified forms of functions
+###    - but, even then, complex transformations can recurse, potentially affecting pre-cached expansions
+###      - FINALLY - DEPENDENT TRACKING!
+###  - explore generic inline-context-change-aware walking (which doesn't affect the walking itself,
+###    unlike the case with macroexpansion)
+###    - sounds bland, doesn't it?
+###
+####
+#####
+####
+##
+class _macroexpander_matcher(_metasex_matcher):
+        def __init__(m):
+                ## Unregistered Issue MACROEXPANDER-COMPILERP-STATE-PASSING-TANGLED
+                _metasex_matcher.__init__(m)
+                m.register_simplex_matcher(_form,  lambda *args: _macroexpander_inner(m, *args, compilerp = t))
+                m.register_simplex_matcher(_bound, m.activate_binding_extension)
+        def activate_binding_extension(m, bound, name, exp, pat, orifst):
+                ## The dynamic scope expansion is unavoidable, because we have to
+                ## terminate the binding extension marker.
+                with progv({_macroexpander_env_: (_symbol_value(_macroexpander_form_binds_) or
+                                                  _symbol_value(_macroexpander_env_)),
+                            ## marker scope ends here:
+                            _macroexpander_form_binds_: nil}):
+                        return _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t, ignore_args = t)
+        @staticmethod
+        def prod(x, orig_tuple_p): return x
+        @staticmethod
+        def comh(f0, fR, orig_tuple_p):
+                f0r = f0()
+                if f0r is not None:
+                        fRr = fR()
+                        if fRr is not None:
+                                return f0r + fRr
+        @staticmethod
+        def comr(f0, fR, orig_tuple_p):
+                f0r = f0()
+                if f0r is not None:
+                        fRr = fR()
+                        if fRr is not None:
+                                return (f0r,) + fRr
 
-  _macroexpander = _macroexpander_matcher()
+_macroexpander = _macroexpander_matcher()
 
-  def macroexpand_all(form, env = nil, compilerp = t):
-          _, res, failpat = _macroexpander_inner(_macroexpander, dict(), None,
-                                                 form,
-                                                 nil,  ## The pattern will be discarded out of hand, anyway.
-                                                 (None, None),
-                                                 compilerp = t)
-          assert(not failpat)
-          return res
+def macroexpand_all(sex, lexenv = nil, compilerp = t):
+        _macroexpander.per_use_init()
+        with progv({ _macroexpander_env_: _coerce_to_lexenv(lexenv)}):
+                _, r, f = _macroexpander_inner(_macroexpander, dict(), None,
+                                               sex,
+                                               nil,  ## The pattern will be discarded out of hand, anyway.
+                                               (None, None),
+                                               compilerp = t)
+        if f is not None:
+                error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", sex, f, repr(r))
+        return r
 #+end_src
 
 ***** DEFMACRO
 
 #+begin_src python
-@_set_macro_definition
+_ensure_function_pyname(defmacro) ## This is only needed due to the special definition of DEFMACRO.
+@_set_macro_definition(globals(), defmacro, nil)
 # ((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
-        return (eval_when, (_compile_toplevel, _load_toplevel, _execute),
-                 (apply, ("cl", "_set_macro_definition"), (lambda_, lambda_list) + body,
-                         nil))
+        return _consify_tuples(eval_when, (_compile_toplevel, _load_toplevel, _execute),
+                               ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
+                               # (function, (def_, name, lambda_list) + body),
+                               (ir_args,
+                                (lambda_, lambda_list) + body,
+                                ("decorators", [_consify_tuple(_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
+                                                                                  [quote, name], [quote, [name, lambda_list] +
+                                                                                                  _consify_tuple(body)]))]),
+                                ("name", name)))
+
 #+end_src
 
-***** Tuple intermediate IR
+*** Primitive IR
 
-    A tuple of:
-    - prologue
-    - value, can only contain _ast.expr's
+#+begin_src python
+import primitives as p
 
-#+begin_src python +n
-# Unregistered Issue DEBUG-SCAFFOLDING
-_string_set("*COMPILER-DEBUG-P*",    nil)
+def _defaulting_expr(name, default):
+        return p.if_(p.eq(name, p.name("None")), default, name)
+
+def _var_tn(sym):
+        return p.name(_unit_variable_pyname(sym))
+
+def _var_tn_no_unit(sym):
+        return p.name(_ensure_variable_pyname(sym))
+
+def _var_tns(syms):
+        return [ _var_tn(x) for x in syms ]
+
+def _fun_tn(sym):
+        return p.name(_unit_function_pyname(sym))
+
+def _fun_tn_no_unit(sym):
+        return p.name(_ensure_function_pyname(sym))
+
+def _gensym_tn(x = "G"):
+        sym = gensym(x)
+        sym.tn = p.name(_unit_variable_pyname(sym))
+        return sym
+
+def _variable_frame_bindings(clambda, names, forms = _repeat(None)):
+        tns   = [ p.name(_unit_variable_pyname(sym))  for sym in names ]
+        frame = _make_lexenv_varframe(clambda, tns, names, forms)
+        return tns, frame
+
+def _function_frame_bindings(clambda, bindings):
+        names = list(zip(*bindings))[0]
+        tns   = [ p.name(_unit_function_pyname(sym))  for sym in names ]
+        frame = _make_lexenv_funcframe(clambda, tns, bindings)
+        return tns, frame
+
+__primitiviser_map__ = { str:        (nil, p.string),
+                         int:        (nil, p.integer),
+                         float:      (nil, p.float_num),
+                         ## Note: this relies on the corresponding name to be made available by some means.
+                         symbol_t:   (nil, lambda x: p.symbol(_unit_symbol_pyname(x))),
+                         bool:       (nil, lambda x: p.name("True" if x else "False"))
+                         }
+
+def _primitivisable_p(x):
+        type = type_of(x)
+        type_recipe, _ = gethash(type, __primitiviser_map__)
+        if not type_recipe:
+                return nil
+        recursep, _ = type_recipe
+        if not recursep:
+                return t
+        return all(_primitivisable_p(x) for x in x)
+
+def _try_primitivise_constant(x):
+        "It's more efficient to try doing it, than to do a complete check and then to 'try' again."
+        (rec, primitiviser), primitivisablep = gethash(type_of(x), __primitiviser_map__,
+                                                       ((nil, nil), nil))
+        if not primitivisablep:
+                return None, None
+        if rec: ## Dead code.
+                prim, successp = _try_primitivise_list(x)
+                return (primitiviser(prim), t) if successp else (None, None)
+        return primitiviser(prim if rec else x), t
+
+def _primitivise_constant(x):
+        prim, successp = _try_primitivise_constant(x)
+        return (prim if successp else
+                error("Cannot primitivise value %s.  Is it a literal?",
+                      prin1_to_string(x)))
+#+end_src
+
+***** Debugging and tracing
+
+#+BEGIN_SRC python
+## Compiler messages:
+## - entry        _lower:rec()                             ;* lowering
+##                _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
+## - part listing _lower:call_known()                       >>> parts
+## - rewriting    _lower:call_known()                       ===\n---\n...
+## - result       _lower()                                 ;* compilation atree output\n;;; Prologue\n;;; Value
+
+def _compiler_trap_function(name):
+        symbol_value(_compiler_trapped_functions_).add(name)
+
+def _compiler_function_trapped_p(name):
+        return name in symbol_value(_compiler_trapped_functions_)
+
 def _debug_compiler(value = t):
         _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
 def _debugging_compiler():
         return _symbol_value(_compiler_debug_p_)
+def _maybe_disable_debugging(self):
+        self.was_debugging = _debugging_compiler()
+        _debug_compiler(nil)
+def _maybe_reenable_debugging(self, *_):
+        _debug_compiler(self.was_debugging)
+_no_compiler_debugging = _defwith("_no_compiler_debugging", _maybe_disable_debugging, _maybe_reenable_debugging)
+
 def _compiler_debug_printf(control, *args):
         if _debugging_compiler():
                 justification = _sex_space()
                 def fix_string(x): return x.replace("\n", "\n" + justification) if isinstance(x, str) else x
                 _debug_printf(justification + fix_string(control), *tuple(fix_string(a) for a in args))
 
+def _compiler_trace_choice(ir_name, id, choice):
+        if symbol_value(_compiler_trace_choices_):
+                _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, _ir_minify(id), choice)
+
 if probe_file("/home/deepfire/.partus-debug-compiler"):
         _debug_compiler()
-
-def _tuplerator(pve):
-        for x in pve[0]:
-                if x is not None:
-                        yield x
-        if pve[1] is not None:
-                yield pve[1]
-def _tuple_empty_p(pve):      return not (pve[0] or pve[1])
-def _tuple_expression_p(pve): return not (pve[0])
-def _tuple_bound(pve):        return _mapsetn(_atree_bound, _tuplerator(the((pytuple, pylist, pytuple), pve)))
-def _tuple_free(pve):         return _mapsetn(_atree_free,  _tuplerator(the((pytuple, pylist, pytuple), pve)))
-def _tuple_xtnls(pve):        return _mapsetn(_atree_xtnls, _tuplerator(the((pytuple, pylist, pytuple), pve)))
-
-def _prepend_prologue(pro, tuple):
-        return (pro + tuple[0],
-                tuple[1])
-#+end_src
+#+END_SRC
 
 ***** Compiler state and miscellanea
+******* The Symbol Model
 
+        - symbols denoting constants (keywords, t, nil, pi, etc.): fully printed symbol names
+          - will be protected from trivial attempts of being assigned to
+          - (SETF SYMBOL-VALUE) ought to be dealt with by different means
+        - names in the value namespace: fully printed symbol names
+          - lexical scope handled by Python's lexical scope
+        - other symbols as constants (i.e. quoted symbols): global symbol -> gensym map, based off symbol name
+          - symbols as symbols are, technically, a different namespace, so separation
+        - bound names in the function namespace: global symbol -> gensym map, based off symbol name
+          - an obvious way to do namespace separation
+
+******* Code
+          
 #+begin_src python +n
-  ## Should, probably, be bound by the compiler itself.
-  _string_set("*COMPILER-TOPLEVEL-P*", t)
-  _string_set("*COMPILER-DEF*",        nil)
-  _string_set("*COMPILER-TAILP*",      nil)
+def _tail_position_p(): return _symbol_value(_compiler_tailp_)
 
-  def _sex_space(delta = None, char = " "):
-          return char * (_pp_base_depth() + _defaulted(delta, 0))
-  def _sex_deeper(n, body):
-          with progv({ _pp_base_depth_: _pp_base_depth() + n }):
-                  return body()
+_tail_position          = _defwith("_tail_position",
+                                   lambda *_: _dynamic_scope_push({ _compiler_tailp_: t }),
+                                   lambda *_: _dynamic_scope_pop())
+_maybe_tail_position    = _defwith("_maybe_tail_position", # This is just a documentation feature.
+                                   lambda *_: None,
+                                   lambda *_: None)
+_no_tail_position       = _defwith("_no_tail_position",
+                                   lambda *_: _dynamic_scope_push({ _compiler_tailp_: nil }),
+                                   lambda *_: _dynamic_scope_pop())
+_compiler_debug         = _defwith("_compiler_debug",
+                                   lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
+                                   lambda *_: _dynamic_scope_pop())
 
-  __compiler_form_record__ = _collections.defaultdict(lambda: 0)
-  __compiler_form_record_threshold__ = 5
-  def _compiler_track_compiled_form(form):
-          cur = __compiler_form_record__[id(form)]
-          ## Unregistered Issue NONTERMINATION-SAFETY-CHECK-BUGGY
-          # if cur > __compiler_form_record_threshold__:
-          #         error("Apparent non-termination while compiling %s (happened over %d times).",
-          #               form, __compiler_form_record_threshold__)
-          __compiler_form_record__[id(form)] += 1
+def _lowered(prim):                   return prim
+def _rewritten(form, scope = dict()): return form, the(dict, scope)
+def _rewritep(x):                     return isinstance(x, tuple) and isinstance(x[1], dict)
 
-  class _compiler_def(_servile):
-          pass
+#### Issues:
+## Tail position optimisations
+## Lisp-level bound/free
+## is the value generally side-effect-free?
 
-  def _compiling_def():     return _symbol_value(_compiler_def_)
-  def _tail_position_p():   return _symbol_value(_compiler_tailp_)
-
-  def _compiler_report_context():
-          _here("def %s\n      tailp: %s",
-                *mapcar(_symbol_value, [_compiler_def_,
-                                        _compiler_tailp_]))
-
-  _tail_position       = _defwith("_tail_position",
-                                     lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = t)),
-                                     lambda *_: _dynamic_scope_pop())
-
-  _maybe_tail_position = _defwith("_maybe_tail_position", # This is just a documentation feature.
-                                     lambda *_: None,
-                                     lambda *_: None)
-
-  _no_tail_position    = _defwith("_no_tail_position",
-                                     lambda *_: _dynamic_scope_push(dict(_COMPILER_TAILP_ = nil)),
-                                     lambda *_: _dynamic_scope_pop())
-
-  _compiler_debug         = _defwith("_compiler_debug",
-                                     lambda *_: _dynamic_scope_push(dict(_COMPILER_DEBUG_P_ = t)),
-                                     lambda *_: _dynamic_scope_pop())
-
-  #### Issues:
-  ## Tail position optimisations
-  ## Lisp-level bound/free
-  ## is the value generally side-effect-free?
-
-  ###                                      (SYMBOL)      <-
-  ###                                      (SETF VALUES) <-
-  ###                                      (RETURN)      <-
-  ###                                      (QUOTE)       <-
-  ###                 | (empty: SYMBOL) <- (PROGN)       <-
-  ###      PROGN, RETURN, QUOTE, SYMBOL <- (DEF)         <-
-  ### LAMBDA | LAMBDA, PROGN, SETQ, LET <- (LET)         <-
-  ###              | SYMBOL, LET, APPLY <- (APPLY)       <-
-  ###                          LET, DEF <- (FLET)        <-
-  ###              PROGN | FLET, SYMBOL <- (LAMBDA)      <-
-  ###                  FLET, DEF, APPLY <- (LABELS)      <-
-  ###                 PROGN | LET, LET* <- (LET*)        <-
-  @defun("NOT")
-  def not_(x):        return t if x is nil else nil
-
-  def _lower_expr(x, fn):
-          pro, val = lower(x)
-          return (pro, fn(val))
-
+### SETQ                 -> ∅                           |             LEXICAL
+###                         +(APPLY,FUNCTION,QUOTE,REF)               GLOBAL
+### QUOTE                -> ∅                       |                 NONCONSTANT-SYMBOL
+###                         ∅                       |                 CONSTANT
+###                         =(APPLY,FUNCTION,QUOTE)                   SEX
+### MULTIPLE-VALUE-CALL  -> ∅
+### PROGN                -> ∅
+### IF                   -> ∅                    |                    EXPR
+###                         =(FLET,APPLY,REF,IF)                      NONEXPR-AS-FLET
+### LET                  -> APPLY,LAMBDA(e_d_e=t, f_s=f_s)         |  EXPR-BOUND-VALUES
+###                         =(PROGN,SETQ,LAMBDA(e_d_e=t, f_s=f_s))    NONEXPR-SETQ-LAMBDA
+### FLET                 -> =(LET,PROGN,DEF,FUNCTION)
+### LABELS               -> =(FLET,DEF,APPLY) ???
+### FUNCTION             -> ∅
+### UNWIND-PROTECT       -> =()            |                          NO-UNWIND
+###                         SETQ,PROGN,REF                            UNWIND
+### MACROLET             -> =(PROGN)
+### SYMBOL-MACROLET      -> =(PROGN)
+### BLOCK                -> =(PROGN)       |                          NO-RETURN-FROM
+###                         =(CATCH,QUOTE)                            HAS-RETURN-FROM
+### RETURN-FROM          -> =(THROW,QUOTE)
+### CATCH                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### THROW                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### TAGBODY              -> --not-implemented--
+### GO                   -> --not-implemented--
+### EVAL-WHEN            -> ∅     |                                   EXECUTE
+###                         PROGN                                     NO-EXECUTE
+### THE                  -> --not-implemented--
+### LOAD-TIME-VALUE      -> --not-implemented--
+### LET*                 -> --not-implemented--
+### PROGV                -> --not-implemented--
+### LOCALLY              -> --not-implemented--
+### MULTIPLE-VALUE-PROG1 -> --not-implemented--
+### REF                  -> ∅
+### NTH-VALUE            -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### DEF                  -> BLOCK,QUOTE
+### LAMBDA               -> PROGN                      |              EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS
+###                         PROGN                      |              EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS
+###                         =(LAMBDA,LET,IF,APPLY,REF) |              EXPR-BODY/DEFAULTS-REWIND-DELAYED-DEFAULT-VALUES
+###                         =(FLET,FUNCTION)                          !!! NONEXPR-PROGN-DEF-FUNCTION
+### APPLY                -> ∅                     |                   EXPR-ARGS
+###                         =(LET,APPLY)          |                   NONEXPR-REWIND-AS-LET-APPLY
+###                         =(LET,FUNCTION,APPLY)                     NONEXPR-REWIND-AS-LET-FUNCTION-APPLY
+@defun("NOT")
+def not_(x):        return t if x is nil else nil
 #+end_src
 
 ***** Out-of-band IR argument passing: %IR-ARGS, %IR
 
 #+begin_src python +n
-  @defknown((_name, "\n", _form, ["\n", ((_typep, str), " ", (_typep, t))],))
-  def _ir_args():
-          def lower(*_): error("Invariant failed: %s is not meant to be lowered.", _ir_args)
+@defknown((_name, "\n", _form, ["\n", ((_typep, str), " ", (_typep, t))],))
+def _ir_args():
+        def lower(*_): error("Invariant failed: %s is not meant to be lowered.", _ir_args)
 
-  def _maybe_ir_args(x):
-          "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
-          return ((t, x[1], x[2:]) if isinstance(x, tuple) and x and x[0] is _ir_args else
-                  (nil, x, tuple()))
+def _maybe_ir_args(x):
+        "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
+        return ((t, x[1], x[2:]) if isinstance(x, tuple) and x and x[0] is _ir_args else
+                (nil, x, tuple()))
 
-  def _ir(*ir, **keys):
-          "This IR-ARGS constructur is meant to be used to pass extended arguments down."
-          known = _find_known(the(symbol, ir[0]))
-          invalid_params = set(keys.keys()) - known.lower_params
-          if invalid_params:
-                  error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
-                        known.name, known.lower_params, invalid_params)
-          return (_ir_args, ir) + tuple(_hash_table_alist(keys))
+def _ir(*ir, **keys):
+        "This IR-ARGS constructur is meant to be used to pass extended arguments down."
+        known = _find_known(the(symbol, ir[0]))
+        invalid_params = set(keys.keys()) - known.lower_params
+        if invalid_params:
+                error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
+                      known.name, known.lower_params, invalid_params)
+        return (_ir_args, ir) + tuple(_hash_table_alist(keys))
 
-  def _ir_args_when(when, ir, **parameters):
-          return _ir(*ir, **parameters) if when else ir
+def _ir_args_when(when, ir, **parameters):
+        return _ir(*ir, **parameters) if when else ir
 #+end_src
 
 ***** IR-level optimisations

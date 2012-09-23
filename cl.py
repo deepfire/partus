@@ -5933,6 +5933,25 @@ def append(*xs):
                         ptr[1] = [x[0], cdr]
         return copy_list_with_lastcdr(xs[0], append_pyfun(*xs[1:]))
 
+def _vectorise_cons_list(x):
+        res = []
+        while x:
+                res.append(x[0])
+                x = x[1]
+        return res
+
+def _consify_pyseq(xs):
+        return reduce(lambda acc, x: [x, acc],
+                      reversed(xs),
+                      nil)
+
+def _consify_tuple(xs):
+        return _consify_pyseq([ (_consify_tuple(x) if isinstance(x, tuple) else x)
+                                for x in xs ])
+
+def _consify_tuples(*xs):
+        return _consify_tuple(xs)
+
 # Matcher
 
 #       A large part of work is development of a calling convention.  Multiple values, as a
@@ -7672,7 +7691,7 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
                                      (nil, nil))
                 return (compiler_macro_function(global_ or lexical_, check_shadow = lexical_)
                         if global_ or lexical_ else
-                        nil)
+                          nil)
         def knownifier_and_maybe_compiler_macroexpander(form, known):
                 if not known: ## ..then it's a funcall, because all macros
                         xformed = _ir_funcall(form[0], *form[1:])
@@ -7822,6 +7841,7 @@ def DEFMACRO(name, lambda_list, *body):
                                 ("name", name)))
 
 # Primitive IR
+
 import primitives as p
 
 def _defaulting_expr(name, default):
@@ -7858,25 +7878,6 @@ def _function_frame_bindings(clambda, bindings):
         frame = _make_lexenv_funcframe(clambda, tns, bindings)
         return tns, frame
 
-def _vectorise_cons_list(x):
-        res = []
-        while x:
-                res.append(x[0])
-                x = x[1]
-        return res
-
-def _consify_pyseq(xs):
-        return reduce(lambda acc, x: [x, acc],
-                      reversed(xs),
-                      nil)
-
-def _consify_tuple(xs):
-        return _consify_pyseq([ (_consify_tuple(x) if isinstance(x, tuple) else x)
-                                for x in xs ])
-
-def _consify_tuples(*xs):
-        return _consify_tuple(xs)
-
 __primitiviser_map__ = { str:        (nil, p.string),
                          int:        (nil, p.integer),
                          float:      (nil, p.float_num),
@@ -7912,6 +7913,8 @@ def _primitivise_constant(x):
                 error("Cannot primitivise value %s.  Is it a literal?",
                       prin1_to_string(x)))
 
+# Debugging and tracing
+
 ## Compiler messages:
 ## - entry        _lower:rec()                             ;* lowering
 ##                _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
@@ -7939,7 +7942,7 @@ _no_compiler_debugging = _defwith("_no_compiler_debugging", _maybe_disable_debug
 def _compiler_debug_printf(control, *args):
         if _debugging_compiler():
                 justification = _sex_space()
-                def fix_string(x): return x.replace("\n", "\n" + justification) if stringp(x) else x
+                def fix_string(x): return x.replace("\n", "\n" + justification) if isinstance(x, str) else x
                 _debug_printf(justification + fix_string(control), *tuple(fix_string(a) for a in args))
 
 def _compiler_trace_choice(ir_name, id, choice):
@@ -7949,23 +7952,7 @@ def _compiler_trace_choice(ir_name, id, choice):
 if probe_file("/home/deepfire/.partus-debug-compiler"):
         _debug_compiler()
 
-# Compiler state and miscellanea
-
-#
-###
-## The Symbol Model
-##
-## - symbols denoting constants (keywords, t, nil, pi, etc.): fully printed symbol names
-##   - will be protected from trivial attempts of being assigned to
-##   - (SETF SYMBOL-VALUE) ought to be dealt with by different means
-## - names in the value namespace: fully printed symbol names
-##   - lexical scope handled by Python's lexical scope
-## - other symbols as constants (i.e. quoted symbols): global symbol -> gensym map, based off symbol name
-##   - symbols as symbols are, technically, a different namespace, so separation
-## - bound names in the function namespace: global symbol -> gensym map, based off symbol name
-##   - an obvious way to do namespace separation
-###
-#
+# Code
 
 def _tail_position_p(): return _symbol_value(_compiler_tailp_)
 
