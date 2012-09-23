@@ -8149,8 +8149,6 @@ def _ir_function_form_nth_value_form(n, func, orig_form):
                         ("effects",     lambda x: not x)),
                 (nth_value, n, orig_form))
 
-# Python calls
-
 # SETQ
 #         :PROPERTIES:
 #         :K:        [X]
@@ -9174,6 +9172,7 @@ def apply():
         def affected(func, arg, *args):
                 return (any(_ir_affected(arg) for arg in (func, arg) + args) or
                         _ir_depending_on_function_properties(func, lambda fn, affected: affected, "affected"))
+
 # Known tests
 
 _intern_and_bind_names_in_module("COND")
