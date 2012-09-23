@@ -3912,18 +3912,18 @@ def _namestring_components(x):
                        lambda:        (dirname or nil, basename or nil,   nil))
 
 @defclass
-class pathname_host():
+class pathname_host_t():
         def parse(self, x):
                 ## Unregistered Issue COMPLIANCE-NAMESTRING-UNPARSING-NOT-REALLY-IMPLEMENTED
-                dirname, basename, type = _namestring_components(the(string, x))
+                dirname, basename, type = _namestring_components(the(string_t, x))
                 directory = dirname.split(_os.sep) if dirname else nil
-                return pathname.python_type(host      = _system_pathname_host,
-                                            device    = nil,
-                                            directory = directory and (([_keyword("ABSOLUTE")] + directory[1:]) if directory[0] == "" else
-                                                                       ([_keyword("RELATIVE")] + directory)),
-                                            name      = basename,
-                                            type      = type,
-                                            version   = _keyword("NEWEST") if x else nil)
+                return pathname_t(host      = _system_pathname_host,
+                                  device    = nil,
+                                  directory = directory and (([_keyword("ABSOLUTE")] + directory[1:]) if directory[0] == "" else
+                                                             ([_keyword("RELATIVE")] + directory)),
+                                  name      = basename,
+                                  type      = type,
+                                  version   = _keyword("NEWEST") if x else nil)
         def unparse(self, x):
                 return ((x.device or "") +
                         (_os.sep                                   if x.directory and x.directory[0] is _keyword("ABSOLUTE") else "") +
@@ -3944,43 +3944,43 @@ class pathname_host():
                               case, _keyword("LOCAL"), _keyword("COMMON")))
 
 @defclass
-class unix_host(pathname_host.python_type):
+class unix_host_t(pathname_host_t):
         localise_case              = identity
-        customiser, anticustomiser = _py.str.lower, _py.str.upper
+        customiser, anticustomiser = str.lower, str.upper
 
 @defclass
-class windows_host(pathname_host.python_type):
+class windows_host_t(pathname_host_t):
         localise_case              = identity
-        customiser, anticustomiser = _py.str.lower, _py.str.upper
+        customiser, anticustomiser = str.lower, str.upper
 
-_system_pathname_host = make_instance(windows_host if _platform.system() == 'Windows' else
-                                      unix_host)
+_system_pathname_host = make_instance(windows_host_t if _platform.system() == 'Windows' else
+                                      unix_host_t)
 
-_intern_and_bind_pynames("*DEFAULT-PATHNAME-DEFAULTS*")
+_intern_and_bind_names_in_module("*DEFAULT-PATHNAME-DEFAULTS*")
 
 @defclass
-class pathname():
+class pathname_t():
         def __init__(self, *args, host, device, directory, name, type, version):
                 assert not args
                 (self.host, self.device, self.directory, self.name, self.type, self.version) = host, device, directory, name, type, version
         def __str__(self):
-                return "#P\"%s\"" % _py.repr(namestring(self))[1:-1]
+                return "#P\"%s\"" % repr(namestring(self))[1:-1]
         def __repr__(self):
                 return self.__str__()
 
 @defun
-def pathnamep(x): return _py.isinstance(x, pathname.python_type)
+def pathnamep(x): return isinstance(x, pathname_t)
 
 ## Unregistered Issue COMPLIANCE-HOST-TYPE-WRONG
 @defun
 def make_pathname(*args, host = None, device = None, directory = None, name = None, type = None, version = None,
                   default = None, case = _keyword("LOCAL")):
         assert not args
-        default = default or pathname.python_type(**_defaulted_keys(
+        default = default or pathname_t(**_defaulted_keys(
                         host = pathname_host(_symbol_value(_default_pathname_defaults_)),
                         device = nil, directory = nil, name = nil, type = nil, version = nil))
         effective_host = _defaulted(host, default.host)
-        supplied_pathname = _py.dict(
+        supplied_pathname = dict(
                 (k, effective_host.apply_case(case, v) if stringp(v) else v)
                 for k, v in _only_specified_keys(host = host, device = device, directory = directory, name = name, type = type, version = version).items())
         ## Unregistered Issue RESEARCH-COMPLIANCE-MAKE-PATHNAME-CANONICALISATION
@@ -3997,7 +3997,7 @@ def parse_namestring(thing, host = nil, default_pathname = None, *args, start = 
                 return (_values_frame(thing, start) if not (host or thing.host) or host is thing.host else
                         error("The specified host %s does not match pathname's host %s.", host, thing.host))
         ## It is a string.
-        check_type(thing, string)
+        check_type(thing, string_t)
         # Unregistered Issue COMPLIANCE-LOGICAL-PATHNAMES-NOT-IMPLEMENTED
         ## NI: If HOST is a logical host then THING is parsed as a
         ##     logical pathname namestring on the HOST.
@@ -4051,15 +4051,15 @@ a file stream after it is closed as it did when it was open.
 
 If the PATHSPEC designator is a file stream created by opening a
 logical pathname, a logical pathname is returned."""
-        return (x                                             if pathnamep(x)          else
-                _values_frame_project(0, parse_namestring(x)) if stringp(x)            else
-                _file_name(x)                                 if typep(x, file_stream) else
+        return (x                                             if pathnamep(x)      else
+                _values_frame_project(0, parse_namestring(x)) if stringp(x)        else
+                _file_stream_name(x)                          if _file_stream_p(x) else
                 error("PATHNAME only accepts pathnames, namestrings and file streams, was given: %s.", x))
 
 @defun
 def pathname_directory(x):
         # Unregistered Issue PORTABILITY-PATHNAME
-        absp = the(string, x).startswith(_os.sep)
+        absp = the(string_t, x).startswith(_os.sep)
         return ([_keyword("absolute" if absp else "relative")] +
                 # Reject the integer interpretation of booleans.
                 _namestring_components(x)[0].split(_os.sep)[1 if absp else 0])

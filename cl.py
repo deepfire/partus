@@ -3503,7 +3503,7 @@ def pathnamep(x): return isinstance(x, pathname_t)
 def make_pathname(*args, host = None, device = None, directory = None, name = None, type = None, version = None,
                   default = None, case = _keyword("LOCAL")):
         assert not args
-        default = default or pathname(**_defaulted_keys(
+        default = default or pathname_t(**_defaulted_keys(
                         host = pathname_host(_symbol_value(_default_pathname_defaults_)),
                         device = nil, directory = nil, name = nil, type = nil, version = nil))
         effective_host = _defaulted(host, default.host)
