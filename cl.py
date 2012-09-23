@@ -214,7 +214,7 @@ def _interpret_toplevel_value(name_or_obj, objness_predicate):
 class _storyteller(_collections.UserDict):
         def __init__(self):           self.__dict__.update(dict(__call__ = lambda self, x: self.advance(x),
                                                                     data     = dict()))
-        def __setattr__(self, _, __): raise _py.Exception("\n; The Storyteller defies this intercession.")
+        def __setattr__(self, _, __): raise Exception("\n; The Storyteller defies this intercession.")
         def advance(self, x):
                 self.data[x if isinstance(x, str) else
                           x.__name__] = True
@@ -224,7 +224,7 @@ class _storyteller(_collections.UserDict):
                 if x in self.data:
                         return True
                 if hard:
-                        raise _py.Exception(("\n; The Storyteller quietly said: 'twas too early to mention \"%s\" " % x) + control % args)
+                        raise Exception(("\n; The Storyteller quietly said: 'twas too early to mention \"%s\" " % x) + control % args)
                 else:
                         warn(("too early to mention \"%s\" " % (x,)) + control, *args)
         def conclude(self):
@@ -236,8 +236,8 @@ story = _storyteller.advance
 # Cold types
 
 _cold_class_type       = type
-_cold_condition_type   = _py.BaseException
-_cold_error_type       = _py.Exception
+_cold_condition_type   = BaseException
+_cold_error_type       = Exception
 _cold_hash_table_type  = dict
 _cold_stream_type      = __io._IOBase
 _cold_function_type    = _types.FunctionType.__mro__[0]
@@ -403,13 +403,13 @@ def _conditionp(x):
         return isinstance(x, _cold_condition_type)
 
 @boot("typep", lambda _, datum, *args, default_type = None, **keys:
-              _py.Exception(datum % args) if stringp(datum) else
+              Exception(datum % args) if stringp(datum) else
               (datum if not (args or keys) else
                error("Bad, bad evil is rising.  Now go and kill everybody.")) if _conditionp(datum) else
               datum(*args, **keys))
 def _coerce_to_condition(datum, *args, default_type = None, **keys):
         def not_a_condition_specifier_error(x):
-                raise _py.Exception("Cannot coerce %s to a condition." % repr(x))
+                raise Exception("Cannot coerce %s to a condition." % repr(x))
         type_specifier = _defaulted(default_type, error_t) if stringp(datum) else datum
 
         type_ = (type_specifier             if isinstance(type_specifier, type)                                     else
@@ -1101,10 +1101,10 @@ _define_python_type_map("STREAM",            _cold_stream_type)
 
 _define_python_type_map("CLASS",             type) # Ha.
 
-_define_python_type_map("CONDITION",         _py.BaseException)
-_define_python_type_map("ERROR",             _py.Exception)
-_define_python_type_map("SERIOUS-CONDITION", _py.Exception)
-_define_python_type_map("END-OF-FILE",       _py.EOFError)
+_define_python_type_map("CONDITION",         BaseException)
+_define_python_type_map("ERROR",             Exception)
+_define_python_type_map("SERIOUS-CONDITION", Exception)
+_define_python_type_map("END-OF-FILE",       EOFError)
 
 ## non-standard type names
 _define_python_type_map("PYBOOL",      bool)
@@ -2368,7 +2368,7 @@ def _some_fast(fn, xs):
         return nil
 
 def _some_fast_2(fn, xs, ys):
-        for x, y in _py.zip(xs, ys):
+        for x, y in zip(xs, ys):
                 ret = fn(x, y)
                 if ret: return ret or t
         return nil
