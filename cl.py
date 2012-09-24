@@ -4918,6 +4918,9 @@ def _register_astifier_for_type(type, recurse, astifier):
         "Please, list the added astifiers above."
         __astifier_map__[type] = (recurse, astifier)
 
+def _unregister_astifier_for_type(type):
+        del __astifier_map__[type]
+
 def _astifiable_p(x):
         return type(x) in __astifier_map__
 
