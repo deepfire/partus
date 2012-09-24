@@ -1,7 +1,7 @@
 ###
 ### Some utilities, in the spirit of Common Lisp.
 ###
-from cl           import typep, consp, car, cdr, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, append, aref, t
+from cl           import typep, consp, car, cdr, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, aref, t
 from cl           import evenp
 from functools    import reduce, partial
 from cl           import _of_type as of_type, _setp as setp, _frozensetp as frozensetp
@@ -28,6 +28,7 @@ import time               # clock()
 import sys                # sys.stdout
 import traceback
 import threading
+import operator
 
 from neutrality   import file_content
 
@@ -550,7 +551,7 @@ def string_to_complex(x_str, spec):
         return x if rec(x, spec) is not False else None
 
 def strconcat(strs):
-        return reduce(append, strs)
+        return reduce(operator.add, strs)
 
 ## streams
 def with_output_redirection(fn, file = None):
