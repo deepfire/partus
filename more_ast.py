@@ -350,22 +350,17 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                 def pp_call(x):
                         return ("%s(%s%s%s%s)" % (pp_ast_as_code(x.func),
                                                   ", ".join(iterate(x.args)),
-                                                  ", ".join(iterate(x.keywords)),
+                                                  (", " if x.keywords else "") + ", ".join(iterate(x.keywords)),
                                                   (", " if x.starargs and (x.args or x.keywords) else "") +
                                                   ("*%s" % pp_ast_as_code(x.starargs)) if x.starargs else "",
                                                   (", " if x.kwargs and (x.args or x.keywords or x.starargs) else "") +
                                                   ("**%s" % pp_ast_as_code(x.kwargs)) if x.kwargs else ""))
-                def pp_generatorexp(x):
-                        return "%s%s" % (rec(x.elt), "".join(" " + rec(c) for c in x.generators))
-                def pp_comprehension(x):
-                        return "for %s in %s%s" % (rec(x.target), rec(x.iter),
-                                                   "".join(" if %s" % rec(x) for x in x.ifs))
                 def pp_attribute(x):
                         return "%s.%s" % (pp_ast_as_code(x.value), x.attr)
                 def pp_name(x):
                         return x.id + (":w" if annotate_written_names and isinstance(x.ctx, ast.Store) else "")
                 def pp_arg(x):
-                        return x.arg + ((": " + str(x.annotation)) if x.annotation else "")
+                        return x.arg + ((": " + rec(x.annotation)) if x.annotation else "")
                 def pp_alias(x):
                         return x.name + ((" as " + x.asname) if x.asname else "")
                 def pp_keyword(x):
@@ -386,7 +381,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         return "%s%s%s%s" % (l,
                                              ", ".join(iterate(x.elts)
                                                        if not ast_dict_p(x) else
-                                                       mapcar(lambda k, v: "%s: %s" % (k, v),
+                                                       mapcar(lambda k, v: "%s: %s" % (rec(k), rec(v)),
                                                               x.keys,
                                                               x.values)),
                                              "," if (ast_tuple_p(x) and len(x.elts) == 1) else "",
@@ -414,6 +409,10 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         return (pp_ast_as_code(x.left) +
                                 (" %s " % (op_print_map[type(x.op).__name__])) +
                                 pp_ast_as_code(x.right))
+                def pp_augassign(x):
+                        return (pp_ast_as_code(x.target) +
+                                (" %s= " % (op_print_map[type(x.op).__name__])) +
+                                pp_ast_as_code(x.value))
                 def pp_unop(x):
                         return (("%s " % (op_print_map[type(x.op).__name__])) +
                                 pp_ast_as_code(x.operand))
@@ -457,6 +456,16 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                                           ((" " + rec(getattr(y, slot)))
                                            if hasattr(y, slot) and getattr(y, slot) else
                                            ""))
+                def make_comp_pper(lbr, rbr):
+                        return lambda comp: (lbr + " " +
+                                             rec(comp.elt) + " " + " ".join(rec(x) for x in comp.generators)
+                                             + " " + rbr)
+                def pp_dictcomp(comp):
+                        return ("{ " +
+                                rec(comp.key) + ": " + rec(comp.value) + " ".join(rec(x) for x in comp.generators)
+                                + " }")
+                def pp_comprehension(x):
+                        return "for %s in %s%s" % (rec(x.target), rec(x.iter), "".join(" if %s" % rec(x) for x in x.ifs))
                 ## Multilines
                 def pp_subprogn(body):
                         with progv({_ast_pp_depth_: symbol_value(_ast_pp_depth_) + 1}):
@@ -467,12 +476,16 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         "XXX: ignores __annotations__"
                         return ("\n".join(indent(d) + "@" + rec(d) for d in x.decorator_list) +
                                 ("\n" if x.decorator_list else "") +
-                                indent(x) + "def " + x.name + "(" + rec(x.args) + "):\n" +
+                                indent(x) + "def " + x.name + "(" + rec(x.args) + "):" +
+                                (("-> %s" % rec(x.returns)) if x.returns is not None else "") + "\n" +
                                 pp_subprogn(x.body))
                 def pp_for(x):
                         return (indent(x) + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n" +
                                 pp_subprogn(x.body) +
                                 ((indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
+                def pp_with(x):
+                        return (indent(x) + "with " + rec(x.context_expr) + (" as %s" % rec(x.optional_vars) if x.optional_vars else "") + ":\n" +
+                                pp_subprogn(x.body))
                 def pp_while(x):
                         return (indent(x) + "while " + rec(x.test) + ":\n" +
                                 pp_subprogn(x.body) +
@@ -490,12 +503,11 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                 map = { list:            lambda x: ", ".join(rec(ix) for ix in x),
                         str:             lambda x: x,
                         ast.arguments:   pp_args,
-                        ast.comprehension: pp_comprehension,
-                        ast.GeneratorExp:  pp_generatorexp,
                         ast.Module:      pp_module,
                         ast.FunctionDef: pp_functiondef,
                         ast.Lambda:      pp_lambda,
                         ast.For:         pp_for,
+                        ast.With:        pp_with,
                         ast.While:       pp_while,
                         ast.If:          pp_if,
                         ast.Expr:        pp_Expr,
@@ -507,20 +519,19 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         ast.alias:       pp_alias,
                         ast.keyword:     pp_keyword,
                         ast.Assign:      pp_assign,
+                        ast.AugAssign:   pp_augassign,
                         ast.Subscript:   pp_subscript,
                         ast.IfExp:       pp_ifexp,
                         ast.Index:       pp_index,
                         ast.Slice:       pp_slice,
+
                         ast.List:        pp_iterable,
                         ast.Tuple:       pp_iterable,
                         ast.Set:         pp_iterable,
                         ast.Dict:        pp_iterable,
                         ast.Str:         pp_string,
                         ast.Num:         pp_num,
-                        ast.BinOp:       pp_binop,
-                        ast.UnaryOp:     pp_unop,
-                        ast.BoolOp:      pp_boolop,
-                        ast.Compare:     pp_compare,
+
                         ast.Assert:      make_trivial_pper("assert"),
                         ast.Break:       make_trivial_pper("break"),
                         ast.Continue:    make_trivial_pper("continue"),
@@ -530,6 +541,17 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         ast.Global:      make_trivial_pper("global", slot = "names"),
                         ast.Nonlocal:    make_trivial_pper("nonlocal", slot = "names"),
                         ast.Import:      pp_import,
+
+                        ast.BoolOp:      pp_boolop,
+                        ast.BinOp:       pp_binop,
+                        ast.UnaryOp:     pp_unop,
+                        ast.Compare:     pp_compare,
+
+                        ast.ListComp:      make_comp_pper("[", "]"),
+                        ast.SetComp:       make_comp_pper("{", "}"),
+                        ast.GeneratorExp:  make_comp_pper("(", ")"),
+                        ast.comprehension: pp_comprehension,
+                        ast.DictComp:      pp_dictcomp,
                         }
                 def fail(x): not_implemented("pretty-printing AST node %s" % (type(x),))
                 try:
