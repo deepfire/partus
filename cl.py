@@ -2999,6 +2999,7 @@ FDEFINITION when FBOUNDP returns true but the FUNCTION-NAME denotes a
 macro or special form is not well-defined, but FDEFINITION does not
 signal an error."""
         the(symbol_t, function_name).function = new_definition
+        _compiler_defun(function_name, nil, check_redefinition = nil)
         return new_definition
 
 @defun
