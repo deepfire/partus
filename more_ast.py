@@ -16,7 +16,7 @@ import cl
 from cl         import t, nil, typep, null, integerp, floatp, sequencep, functionp, stringp, mapcar, mapc,\
                        remove_if, sort, car, identity, every, find, with_output_to_string, error, reduce,\
                        symbol_value, progv
-from cl         import _ast_rw as ast_rw, _ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
+from cl         import _ast_rw as ast_rw, __ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
 from cl         import _ast_funcall as ast_funcall, _ast_maybe_normalise_string as ast_maybe_normalise_string
 from cl         import _ast_Expr as ast_Expr, _ast_list as ast_list, _ast_tuple as ast_tuple, _ast_set as ast_set
 from cl         import _ast_return as ast_return, _ast_assign as ast_assign, _ast_import as ast_import

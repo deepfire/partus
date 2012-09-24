@@ -4939,7 +4939,7 @@ def _coerce_to_ast(x):
         return _astify_constant(x) if not _astp(x) else x
 
 ### expressions
-def _ast_alias(name):                        return _ast.alias(name = the(string_t, name), asname = None)
+def __ast_alias(name):                       return _ast.alias(name = the(string_t, name), asname = None)
 def _ast_keyword(name, value):               return _ast.keyword(arg = the(string_t, name), value = the(_ast.expr, value))
 
 def _ast_rw(writep):                         return (_ast.Store() if writep else _ast.Load())
@@ -4974,10 +4974,10 @@ def _ast_module(body, lineno = 0):
                           lineno = lineno)
 
 def _ast_import(*names):
-        return _ast.Import(names = mapcar(ast_alias, the((pylist_t, string_t), names)))
+        return _ast.Import(names = mapcar(__ast_alias, the((homotuple_t, string_t), names)))
 def _ast_import_from(module_name, names):
         return _ast.ImportFrom(module = the(string_t, module_name),
-                              names = mapcar(_ast_alias, the((pylist_t, string_t), names)),
+                              names = mapcar(__ast_alias, the((pylist_t, string_t), names)),
                               level = 0)
 
 def _ast_assign(to, value):
