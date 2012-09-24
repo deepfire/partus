@@ -2398,31 +2398,6 @@ def plusp(x):         return x > 0
 @defun
 def minusp(x):        return x < 0
 
-# Conses
-
-@defun
-def cdr(x):           return x[1:]  if x  else nil
-@defun
-def second(xs):       return xs[1]  if len(xs) > 1 else nil
-@defun
-def third(xs):        return xs[2]  if len(xs) > 2 else nil
-@defun
-def rest(xs):         return xs[1:] if xs else nil
-@defun
-def nth(n, xs):       return xs[n] if n < len(xs) else nil
-
-@defun
-def copy_list(x):
-        _not_implemented()
-
-@defun
-def pop(xs):
-        if xs:
-                x, xs[0:1] = xs[0], []
-                return x
-        else:
-                return nil
-
 # Functions
 
 @defun
