@@ -2302,6 +2302,18 @@ def _gen(n = 1, x = "G", gen = gensym):
 def _gensyms(**initargs):     return _gen(gen = gensym,      **initargs)
 def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
+# Testing
+
+#         Used by quasiquotation, MetaSEX and others.
+
+_results_ = []
+def _runtest(fun, bindings, result):
+        b, r, f = fun()
+        _results_.append((fun, b, r, f))
+        return (b == bindings,
+                r == result,
+                f is None)
+
 # Basic functions
 
 @defun
@@ -2932,7 +2944,7 @@ def _symbol_macro_expander(sym, environment = None):
 def _style_warn(control, *args):
         warn(simple_style_warning_t, format_control = control, format_arguments = args)
 
-def _warn_incompatible_function_redefinition(symbol, tons, fromns):
+def _warn_incompatible_redefinition(symbol, tons, fromns):
         _style_warn("%s is being redefined as a %s when it was previously defined to be a %s.", symbol, tons, fromns)
 
 def _warn_possible_redefinition(x, type):
@@ -2945,7 +2957,7 @@ def setf_macro_function(new_function, symbol, environment = nil):
         ## Ensure compliance.
         check_type(environment, null_t)
         if symbol.function:
-                _warn_incompatible_function_redefinition(symbol, "macro", "function")
+                _warn_incompatible_redefinition(symbol, "macro", "function")
                 symbol.function = nil
         _warn_possible_redefinition(symbol.macro_function, defmacro)
         symbol.macro_function = the(function_t, new_function)
@@ -3067,18 +3079,15 @@ def _get_symbol_pyname(symbol):
                 error("Symbol %s has no mapping to a python name.", symbol)
         return symbol.symbol_pyname
 
-def _set_function_definition(globals, x, lambda_expression = None):
-        lambda_expression = _defaulted(lambda_expression, [lambda_, nil])
-        identity_redef = _compiler_defun(x, lambda_expression)
+def _set_function_definition(globals, x, lambda_expression = None, check_redefinition = nil):
+        lambda_expression = _defaulted(lambda_expression, [lambda_, [nil, nil]])
+        identity_redef = _compiler_defun(x, lambda_expression, check_redefinition = check_redefinition)
         def do_set_function_definition(function):
                 if not identity_redef and function:
                         x.function, x.macro_function = function, nil
                         _frost.make_object_like_python_function(x, function)
-                        pyfname = function.__name__
-                        function.name = x
-                        globals[_ensure_function_pyname(x)] = globals[(pyfname
-                                                                       + ("" if pyfname.endswith("_") else "_")
-                                                                       + "pyfun")] = function
+                        globals["__" + function.__name__.rstrip("_")] = function.name = x
+                        globals[_ensure_function_pyname(x)] = function
                 return x
         return do_set_function_definition
 
@@ -3086,9 +3095,9 @@ def _set_macro_definition(globals, x, lambda_expression):
         identity_redef = _compiler_defmacro(x, lambda_expression)
         def do_set_macro_definition(function):
                 if not identity_redef and function:
+                        x.function, x.macro_function = nil, function
                         _frost.make_object_like_python_function(x, function)
                         function.name = x
-                        x.function, x.macro_function = nil, function
                         globals[_ensure_function_pyname(x)] = function
                 return x
         return do_set_macro_definition
@@ -3712,6 +3721,78 @@ together."""
                 pass
         return _os.path.join(x, y)
 
+# Conses
+
+@defun
+def vector(*xs):    return list(xs)
+
+@defun
+def atom(x):        return not isinstance(x, list) or x == () or x is nil
+
+@defun
+def consp(x):       return isinstance(x, list) and len(x) is 2
+
+@defun
+def listp(x):       return x is nil or isinstance(x, list) and len(x) is 2
+
+@defun
+def car(x):         return x[0] if x else nil
+
+@defun("LIST")
+def list_(*xs):     return _consify_pyseq(xs)
+
+@defun
+def length(x):
+        len = 0
+        while x:
+                len += 1
+                x = x[1]
+        return len
+
+@defun
+def last(x):
+        if not x:
+               return nil
+        while True:
+                lastx = x
+                x = x[1]
+                if not x:
+                        return lastx
+
+@defun
+def append(*xs):
+        if not xs:
+                return nil
+        def copy_list_with_lastcdr(x, cdr):
+                if not x:
+                        return cdr
+                ret = ptr = [x[0], cdr]
+                while True:
+                        x = x[1]
+                        if not x:
+                                return ret
+                        ptr[1] = [x[0], cdr]
+        return copy_list_with_lastcdr(xs[0], append(*xs[1:]))
+
+def _vectorise_cons_list(x):
+        res = []
+        while x:
+                res.append(x[0])
+                x = x[1]
+        return res
+
+def _consify_pyseq(xs):
+        return reduce(lambda acc, x: [x, acc],
+                      reversed(xs),
+                      nil)
+
+def _consify_tuple(xs):
+        return _consify_pyseq([ (_consify_tuple(x) if isinstance(x, tuple) else x)
+                                for x in xs ])
+
+def _consify_tuples(*xs):
+        return _consify_tuple(xs)
+
 # Cold printer
 
 def _print_string(x, escape = None, readably = None):
@@ -3888,6 +3969,131 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
         write(object, stream = stream, escape = t, pretty = t)
         return object
 
+# Quasiquotation
+
+## From CLHS 2.4.6:
+##
+## The backquote syntax can be summarized formally as follows.
+##
+## * `basic is the same as 'basic, that is, (quote basic), for any expression basic that is not a list or a general vector.
+##
+## * `,form is the same as form, for any form, provided that the representation of form does not begin with at-sign or dot.
+## (A similar caveat holds for all occurrences of a form after a comma.)
+##
+## * `,@form has undefined consequences.
+##
+## * `(x1 x2 x3 ... xn . atom) may be interpreted to mean
+##
+## (append [ x1] [ x2] [ x3] ... [ xn] (quote atom))
+##
+##         where the brackets are used to indicate a transformation of an xj as follows:
+##
+##              -- [form] is interpreted as (list `form), which contains a backquoted form that must then be further
+##              interpreted.
+##
+##              -- [,form] is interpreted as (list form).
+##
+##              -- [,@form] is interpreted as form.
+##
+## * `(x1 x2 x3 ... xn) may be interpreted to mean the same as the backquoted form `(x1 x2 x3 ... xn . nil), thereby
+## reducing it to the previous case.
+##
+## * `(x1 x2 x3 ... xn . ,form) may be interpreted to mean
+##
+## (append [ x1] [ x2] [ x3] ... [ xn] form)
+##
+##         where the brackets indicate a transformation of an xj as described above.
+##
+## * `(x1 x2 x3 ... xn . ,@form) has undefined consequences.
+##
+## * `#(x1 x2 x3 ... xn) may be interpreted to mean (apply #'vector `(x1 x2 x3 ... xn)).
+##
+## Anywhere ``,@'' may be used, the syntax ``,.'' may be used instead to indicate that it is permissible to operate
+## destructively on the list structure produced by the form following the ``,.'' (in effect, to use nconc instead of
+## append).
+##
+## If the backquote syntax is nested, the innermost backquoted form should be expanded first. This means that if several
+## commas occur in a row, the leftmost one belongs to the innermost backquote.
+
+__list, __append = intern("LIST")[0], intern("APPEND")[0]
+_intern_and_bind_names_in_module("QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
+
+_string_set("*READER-TRACE-QQEXPANSION*",        nil)
+
+## Unregistered Issue COMPLIANCE-BACKQUOTE-EXPANSION-DOTTED-LIST-HANDLING
+
+def _expand_quasiquotation(form):
+        """Expand quasiquotation abbreviations in FORM (in a simple, yet suboptimal way)."""
+        def malform(x): error("Invalid %s form: %s.", x[0], x)
+        def process_form(x):
+                return (x                                         if atom(x)            else
+                        (process_qq(x[1]) if len(x) is 2 else
+                         malform(x))                              if x[0] is quasiquote else
+                        tuple(process_form(ix) for ix in x))
+        def process_qq(x):
+                if atom(x):
+                        return (quote, x)
+                else:
+                        acc = [append]
+                        for xi in x:
+                                if atom(xi):
+                                        acc.append((__list, (quote, xi)))
+                                elif xi[0] in (comma, splice):
+                                        len(xi) is 2 or malform(xi)
+                                        acc.append((__list, xi[1]) if xi[0] is comma else
+                                                   xi[1])
+                                else:
+                                        if xi[0] is quasiquote:
+                                                len(xi) is 2 or malform(xi)
+                                                nxi = process_qq(xi[1])
+                                                xi = nxi
+                                        acc.append((__list, process_qq(xi)))
+                        ## Simplify an obvious case of APPEND having only LIST subforms.
+                        if all(consp(x) and x[0] is list_ for x in acc[1:]):
+                                acc = (__list,) + tuple(x[1] for x in acc[1:])
+                        return tuple(acc)
+        result = process_form(form)
+        if symbol_value(_reader_trace_qqexpansion_):
+                if form != result:
+                        _debug_printf(";;;%s quasiquotation expanded to:\n%s%s",
+                                      _sex_space(-3, ";"), _sex_space(), _pp(result))
+                else:
+                        _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
+        return result
+
+def _runtest(fn, input, expected):
+        result = fn(input)
+        if result != expected:
+                _debug_printf("Failed %s: on input:\n%s\nexpected:\n%s\ngot:\n%s", fn.__name__.upper(), input, expected, result)
+        return result == expected
+
+assert(_runtest(_expand_quasiquotation,
+                ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
+                (quasiquote, (1, (comma, 2), 3, (splice, 4), 5,
+                              ((comma, 6), (splice, 7)),
+                              (splice, 8), (splice, 9))),
+                ((__append, (__list, (quote, 1)), (__list, 2), (__list, (quote, 3)), 4,
+                            (__list, (quote, 5)), (__list, (__append, (__list, 6), 7)),
+                            8, 9))))
+print("; QUASIQUOTATION-SIMPLE: passed")
+
+assert(_runtest(_expand_quasiquotation,
+                ## `(a ,b ,@c `(d ,,e ,@f ,@,g)) -- numbers don't do, as CONSTANTP is used for simplification.
+                (quasiquote,
+                 (1, (comma, 2), (splice, 3),
+                  (quasiquote, (4, (comma, (comma, 5)), (splice, 6), (splice, (comma, 7)))))),
+                (__append,
+                 (__list, (quote, 1)), (__list, 2), 3,
+                 ## The first pass ought to be:
+                 ## (__append, (__list, (quote, 4)), (__list, (comma, 5)), 6, (comma, 7))
+                 (__list, (__list,
+                          (quote, append),
+                          (__list, (quote, list_), (__list, (quote, quote), (quote, 4))),
+                          (__list, (quote, list_), 5),
+                          (quote, 6),
+                          7)))))
+print("; QUASIQUOTATION-NESTED: passed")
+
 # Cold reader
 
 _string_set("*READ-CASE*", _keyword("upcase"))
@@ -3986,19 +4192,19 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                 elif char == "\"":     obj = read_string()
                 elif char == "'":
                         read_char(stream)
-                        obj = list_pyfun(quote, read_inner())
+                        obj = list_(quote, read_inner())
                 elif char == "`":
                         read_char(stream)
-                        obj = list_pyfun(quasiquote, read_list())
+                        obj = list_(quasiquote, read_list())
                 elif char == ",":
                         ## This is a simplified take, but it'll do for bootstrapping purposes.
                         read_char(stream);
                         char = read_char(stream)
                         if char == "@":
-                                obj = list_pyfun(splice, read_inner())
+                                obj = list_(splice, read_inner())
                         else:
                                 unread_char(char, stream)
-                                obj = list_pyfun(comma, read_inner())
+                                obj = list_(comma, read_inner())
                 else:
                         # handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
@@ -4558,6 +4764,8 @@ executes the following:
 
 # DEFBODY
 
+#     This is used by @defast and @defknown.
+
 def _defbody_parse_ast(names, asts, valid_declarations = make_hash_table()):
         """Given a list of defined parameter NAMES, a list of statement ASTS and a
 table of VALID-DECLARATIONS, return the body, documentation and declarations if any."""
@@ -4653,7 +4861,7 @@ def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast
 def _defbody_make_required_method_error(desc):
         return lambda method_name: error("In %s: missing method %s.", desc, str(method_name).upper())
 
-# AST basics
+# AST toolkit
 
 def _astp(x):        return isinstance(x, _ast.AST)
 
@@ -4765,18 +4973,16 @@ def _ast_assign(to, value):
 def _ast_return(node):
         return _ast.Return(value = the(_ast.AST, node))
 
-# A very primitive AST-friendly lambda list mechanism + FunctionDef node creator
-
+## ast.FunctionDef tools
+#
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
 #              arg* kwonlyargs, identifier? kwarg,
 #              expr? kwargannotation, expr* defaults,
-
 #              expr* kw_defaults)
+#
 # arg = (identifier arg, expr? annotation)
+#
 # keyword = (identifier arg, expr value)
-def _function_lambda_list(fn, astify_defaults = t):
-        "Returns: FIXPARMS, OPTIONAL-WITH-DEFAULTS, VARARGS, KEYS-WITH-DEFAULTS, KWARGS."
-        return _argspec_lambda_spec(_inspect.getfullargspec(fn), astify_defaults = astify_defaults)
 
 def _argspec_nfixargs(paramspec):
         return len(paramspec.args) - len(paramspec.defaults or []) # ILTW Python implementors think..
@@ -4792,6 +4998,11 @@ def _argspec_lambda_spec(spec, astify_defaults = t):
                 list(zip(spec.kwonlyargs,
                          mapcar(default_xform, spec.kwonlydefaults or []))),
                 spec.varkw)
+
+def _function_lambda_list(fn, astify_defaults = t):
+        "Returns: FIXPARMS, OPTIONAL-WITH-DEFAULTS, VARARGS, KEYS-WITH-DEFAULTS, KWARGS."
+        return _argspec_lambda_spec(_inspect.getfullargspec(fn), astify_defaults = astify_defaults)
+
 def _lambda_spec_arguments(lambda_list_spec):
         fixed, optional, args, keyword, keys = lambda_list_spec
         return _ast.arguments(args        = mapcar(lambda x: _ast.arg(x, None),
@@ -4824,7 +5035,7 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                                                             ([args] if args else []) +
                                                                             ([keys] if keys else [])))))))
 
-# AST -> SEX
+# AST interning: %READ-AST, %READ-PYTHON-TOPLEVEL-AS-LISP
 
 def _literal_ast_sex(ast_):
         def fail(sex):
@@ -5066,7 +5277,7 @@ def defast(fn):
 ## AST + Symbols
 _register_astifier_for_type(symbol_t, nil, (lambda sym: _ast_funcall("_find_symbol_or_fail", [symbol_name(sym)])))
 
-# Rich AST definitions
+# Definitions
 
 # mod = Module(stmt* body)
 #     | Interactive(stmt* body)
@@ -5632,7 +5843,7 @@ all AST-trees .. except for the case of tuples."""
                 (astify_known(tree[0], [ _atree_ast(x) for x in tree[1:] ])))
         return ret
 
-# Code
+# Bindings
 
 _intern_and_bind_names_in_module("SYMBOL",
                                  "VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO",
@@ -5714,8 +5925,10 @@ class _function_scope(_scope, _collections.UserDict):
 _variable_scope = _variable_scope()
 _function_scope = _function_scope()
 
-def _find_global_variable(name): return gethash(name, _variable_scope)[0]
-def _find_global_function(name): return gethash(name, _function_scope)[0]
+def _find_global_variable(name):     return gethash(name, _variable_scope)[0]
+def _find_global_function(name):     return gethash(name, _function_scope)[0]
+def  _set_global_function(name, x): _function_scope[name] = the(_function, x)
+def  _set_global_variable(name, x): _variable_scope[name] = the(_variable, x)
 
 def _compiler_defparameter(name, value):
         x = _variable(the(symbol_t, name), _ensure_variable_pyname(name), variable)
@@ -5728,35 +5941,36 @@ def _compiler_defvar(name, value):
                 _compiler_defparameter(name, value)
 
 _intern_and_bind_names_in_module("SETF")
-def _compiler_defun(name, lambda_expression, check_redefinition = t):
-        "Return a boolean, which denotes whether the situation is an identity redefinition."
-        check_type(name, (or_t, symbol_t, list))
-        oldef, _ = gethash(name, _function_scope)
+def _compiler_defun(name: symbol_t, lambda_expression: cons_t, check_redefinition = t) -> bool:
+        """Manipulate the compiler's idea of a function's definition.
+           Return a boolean, which denotes whether the situation is an identity redefinition."""
+        check_type(name, (or_t, symbol_t, cons_t))
+        oldef = _find_global_function(name)
         if oldef and oldef.lambda_expression == lambda_expression:
                 return t
         if check_redefinition and isinstance(name, symbol_t):
-                if name.macro_function:
-                        _warn_incompatible_function_redefinition(name, "function", "macro")
-                else:
-                        _warn_possible_redefinition(name.function, name)
-        _function_scope[name] = _function(name, _ensure_function_pyname(name),
-                                          function, lambda_expression = lambda_expression)
+                if oldef and oldef.kind is macro:
+                        _warn_incompatible_redefinition(name, "function", "macro")
+                elif oldef and oldef.kind is function:
+                        _warn_possible_redefinition(oldef.name, name)
+        _set_global_function(name, _function(name, _ensure_function_pyname(name),
+                                             function, lambda_expression = lambda_expression))
         return nil
 
 def _compiler_defmacro(name, lambda_expression, check_redefinition = t):
         "Return a boolean, which denotes whether the situation is an identity redefinition."
         check_type(name, (or_t, symbol_t, list))
-        oldef, _ = gethash(name, _function_scope)
+        oldef = _find_global_function(name)
         ## Unregistered Issue MACRO-REDEFINITION-REPLACED-BY-ONE-WITH-NONEIFIED-GLOBALS
         if oldef and oldef.lambda_expression == lambda_expression:
                 return t
         if check_redefinition and isinstance(name, symbol_t):
-                if name.function:
-                        _warn_incompatible_function_redefinition(name, "macro", "function")
-                else:
-                        _warn_possible_redefinition(name.macro_function, name)
-        _function_scope[name] = _function(name, _ensure_function_pyname(name),
-                                          macro, lambda_expression = lambda_expression)
+                if oldef and oldef.kind is function:
+                        _warn_incompatible_redefinition(name, "macro", "function")
+                elif oldef and oldef.kind is macro:
+                        _warn_possible_redefinition(oldef.name, name)
+        _set_global_function(name, _function(name, _ensure_function_pyname(name),
+                                             macro, lambda_expression = lambda_expression))
         return nil
 
 def _compiler_defvar_without_actually_defvar(name, value):
@@ -5836,97 +6050,30 @@ declared to be the names of constant variables)."""
                 (isinstance(form, symbol_t) and _global_variable_constant_p(form)) or
                 (isinstance(form, list) and len(form) is 2 and form[0] is quote))
 
-# Intern globals
+# Essential functions
 
-def _sync_global_scopes_to_package(package):
+@defun("NOT")
+def not_(x):        return t if x is nil else nil
+
+# Action: populate compilation environment with pre-defined functions
+
+lambda_ = intern("LAMBDA")[0]
+def _populate_compilation_environment_from_package(package):
         for sym in package.own:
                 if sym.function:
-                        _compiler_defun(sym, nil, check_redefinition = nil)
-                value, gvarp = gethash(sym, __global_scope__)
-                if gvarp:
+                        _set_function_definition(globals(), sym,
+                                                  lambda_expression = nil, check_redefinition = nil)(sym.function)
+                value, presentp = gethash(sym, __global_scope__)
+                if presentp:
                         _compiler_defvar(sym, value)
 
-_sync_global_scopes_to_package(__cl)
+_populate_compilation_environment_from_package(__cl)
 
 _compiler_defconstant(t,   t)
 _compiler_defconstant(nil, nil)
 
 EmptyDict = dict()
 EmptySet = frozenset()
-
-# Conses
-
-lambda_ = intern("LAMBDA")[0]
-
-@_set_function_definition(globals(), intern("VECTOR")[0])
-def vector(*xs):    return list(xs)
-
-@_set_function_definition(globals(), intern("ATOM")[0])
-def atom(x):        return not isinstance(x, list) or x == () or x is nil
-
-@_set_function_definition(globals(), intern("CONSP")[0])
-def consp(x):       return isinstance(x, list) and len(x) is 2
-
-@_set_function_definition(globals(), intern("LISTP")[0])
-def listp(x):       return x is nil or isinstance(x, list) and len(x) is 2
-
-@_set_function_definition(globals(), intern("CAR")[0])
-def car(x):         return x[0] if x else nil
-
-@_set_function_definition(globals(), intern("LIST")[0])
-def list_(*xs):     return _consify_pyseq(xs)
-
-@_set_function_definition(globals(), intern("LENGTH")[0])
-def length(x):
-        len = 0
-        while x:
-                len += 1
-                x = x[1]
-        return len
-
-@_set_function_definition(globals(), intern("LAST")[0])
-def last(x):
-        if not x:
-               return nil
-        while True:
-                lastx = x
-                x = x[1]
-                if not x:
-                        return lastx
-
-@_set_function_definition(globals(), intern("APPEND")[0])
-def append(*xs):
-        if not xs:
-                return nil
-        def copy_list_with_lastcdr(x, cdr):
-                if not x:
-                        return cdr
-                ret = ptr = [x[0], cdr]
-                while True:
-                        x = x[1]
-                        if not x:
-                                return ret
-                        ptr[1] = [x[0], cdr]
-        return copy_list_with_lastcdr(xs[0], append_pyfun(*xs[1:]))
-
-def _vectorise_cons_list(x):
-        res = []
-        while x:
-                res.append(x[0])
-                x = x[1]
-        return res
-
-def _consify_pyseq(xs):
-        return reduce(lambda acc, x: [x, acc],
-                      reversed(xs),
-                      nil)
-
-def _consify_tuple(xs):
-        return _consify_pyseq([ (_consify_tuple(x) if isinstance(x, tuple) else x)
-                                for x in xs ])
-
-def _consify_tuples(*xs):
-        return _consify_tuple(xs)
 
 # Matcher
 
@@ -6307,14 +6454,71 @@ def _match(matcher, exp, pat):
         name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
         return matcher.match(dict(), name, exp, prepped, (True, False), None, -1)
 
-# Compilation environment (incl. tracing controls)
+# Compiler conditions
+
+@defclass
+class _compiler_error(error_t):
+        pass
+
+@defclass
+class _simple_compiler_error(simple_condition_t, _compiler_error):
+        pass
+
+@defun
+def _compiler_error(control, *args):
+        return _simple_compiler_error(control, *args)
+
+# Form parsing
+
+_intern_and_bind_names_in_module("DECLARE")
+def _parse_body(body, doc_string_allowed = t):
+        doc = nil
+        def doc_string_p(x, remaining_forms):
+                return ((error("duplicate doc string %s", x) if doc else t)
+                        if isinstance(x, str) and doc_string_allowed and remaining_forms else
+                        None)
+        def declaration_p(x):
+                return isinstance(x, tuple) and x[0] is declare
+        decls, forms = [], []
+        for i, form in enumerate(body):
+               if doc_string_p(form, body[i:]):
+                       doc = form
+               elif declaration_p(form):
+                       decls.append(form)
+               else:
+                       forms = body[i:]
+                       break
+        return (forms,
+                decls,
+                doc)
+
+_eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
+_eval_when_keywords = set(_eval_when_ordered_keywords)
+def _parse_eval_when_situations(situ_form):
+        if not (isinstance(situ_form, tuple) and not (set(situ_form) - _eval_when_keywords)):
+                error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
+        return [x in situ_form for x in _eval_when_ordered_keywords]
+
+def _analyse_eval_when_situations(compile_time_too, ct, lt, e):
+        "Implement the EVAL-WHEN chart of section #5 of CLHS 3.2.3.1."
+        process = lt
+        eval = ct or (compile_time_too and e)
+        new_compile_time_too = lt and eval
+        return new_compile_time_too, process, eval
+
+def _process_decls(decls, vars, fvars):
+        _warn_not_implemented()
+
+def _self_evaluating_form_p(x):
+        return isinstance(x, (int, str, float)) or x in [t, nil]
+
+# Debugging and Tracing
 
 _compiler_max_mockup_level = 3
 
 _string_set("*COMPILER-TRACE-TOPLEVELS*",          nil)
 _string_set("*COMPILER-TRACE-TOPLEVELS-DISASM*",   nil)
 _string_set("*COMPILER-TRACE-ENTRY-FORMS*",        nil)
-_string_set("*COMPILER-TRACE-QQEXPANSION*",        nil)
 _string_set("*COMPILER-TRACE-MACROEXPANSION*",     nil)
 _string_set("*COMPILER-TRACE-TRUE-DEATH-OF-CODE*", nil)
 
@@ -6326,31 +6530,10 @@ _string_set("*COMPILER-TRACE-CHOICES*",            nil)
 _string_set("*COMPILER-TRACE-RESULT*",             nil)
 _string_set("*COMPILER-TRACE-PRETTY-FULL*",        nil)
 
-_string_set("*COMPILER-FN*",                       nil)
-# Unregistered Issue DEBUG-SCAFFOLDING
 _string_set("*COMPILER-DEBUG-P*",                  nil)
 _string_set("*COMPILER-TRAPPED-FUNCTIONS*",        set()) ## Emit a debug entry for those functions.
 
-_intern_and_bind_names_in_module(
-        "*COMPILER-ERROR-COUNT*",
-        "*COMPILER-WARNINGS-COUNT*",
-        "*COMPILER-STYLE-WARNINGS-COUNT*",
-        "*COMPILER-NOTE-COUNT*",
-        "*UNDEFINED-WARNINGS*",
-        ##
-        "*UNIT-FUNCTIONS*",
-        "*UNIT-SYMBOLS*",
-        "*UNIT-GFUNS*",
-        "*UNIT-GVARS*",
-        ##
-        "*TOP-COMPILATION-UNIT-P*")
-
-## Should, probably, be bound by the compiler itself.
-_string_set("*COMPILER-TAILP*", nil)
-
-_string_set("*COMPILER-LAMBDA*", nil)
-
-__known_trace_args__ = {"toplevels", "entry_forms", "qqexpansion", "macroexpansion",
+__known_trace_args__ = {"toplevels", "entry_forms", "macroexpansion",
                         "forms", "subforms", "rewrites", "choices", "result", "pretty_full"}
 
 def _compiler_explain_tracing():
@@ -6367,45 +6550,84 @@ def _compiler_config_tracing(**keys):
 def _pp(x, **args):
         return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex)(x, **args)
 
-# Target environment
+## Compiler messages:
+## - entry        _lower:rec()                             ;* lowering
+##                _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
+## - part listing _lower:call_known()                       >>> parts
+## - rewriting    _lower:call_known()                       ===\n---\n...
+## - result       _lower()                                 ;* compilation atree output\n;;; Prologue\n;;; Value
 
-## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
+def _compiler_trap_function(name):
+        symbol_value(_compiler_trapped_functions_).add(name)
 
-### Global compiler state carry-over, and module state initialisation.
-def _fop_make_symbol_available(globals, package_name, symbol_name,
-                               function_pyname, symbol_pyname,
-                               gfunp, gvarp):
-        symbol = (intern(symbol_name, find_package(package_name))[0] if package_name is not None else
-                  make_symbol(symbol_name))
-        if function_pyname is not None:
-                symbol.function_pyname = function_pyname
-                # _debug_printf("   c-t %%U-S-G-F-P %s FUN: %s  - %s, %s %s",
-                #               "G" if gfunp else "l", symbol_name, function_pyname, symbol.function, symbol.macro_function)
-                if gfunp:
-                        globals[function_pyname] = (symbol_function(symbol)
-                                                    if symbol.function or symbol.macro_function else
-                                                    lambda *_, **__: error("Function not defined: %s.", symbol))
-        if gvarp:
-                if _find_global_variable(symbol):
-                        value = symbol_value(symbol)
-                        assert(value is not None)
-                        globals[_unit_variable_pyname(symbol)] = value
-                else:
-                        ## Unregistered Issue UNDEFINED-GLOBAL-REFERENCE-ERROR-DETECTION
-                        pass # This will fail obscurely.
-        if symbol_pyname is not None:
-                symbol.symbol_pyname = symbol_pyname
-                globals[symbol_pyname] = symbol
+def _compiler_function_trapped_p(name):
+        return name in symbol_value(_compiler_trapped_functions_)
 
-def _fop_make_symbols_available(globals, package_names, symbol_names,
-                                function_pynames, symbol_pynames,
-                                gfunps, gvarps):
-        for fop_msa_args in zip(package_names, symbol_names,
-                                function_pynames, symbol_pynames,
-                                gfunps, gvarps):
-                _fop_make_symbol_available(globals, *fop_msa_args)
+def _debug_compiler(value = t):
+        _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
+def _debugging_compiler():
+        return _symbol_value(_compiler_debug_p_)
+def _maybe_disable_debugging(self):
+        self.was_debugging = _debugging_compiler()
+        _debug_compiler(nil)
+def _maybe_reenable_debugging(self, *_):
+        _debug_compiler(self.was_debugging)
+_no_compiler_debugging = _defwith("_no_compiler_debugging", _maybe_disable_debugging, _maybe_reenable_debugging)
 
-# Functions (in the sense of result of compilation)
+_compiler_debug        = _defwith("_compiler_debug",
+                                  lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
+                                  lambda *_: _dynamic_scope_pop())
+
+def _compiler_debug_printf(control, *args):
+        if _debugging_compiler():
+                justification = _sex_space()
+                def fix_string(x): return x.replace("\n", "\n" + justification) if isinstance(x, str) else x
+                _debug_printf(justification + fix_string(control), *tuple(fix_string(a) for a in args))
+
+def _compiler_trace_choice(ir_name, id, choice):
+        if symbol_value(_compiler_trace_choices_):
+                _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, _ir_minify(id), choice)
+
+if probe_file("/home/deepfire/.partus-debug-compiler"):
+        _debug_compiler()
+
+# General
+
+_intern_and_bind_names_in_module(
+        "*COMPILER-ERROR-COUNT*",
+        "*COMPILER-WARNINGS-COUNT*",
+        "*COMPILER-STYLE-WARNINGS-COUNT*",
+        "*COMPILER-NOTE-COUNT*",
+        "*UNDEFINED-WARNINGS*",
+        ##
+        "*UNIT-FUNCTIONS*",
+        "*UNIT-SYMBOLS*",
+        "*UNIT-GFUNS*",
+        "*UNIT-GVARS*",
+        ##
+        "*TOP-COMPILATION-UNIT-P*")
+
+# Tail position
+
+## Should, probably, be bound by the compiler itself.
+_string_set("*COMPILER-TAILP*", nil)
+
+def _tail_position_p(): return _symbol_value(_compiler_tailp_)
+
+_tail_position          = _defwith("_tail_position",
+                                   lambda *_: _dynamic_scope_push({ _compiler_tailp_: t }),
+                                   lambda *_: _dynamic_scope_pop())
+_maybe_tail_position    = _defwith("_maybe_tail_position", # This is just a documentation feature.
+                                   lambda *_: None,
+                                   lambda *_: None)
+_no_tail_position       = _defwith("_no_tail_position",
+                                   lambda *_: _dynamic_scope_push({ _compiler_tailp_: nil }),
+                                   lambda *_: _dynamic_scope_pop())
+
+# Functions
+
+_string_set("*COMPILER-FN*",     nil)
+_string_set("*COMPILER-LAMBDA*", nil)
 
 ## Critical Issue COALESCE-FNS-WITH-FUNCTION-SCOPE
 _fns = make_hash_table()
@@ -6484,81 +6706,7 @@ def _ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
                         return body(fn, *prop_vals)
         return None
 
-# Generic pieces
-
-_intern_and_bind_names_in_module("DECLARE")
-def _parse_body(body, doc_string_allowed = t):
-        doc = nil
-        def doc_string_p(x, remaining_forms):
-                return ((error("duplicate doc string %s", x) if doc else t)
-                        if isinstance(x, str) and doc_string_allowed and remaining_forms else
-                        None)
-        def declaration_p(x):
-                return isinstance(x, tuple) and x[0] is declare
-        decls, forms = [], []
-        for i, form in enumerate(body):
-               if doc_string_p(form, body[i:]):
-                       doc = form
-               elif declaration_p(form):
-                       decls.append(form)
-               else:
-                       forms = body[i:]
-                       break
-        return (forms,
-                decls,
-                doc)
-
-_eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
-_eval_when_keywords = set(_eval_when_ordered_keywords)
-def _parse_eval_when_situations(situ_form):
-        if not (isinstance(situ_form, tuple) and not (set(situ_form) - _eval_when_keywords)):
-                error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
-        return [x in situ_form for x in _eval_when_ordered_keywords]
-
-def _analyse_eval_when_situations(compile_time_too, ct, lt, e):
-        "Implement the EVAL-WHEN chart of section #5 of CLHS 3.2.3.1."
-        process = lt
-        eval = ct or (compile_time_too and e)
-        new_compile_time_too = lt and eval
-        return new_compile_time_too, process, eval
-
-def _process_decls(decls, vars, fvars):
-        _warn_not_implemented()
-
-def _self_evaluating_form_p(x):
-        return isinstance(x, (int, str, float)) or x in [t, nil]
-
-# Primitive IR emission toolkit
-
-def _ir_funcall(func, *args):
-        return (apply, (function, ((quote, (func,)) if isinstance(func, str) else
-                                   func))) + args + ((quote, nil),)
-
-def _ir_cl_module_name(name):
-        return ("cl", name)
-
-def _ir_cl_module_call(name, *ir_args):
-        return _ir_funcall((quote, _ir_cl_module_name(name)), *ir_args)
-
-def _ir_lambda_to_def(name, lambda_expression):
-        return _ir_args(lambda_, the(symbol_t, name), *lambda_expression[1:],
-                        name = name)
-
-# Compiler conditions
-
-@defclass
-class _compiler_error(error_t):
-        pass
-
-@defclass
-class _simple_compiler_error(simple_condition_t, _compiler_error):
-        pass
-
-@defun
-def _compiler_error(control, *args):
-        return _simple_compiler_error(control, *args)
-
-# Compilation environment
+# Symbols
 
 _string_set("*IN-COMPILATION-UNIT*", nil)
 
@@ -6846,127 +6994,132 @@ def _make_lexenv_funcframe(clambda, tns, bindings):
                             kind_funcframe = { function: { _function_binding(sym, tn, function, _fn(sym, clam.lambda_list))
                                                            for tn, (sym, clam) in zip(tns, bindings) } })
 
-# Quasiquotation
+# Target environment setup machinery
 
-## From CLHS 2.4.6:
-##
-## The backquote syntax can be summarized formally as follows.
-##
-## * `basic is the same as 'basic, that is, (quote basic), for any expression basic that is not a list or a general vector.
-##
-## * `,form is the same as form, for any form, provided that the representation of form does not begin with at-sign or dot.
-## (A similar caveat holds for all occurrences of a form after a comma.)
-##
-## * `,@form has undefined consequences.
-##
-## * `(x1 x2 x3 ... xn . atom) may be interpreted to mean
-##
-## (append [ x1] [ x2] [ x3] ... [ xn] (quote atom))
-##
-##         where the brackets are used to indicate a transformation of an xj as follows:
-##
-##              -- [form] is interpreted as (list `form), which contains a backquoted form that must then be further
-##              interpreted.
-##
-##              -- [,form] is interpreted as (list form).
-##
-##              -- [,@form] is interpreted as form.
-##
-## * `(x1 x2 x3 ... xn) may be interpreted to mean the same as the backquoted form `(x1 x2 x3 ... xn . nil), thereby
-## reducing it to the previous case.
-##
-## * `(x1 x2 x3 ... xn . ,form) may be interpreted to mean
-##
-## (append [ x1] [ x2] [ x3] ... [ xn] form)
-##
-##         where the brackets indicate a transformation of an xj as described above.
-##
-## * `(x1 x2 x3 ... xn . ,@form) has undefined consequences.
-##
-## * `#(x1 x2 x3 ... xn) may be interpreted to mean (apply #'vector `(x1 x2 x3 ... xn)).
-##
-## Anywhere ``,@'' may be used, the syntax ``,.'' may be used instead to indicate that it is permissible to operate
-## destructively on the list structure produced by the form following the ``,.'' (in effect, to use nconc instead of
-## append).
-##
-## If the backquote syntax is nested, the innermost backquoted form should be expanded first. This means that if several
-## commas occur in a row, the leftmost one belongs to the innermost backquote.
+## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
 
-_intern_and_bind_names_in_module("QUOTE", "QUASIQUOTE", "COMMA", "SPLICE", "APPEND")
-
-## Unregistered Issue COMPLIANCE-BACKQUOTE-EXPANSION-DOTTED-LIST-HANDLING
-
-def _expand_quasiquotation(form):
-        """Expand quasiquotation abbreviations in FORM (in a simple, yet suboptimal way)."""
-        def malform(x): error("Invalid %s form: %s.", x[0], x)
-        def process_form(x):
-                return (x                                         if atom_pyfun(x)      else
-                        (process_qq(x[1]) if len(x) is 2 else
-                         malform(x))                              if x[0] is quasiquote else
-                        tuple(process_form(ix) for ix in x))
-        def process_qq(x):
-                if atom_pyfun(x):
-                        return (quote, x)
+### Global compiler state carry-over, and module state initialisation.
+def _fop_make_symbol_available(globals, package_name, symbol_name,
+                               function_pyname, symbol_pyname,
+                               gfunp, gvarp):
+        symbol = (intern(symbol_name, find_package(package_name))[0] if package_name is not None else
+                  make_symbol(symbol_name))
+        if function_pyname is not None:
+                symbol.function_pyname = function_pyname
+                # _debug_printf("   c-t %%U-S-G-F-P %s FUN: %s  - %s, %s %s",
+                #               "G" if gfunp else "l", symbol_name, function_pyname, symbol.function, symbol.macro_function)
+                if gfunp:
+                        globals[function_pyname] = (symbol_function(symbol)
+                                                    if symbol.function or symbol.macro_function else
+                                                    ## It is a valid situation, when the function is not defined at
+                                                    ## the beginning of load-time for a given compilation unit.
+                                                    lambda *_, **__: error("Function not defined: %s.", symbol))
+        if gvarp:
+                if _find_global_variable(symbol):
+                        value = symbol_value(symbol)
+                        assert(value is not None)
+                        globals[_unit_variable_pyname(symbol)] = value
                 else:
-                        acc = [append]
-                        for xi in x:
-                                if atom_pyfun(xi):
-                                        acc.append((list_, (quote, xi)))
-                                elif xi[0] in (comma, splice):
-                                        len(xi) is 2 or malform(xi)
-                                        acc.append((list_, xi[1]) if xi[0] is comma else
-                                                   xi[1])
-                                else:
-                                        if xi[0] is quasiquote:
-                                                len(xi) is 2 or malform(xi)
-                                                nxi = process_qq(xi[1])
-                                                xi = nxi
-                                        acc.append((list_, process_qq(xi)))
-                        ## Simplify an obvious case of APPEND having only LIST subforms.
-                        if all(consp_pyfun(x) and x[0] is list_ for x in acc[1:]):
-                                acc = (list_,) + tuple(x[1] for x in acc[1:])
-                        return tuple(acc)
-        result = process_form(form)
-        if symbol_value(_compiler_trace_qqexpansion_):
-                if form != result:
-                        _debug_printf(";;;%s quasiquotation expanded to:\n%s%s",
-                                      _sex_space(-3, ";"), _sex_space(), _pp(result))
-                else:
-                        _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
-        return result
+                        ## Unregistered Issue UNDEFINED-GLOBAL-REFERENCE-ERROR-DETECTION
+                        pass # This will fail obscurely.
+        if symbol_pyname is not None:
+                symbol.symbol_pyname = symbol_pyname
+                globals[symbol_pyname] = symbol
 
-def _runtest(fn, input, expected):
-        result = fn(input)
-        if result != expected:
-                _debug_printf("Failed %s: on input:\n%s\nexpected:\n%s\ngot:\n%s", fn.__name__.upper(), input, expected, result)
-        return result == expected
+def _fop_make_symbols_available(globals, package_names, symbol_names,
+                                function_pynames, symbol_pynames,
+                                gfunps, gvarps):
+        for fop_msa_args in zip(package_names, symbol_names,
+                                function_pynames, symbol_pynames,
+                                gfunps, gvarps):
+                _fop_make_symbol_available(globals, *fop_msa_args)
 
-assert(_runtest(_expand_quasiquotation,
-                ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
-                (quasiquote, (1, (comma, 2), 3, (splice, 4), 5,
-                              ((comma, 6), (splice, 7)),
-                              (splice, 8), (splice, 9))),
-                ((append, (list_, (quote, 1)), (list_, 2), (list_, (quote, 3)), 4,
-                          (list_, (quote, 5)), (list_, (append, (list_, 6), 7)),
-                          8, 9))))
-print("; QUASIQUOTATION-SIMPLE: passed")
+# Primitive IR
 
-assert(_runtest(_expand_quasiquotation,
-                ## `(a ,b ,@c `(d ,,e ,@f ,@,g)) -- numbers don't do, as CONSTANTP is used for simplification.
-                (quasiquote,
-                 (1, (comma, 2), (splice, 3),
-                  (quasiquote, (4, (comma, (comma, 5)), (splice, 6), (splice, (comma, 7)))))),
-                (append,
-                 (list_, (quote, 1)), (list_, 2), 3,
-                 ## The first pass ought to be:
-                 ## (append, (list_, (quote, 4)), (list_, (comma, 5)), 6, (comma, 7))
-                 (list_, (list_,
-                          (quote, append),
-                         (list_, (quote, list_), (list_, (quote, quote), (quote, 4))),
-                         (list_, (quote, list_), 5),
-                         (quote, 6),
-                         7)))))
-print("; QUASIQUOTATION-NESTED: passed")
+import primitives as p
+
+def _defaulting_expr(name, default):
+        return p.if_(p.eq(name, p.name("None")), default, name)
+
+def _var_tn(sym):
+        return p.name(_unit_variable_pyname(sym))
+
+def _var_tn_no_unit(sym):
+        return p.name(_ensure_variable_pyname(sym))
+
+def _var_tns(syms):
+        return [ _var_tn(x) for x in syms ]
+
+def _fun_tn(sym):
+        return p.name(_unit_function_pyname(sym))
+
+def _fun_tn_no_unit(sym):
+        return p.name(_ensure_function_pyname(sym))
+
+def _gensym_tn(x = "G"):
+        sym = gensym(x)
+        sym.tn = p.name(_unit_variable_pyname(sym))
+        return sym
+
+def _variable_frame_bindings(clambda, names, forms = _repeat(None)):
+        tns   = [ p.name(_unit_variable_pyname(sym))  for sym in names ]
+        frame = _make_lexenv_varframe(clambda, tns, names, forms)
+        return tns, frame
+
+def _function_frame_bindings(clambda, bindings):
+        names = list(zip(*bindings))[0]
+        tns   = [ p.name(_unit_function_pyname(sym))  for sym in names ]
+        frame = _make_lexenv_funcframe(clambda, tns, bindings)
+        return tns, frame
+
+__primitiviser_map__ = { str:        (nil, p.string),
+                         int:        (nil, p.integer),
+                         float:      (nil, p.float_num),
+                         ## Note: this relies on the corresponding name to be made available by some means.
+                         symbol_t:   (nil, lambda x: p.symbol(_unit_symbol_pyname(x))),
+                         bool:       (nil, lambda x: p.name("True" if x else "False"))
+                         }
+
+def _primitivisable_p(x):
+        type = type_of(x)
+        type_recipe, _ = gethash(type, __primitiviser_map__)
+        if not type_recipe:
+                return nil
+        recursep, _ = type_recipe
+        if not recursep:
+                return t
+        return all(_primitivisable_p(x) for x in x)
+
+def _try_primitivise_constant(x):
+        "It's more efficient to try doing it, than to do a complete check and then to 'try' again."
+        (rec, primitiviser), primitivisablep = gethash(type_of(x), __primitiviser_map__,
+                                                       ((nil, nil), nil))
+        if not primitivisablep:
+                return None, None
+        if rec: ## Dead code.
+                prim, successp = _try_primitivise_list(x)
+                return (primitiviser(prim), t) if successp else (None, None)
+        return primitiviser(prim if rec else x), t
+
+def _primitivise_constant(x):
+        prim, successp = _try_primitivise_constant(x)
+        return (prim if successp else
+                error("Cannot primitivise value %s.  Is it a literal?",
+                      prin1_to_string(x)))
+
+def _ir_funcall(func, *args):
+        return (apply, (function, ((quote, (func,)) if isinstance(func, str) else
+                                   func))) + args + ((quote, nil),)
+
+def _ir_cl_module_name(name):
+        return ("cl", name)
+
+def _ir_cl_module_call(name, *ir_args):
+        return _ir_funcall((quote, _ir_cl_module_name(name)), *ir_args)
+
+def _ir_lambda_to_def(name, lambda_expression):
+        return _ir_args(lambda_, the(symbol_t, name), *lambda_expression[1:],
+                        name = name)
 
 # Matcher: MetaSEX preprocessing
 
@@ -7091,7 +7244,7 @@ def _find_known(x):
 
 def _form_known(form):
         ## METASEX-MATCHER guts it, due to case analysis
-        complex_form_p = consp_pyfun(form) and isinstance(form[0], symbol_t)
+        complex_form_p = consp(form) and isinstance(form[0], symbol_t)
         return complex_form_p and _find_known(form[0])
 
 def _form_metasex(form):
@@ -7170,7 +7323,7 @@ class _metasex_matcher(_matcher):
                                  _for_not_matchers_xform: (lambda arg: m not in arg[1:],
                                                            lambda arg: arg[0](form)),
                                  }
-                if consp_pyfun(pat):
+                if consp(pat):
                         _, *args = pat
                         # _debug_printf("args of %s: %s, ", pat, args)
                         for (argname, *argval) in args:
@@ -7433,14 +7586,14 @@ def _mockup_sex(sex, initial_depth = None, max_level = None):
         def rec(sex, level):
                 if level > max_level:
                         return "#"
-                elif atom_pyfun(sex):
+                elif atom(sex):
                         return mock_atom(sex)
                 else:
                         head, *tail = sex
                         complex_tail_start = position_if_not(atom, tail)
                         simple_tail, complex_tail = (tail[0:complex_tail_start],
                                                      tail[_defaulted(complex_tail_start, len(tail)):])
-                        if atom_pyfun(head):
+                        if atom(head):
                                 return ("(" + " ".join(mock_atom(x)
                                                  for x in [head] + simple_tail) +
                                         ("" if not complex_tail else
@@ -7479,14 +7632,6 @@ def _ir_affected(form):
 
 # Testing
 
-_results_ = []
-def _runtest(fun, bindings, result):
-        b, r, f = fun()
-        _results_.append((fun, b, r, f))
-        return (b == bindings,
-                r == result,
-                f is None)
-
 _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
 def _run_tests(print_results = None):
         def _print_results():
@@ -7497,13 +7642,13 @@ def _run_tests(print_results = None):
                 _metasex.per_use_init()
                 return _match(_metasex,
                               (let, ((first, ()),
-                                     (second, (car,))),
+                                     (second, (__car,))),
                                 _body),
                               (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                                  1, {"body":[(_notlead, "\n"), _form]}))
         bound_good, result_good, nofail = _runtest(just_match,
                                                    { 'bindings': ((first, ()),
-                                                                  (second, (car,))),
+                                                                  (second, (__car,))),
                                                      'body':     (_body,)},
                                                    t)
         print_results and _print_results()
@@ -7516,13 +7661,13 @@ def _run_tests(print_results = None):
                 _metasex_pp.per_use_init()
                 return _match(_metasex_pp,
                               (let, ((first, ()),
-                                     (second, (car,))),
+                                     (second, (__car,))),
                                 _body),
                               (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                                  1, {"body":[(_notlead, "\n"), _form]}))
         bound_good, result_good, nofail = _runtest(pp,
                                                    { 'bindings': ((first, ()),
-                                                                  (second, (car,))),
+                                                                  (second, (__car,))),
                                                      'body':     (_body,)},
                                                    """(LET ((FIRST ())
       (SECOND (CAR)))
@@ -7537,7 +7682,7 @@ def _run_tests(print_results = None):
                 _metasex_nonstrict_pp.per_use_init()
                 return _match(_metasex_nonstrict_pp,
                               (let, ((first),
-                                     (second, (car,), ())),
+                                     (second, (__car,), ())),
                                 _body),
                               (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
                                  1, [(_notlead, "\n"), _form]))
@@ -7715,7 +7860,7 @@ def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignor
         expanded_form, _ = macroexpand(form, env, compilerp = compilerp)
         ## 2. Compute bindings contributed by this outer form.
         # _debug_printf("\nexpanded %s -> %s", form, expanded_form)
-        known = _find_known(expanded_form[0]) if consp_pyfun(expanded_form) else nil
+        known = _find_known(expanded_form[0]) if consp(expanded_form) else nil
         (symbol_frame,
          mfunc_frame,
          ffunc_frame) = ((_dict_select_keys(_ir_binds(expanded_form), symbol_macro),
@@ -7816,190 +7961,6 @@ def DEFMACRO(name, lambda_list, *body):
                                                                                                   _consify_tuple(body)]))]),
                                 ("name", name)))
 
-# Primitive IR
-
-import primitives as p
-
-def _defaulting_expr(name, default):
-        return p.if_(p.eq(name, p.name("None")), default, name)
-
-def _var_tn(sym):
-        return p.name(_unit_variable_pyname(sym))
-
-def _var_tn_no_unit(sym):
-        return p.name(_ensure_variable_pyname(sym))
-
-def _var_tns(syms):
-        return [ _var_tn(x) for x in syms ]
-
-def _fun_tn(sym):
-        return p.name(_unit_function_pyname(sym))
-
-def _fun_tn_no_unit(sym):
-        return p.name(_ensure_function_pyname(sym))
-
-def _gensym_tn(x = "G"):
-        sym = gensym(x)
-        sym.tn = p.name(_unit_variable_pyname(sym))
-        return sym
-
-def _variable_frame_bindings(clambda, names, forms = _repeat(None)):
-        tns   = [ p.name(_unit_variable_pyname(sym))  for sym in names ]
-        frame = _make_lexenv_varframe(clambda, tns, names, forms)
-        return tns, frame
-
-def _function_frame_bindings(clambda, bindings):
-        names = list(zip(*bindings))[0]
-        tns   = [ p.name(_unit_function_pyname(sym))  for sym in names ]
-        frame = _make_lexenv_funcframe(clambda, tns, bindings)
-        return tns, frame
-
-__primitiviser_map__ = { str:        (nil, p.string),
-                         int:        (nil, p.integer),
-                         float:      (nil, p.float_num),
-                         ## Note: this relies on the corresponding name to be made available by some means.
-                         symbol_t:   (nil, lambda x: p.symbol(_unit_symbol_pyname(x))),
-                         bool:       (nil, lambda x: p.name("True" if x else "False"))
-                         }
-
-def _primitivisable_p(x):
-        type = type_of(x)
-        type_recipe, _ = gethash(type, __primitiviser_map__)
-        if not type_recipe:
-                return nil
-        recursep, _ = type_recipe
-        if not recursep:
-                return t
-        return all(_primitivisable_p(x) for x in x)
-
-def _try_primitivise_constant(x):
-        "It's more efficient to try doing it, than to do a complete check and then to 'try' again."
-        (rec, primitiviser), primitivisablep = gethash(type_of(x), __primitiviser_map__,
-                                                       ((nil, nil), nil))
-        if not primitivisablep:
-                return None, None
-        if rec: ## Dead code.
-                prim, successp = _try_primitivise_list(x)
-                return (primitiviser(prim), t) if successp else (None, None)
-        return primitiviser(prim if rec else x), t
-
-def _primitivise_constant(x):
-        prim, successp = _try_primitivise_constant(x)
-        return (prim if successp else
-                error("Cannot primitivise value %s.  Is it a literal?",
-                      prin1_to_string(x)))
-
-# Debugging and tracing
-
-## Compiler messages:
-## - entry        _lower:rec()                             ;* lowering
-##                _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp_sex(x))
-## - part listing _lower:call_known()                       >>> parts
-## - rewriting    _lower:call_known()                       ===\n---\n...
-## - result       _lower()                                 ;* compilation atree output\n;;; Prologue\n;;; Value
-
-def _compiler_trap_function(name):
-        symbol_value(_compiler_trapped_functions_).add(name)
-
-def _compiler_function_trapped_p(name):
-        return name in symbol_value(_compiler_trapped_functions_)
-
-def _debug_compiler(value = t):
-        _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
-def _debugging_compiler():
-        return _symbol_value(_compiler_debug_p_)
-def _maybe_disable_debugging(self):
-        self.was_debugging = _debugging_compiler()
-        _debug_compiler(nil)
-def _maybe_reenable_debugging(self, *_):
-        _debug_compiler(self.was_debugging)
-_no_compiler_debugging = _defwith("_no_compiler_debugging", _maybe_disable_debugging, _maybe_reenable_debugging)
-
-def _compiler_debug_printf(control, *args):
-        if _debugging_compiler():
-                justification = _sex_space()
-                def fix_string(x): return x.replace("\n", "\n" + justification) if isinstance(x, str) else x
-                _debug_printf(justification + fix_string(control), *tuple(fix_string(a) for a in args))
-
-def _compiler_trace_choice(ir_name, id, choice):
-        if symbol_value(_compiler_trace_choices_):
-                _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, _ir_minify(id), choice)
-
-if probe_file("/home/deepfire/.partus-debug-compiler"):
-        _debug_compiler()
-
-# Code
-
-def _tail_position_p(): return _symbol_value(_compiler_tailp_)
-
-_tail_position          = _defwith("_tail_position",
-                                   lambda *_: _dynamic_scope_push({ _compiler_tailp_: t }),
-                                   lambda *_: _dynamic_scope_pop())
-_maybe_tail_position    = _defwith("_maybe_tail_position", # This is just a documentation feature.
-                                   lambda *_: None,
-                                   lambda *_: None)
-_no_tail_position       = _defwith("_no_tail_position",
-                                   lambda *_: _dynamic_scope_push({ _compiler_tailp_: nil }),
-                                   lambda *_: _dynamic_scope_pop())
-_compiler_debug         = _defwith("_compiler_debug",
-                                   lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
-                                   lambda *_: _dynamic_scope_pop())
-
-def _lowered(prim):                   return prim
-def _rewritten(form, scope = dict()): return form, the(dict, scope)
-def _rewritep(x):                     return isinstance(x, tuple) and isinstance(x[1], dict)
-
-#### Issues:
-## Tail position optimisations
-## Lisp-level bound/free
-## is the value generally side-effect-free?
-
-### SETQ                 -> ∅                           |             LEXICAL
-###                         +(APPLY,FUNCTION,QUOTE,REF)               GLOBAL
-### QUOTE                -> ∅                       |                 NONCONSTANT-SYMBOL
-###                         ∅                       |                 CONSTANT
-###                         =(APPLY,FUNCTION,QUOTE)                   SEX
-### MULTIPLE-VALUE-CALL  -> ∅
-### PROGN                -> ∅
-### IF                   -> ∅                    |                    EXPR
-###                         =(FLET,APPLY,REF,IF)                      NONEXPR-AS-FLET
-### LET                  -> APPLY,LAMBDA(e_d_e=t, f_s=f_s)         |  EXPR-BOUND-VALUES
-###                         =(PROGN,SETQ,LAMBDA(e_d_e=t, f_s=f_s))    NONEXPR-SETQ-LAMBDA
-### FLET                 -> =(LET,PROGN,DEF,FUNCTION)
-### LABELS               -> =(FLET,DEF,APPLY) ???
-### FUNCTION             -> ∅
-### UNWIND-PROTECT       -> =()            |                          NO-UNWIND
-###                         SETQ,PROGN,REF                            UNWIND
-### MACROLET             -> =(PROGN)
-### SYMBOL-MACROLET      -> =(PROGN)
-### BLOCK                -> =(PROGN)       |                          NO-RETURN-FROM
-###                         =(CATCH,QUOTE)                            HAS-RETURN-FROM
-### RETURN-FROM          -> =(THROW,QUOTE)
-### CATCH                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
-### THROW                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
-### TAGBODY              -> --not-implemented--
-### GO                   -> --not-implemented--
-### EVAL-WHEN            -> ∅     |                                   EXECUTE
-###                         PROGN                                     NO-EXECUTE
-### THE                  -> --not-implemented--
-### LOAD-TIME-VALUE      -> --not-implemented--
-### LET*                 -> --not-implemented--
-### PROGV                -> --not-implemented--
-### LOCALLY              -> --not-implemented--
-### MULTIPLE-VALUE-PROG1 -> --not-implemented--
-### REF                  -> ∅
-### NTH-VALUE            -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
-### DEF                  -> BLOCK,QUOTE
-### LAMBDA               -> PROGN                      |              EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS
-###                         PROGN                      |              EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS
-###                         =(LAMBDA,LET,IF,APPLY,REF) |              EXPR-BODY/DEFAULTS-REWIND-DELAYED-DEFAULT-VALUES
-###                         =(FLET,FUNCTION)                          !!! NONEXPR-PROGN-DEF-FUNCTION
-### APPLY                -> ∅                     |                   EXPR-ARGS
-###                         =(LET,APPLY)          |                   NONEXPR-REWIND-AS-LET-APPLY
-###                         =(LET,FUNCTION,APPLY)                     NONEXPR-REWIND-AS-LET-FUNCTION-APPLY
-@defun("NOT")
-def not_(x):        return t if x is nil else nil
-
 # Out-of-band IR argument passing: %IR-ARGS, %IR
 
 @defknown((ir_args, "\n", _form, ["\n", ((_typep, str), " ", (_typep, t))],))
@@ -8026,7 +7987,30 @@ def _ir(*ir, **keys):
 def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
 
-# Lambda list facilities
+# Multiple-value function call dependency support
+
+def _ir_function_form_nvalues(func):
+        return _defaulted(
+                _ir_depending_on_function_properties(func,
+                                                     lambda fn, types: len(types),
+                                                     ("value_types", lambda x: x is not t)),
+                t)
+
+def _ir_function_form_nth_value_form(n, func, orig_form):
+        return _defaulted(
+                _ir_depending_on_function_properties(
+                        func,
+                        lambda fn, types, effs: (nil if n >= len(types) else
+                                                 _ir_make_constant(types[n])),
+                        ("value_types", lambda x: (x is not t and (n >= len(x) or
+                                                                   ## XXX: This is sweet, no?
+                                                                   _eql_type_specifier_p(x[n])))),
+                        ## Let's not get lulled, though -- this is nothing more than a
+                        ## fun optimisation, and not a substitute for proper constant propagation.
+                        ("effects",     lambda x: not x)),
+                (nth_value, n, orig_form))
+
+# Lambda list lowering
 
 def _ir_prepare_lambda_list(lambda_list_, context, allow_defaults = None, default_expr = None):
         ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
@@ -8102,28 +8086,62 @@ def _lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_d
                 [ _primitivise(x) for x in _defaulted(key_defaults, _repeat((ref, (quote, ("None",))))) ],
                 None)
 
-# Multiple-value function call dependency support
+# Toolkit
 
-def _ir_function_form_nvalues(func):
-        return _defaulted(
-                _ir_depending_on_function_properties(func,
-                                                     lambda fn, types: len(types),
-                                                     ("value_types", lambda x: x is not t)),
-                t)
+def _lowered(prim):                   return prim
+def _rewritten(form, scope = dict()): return form, the(dict, scope)
+def _rewritep(x):                     return isinstance(x, tuple) and isinstance(x[1], dict)
 
-def _ir_function_form_nth_value_form(n, func, orig_form):
-        return _defaulted(
-                _ir_depending_on_function_properties(
-                        func,
-                        lambda fn, types, effs: (nil if n >= len(types) else
-                                                 _ir_make_constant(types[n])),
-                        ("value_types", lambda x: (x is not t and (n >= len(x) or
-                                                                   ## XXX: This is sweet, no?
-                                                                   _eql_type_specifier_p(x[n])))),
-                        ## Let's not get lulled, though -- this is nothing more than a
-                        ## fun optimisation, and not a substitute for proper constant propagation.
-                        ("effects",     lambda x: not x)),
-                (nth_value, n, orig_form))
+# Overview
+
+#### Issues:
+## Tail position optimisations
+## Lisp-level bound/free
+## is the value generally side-effect-free?
+
+### SETQ                 -> ∅                           |             LEXICAL
+###                         +(APPLY,FUNCTION,QUOTE,REF)               GLOBAL
+### QUOTE                -> ∅                       |                 NONCONSTANT-SYMBOL
+###                         ∅                       |                 CONSTANT
+###                         =(APPLY,FUNCTION,QUOTE)                   SEX
+### MULTIPLE-VALUE-CALL  -> ∅
+### PROGN                -> ∅
+### IF                   -> ∅                    |                    EXPR
+###                         =(FLET,APPLY,REF,IF)                      NONEXPR-AS-FLET
+### LET                  -> APPLY,LAMBDA(e_d_e=t, f_s=f_s)         |  EXPR-BOUND-VALUES
+###                         =(PROGN,SETQ,LAMBDA(e_d_e=t, f_s=f_s))    NONEXPR-SETQ-LAMBDA
+### FLET                 -> =(LET,PROGN,DEF,FUNCTION)
+### LABELS               -> =(FLET,DEF,APPLY) ???
+### FUNCTION             -> ∅
+### UNWIND-PROTECT       -> =()            |                          NO-UNWIND
+###                         SETQ,PROGN,REF                            UNWIND
+### MACROLET             -> =(PROGN)
+### SYMBOL-MACROLET      -> =(PROGN)
+### BLOCK                -> =(PROGN)       |                          NO-RETURN-FROM
+###                         =(CATCH,QUOTE)                            HAS-RETURN-FROM
+### RETURN-FROM          -> =(THROW,QUOTE)
+### CATCH                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### THROW                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### TAGBODY              -> --not-implemented--
+### GO                   -> --not-implemented--
+### EVAL-WHEN            -> ∅     |                                   EXECUTE
+###                         PROGN                                     NO-EXECUTE
+### THE                  -> --not-implemented--
+### LOAD-TIME-VALUE      -> --not-implemented--
+### LET*                 -> --not-implemented--
+### PROGV                -> --not-implemented--
+### LOCALLY              -> --not-implemented--
+### MULTIPLE-VALUE-PROG1 -> --not-implemented--
+### REF                  -> ∅
+### NTH-VALUE            -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### DEF                  -> BLOCK,QUOTE
+### LAMBDA               -> PROGN                      |              EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS
+###                         PROGN                      |              EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS
+###                         =(LAMBDA,LET,IF,APPLY,REF) |              EXPR-BODY/DEFAULTS-REWIND-DELAYED-DEFAULT-VALUES
+###                         =(FLET,FUNCTION)                          !!! NONEXPR-PROGN-DEF-FUNCTION
+### APPLY                -> ∅                     |                   EXPR-ARGS
+###                         =(LET,APPLY)          |                   NONEXPR-REWIND-AS-LET-APPLY
+###                         =(LET,FUNCTION,APPLY)                     NONEXPR-REWIND-AS-LET-FUNCTION-APPLY
 
 # SETQ
 #         :PROPERTIES:
@@ -8579,7 +8597,7 @@ def block():
                 has_return_from = nil
                 def update_has_return_from(sex):
                         nonlocal has_return_from
-                        if consp_pyfun(sex) and sex[0] is return_from:
+                        if consp(sex) and sex[0] is return_from:
                                 has_return_from = t
                 _map_sex(update_has_return_from, catch_target)
                 if has_return_from:
@@ -8698,7 +8716,7 @@ def tagbody():
                 fun_names    = { tag: gensym("TAG-%s-" % symbol_name(tag)) for tag in tags }
                 def lam_(seq):
                         label, s = seq[0], seq[1:]
-                        if not atom_pyfun(label):
+                        if not atom(label):
                                 return ()
                         p = position_if(atom, s)
                         return ((fun_names[label], ()) + s[:p if p is not None else len(s)] +
@@ -9158,14 +9176,14 @@ def apply():
                 return (any(_ir_affected(arg) for arg in (func, arg) + args) or
                         _ir_depending_on_function_properties(func, lambda fn, affected: affected, "affected"))
 
-# Known tests
+# Tests
 
 _intern_and_bind_names_in_module("COND")
 
 def _test_ir_args():
         _metasex_pp.per_use_init()
         form = (ir_args,
-                (car,),
+                (__car,),
                 ("crap", [1, 2, 3]))
         # return _match(_metasex_pp, (ir_args,
         #                             (list,),
@@ -9203,7 +9221,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
         def compiler_note_form(x):
                 if (symbol_value(_compiler_trace_forms_) and _debugging_compiler() and
                     not isinstance(x, (symbol_t, bool))                            and
-                    not (consp_pyfun(x) and x[0] in [ref, function, quote])):
+                    not (consp(x) and x[0] in [ref, function, quote])):
                         _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp(x))
         def compiler_note_parts(known_name, xs):
                 if symbol_value(_compiler_trace_subforms_) and _debugging_compiler() and known_name is not symbol:
@@ -9259,7 +9277,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
                                 ## APPLY-conversion, likewise, is expected to have already happened.
                                 # return _rec((apply,) + form + (nil,))
                                 error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
-                        elif (consp_pyfun(x[0]) and x[0] and x[0][0] is lambda_):
+                        elif (consp(x[0]) and x[0] and x[0][0] is lambda_):
                                 return _rec((apply,) + x + ((quote, nil),))
                         elif isinstance(x[0], str): # basic function call
                                 return _rec((apply,) + x + ((quote, nil),))
@@ -9437,8 +9455,8 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
         ## Compiler macro expansion, unless disabled by a NOTINLINE declaration, SAME MODE
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
-                kind, maybe_name = ((form[0], form[1]) if listp(form) and length_pyfun(form) > 1 else
-                                    (form[0], "")      if listp(form) and form                   else
+                kind, maybe_name = ((form[0], form[1]) if listp(form) and length(form) > 1 else
+                                    (form[0], "")      if listp(form) and form             else
                                     (form, ""))
                 _debug_printf("; compiling (%s%s%s%s)",
                               kind, " " if len(form) > 1 else "", maybe_name, " ..." if len(form) > 2 else "")
@@ -9498,7 +9516,7 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
                 }
         def rec(compile_time_too, process, eval, form):
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-HANDLING
-                if not consp_pyfun(form):
+                if not consp(form):
                         return
                 actions.get(form[0], default_processor)(compile_time_too, process, eval, *form)
         rec(nil, t, nil, macroexpanded)
@@ -9644,7 +9662,7 @@ and true otherwise."""
         ##    function from the resulting module by N-O-W-B-C-L-A-N-T.
         ## 2. Choose a lambda expression, and handle exceptions.
         ## 3. Inevitably, punt to N-O-W-B-C-L-A-N-T.
-        if consp_pyfun(definition):
+        if consp(definition):
                 lambda_expression = the((cons_t, (eql_t, lambda_), cons_t), definition)
         else:
                 fun = definition or macro_function(name) or fdefinition(name)
@@ -10722,7 +10740,7 @@ the specified initialization has taken effect."""
         # list of applicable methods without calling
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
         # (ii) the generic function has not been reinitialized,
-        generic_function.__applicable_method_cache__ = make_hash_table() # (list_, _type) -> list
+        generic_function.__applicable_method_cache__ = make_hash_table() # (__list, _type) -> list
         generic_function.__methods__ = make_hash_table()
         filename, lineno = (_defaulted(filename, "<unknown>"),
                             _defaulted(lineno,   0))
@@ -11516,7 +11534,7 @@ def _type_from_specializer(specl):
         if specl is t:
                 return t
         elif isinstance(specl, tuple):
-                if not member(car_pyfun(specl), [class_, _class_eq, eql]): # protoype_
+                if not member(car(specl), [class_, _class_eq, eql]): # protoype_
                         error("%s is not a legal specializer type.", specl)
                 return specl
         elif specializerp(specl): # Was a little bit more involved.
@@ -11530,8 +11548,8 @@ def specializer_applicable_using_type_p(specl, type):
                 return _values_frame(t, t)
         ## This is used by C-A-M-U-T and GENERATE-DISCRIMINATION-NET-INTERNAL,
         ## and has only what they need.
-        return ((nil, t) if atom_pyfun(type) or car_pyfun(type) is t else
-                _poor_man_case(car_pyfun(type),
+        return ((nil, t) if atom(type) or car(type) is t else
+                _poor_man_case(car(type),
                                # (and    (saut-and specl type)),
                                # (not    (saut-not specl type)),
                                # (class_,     saut_class(specl, type)),
@@ -11544,10 +11562,10 @@ def specializer_applicable_using_type_p(specl, type):
                                                        type))))
 
 def _saut_class_eq(specl, type):
-       if car_pyfun(specl) is eql:
+       if car(specl) is eql:
                return (nil, type_of(specl[1]) is type[1])
        else:
-               pred = _poor_man_case(car_pyfun(specl),
+               pred = _poor_man_case(car(specl),
                                      (class_eq, lambda: specl[1] is type[1]),
                                      (class_,   lambda: (specl[1] is type[1] or
                                                          memq(specl[1], cpl_or_nil(type[1])))))
@@ -11577,10 +11595,10 @@ def _order_specializers(specl1, specl2, index, compare_classes_function):
         type1 = specializer_type(specl1) # Was: (if (eq **boot-state** 'complete) ..)
         type2 = specializer_type(specl2) # Was: (if (eq **boot-state** 'complete) ..)
         return ([]     if specl1 is specl1 else
-                specl2 if atom_pyfun(type1)      else # is t?
-                specl1 if atom_pyfun(type2)      else # is t?
-                _poor_man_case(car_pyfun(type1),
-                               (type, lambda: case(car_pyfun(type2),
+                specl2 if atom(type1)      else # is t?
+                specl1 if atom(type2)      else # is t?
+                _poor_man_case(car(type1),
+                               (type, lambda: case(car(type2),
                                                        (type, compare_classes_function(specl1, specl2, index)),
                                                        (t, specl2))),
                      # (prototype (case (car type2)
@@ -11598,7 +11616,7 @@ def _order_specializers(specl1, specl2, index, compare_classes_function):
                      #             ;; methods, we could replace this with a BUG.
                      #             (class-eq nil)
                      #             (class type1)))
-                     (eql,  lambda: _poor_man_case(car_pyfun(type2),
+                     (eql,  lambda: _poor_man_case(car(type2),
                                                    # similarly
                                                    (eql, []),
                                                    (t, specl1)))))
@@ -12921,7 +12939,7 @@ def _make_method_specializers(specializers):
                                                                   # ..special-case, since T isn't a type..
                         name                                      if isinstance(name, type)      else
                                                                   # Was: ((symbolp name) `(find-class ',name))
-                        _poor_man_ecase(car_pyfun(name),
+                        _poor_man_ecase(car(name),
                                         (eql,       lambda: intern_eql_specializer(name[1])),
                                         (class_eq_, lambda: class_eq_specializer(name[1]))) if isinstance(name, tuple)      else
                         ## Was: FIXME: Document CLASS-EQ specializers.
