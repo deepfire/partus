@@ -2314,12 +2314,12 @@ def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 #         Used by quasiquotation, MetaSEX and others.
 
 _results_ = []
-def _runtest(fun, bindings, result):
-        b, r, f = fun()
-        _results_.append((fun, b, r, f))
-        return (b == bindings,
-                r == result,
-                f is None)
+def _runtest(fn, input, expected):
+        result = fn(input)
+        if result != expected:
+                _debug_printf("Failed %s: on input:\n%s\nexpected:\n%s\ngot:\n%s", fn.__name__.upper(), input, expected, result)
+        _results_.append((fn, result))
+        return result == expected
 
 # Basic functions
 
@@ -3109,6 +3109,11 @@ def _set_macro_definition(globals, x, lambda_expression):
                 return x
         return do_set_macro_definition
 
+# Essential system-level functions
+
+def _getenv(var):
+        return _without_condition_system(lambda: _os.getenv(var))
+
 # Condition system disabling
 
 def _without_condition_system(body, reason = ""):
@@ -3134,7 +3139,8 @@ _load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
                                                                 "COMPILE-TOPLEVEL",
                                                                 "EXECUTE"])
 
-_init_condition_system()
+if not _getenv("CL_NO_CONDITION_SYSTEM"):
+        _init_condition_system()
 
 # Rudimentary character type
 
@@ -4068,38 +4074,36 @@ def _expand_quasiquotation(form):
                         _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
         return result
 
-def _runtest(fn, input, expected):
-        result = fn(input)
-        if result != expected:
-                _debug_printf("Failed %s: on input:\n%s\nexpected:\n%s\ngot:\n%s", fn.__name__.upper(), input, expected, result)
-        return result == expected
+def _run_tests_quasiquotation():
+        assert(_runtest(_expand_quasiquotation,
+                        ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
+                        (quasiquote, (1, (comma, 2), 3, (splice, 4), 5,
+                                      ((comma, 6), (splice, 7)),
+                                      (splice, 8), (splice, 9))),
+                        ((__append, (__list, (quote, 1)), (__list, 2), (__list, (quote, 3)), 4,
+                                    (__list, (quote, 5)), (__list, (__append, (__list, 6), 7)),
+                                    8, 9))))
+        print("; QUASIQUOTATION-SIMPLE: passed")
+        
+        assert(_runtest(_expand_quasiquotation,
+                        ## `(a ,b ,@c `(d ,,e ,@f ,@,g)) -- numbers don't do, as CONSTANTP is used for simplification.
+                        (quasiquote,
+                         (1, (comma, 2), (splice, 3),
+                          (quasiquote, (4, (comma, (comma, 5)), (splice, 6), (splice, (comma, 7)))))),
+                        (__append,
+                         (__list, (quote, 1)), (__list, 2), 3,
+                         ## The first pass ought to be:
+                         ## (__append, (__list, (quote, 4)), (__list, (comma, 5)), 6, (comma, 7))
+                         (__list, (__list,
+                                  (quote, append),
+                                  (__list, (quote, list_), (__list, (quote, quote), (quote, 4))),
+                                  (__list, (quote, list_), 5),
+                                  (quote, 6),
+                                  7)))))
+        print("; QUASIQUOTATION-NESTED: passed")
 
-assert(_runtest(_expand_quasiquotation,
-                ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
-                (quasiquote, (1, (comma, 2), 3, (splice, 4), 5,
-                              ((comma, 6), (splice, 7)),
-                              (splice, 8), (splice, 9))),
-                ((__append, (__list, (quote, 1)), (__list, 2), (__list, (quote, 3)), 4,
-                            (__list, (quote, 5)), (__list, (__append, (__list, 6), 7)),
-                            8, 9))))
-print("; QUASIQUOTATION-SIMPLE: passed")
-
-assert(_runtest(_expand_quasiquotation,
-                ## `(a ,b ,@c `(d ,,e ,@f ,@,g)) -- numbers don't do, as CONSTANTP is used for simplification.
-                (quasiquote,
-                 (1, (comma, 2), (splice, 3),
-                  (quasiquote, (4, (comma, (comma, 5)), (splice, 6), (splice, (comma, 7)))))),
-                (__append,
-                 (__list, (quote, 1)), (__list, 2), 3,
-                 ## The first pass ought to be:
-                 ## (__append, (__list, (quote, 4)), (__list, (comma, 5)), 6, (comma, 7))
-                 (__list, (__list,
-                          (quote, append),
-                          (__list, (quote, list_), (__list, (quote, quote), (quote, 4))),
-                          (__list, (quote, list_), 5),
-                          (quote, 6),
-                          7)))))
-print("; QUASIQUOTATION-NESTED: passed")
+if _getenv("CL_RUN_TESTS"):
+        _run_tests_quasiquotation()
 
 # Cold reader
 
@@ -6532,7 +6536,7 @@ def _process_decls(decls, vars, fvars):
 def _self_evaluating_form_p(x):
         return isinstance(x, (int, str, float)) or x in [t, nil]
 
-# Debugging and Tracing
+# Debugging, tracing and pretty-printing
 
 _compiler_max_mockup_level = 3
 
@@ -6566,6 +6570,17 @@ def _compiler_config_tracing(**keys):
         def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
         for namespec, value in keys.items():
                 _string_set(control_var_name(namespec), value)
+
+_string_set("*PP-BASE-DEPTH*", 0)
+_string_set("*PP-DEPTH*", 0)
+def _pp_base_depth(): return _symbol_value(_pp_base_depth_)
+def _pp_depth():      return _symbol_value(_pp_depth_)
+
+def _sex_space(delta = None, char = " "):
+        return char * (_pp_base_depth() + _defaulted(delta, 0))
+def _sex_deeper(n, body):
+        with progv({ _pp_base_depth_: _pp_base_depth() + n }):
+                return body()
 
 def _pp(x, **args):
         return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex)(x, **args)
@@ -7377,17 +7392,6 @@ class _metasex_matcher(_matcher):
                         return m.test(typep(form, pat[1]), bound, name, lambda: m.prod(form, orifst),
                                       form, pat)
 
-_string_set("*PP-BASE-DEPTH*", 0)
-_string_set("*PP-DEPTH*", 0)
-def _pp_base_depth(): return _symbol_value(_pp_base_depth_)
-def _pp_depth():      return _symbol_value(_pp_depth_)
-
-def _sex_space(delta = None, char = " "):
-        return char * (_pp_base_depth() + _defaulted(delta, 0))
-def _sex_deeper(n, body):
-        with progv({ _pp_base_depth_: _pp_base_depth() + n }):
-                return body()
-
 def _combine_pp(f0, fR, orig_tuple_p):
         def orig_tuple_comb(body):
                 new_base = _pp_depth() + 1
@@ -7653,7 +7657,7 @@ def _ir_affected(form):
 # Testing
 
 _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
-def _run_tests(print_results = None):
+def _run_tests_metasex(print_results = None):
         def _print_results():
                 for fun, b, r, f in _results_[-1:]:
                         _debug_printf("%15s bound: %s", fun.__name__, b)
@@ -7809,7 +7813,8 @@ def _run_tests(print_results = None):
         assert(result_good)
         print("; SIMPLE-MAYBE: passed")
 
-# _run_tests(print_results = nil)
+if _getenv("CL_RUN_TESTS"):
+        _run_tests_metasex(print_results = nil)
 
 # Macroexpansion
 
@@ -9200,7 +9205,7 @@ def apply():
 
 _intern_and_bind_names_in_module("COND")
 
-def _test_ir_args():
+def _run_tests_known():
         _metasex_pp.per_use_init()
         form = (ir_args,
                 (__car,),
@@ -9209,23 +9214,25 @@ def _test_ir_args():
         #                             (list,),
         #                             ("crap", [1, 2, 3])), {"whole":_form})
         ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
-        return macroexpand_all(form, lexenv = _make_null_lexenv(nil))
-_test_ir_args()
+        macroexpand_all(form, lexenv = _make_null_lexenv(nil))
 
-def applyification():
         _macroexpander.per_use_init()
-        return _macroexpander_inner(_macroexpander, dict(), None,
-                                    (cond,),
-                                    nil,  ## The pattern will be discarded out of hand, anyway.
-                                    (None, None))
-bound_good, result_good, nofail = _runtest(applyification,
-                                           {},
-                                           (apply, (function, cond), (quote, nil)))
-# _results()
-assert(nofail)
-assert(bound_good)
-assert(result_good)
-print("; APPLYIFICATION: passed")
+        def applyification():
+                return _macroexpander_inner(_macroexpander, dict(), None,
+                                            (cond,),
+                                            nil,  ## The pattern will be discarded out of hand, anyway.
+                                            (None, None))
+        bound_good, result_good, nofail = _runtest(applyification,
+                                                   {},
+                                                   (apply, (function, cond), (quote, nil)))
+        # _results()
+        assert(nofail)
+        assert(bound_good)
+        assert(result_good)
+        print("; APPLYIFICATION: passed")
+
+if _getenv("CL_RUN_TESTS"):
+        _run_tests_known()
 
 # Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
 
@@ -10015,8 +10022,9 @@ def fx():
 
 # _compiler_trap_function(intern("DEFUN")[0])
 
-load(compile_file("vpcl.lisp"))
-load(compile_file("reader.lisp"))
+if not _getenv("CL_NO_LISP"):
+        load(compile_file("vpcl.lisp"))
+        load(compile_file("reader.lisp"))
 
 # load(compile_file("reader.lisp"))
 

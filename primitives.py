@@ -664,7 +664,7 @@ def bindings_free_eval_order_p(bindings):
         return all(isinstance(x, (name, const))
                    for x, form in bindings)
 
-@defprim(let,
+@defprim(intern("LET")[0],
          (([(name, prim)],),
           [prim]))
 class let(indet):

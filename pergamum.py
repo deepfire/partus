@@ -1,7 +1,7 @@
 ###
 ### Some utilities, in the spirit of Common Lisp.
 ###
-from cl           import typep, consp, car, cdr, functionp, zerop, plusp, stringp, cons, mapcar, mapc, first, rest, identity, remove_if, null, every, some, aref, t
+from cl           import typep, functionp, zerop, plusp, stringp, mapcar, mapc, identity, remove_if, null, every, some, aref, t
 from cl           import evenp
 from functools    import reduce, partial
 from cl           import _of_type as of_type, _setp as setp, _frozensetp as frozensetp
@@ -154,7 +154,7 @@ def list_set(xs):
 ## tuple trees
 #  TupleTree = Leaf value            :: value
 #            | Node value TupleTree* :: (value, ...)
-def descend_tree(accumulate_fn, tree, key = first, children = rest, acc = None, leafp = stringp):
+def descend_tree(accumulate_fn, tree, key = lambda x: x[0], children = lambda x: x[1:], acc = None, leafp = stringp):
         """Visit each node of TREE, in order, while accumulating a
 value during descent, by calling ACCUMULATE-FN with two arguments: the
 value for the current node, and the value accumulated up to this
@@ -168,7 +168,7 @@ point, unless it's the root node, which gets a None in this case."""
         this_acc = accumulate_fn(value, acc)
         mapc(lambda c: descend_tree(accumulate_fn, c, key, children, this_acc, leafp), childs)
 
-def ascend_tree(combine_fn, tree, key = first, children = rest, leafp = stringp):
+def ascend_tree(combine_fn, tree, key = lambda x: x[0], children = lambda x: x[1:], leafp = stringp):
         """Return the 'combination' of TREE by COMBINE-FN, which is
 defined to be the result returned by COMBINE-FN passed n+1 arguments,
 where the first argument is the name of the current node and the
@@ -177,7 +177,7 @@ the subtrees."""
         (value, childs) = (key(tree), children(tree)) if not leafp(tree) else (tree, [])
         return combine_fn(value, *mapcar(lambda c: ascend_tree(combine_fn, c, key, children, leafp), childs))
 
-def map_tree(accumulate_fn, combine_fn, tree, key = first, children = rest, acc = None, leafp = stringp):
+def map_tree(accumulate_fn, combine_fn, tree, key = lambda x: x[0], children = lambda x: x[1:], acc = None, leafp = stringp):
         """Combination of DESCEND-TREE and ASCEND-TREE, with the
 difference that the first argument to COMBINE-FN is the accumulated
 value for the current node, rather than its raw value."""
