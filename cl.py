@@ -4952,6 +4952,12 @@ def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
                         starargs = starargs or None,
                         kwargs = kwargs or None)
 
+def _ast_and(*args):
+        return _ast.BoolOp(_ast.And(), args)
+
+def _ast_or(*args):
+        return _ast.BoolOp(_ast.Or(), args)
+
 ### statements
 def _ast_Expr(node):
         return _ast.Expr(value = the(_ast.expr, node))
@@ -5034,6 +5040,10 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                                                            (list(optional) + list(keyword) +
                                                                             ([args] if args else []) +
                                                                             ([keys] if keys else [])))))))
+
+def _ast_defun_fixed(name, names, *body):
+        return _ast_functiondef(name, (names, [], [], None, [], None),
+                                body)
 
 # AST interning: %READ-AST, %READ-PYTHON-TOPLEVEL-AS-LISP
 
