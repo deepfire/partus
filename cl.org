@@ -1468,15 +1468,17 @@ negative boolean value is returned."""
 def typep(x, type):
         return not _type_mismatch(x, type)
 
-def _deftype(type_name_or_fn):
+def _deftype(type_name_or_fn, globals = None):
         def do_deftype(fn, type_name = type_name_or_fn):
+                nonlocal globals
                 old_global_name = (type_name_or_fn.__name__ if functionp(type_name_or_fn) else
                                    fn.__name__)
-                old_global = globals().get(old_global_name, None)
+                globals = _defaulted(globals, _py.globals())
+                old_global = globals.get(old_global_name, None)
                 symbol = _intern(type_name)[0]
                 symbol.type_predicate = fn
                 _frost.setf_global(symbol, old_global_name + ("" if old_global_name.endswith("_") else "_") + "t",
-                                   globals())
+                                   globals)
                 return old_global
         return (do_deftype(type_name_or_fn, type_name = _frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
                 do_deftype                                                                                             if isinstance(type_name_or_fn, str)   else
@@ -1610,6 +1612,11 @@ def cons(x, type):
                 (x, type, False)                          if not (isinstance(x, list) and len(x) == 2) else
                 _some_fast_2(_type_mismatch, x, type[1:]) if len(type) is 3                            else
                 nil) 
+
+@_deftype
+def pyfixlist(x, type):
+        return ((x, type, False) if not (isinstance(x, list) and len(x) == len(type) - 1) else
+                _some_fast_2(_type_mismatch, x, type[1:]))
 
 @_deftype
 def pytuple(x, type):
@@ -5406,6 +5413,9 @@ def _register_astifier_for_type(type, recurse, astifier):
         "Please, list the added astifiers above."
         __astifier_map__[type] = (recurse, astifier)
 
+def _unregister_astifier_for_type(type):
+        del __astifier_map__[type]
+
 def _astifiable_p(x):
         return type(x) in __astifier_map__
 
@@ -5427,7 +5437,7 @@ def _coerce_to_ast(x):
         return _astify_constant(x) if not _astp(x) else x
 
 ### expressions
-def _ast_alias(name):                        return _ast.alias(name = the(string_t, name), asname = None)
+def __ast_alias(name):                       return _ast.alias(name = the(string_t, name), asname = None)
 def _ast_keyword(name, value):               return _ast.keyword(arg = the(string_t, name), value = the(_ast.expr, value))
 
 def _ast_rw(writep):                         return (_ast.Store() if writep else _ast.Load())
@@ -5447,6 +5457,12 @@ def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
                         starargs = starargs or None,
                         kwargs = kwargs or None)
 
+def _ast_and(*args):
+        return _ast.BoolOp(_ast.And(), list(args))
+
+def _ast_or(*args):
+        return _ast.BoolOp(_ast.Or(), list(args))
+
 ### statements
 def _ast_Expr(node):
         return _ast.Expr(value = the(_ast.expr, node))
@@ -5456,10 +5472,10 @@ def _ast_module(body, lineno = 0):
                           lineno = lineno)
 
 def _ast_import(*names):
-        return _ast.Import(names = mapcar(ast_alias, the((pylist_t, string_t), names)))
+        return _ast.Import(names = mapcar(__ast_alias, the((homotuple_t, string_t), names)))
 def _ast_import_from(module_name, names):
         return _ast.ImportFrom(module = the(string_t, module_name),
-                              names = mapcar(_ast_alias, the((pylist_t, string_t), names)),
+                              names = mapcar(__ast_alias, the((pylist_t, string_t), names)),
                               level = 0)
 
 def _ast_assign(to, value):
@@ -5529,6 +5545,11 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                                                            (list(optional) + list(keyword) +
                                                                             ([args] if args else []) +
                                                                             ([keys] if keys else [])))))))
+
+def _ast_defun_fixed(name, names, *body):
+        return _ast_functiondef(name, (names, [], None, [], None),
+                                list(body))
+
 #+end_src
 
 ***** AST interning: %READ-AST, %READ-PYTHON-TOPLEVEL-AS-LISP
