@@ -1297,6 +1297,11 @@ def cons(x, type):
                 nil) 
 
 @_deftype
+def pyfixlist(x, type):
+        return ((x, type, False) if not (isinstance(x, list) and len(x) == len(type) - 1) else
+                _some_fast_2(_type_mismatch, x, type[1:]))
+
+@_deftype
 def pytuple(x, type):
         return ((x, type, False) if not (isinstance(x, tuple) and len(x) == len(type) - 1) else
                 _some_fast_2(_type_mismatch, x, type[1:]))
