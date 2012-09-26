@@ -457,7 +457,7 @@ def _symbols_not_accessible_error(package, syms):
         def pp_sym_or_string(x):
                 return "\"%s\"" % x if isinstance(x, str) else _print_nonkeyword_symbol(x)
         error(simple_package_error_t, "These symbols are not accessible in the %s package: (%s).",
-              package_name(package), ", ".join(mapcar(pp_sym_or_string, syms)))
+              package_name(package), ", ".join((pp_sym_or_string(x) for x in syms)))
 
 # Package system classes
 
@@ -1215,7 +1215,7 @@ def keyword(x, type):
 @_deftype("OR")
 def or_(x, type):
         return ((x, type, False) if len(type) is 1 else
-                _poor_man_let(mapcar(_type_mismatch, [x] * (len(type) - 1), type[1:]),
+                _poor_man_let((_type_mismatch(ix, ty) for ix, ty in zip([x] * (len(type) - 1), type[1:])),
                               lambda mismatches:
                                       (_some_fast(lambda m: m and m[2] and m, mismatches) or
                                        (all(x for x in mismatches) and (x, type, False)))))
@@ -1630,7 +1630,7 @@ def _poor_man_ecase(val, *clauses):
                 if ((val == cval) if not isinstance(cval, list) else
                     val in cval):
                         return body() if isinstance(body, _cold_function_type) else body
-        error("%s fell through ECASE expression. Wanted one of %s.", val, mapcar(first, clauses))
+        error("%s fell through ECASE expression. Wanted one of %s.", val, [ x[0] for x in clauses ])
 
 def _poor_man_typecase(val, *clauses):
         for (ctype, body) in clauses:
@@ -1643,7 +1643,7 @@ def _poor_man_etypecase(val, *clauses):
                         return body() if isinstance(body, _cold_function_type) else body
         else:
                 simple_type_error("%s fell through ETYPECASE expression. Wanted one of (%s).",
-                                  val, ", ".join(mapcar(lambda c: c[0].__name__, clauses)))
+                                  val, ", ".join((c[0].__name__ for c in clauses)))
 
 def _cold_constantp(form):
         # Coldness:
@@ -1879,8 +1879,8 @@ def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_lin
                                       (":" + str(_frame_lineno(f) - _fun_firstlineno(fun))) if print_fun_line else "",
                                       _fun_filename(fun),
                                       _frame_lineno(f))))
-        return ("..".join(mapcar(lambda f: _pp_frame_in_chain(f, t), xs) if all_pretty else
-                          (mapcar(lambda f: _pp_frame_in_chain(f), xs[:-1]) +
+        return ("..".join((_pp_frame_in_chain(f, t) for f in xs) if all_pretty else
+                          ((_pp_frame_in_chain(f) for f in xs[:-1]) +
                            [_pp_frame_in_chain(xs[-1], t)])))
 
 def _pp_chain_of_frame(x, callers = 5, *args, **keys):
@@ -1903,7 +1903,7 @@ def _frame_chain_hash(f, ignore_callers = set(["<lambda>"])):
         retv = reduce((lambda acc, f:
                                acc.update(f_digestible(f)) or acc),
                       fchain, _hashlib.new("md5")).hexdigest()
-        # _fprintf(lf, "%s %s\n", mapcar(f_str, reversed(chain)), r)
+        # _fprintf(lf, "%s %s\n", [ f_str(x) for x in reversed(chain) ], r)
         return retv
 
 def _frame_id(f):
@@ -2237,9 +2237,6 @@ def _recombine_star(spec, f, *xss):
                         comb(acc, reselt)
         return accs
 
-def _mapcar_star(f, xs):
-        return [ f(*x) for x in xs ]
-
 def _slotting(x):             return lambda y: getattr(y, x, None)
 def _slot_of(x):              return lambda y: getattr(x, y, None)
 def _slot_equal(slot, val):   return lambda y: getattr(y, slot, None) == val
@@ -2446,215 +2443,16 @@ def vector_push_extend(vec, x):
         return vec
 
 @defun
-def getf(xs, key, default = None):
-        for i, x in enumerate(xs):
-                if not i%2 and x == key:
-                        return xs[i + 1]
-        else:
-                return _defaulted(default, nil)
-
-@defun
-def setf_getf(value, xs, key):
-        for i, x in enumerate(xs):
-                if not i%2 and x == key:
-                        xs[i + 1] = value
-                        return xs
-        else:
-                return [key, value] + xs
-
-@defun
-def assoc(x, xs, test = equal):
-        for k, v in xs:
-                if test(x, k):
-                        return v
-
-@defun
 def aref(xs, *indices):
         r = xs
         for i in indices:
                 r = r[i]
         return r
 
-@defun
-def subseq(xs, start, end = None):
-        return xs[start:end]
-
-@defun
-def make_list(size, initial_element = None):
-        # horribly inefficient, but that's what we have..
-        return mapcar(constantly(initial_element), range(size))
-
-@defun
-def mapcar(f, *xs):
-        return [ f(*x) for x in zip(*xs) ]
-
-@defun
-def mapcan(f, *xs):
-        return reduce(lambda x, y: x + y, [ f(*x) for x in zip(*xs) ]) if (xs and xs[0]) else []
-
-@defun
-def mapcon(f, *xs):
-        acc = []
-        for i in range(min(len(x) for x in xs)):
-                acc.extend(f(*(x[i:] for x in xs)))
-        return acc
-
-@defun
-def mapc(f, *xs):
-        for x in zip(*xs):
-                f(*x)
-        return xs[0]
-
 __allowed__ = frozenset([str, set, frozenset, tuple, list, bytes, bytearray])
 def _maprestype(x):
         type = type_of(x)
         return type if type in __allowed__ else list
-
-@defun
-def remove_if(f, xs, key = identity):
-        if hash_table_p(xs):
-                return              { k:x for k, x in xs.items() if not f(k, key(x))}
-        else:
-                return _maprestype(xs) (x for x    in xs         if not f(key(x)))
-
-@defun
-def remove_if_not(f, xs, key = identity):
-        if hash_table_p(xs):
-                return              { k:x for k, x in xs.items() if f(k, key(x))}
-        else:
-                return _maprestype(xs) (x for x    in xs         if f(key(x)))
-
-@defun
-def remove(elt, xs, test = eql, key = identity):
-        if hash_table_p(xs):
-                return              { k:x for k, x in xs.items() if not test(elt, key(x))}
-        else:
-                return _maprestype(xs) (x for x    in xs         if not test(elt, key(x)))
-
-@defun
-def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
-        # Unregistered Issue FIND-IF-NOT-ITERATOR-FRIENDLY
-        end = end or len(xs)
-        if start or end:
-                seq = zip(xs, range(len(xs)))
-                if from_end:
-                        seq = reversed(list(seq))
-                for (x, i) in seq:
-                        if (start <= i < end) and p(key(x)):
-                                return x
-        else:
-                if from_end:
-                        xs = reversed(xs)
-                for x in xs:
-                        if p(key(x)):
-                                return x
-
-@defun
-def find_if_not(p, xs, key = identity, start = 0, end = None, from_end = None):
-        return find_if(complement(p), xs, key = key, start = start, end = end, from_end = from_end)
-
-@defun
-def find(elt, xs, **keys):
-        return find_if(lambda x: x == elt, xs, **keys)
-
-@defun
-def member_if(test, xs):
-        "XXX: not terribly compliant."
-        for i, x in enumerate(xs):
-                if test(x):
-                        return xs[i:]
-
-@defun
-def member(x, xs):
-        "XXX: not terribly compliant."
-        return member_if(lambda y: y == x, xs)
-
-@defun
-def position_if(p, xs, key = identity, start = 0, end = None, from_end = None):
-        end = end or len(xs)
-        if start or end:
-                seq = zip(xs, range(len(xs)))
-                if from_end:
-                        seq = reversed(list(seq))
-                for (x, i) in seq:
-                        if (start <= i < end) and p(key(x)):
-                                return i
-        else:
-                i, increment, seq = ((end - 1, -1, reversed(xs))
-                                     if from_end else
-                                     (      0,  1, xs))
-                for x in seq:
-                        if p(key(x)):
-                                return i
-                        i += increment
-
-@defun
-def position_if_not(p, xs, key = identity, start = 0, end = None, from_end = None):
-        return position_if(complement(p), xs, key = key, start = start, end = end, from_end = from_end)
-
-@defun
-def position(elt, xs, **keys):
-        return position_if(lambda x: x == elt, xs, **keys)
-
-@defun
-def count(elt, xs, key = identity, start = 0):
-        c = 0
-        for (x, i) in zip(xs, range(len(xs))):
-                if (i >= start) and key(x) == elt:
-                        c += 1
-        return c
-
-@defun
-def count_if(p, xs, key = identity, start = 0):
-        c = 0
-        for (x, i) in zip(xs, range(len(xs))):
-                if (i >= start) and p(key(x)):
-                        c += 1
-        return c
-
-@defun
-def replace(sequence_1, sequence_2, start1 = 0, start2 = 0, end1 = None, end2 = None):
-        """Destructively modifies sequence-1 by replacing the elements
-of subsequence-1 bounded by start1 and end1 with the elements of
-subsequence-2 bounded by start2 and end2. """
-        # XXX: this will bomb out when designated subsequence of sequence_2 is
-        #      shorter than that of sequence_1, which is quite fine by CL:REPLACE:
-        #
-        # "If these subsequences are not of the same length, then the
-        #  shorter length determines how many elements are copied; the
-        #  extra elements near the end of the longer subsequence are not
-        #  involved in the operation."
-        sequence_1[start1:end1] = sequence_2[start2:end2]
-        return sequence_1
-
-# XXX: This is geared at cons-style lists, and so is fucking costly
-# for imperative lists.
-@defun
-def tailp(object, list):
-        """If OBJECT is the same as some tail of LIST, TAILP returns
-true; otherwise, it returns false."""
-        if len(object) > len(list):
-                return None
-        else:
-                list_start = len(list) - len(object)
-                return list[list_start:] == object
-
-# XXX: This is geared at cons-style lists, and so is fucking costly
-# for imperative lists.
-@defun
-def ldiff(object, list_):
-        """If OBJECT is the same as some tail of LIST, LDIFF returns a
-fresh list of the elements of LIST that precede OBJECT in the
-list structure of LIST; otherwise, it returns a copy[2] of
-LIST."""
-        if len(object) > len(list_):
-                return list(list_)
-        else:
-                list_start = len(list_) - len(object)
-                if list_[list_start:] == object:
-                        return list_[:list_start]
-                else:
-                        return list(list_)
 
 def _intersperse(x, xs):
         """Return a sequence of elements, with X inserted between every two
@@ -3135,9 +2933,9 @@ def _condition_system_enabled_p():
         return (_frost.pytracer_enabled_p() and
                 _frost.tracer_hook("exception") is __cl_condition_handler__)
 
-_load_toplevel, _compile_toplevel, _execute = mapcar(_keyword, ["LOAD-TOPLEVEL",
-                                                                "COMPILE-TOPLEVEL",
-                                                                "EXECUTE"])
+_load_toplevel, _compile_toplevel, _execute = [ _keyword(x) for x in [ "LOAD-TOPLEVEL",
+                                                                       "COMPILE-TOPLEVEL",
+                                                                       "EXECUTE" ] ]
 
 if not _getenv("CL_NO_CONDITION_SYSTEM"):
         _init_condition_system()
@@ -3736,14 +3534,42 @@ together."""
 
 # Conses
 
+def _extract_keywords(xs, keys_allowed = t):
+        if len(xs) % 2:
+                error("Odd number of arguments in keyword section: %s", xs)
+        names = xs[0::2]
+        if not all(isinstance(x, symbol_t) for x in names):
+                error("Non-symbol(s) in keyword position(s): %s", [ x for x in names if not isinstance(x, symbol_t) ])
+        bad_keys = ([] if keys_allowed is t else
+                    [ x for x in names if x not in keys_allowed ])
+        if bad_keys:
+                error("Unexpected keywords - %s, where %s were expected.", bad_keys, keys_allowed)
+        return dict(names, xs[1::2])
+
 @defun
 def vector(*xs):    return list(xs)
+
+@defun
+def length(x):
+        if listp(x):
+                len = 0
+                while isinstance(x, list):
+                        len += 1
+                        x = x[1]
+                return len
+        else:
+                _not_implemented("LENGTH: non-list case")
+
+@defun
+def subseq(xs, start, end = nil):
+         _not_implemented()
 
 @defun
 def atom(x):        return not isinstance(x, list) or x == () or x is nil
 
 @defun
 def consp(x):       return isinstance(x, list) and len(x) is 2
+def _consp_fast(x): return isinstance(x, list)
 
 @defun
 def listp(x):       return x is nil or isinstance(x, list) and len(x) is 2
@@ -3751,16 +3577,21 @@ def listp(x):       return x is nil or isinstance(x, list) and len(x) is 2
 @defun
 def car(x):         return x[0] if x else nil
 
+@defun
+def cdr(x):         return x[1] if x else nil
+
 @defun("LIST")
 def list_(*xs):     return _consify_pyseq(xs)
 
-@defun
-def length(x):
-        len = 0
-        while x:
-                len += 1
-                x = x[1]
-        return len
+_initial_element = _keyword("INITIAL-ELEMENT")
+
+@defun("MAKE-LIST")
+def make_list(length, *rest):
+        elt = _extract_keywords(rest, [_initial_element]).get(_initial_element, nil)
+        acc = nil
+        for i in range(length):
+                acc = [elt, acc]
+        return acc
 
 @defun
 def last(x):
@@ -3786,6 +3617,149 @@ def append(*xs):
                                 return ret
                         ptr[1] = [x[0], cdr]
         return copy_list_with_lastcdr(xs[0], append(*xs[1:]))
+
+@defun
+def nconc(*xs):
+        head = nil
+        for x in xs:
+                if not x:
+                        continue
+                if not head:
+                        head = ptr = x
+                        continue
+                last(ptr)[1] = x
+                ptr = x
+        return head
+
+@defun
+def getf(xs, key, default = nil):
+         _not_implemented()
+
+@defun
+def setf_getf(value, xs, key):
+         _not_implemented()
+
+@defun
+def assoc(x, xs, test = equal):
+         _not_implemented()
+
+@defun
+def nreverse(xs):
+        if xs is nil:
+                return xs
+        oldl, oldcdr, newcdr = xs, xs[1], nil
+        while oldcdr is not nil:
+                oldl[1] = newcdr
+                newcdr = oldl
+                oldl = oldcdr
+                oldcdr = oldcdr[1]
+        oldl[1] = newcdr
+        return oldl
+
+@defun
+def mapcar(f, *xss):
+        not xss and error("Invalid number of arguments: %d", 1)
+        if len(xss) is 1:
+                xs = xss[0]
+                if not xs:
+                        return nil
+                car, cdr = xs[0], xs[1]
+                acc = ptr = [f(car), nil]
+                while cdr:
+                        car, cdr = cdr[0], cdr[1]
+                        ptr[1] = ptr = [f(car), nil]
+                return acc
+        else:
+                not_implemented("MAPCAR: multiple-list case")
+
+@defun
+def mapcan(f, *xs):
+         _not_implemented()
+
+@defun
+def mapcon(f, *xs):
+         _not_implemented()
+
+@defun
+def mapc(f, *xs):
+         _not_implemented()
+
+@defun
+def remove_if(f, xs, key = identity):
+         _not_implemented()
+
+@defun
+def remove_if_not(f, xs, key = identity):
+         _not_implemented()
+
+@defun
+def remove(elt, xs, test = eql, key = identity):
+         _not_implemented()
+
+@defun
+def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
+         _not_implemented()
+
+@defun
+def find_if_not(p, xs, key = identity, start = 0, end = None, from_end = None):
+         _not_implemented()
+
+@defun
+def find(elt, xs, **keys):
+         _not_implemented()
+
+@defun
+def member_if(test, xs):
+         _not_implemented()
+
+@defun
+def member(x, xs):
+         _not_implemented()
+
+@defun
+def position_if(p, xs, key = identity, start = 0, end = None, from_end = None):
+         _not_implemented()
+
+@defun
+def position_if_not(p, xs, key = identity, start = 0, end = None, from_end = None):
+         _not_implemented()
+
+@defun
+def position(elt, xs, **keys):
+         _not_implemented()
+
+@defun
+def count(elt, xs, key = identity, start = 0):
+         _not_implemented()
+
+@defun
+def count_if(p, xs, key = identity, start = 0):
+         _not_implemented()
+
+@defun
+def replace(sequence_1, sequence_2, start1 = 0, start2 = 0, end1 = None, end2 = None):
+        """Destructively modifies sequence-1 by replacing the elements
+of subsequence-1 bounded by start1 and end1 with the elements of
+subsequence-2 bounded by start2 and end2. """
+        _not_implemented()
+
+# XXX: This is geared at cons-style lists, and so is fucking costly
+# for imperative lists.
+@defun
+def tailp(object, list):
+        """If OBJECT is the same as some tail of LIST, TAILP returns
+true; otherwise, it returns false."""
+        _not_implemented()
+
+# XXX: This is geared at cons-style lists, and so is fucking costly
+# for imperative lists.
+@defun
+def ldiff(object, list_):
+        """If OBJECT is the same as some tail of LIST, LDIFF returns a
+fresh list of the elements of LIST that precede OBJECT in the
+list structure of LIST; otherwise, it returns a copy[2] of
+LIST."""
+        _not_implemented()
 
 def _vectorise_cons_list(x):
         res = []
@@ -4040,9 +4014,9 @@ def _expand_quasiquotation(form):
         def malform(x): error("Invalid %s form: %s.", x[0], x)
         def process_form(x):
                 return (x                                         if atom(x)            else
-                        (process_qq(x[1]) if len(x) is 2 else
+                        (process_qq(x[1]) if length(x) is 2 else
                          malform(x))                              if x[0] is quasiquote else
-                        tuple(process_form(ix) for ix in x))
+                        mapcar(process_form, x))
         def process_qq(x):
                 if atom(x):
                         return (quote, x)
@@ -4461,9 +4435,8 @@ def handler_bind(fn, *handlers, no_error = identity):
 def handler_case(body, *handlers, no_error = identity):
         "Works like real HANDLER-CASE, when the conditions are right.  Ha."
         nonce            = gensym("HANDLER-CASE-")
-        wrapped_handlers = _mapcar_star(lambda type, handler:
-                                                (type, lambda cond: __return_from(nonce, handler(cond))),
-                                        handlers)
+        wrapped_handlers = [ (ty_ha[0], lambda cond: __return_from(nonce, ty_ha[1](cond)))
+                             for ty_ha in handlers ]
         return __catch(nonce,
                        lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
 
@@ -4808,7 +4781,7 @@ table of VALID-DECLARATIONS, return the body, documentation and declarations if 
                                 tuple(extract_sexp(x) for x in decl.elts[1:1 + n_decl_args]),
                                 decl_param_names)
                 not (decls.keywords or decls.starargs or decls.kwargs) or fail()
-                return mapcar(ensure_valid_declaration, decls.args)
+                return [ ensure_valid_declaration(x) for x in decls.args ]
         def group_declarations(valid_declspecs, decls):
                 def _declaration_names(x): return set(x[1 + valid_declspecs[x[0]]:])
                 return { name: set(d[0:2] for d in decls
@@ -4933,7 +4906,7 @@ def _try_astify_constant(x):
                 return x, t
         (rec, astifier), astifiable = gethash(type_of(x), __astifier_map__,
                                               ((nil, nil), nil))
-        return (astifier(mapcar(lambda x: _astify_constant(x), x) if rec else
+        return (astifier([ _astify_constant(x) for x in x ] if rec else
                          x), t) if astifiable else (None, None)
 
 def _astify_constant(x):
@@ -4961,7 +4934,7 @@ def _ast_maybe_normalise_string(x):          return (_ast_string(x) if isinstanc
 def _ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
         check_type(args, (pylist_t, (or_t, _ast.AST, _NoneType, (satisfies_t, _astifiable_p))))
         return _ast.Call(func = (_ast_name(name) if isinstance(name, str) else name),
-                        args = mapcar(_coerce_to_ast, args),
+                        args = [ _coerce_to_ast(x) for x in args ],
                         keywords = _maphash(_ast_keyword, keys),
                         starargs = starargs or None,
                         kwargs = kwargs or None)
@@ -4981,10 +4954,10 @@ def _ast_module(body, lineno = 0):
                           lineno = lineno)
 
 def _ast_import(*names):
-        return _ast.Import(names = mapcar(__ast_alias, the((homotuple_t, string_t), names)))
+        return _ast.Import(names = [ __ast_alias(x) for x in the((homotuple_t, string_t), names) ])
 def _ast_import_from(module_name, names):
         return _ast.ImportFrom(module = the(string_t, module_name),
-                              names = mapcar(__ast_alias, the((pylist_t, string_t), names)),
+                              names = [ __ast_alias for x in the((pylist_t, string_t), names) ],
                               level = 0)
 
 def _ast_assign(to, value):
@@ -5013,10 +4986,10 @@ def _argspec_lambda_spec(spec, astify_defaults = t):
         default_xform = _astify_constant if astify_defaults else identity
         return (spec.args[:nfixargs],
                 list(zip(spec.args[nfixargs:],
-                                 mapcar(default_xform, spec.defaults or []))),
+                         [ default_xform(x) for x in spec.defaults or [] ])),
                 spec.varargs,
                 list(zip(spec.kwonlyargs,
-                         mapcar(default_xform, spec.kwonlydefaults or []))),
+                         [ default_xform(x) for x in spec.kwonlydefaults or [] ])),
                 spec.varkw)
 
 def _function_lambda_list(fn, astify_defaults = t):
@@ -5025,13 +4998,13 @@ def _function_lambda_list(fn, astify_defaults = t):
 
 def _lambda_spec_arguments(lambda_list_spec):
         fixed, optional, args, keyword, keys = lambda_list_spec
-        return _ast.arguments(args        = mapcar(lambda x: _ast.arg(x, None),
-                                                   fixed + mapcar(lambda x: x[0], optional)),
-                              defaults    = mapcar(lambda x: x[1], optional),
+        return _ast.arguments(args        = [ _ast.arg(x, None)
+                                              for x in fixed + [ x[0] for x in optional ] ],
+                              defaults    = [ x[1] for x in optional ],
                               vararg      = args,
-                              kwonlyargs  = mapcar(lambda x: _ast.arg(x, None),
-                                                   mapcar(lambda x: x[0], keyword)),
-                              kw_defaults = mapcar(lambda x: x[1], keyword),
+                              kwonlyargs  = [ _ast.arg(x, None)
+                                              for x in [ x[0] for x in keyword ] ],
+                              kw_defaults = [ x[1] for x in keyword ],
                               kwarg       = keys,
                               varargannotation = None,
                               kwargannotation  = None)
@@ -5049,7 +5022,7 @@ def _ast_functiondef(name, lambda_list_spec, body):
                                             body),
                                            (function_t,
                                             lambda:
-                                                    body(*mapcar(_ast_name, fixed),
+                                                    body(*tuple(_ast_name(x) for x in fixed),
                                                           **_map_into_hash(lambda x: (x, _ast_name),
                                                                            (list(optional) + list(keyword) +
                                                                             ([args] if args else []) +
@@ -5171,7 +5144,7 @@ def _ast_bound_free(astxs):
         def ast_rec(astxs):
                 def bound_free(ast):
                         info = __find_ast_info(type_of(ast))
-                        args = mapcar(_slot_of(ast), type(ast)._fields)
+                        args = [ _slot_of(ast)(x) for x in type(ast)._fields ]
                         if __atrees_validate__:
                                 _ast_info_check_args_type(info, args, atreep = nil)
                         return info.bound_free(*args)
@@ -5235,9 +5208,9 @@ def defast(fn):
                 (fixed, optional, args, keyword, keys) = lambda_list
                 if args or keyword or keys:
                         err("only fixed and optional arguments are allowed")
-                ast_field_names = fixed + mapcar((lambda x: x[0]), optional)
+                ast_field_names = fixed + [ x[0] for x in optional ]
                 ast_field_names_with_defaults = fixed + optional
-                ast_field_types = mapcar(lambda name: annotations[name], ast_field_names)
+                ast_field_types = [ annotations[name] for name in ast_field_names ]
                 if len(ast_field_types) != len(ast_type._fields):
                         error("In DEFAST %s:the amount of provided type specifiers (%d) does not match the AST _fields: %s",
                               name, len(ast_field_types), ast_type._fields)
@@ -5357,7 +5330,8 @@ def _ast_FunctionDef(name:            string_t,
                 ((args_b, args_f, _),
                  (body_b, body_f, body_x),
                  (_,      deco_f, _),
-                 (_,      retn_f, _)) = mapcar(_bound_free_recursor(), [args, body, decorator_list, returns])
+                 (_,      retn_f, _)) = [ _bound_free_recursor()(x)
+                                          for x in [args, body, decorator_list, returns] ]
                 body_bound = set([name]) | args_b | (body_b - body_x)
                 body_free = body_f - body_bound
                 body_xtnl_writes = body_b & body_x
@@ -5386,7 +5360,8 @@ def _ast_ClassDef(name:            string_t,
                  (star_b, star_f, _),
                  (karg_b, karg_f, _),
                  (body_b, body_f, body_x),
-                 (deco_b, deco_f, _)) = mapcar(_bound_free_recursor(), [bases, keywords, starargs, kwargs, body, decorator_list])
+                 (deco_b, deco_f, _)) = [ _bound_free_recursor()(x)
+                                          for x in [bases, keywords, starargs, kwargs, body, decorator_list] ]
                 # Unregistered Issue CLASS-BINDINGS-UNCLEAR
                 body_bound = body_b - body_x
                 body_free = body_f - body_bound
@@ -5408,7 +5383,7 @@ def _ast_Assign(targets: (pylist_t, _ast.expr),
                 value:    _ast.expr):
         def bound_free():
                 ((targ_b, targ_f, _),
-                 (_,      valu_f, _)) = mapcar(_bound_free_recursor(), [targets, value])
+                 (_,      valu_f, _)) = [ _bound_free_recursor()(x) for x in [targets, value] ]
                 return (targ_b,
                         targ_f | valu_f,
                         set())
@@ -5419,7 +5394,7 @@ def _ast_AugAssign(target: _ast.expr,
                    value:  _ast.expr):
         def bound_free():
                 ((targ_b, targ_f, _),
-                 (_,      valu_f, _)) = mapcar(_bound_free_recursor(), [target, value])
+                 (_,      valu_f, _)) = [ _bound_free_recursor()(x) for x in [target, value] ]
                 return (targ_b,
                         targ_f | valu_f,
                         set())
@@ -5439,7 +5414,7 @@ def _ast_For(target:  _ast.expr,
              orelse: (pylist_t, _ast.stmt)):
         def bound_free():
                 ((targ_b, targ_f, _),
-                 (_,      iter_f, _)) = mapcar(_bound_free_recursor(), [target, iter])
+                 (_,      iter_f, _)) = [ _bound_free_recursor()(x) for x in [target, iter] ]
                 # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
                 (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
                 return (bound,
@@ -5477,7 +5452,7 @@ def _ast_With(context_expr:   _ast.expr,
               body:          (pylist_t, _ast.stmt)):
         def bound_free():
                 ((_,      ctxt_f, _),
-                 (optl_b, optl_f, _)) = mapcar(_bound_free_recursor(), [context_expr, optional_vars])
+                 (optl_b, optl_f, _)) = [ _bound_free_recursor()(x) for x in [context_expr, optional_vars] ]
                 body_bound, body_free, body_xtnls = _ast_body_bound_free(body, optl_b)
                 return (body_bound,
                         ctxt_f | optl_f | body_free,
@@ -5553,7 +5528,7 @@ def _ast_Lambda(args: _ast.arguments,
                 body: _ast.expr):
         def bound_free():
                 ((args_b, args_f, _),
-                 (_,      body_f, _)) = mapcar(_bound_free_recursor(), [args, body])
+                 (_,      body_f, _)) = [ _bound_free_recursor()(x) for x in [args, body] ]
                 body_free = body_f - args_b
                 free = args_f | body_free
                 return (set(),
@@ -5757,7 +5732,7 @@ def _ast_comprehension(target: _ast.expr,
         def bound_free():
                 ((_,      targ_f, _),
                  (iter_b, iter_f, _),
-                 (_,      iffs_f, _)) = mapcar(_bound_free_recursor(), [target, iter, ifs])
+                 (_,      iffs_f, _)) = [ _bound_free_recursor()(x) for x in [target, iter, ifs] ]
                 return (iter_b,
                         ((targ_f | iffs_f) - iter_b) | iter_f,
                         set())
@@ -5851,7 +5826,7 @@ all AST-trees .. except for the case of tuples."""
                 if not (nfixed <= defacto <= max):
                         argument_count_error(nfixed, max, defacto, "AST type %s", type)
                 effective_args = args + [ x["default"] for x in optional[defacto - nfixed:] ]
-                # mapcar(_indexing("default"), optional[defacto - nfixed:])
+                # [ x["default"] for x in optional[defacto - nfixed:] ]
                 assert(len(effective_args) == max)
                 for val, name, finfo in zip(effective_args, fields, finfos):
                         subtype = finfo["type"]
@@ -8050,9 +8025,9 @@ def _ir_prepare_lambda_list(lambda_list_, context, allow_defaults = None, defaul
                                  (valid_parameter_specifier_p, "In %s: lambda list must consist of non-keyword symbols: %s.  Default values are forbidden in this context."))
         ### 0. locate lambda list keywords
         lambda_words = [_optional, _rest, _body, _key]
-        optpos,  restpos,  bodypos,  keypos  = posns = mapcar(lambda x: position(x, lambda_list_), lambda_words)
+        optpos,  restpos,  bodypos,  keypos  = posns = [ position(x, lambda_list_) for x in lambda_words ]
         ### 1. ensure proper order of provided lambda list keywords
-        optposp, restposp, bodyposp, keyposp = mapcar(complement(_nonep), posns)
+        optposp, restposp, bodyposp, keyposp = [ x is not None for x in posns ]
         def test_lambda_list_word_order():
                 toptpos     = optpos or 0
                 trestpos    = restpos or toptpos
@@ -11697,17 +11672,17 @@ __sealed_classes__ = set([object,
                           stream_t,
                           pytuple_t, pybytes_t, pylist_t, pybytearray_t, pyset_t, pyfrozenset_t,
                           BaseException, Exception] +
-                         mapcar(type_of,
-                                [None,           # NoneType
-                                 Ellipsis,       # ellipsis
-                                 NotImplemented, # NotImplementedType
-                                 integer_t,      # type
-                                 "".find,        # builtin_function_or_method
-                                 _ast,           # module
-                                 _sys.stdin,     # __io.TextIOWrapper
-                                 car.__code__,   # code object
-                                 _this_frame(),  # frame
-                                 ]))
+                         [ type_of(x)
+                           for x in [None,           # NoneType
+                                     Ellipsis,       # ellipsis
+                                     NotImplemented, # NotImplementedType
+                                     integer_t,      # type
+                                     "".find,        # builtin_function_or_method
+                                     _ast,           # module
+                                     _sys.stdin,     # __io.TextIOWrapper
+                                     car.__code__,   # code object
+                                     _this_frame(),  # frame
+                                     ] ])
 
 def _class_sealed_p(x):
         return x in __sealed_classes__
@@ -11833,8 +11808,8 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                                             None, # method combination
                                             _ast_funcall("dfun_compute_applicable_methods",
                                                          [_ast_name(symbol_name(function_name)),
-                                                          mapcar(_ast_name, fixed)])]),
-                              mapcar(_ast_name, fixed + mapcar(car, optional)),
+                                                          [ _ast_name(x) for x in fixed ]])]),
+                              [ _ast_name(x) for x in fixed + [ x[0] for x in optional ] ],
                               _map_into_hash_star(lambda key, default: (key, _ast_name(default)),
                                                    keyword),
                               starargs = _ast_name(args) if args else None,
@@ -12953,8 +12928,8 @@ object."""
                 qualifiers = [], # XXX
                 lambda_list = lambda_list,
                 specializers = tuple(_make_method_specializers(
-                                         mapcar(lambda name: gethash(name, method.__annotations__, t)[0],
-                                                fixed))),
+                                         [ gethash(name, method.__annotations__, t)[0]
+                                           for name in fixed ])),
                 function = _not_implemented("somehow compile", methfun_lambda)
                 **methfun_args)
         add_method(generic_function, method)
@@ -12972,7 +12947,7 @@ def _make_method_specializers(specializers):
                                         (class_eq_, lambda: class_eq_specializer(name[1]))) if isinstance(name, tuple)      else
                         ## Was: FIXME: Document CLASS-EQ specializers.
                         error("%s is not a valid parameter specializer name.", name))
-        return mapcar(parse, specializers)
+        return [ parse(x) for x in specializers ]
 
 # Init
 
@@ -13049,8 +13024,7 @@ def _callify(form, package = None, quoted = nil):
                                         error("unknown &KEY argument: %s", k)
                 return _ast_funcall(
                         _lisp_symbol_ast(sym, package),
-                        mapcar(lambda x: _callify(x, package),
-                               args),
+                        [ _callify(x, package) for x in args ],
                         _map_hash_table(
                                lambda k, x: (k, _callify(x, package)),
                                       keyargs))
@@ -13063,7 +13037,7 @@ def _callify(form, package = None, quoted = nil):
                 }
         if _listp(form):
                 if quoted or (form[0] is _find_symbol("QUOTE", __cl)[0]):
-                        return (_ast_list(mapcar(lambda x: _callify(x, package, t), form[1]))
+                        return (_ast_list([ _callify(x, package, t) for x in form[1] ])
                                 if _listp(form[1]) else
                                 _callify(form[1], package, t))
                 else:
