@@ -1880,7 +1880,7 @@ def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_lin
                                       _fun_filename(fun),
                                       _frame_lineno(f))))
         return ("..".join((_pp_frame_in_chain(f, t) for f in xs) if all_pretty else
-                          ((_pp_frame_in_chain(f) for f in xs[:-1]) +
+                          ([_pp_frame_in_chain(f) for f in xs[:-1]] +
                            [_pp_frame_in_chain(xs[-1], t)])))
 
 def _pp_chain_of_frame(x, callers = 5, *args, **keys):
