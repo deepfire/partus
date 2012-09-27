@@ -3244,7 +3244,8 @@ def _file_as_string(filename):
 
 def _namestring_components(x):
         dirname, basename = _os.path.split(x)
-        return _if_let(position(".", basename, from_end = t),
+        posn = basename.rfind(".")
+        return _if_let(posn if posn >= 0 else nil,
                        lambda dotpos: (dirname or nil, basename[:dotpos], basename[dotpos + 1:]),
                        lambda:        (dirname or nil, basename or nil,   nil))
 
@@ -3540,7 +3541,8 @@ together."""
         dir_defaulted_p = _os.sep in default_pathname
         net_effect_if = name_supplied_p and not dir_supplied_p # Unregistered Issue COMPLIANCE-MERGE-PATHNAMES-SIMPLIFICATION
         if net_effect_if:
-                return _os.path.join((default_pathname[:position(_os.sep, default_pathname, from_end = t) + 1] if dir_defaulted_p else ""),
+                posn = default_pathname.rfind(_os.sep)
+                return _os.path.join((default_pathname[:posn + 1] if dir_defaulted_p else ""),
                                     pathname)
         elif not name_supplied_p:
                 pass
@@ -6565,7 +6567,7 @@ class _matcher():
         ###
         def segment(m, bound, name, exp, pat, orifst, aux, limit, end = None):
                 # _trace_frame()
-                def position(x, xs):
+                def posn(x, xs):
                         for i, ix in enumerate(xs):
                                 if x == ix: return i
                 def constant_pat_p(pat):
@@ -6584,7 +6586,7 @@ class _matcher():
                         #               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
                         # ## 3. (Re-)establish and check the boundary.
                         end = (end                        if end is not None                          else
-                               position(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
+                               posn(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                                0)
                         if ((end and end > len(exp)) or ## All legitimate splits failed.
                             end is None):                   ## A constant pattern was missing, likewise.
