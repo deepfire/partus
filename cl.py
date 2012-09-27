@@ -2558,7 +2558,7 @@ def _extract_keywords(xs, keys_allowed = t):
                     [ x for x in names if x not in keys_allowed ])
         if bad_keys:
                 error("Unexpected keywords - %s, where %s were expected.", bad_keys, keys_allowed)
-        return dict(names, xs[1::2])
+        return dict(zip(names, xs[1::2]))
 
 # Lisp packages/symbols vs. python modules/names
 
