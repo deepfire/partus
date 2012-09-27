@@ -2545,6 +2545,20 @@ def _symbol_python_type(symbol, if_not_a_type = "error"):
 def _symbol_type_predicate(symbol):
         return symbol.type_predicate if hasattr(the(symbol_t, symbol), "type_predicate") else nil
 
+# Complex arguments
+
+def _extract_keywords(xs, keys_allowed = t):
+        if len(xs) % 2:
+                error("Odd number of arguments in keyword section: %s", xs)
+        names = xs[0::2]
+        if not all(isinstance(x, symbol_t) for x in names):
+                error("Non-symbol(s) in keyword position(s): %s", [ x for x in names if not isinstance(x, symbol_t) ])
+        bad_keys = ([] if keys_allowed is t else
+                    [ x for x in names if x not in keys_allowed ])
+        if bad_keys:
+                error("Unexpected keywords - %s, where %s were expected.", bad_keys, keys_allowed)
+        return dict(names, xs[1::2])
+
 # Lisp packages/symbols vs. python modules/names
 
 def _lisp_symbol_python_name(sym):
@@ -3532,22 +3546,75 @@ together."""
                 pass
         return _os.path.join(x, y)
 
-# Conses
+# Cons <-> vector xform
 
-def _extract_keywords(xs, keys_allowed = t):
-        if len(xs) % 2:
-                error("Odd number of arguments in keyword section: %s", xs)
-        names = xs[0::2]
-        if not all(isinstance(x, symbol_t) for x in names):
-                error("Non-symbol(s) in keyword position(s): %s", [ x for x in names if not isinstance(x, symbol_t) ])
-        bad_keys = ([] if keys_allowed is t else
-                    [ x for x in names if x not in keys_allowed ])
-        if bad_keys:
-                error("Unexpected keywords - %s, where %s were expected.", bad_keys, keys_allowed)
-        return dict(names, xs[1::2])
+def _vectorise_cons_list(x):
+        res = []
+        while x:
+                res.append(x[0])
+                x = x[1]
+        return res
+
+def _consify_pyseq(xs):
+        return reduce(lambda acc, x: [x, acc],
+                      reversed(xs),
+                      nil)
+
+def _consify_tuple(xs):
+        return _consify_pyseq([ (_consify_tuple(x) if isinstance(x, tuple) else x)
+                                for x in xs ])
+
+def _consify_tuples(*xs):
+        return _consify_tuple(xs)
+
+# Sequences
+
+# COPY-SEQ
+# ELT
+# FILL
+# MAKE-SEQUENCE
 
 @defun
-def vector(*xs):    return list(xs)
+def subseq(xs, start, end = nil):
+        _not_implemented()
+
+_key_, _start, _end, _from_end = [ _keyword(x) for x in ["KEY", "START", "END", "FROM-END"] ]
+
+# MAP
+# MAP-INTO
+# REDUCE
+
+@defun
+def count(elt, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
+        key, start, end, from_end, test, test_not = [ keys.get(k, df) for k, df
+                                                      in [ (_key_,     identity),
+                                                           (_start,    0),
+                                                           (_end,      nil),
+                                                           (_from_end, nil),
+                                                           (_test,     nil),
+                                                           (_test_not, nil) ] ]
+        _not_implemented()
+
+@defun
+def count_if(p, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
+        key, start, end, from_end = [ keys.get(k, df) for k, df
+                                      in [ (_key_,     identity),
+                                           (_start,    0),
+                                           (_end,      nil),
+                                           (_from_end, nil) ] ]
+        _not_implemented()
+
+@defun
+def count_if_not(p, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
+        key, start, end, from_end = [ keys.get(k, df) for k, df
+                                      in [ (_key_,     identity),
+                                           (_start,    0),
+                                           (_end,      nil),
+                                           (_from_end, nil) ] ]
+        _not_implemented()
 
 @defun
 def length(x):
@@ -3560,19 +3627,167 @@ def length(x):
         else:
                 _not_implemented("LENGTH: non-list case")
 
-@defun
-def subseq(xs, start, end = nil):
-         _not_implemented()
+# REVERSE
 
 @defun
-def atom(x):        return not isinstance(x, list) or x == () or x is nil
+def nreverse(xs):
+        if xs is nil:
+                return xs
+        oldl, oldcdr, newcdr = xs, xs[1], nil
+        while oldcdr is not nil:
+                oldl[1] = newcdr
+                newcdr = oldl
+                oldl = oldcdr
+                oldcdr = oldcdr[1]
+        oldl[1] = newcdr
+        return oldl
+
+# SORT
+# STABLE-SORT
+
+@defun
+def find(elt, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
+        key, start, end, from_end, test, test_not = [ keys.get(k, df) for k, df
+                                                      in [ (_key_,     identity),
+                                                           (_start,    0),
+                                                           (_end,      nil),
+                                                           (_from_end, nil),
+                                                           (_test,     nil),
+                                                           (_test_not, nil) ] ]
+        _not_implemented()
+
+@defun
+def find_if(p, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
+        key, start, end, from_end = [ keys.get(k, df) for k, df
+                                      in [ (_key_,     identity),
+                                           (_start,    0),
+                                           (_end,      nil),
+                                           (_from_end, nil) ] ]
+        _not_implemented()
+
+@defun
+def find_if_not(p, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
+        key, start, end, from_end = [ keys.get(k, df) for k, df
+                                      in [ (_key_,     identity),
+                                           (_start,    0),
+                                           (_end,      nil),
+                                           (_from_end, nil) ] ]
+        _not_implemented()
+
+@defun
+def position(elt, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
+        key, start, end, from_end, test, test_not = [ keys.get(k, df) for k, df
+                                                      in [ (_key_,     identity),
+                                                           (_start,    0),
+                                                           (_end,      nil),
+                                                           (_from_end, nil),
+                                                           (_test,     nil),
+                                                           (_test_not, nil) ] ]
+        _not_implemented()
+
+@defun
+def position_if(p, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
+        key, start, end, from_end = [ keys.get(k, df) for k, df
+                                      in [ (_key_,     identity),
+                                           (_start,    0),
+                                           (_end,      nil),
+                                           (_from_end, nil) ] ]
+        _not_implemented()
+
+@defun
+def position_if_not(p, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
+        key, start, end, from_end = [ keys.get(k, df) for k, df
+                                      in [ (_key_,     identity),
+                                           (_start,    0),
+                                           (_end,      nil),
+                                           (_from_end, nil) ] ]
+        _not_implemented()
+
+# SEARCH
+# MISMATCH
+
+@defun
+def replace(sequence_1, sequence_2, *rest):
+        """Destructively modifies sequence-1 by replacing the elements
+of subsequence-1 bounded by start1 and end1 with the elements of
+subsequence-2 bounded by start2 and end2. """
+        keys = _extract_keywords(rest, [_start1, _start2, _end1, _end2])
+        start1, start2, end1, end2 = [ keys.get(k, df) for k, df
+                                       in [ (_start1,    nil),
+                                            (_start2,    nil),
+                                            (_end2,      nil),
+                                            (_end2,      nil) ] ]
+        _not_implemented()
+
+# SUBSTITUTE
+# SUBSTITUTE-IF
+# SUBSTITUTE-IF-NOT
+# NSUBSTITUTE
+# NSUBSTITUTE-IF
+# NSUBSTITUTE-IF-NOT
+# CONCATENATE
+# MERGE
+
+@defun
+def remove(elt, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not, _count])
+        key, start, end, from_end, test, test_not, count = [ keys.get(k, df) for k, df
+                                                             in [ (_key_,     identity),
+                                                                  (_start,    0),
+                                                                  (_end,      nil),
+                                                                  (_from_end, nil),
+                                                                  (_test,     nil),
+                                                                  (_test_not, nil),
+                                                                  (_count,    nil) ] ]
+        _not_implemented()
+
+@defun
+def remove_if(f, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _count])
+        key, start, end, from_end, count = [ keys.get(k, df) for k, df
+                                             in [ (_key_,     identity),
+                                                  (_start,    0),
+                                                  (_end,      nil),
+                                                  (_from_end, nil),
+                                                  (_count,    nil) ] ]
+        _not_implemented()
+
+@defun
+def remove_if_not(f, xs, *rest):
+        keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _count])
+        key, start, end, from_end, count = [ keys.get(k, df) for k, df
+                                             in [ (_key_,     identity),
+                                                  (_start,    0),
+                                                  (_end,      nil),
+                                                  (_from_end, nil),
+                                                  (_count,    nil) ] ]
+        _not_implemented()
+
+# REMOVE-DUPLICATES
+# DELETE-DUPLICATES
+
+# Conses
+
+_initial_element = _keyword("INITIAL-ELEMENT")
+
+@defun
+def cons(x, y):     return [x, y]
 
 @defun
 def consp(x):       return isinstance(x, list) and len(x) is 2
 def _consp_fast(x): return isinstance(x, list)
 
 @defun
-def listp(x):       return x is nil or isinstance(x, list) and len(x) is 2
+def atom(x):        return not isinstance(x, list) or x == () or x is nil
+
+# RPLACA
+# RPLACD
 
 @defun
 def car(x):         return x[0] if x else nil
@@ -3580,10 +3795,56 @@ def car(x):         return x[0] if x else nil
 @defun
 def cdr(x):         return x[1] if x else nil
 
+# CAR
+# CDR
+# CAAR
+# CADR
+# CDAR
+# CDDR
+# CAAAR
+# CAADR
+# CADAR
+# CADDR
+# CDAAR
+# CDADR
+# CDDAR
+# CDDDR
+# CAAAAR
+# CAAADR
+# CAADAR
+# CAADDR
+# CADAAR
+# CADADR
+# CADDAR
+# CADDDR
+# CDAAAR
+# CDAADR
+# CDADAR
+# CDADDR
+# CDDAAR
+# CDDADR
+# CDDDAR
+# CDDDDR
+# COPY-TREE
+# SUBLIS
+# NSUBLIS
+# SUBST
+# SUBST-IF
+# SUBST-IF-NOT
+# NSUBST
+# NSUBST-IF
+# NSUBST-IF-NOT
+# TREE-EQUAL
+# COPY-LIST
+
 @defun("LIST")
 def list_(*xs):     return _consify_pyseq(xs)
 
-_initial_element = _keyword("INITIAL-ELEMENT")
+# LIST*
+# LIST-LENGTH
+
+@defun
+def listp(x):       return x is nil or isinstance(x, list) and len(x) is 2
 
 @defun("MAKE-LIST")
 def make_list(length, *rest):
@@ -3593,15 +3854,34 @@ def make_list(length, *rest):
                 acc = [elt, acc]
         return acc
 
+# PUSH
+# POP
+# FIRST
+# SECOND
+# THIRD
+# FOURTH
+# FIFTH
+# SIXTH
+# SEVENTH
+# EIGHTH
+# NINTH
+# TENTH
+# NTH
+# ENDP
+# NULL
+
 @defun
-def last(x):
-        if not x:
-               return nil
-        while True:
-                lastx = x
-                x = x[1]
+def nconc(*xs):
+        head = nil
+        for x in xs:
                 if not x:
-                        return lastx
+                        continue
+                if not head:
+                        head = ptr = x
+                        continue
+                last(ptr)[1] = x
+                ptr = x
+        return head
 
 @defun
 def append(*xs):
@@ -3618,43 +3898,60 @@ def append(*xs):
                         ptr[1] = [x[0], cdr]
         return copy_list_with_lastcdr(xs[0], append(*xs[1:]))
 
+# REVAPPEND
+# NRECONC
+# BUTLAST
+# NBUTLAST
+
 @defun
-def nconc(*xs):
-        head = nil
-        for x in xs:
+def last(x):
+        if not x:
+               return nil
+        while True:
+                lastx = x
+                x = x[1]
                 if not x:
-                        continue
-                if not head:
-                        head = ptr = x
-                        continue
-                last(ptr)[1] = x
-                ptr = x
-        return head
+                        return lastx
 
 @defun
-def getf(xs, key, default = nil):
+def ldiff(object, list_):
+        """If OBJECT is the same as some tail of LIST, LDIFF returns a
+fresh list of the elements of LIST that precede OBJECT in the
+list structure of LIST; otherwise, it returns a copy[2] of
+LIST."""
+        _not_implemented()
+
+@defun
+def tailp(object, list):
+        """If OBJECT is the same as some tail of LIST, TAILP returns
+true; otherwise, it returns false."""
+        _not_implemented()
+
+# NTHCDR
+# REST
+
+@defun
+def member(x, xs):
+        keys = _extract_keywords(rest, [_key_, _test, _test_not])
+        key, test, test_not = [ keys.get(k, df) for k, df
+                                in [ (_key_,     identity),
+                                     (_test,     nil),
+                                     (_test_not, nil) ] ]
+        _not_implemented()
+
+@defun
+def member_if(test, xs):
+        key = _extract_keywords(rest, [_key_]).get(_key_, identity)
+        _not_implemented()
+
+@defun
+def member_if_not(test, xs):
+        key = _extract_keywords(rest, [_key_]).get(_key_, identity)
+        _not_implemented()
+
+@defun
+def mapc(f, *xs):
          _not_implemented()
-
-@defun
-def setf_getf(value, xs, key):
-         _not_implemented()
-
-@defun
-def assoc(x, xs, test = equal):
-         _not_implemented()
-
-@defun
-def nreverse(xs):
-        if xs is nil:
-                return xs
-        oldl, oldcdr, newcdr = xs, xs[1], nil
-        while oldcdr is not nil:
-                oldl[1] = newcdr
-                newcdr = oldl
-                oldl = oldcdr
-                oldcdr = oldcdr[1]
-        oldl[1] = newcdr
-        return oldl
 
 @defun
 def mapcar(f, *xss):
@@ -3676,109 +3973,53 @@ def mapcar(f, *xss):
 def mapcan(f, *xs):
          _not_implemented()
 
+# MAPL
+# MAPLIST
+
 @defun
 def mapcon(f, *xs):
          _not_implemented()
 
+# ACONS
+
 @defun
-def mapc(f, *xs):
+def assoc(x, xs, *rest):
+         _not_implemented()
+
+# ASSOC-IF
+# ASSOC-IF-NOT
+# COPY-ALIST
+# PAIRLIS
+# RASSOC
+# RASSOC-IF
+# RASSOC-IF-NOT
+# GET-PROPERTIES
+
+@defun
+def getf(xs, key, default = nil):
          _not_implemented()
 
 @defun
-def remove_if(f, xs, key = identity):
+def setf_getf(value, xs, key):
          _not_implemented()
 
-@defun
-def remove_if_not(f, xs, key = identity):
-         _not_implemented()
+# REMF
+# INTERSECTION
+# NINTERSECTION
+# ADJOIN
+# PUSHNEW
+# SET-DIFFERENCE
+# NSET-DIFFERENCE
+# SET-EXCLUSIVE-OR
+# NSET-EXCLUSIVE-OR
+# SUBSETP
+# UNION
+# NUNION
+
+# Arrays
 
 @defun
-def remove(elt, xs, test = eql, key = identity):
-         _not_implemented()
-
-@defun
-def find_if(p, xs, key = identity, start = 0, end = None, from_end = None):
-         _not_implemented()
-
-@defun
-def find_if_not(p, xs, key = identity, start = 0, end = None, from_end = None):
-         _not_implemented()
-
-@defun
-def find(elt, xs, **keys):
-         _not_implemented()
-
-@defun
-def member_if(test, xs):
-         _not_implemented()
-
-@defun
-def member(x, xs):
-         _not_implemented()
-
-@defun
-def position_if(p, xs, key = identity, start = 0, end = None, from_end = None):
-         _not_implemented()
-
-@defun
-def position_if_not(p, xs, key = identity, start = 0, end = None, from_end = None):
-         _not_implemented()
-
-@defun
-def position(elt, xs, **keys):
-         _not_implemented()
-
-@defun
-def count(elt, xs, key = identity, start = 0):
-         _not_implemented()
-
-@defun
-def count_if(p, xs, key = identity, start = 0):
-         _not_implemented()
-
-@defun
-def replace(sequence_1, sequence_2, start1 = 0, start2 = 0, end1 = None, end2 = None):
-        """Destructively modifies sequence-1 by replacing the elements
-of subsequence-1 bounded by start1 and end1 with the elements of
-subsequence-2 bounded by start2 and end2. """
-        _not_implemented()
-
-# XXX: This is geared at cons-style lists, and so is fucking costly
-# for imperative lists.
-@defun
-def tailp(object, list):
-        """If OBJECT is the same as some tail of LIST, TAILP returns
-true; otherwise, it returns false."""
-        _not_implemented()
-
-# XXX: This is geared at cons-style lists, and so is fucking costly
-# for imperative lists.
-@defun
-def ldiff(object, list_):
-        """If OBJECT is the same as some tail of LIST, LDIFF returns a
-fresh list of the elements of LIST that precede OBJECT in the
-list structure of LIST; otherwise, it returns a copy[2] of
-LIST."""
-        _not_implemented()
-
-def _vectorise_cons_list(x):
-        res = []
-        while x:
-                res.append(x[0])
-                x = x[1]
-        return res
-
-def _consify_pyseq(xs):
-        return reduce(lambda acc, x: [x, acc],
-                      reversed(xs),
-                      nil)
-
-def _consify_tuple(xs):
-        return _consify_pyseq([ (_consify_tuple(x) if isinstance(x, tuple) else x)
-                                for x in xs ])
-
-def _consify_tuples(*xs):
-        return _consify_tuple(xs)
+def vector(*xs):    return list(xs)
 
 # Cold printer
 
