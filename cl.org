@@ -2696,10 +2696,11 @@ def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
 #+begin_src python
 _results_ = []
-def _runtest(fn, input, expected):
+def _runtest(fn, input, expected, printer = str):
         result = fn(input)
         if result != expected:
-                _debug_printf("Failed %s: on input:\n%s\nexpected:\n%s\ngot:\n%s", fn.__name__.upper(), input, expected, result)
+                _debug_printf("Failed %s: on input:\n%s\nexpected:\n%s\ngot:\n%s",
+                              fn.__name__.upper(), printer(input), printer(expected), printer(result))
         _results_.append((fn, result))
         return result == expected
 #+end_src
@@ -4748,31 +4749,36 @@ def _expand_quasiquotation(form):
         def malform(x): error("Invalid %s form: %s.", x[0], x)
         def process_form(x):
                 return (x                                         if atom(x)            else
-                        (process_qq(x[1]) if length(x) is 2 else
+                        (process_qq(x[1][0]) if length(x) is 2 else
                          malform(x))                              if x[0] is quasiquote else
                         mapcar(process_form, x))
         def process_qq(x):
                 if atom(x):
-                        return (quote, x)
+                        return list_(quote, x)
                 else:
-                        acc = [append]
-                        for xi in x:
+                        acc = [__append]
+                        ptr = x
+                        while ptr:
+                                xi = ptr[0]
                                 if atom(xi):
-                                        acc.append((__list, (quote, xi)))
+                                        acc.append(list_(__list, list_(quote, xi)))
                                 elif xi[0] in (comma, splice):
-                                        len(xi) is 2 or malform(xi)
-                                        acc.append((__list, xi[1]) if xi[0] is comma else
-                                                   xi[1])
+                                        length(xi) is 2 or malform(xi)
+                                        acc.append(list_(__list, xi[1][0]) if xi[0] is comma else
+                                                   xi[1][0]) # second
                                 else:
                                         if xi[0] is quasiquote:
-                                                len(xi) is 2 or malform(xi)
-                                                nxi = process_qq(xi[1])
+                                                length(xi) is 2 or malform(xi)
+                                                nxi = process_qq(xi[1][0])
                                                 xi = nxi
-                                        acc.append((__list, process_qq(xi)))
+                                        acc.append(list_(__list, process_qq(xi)))
+                                ptr = ptr[1]
                         ## Simplify an obvious case of APPEND having only LIST subforms.
-                        if all(consp(x) and x[0] is list_ for x in acc[1:]):
-                                acc = (__list,) + tuple(x[1] for x in acc[1:])
-                        return tuple(acc)
+                        if all((consp(x) and x[0] is __list)
+                               for x in acc[1:]):
+                                new = (__list,) + tuple(x[1][0] for x in acc[1:])
+                                acc = new
+                        return _consify_pyseq(acc)
         result = process_form(form)
         if symbol_value(_reader_trace_qqexpansion_):
                 if form != result:
@@ -4782,32 +4788,48 @@ def _expand_quasiquotation(form):
                         _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
         return result
 
+def _pp_consfully(x):
+        if consp(x):
+                acc = []
+                ptr = x
+                while ptr:
+                        acc.append(_pp_consfully(ptr[0]))
+                        ptr = ptr[1]
+                return "(" + " ".join(acc) + ")"
+        return str(x)
+
 def _run_tests_quasiquotation():
         assert(_runtest(_expand_quasiquotation,
                         ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
-                        (quasiquote, (1, (comma, 2), 3, (splice, 4), 5,
-                                      ((comma, 6), (splice, 7)),
-                                      (splice, 8), (splice, 9))),
-                        ((__append, (__list, (quote, 1)), (__list, 2), (__list, (quote, 3)), 4,
-                                    (__list, (quote, 5)), (__list, (__append, (__list, 6), 7)),
-                                    8, 9))))
+                        list_(quasiquote, list_(1, list_(comma, 2), 3, list_(splice, 4), 5,
+                                          list_(list_(comma, 6), list_(splice, 7)),
+                                          list_(splice, 8), list_(splice, 9))),
+                        ## (append (list (quote 1)) (list 2) (list (quote 3)) 4 (list (quote 5))
+                        ##         (list (append (list 6) 7)) 8 9)
+                        list_(__append, list_(__list, list_(quote, 1)), list_(__list, 2),
+                              list_(__list, list_(quote, 3)), 4,
+                              list_(__list, list_(quote, 5)), list_(__list, list_(__append, list_(__list, 6), 7)),
+                              8, 9),
+                        printer = _pp_consfully))
         print("; QUASIQUOTATION-SIMPLE: passed")
         
         assert(_runtest(_expand_quasiquotation,
                         ## `(a ,b ,@c `(d ,,e ,@f ,@,g)) -- numbers don't do, as CONSTANTP is used for simplification.
-                        (quasiquote,
-                         (1, (comma, 2), (splice, 3),
-                          (quasiquote, (4, (comma, (comma, 5)), (splice, 6), (splice, (comma, 7)))))),
-                        (__append,
-                         (__list, (quote, 1)), (__list, 2), 3,
-                         ## The first pass ought to be:
-                         ## (__append, (__list, (quote, 4)), (__list, (comma, 5)), 6, (comma, 7))
-                         (__list, (__list,
-                                  (quote, append),
-                                  (__list, (quote, list_), (__list, (quote, quote), (quote, 4))),
-                                  (__list, (quote, list_), 5),
-                                  (quote, 6),
-                                  7)))))
+                        list_(quasiquote,
+                              list_(1, list_(comma, 2), list_(splice, 3),
+                                    list_(quasiquote, list_(4, list_(comma, list_(comma, 5)),
+                                          list_(splice, 6), list_(splice, list_(comma, 7)))))),
+                        list_(__append,
+                              list_(__list, list_(quote, 1)), list_(__list, 2), 3,
+                              ## The first pass ought to be:
+                              ## (__append, (__list, (quote, 4)), (__list, (comma, 5)), 6, (comma, 7))
+                              list_(__list, list_(__list,
+                                                  list_(quote, __append),
+                                                  list_(__list, list_(quote, __list), list_(__list, list_(quote, quote), list_(quote, 4))),
+                                                  list_(__list, list_(quote, __list), 5),
+                                                  list_(quote, 6),
+                                                  7))),
+                        printer = _pp_consfully))
         print("; QUASIQUOTATION-NESTED: passed")
 
 if _getenv("CL_RUN_TESTS"):
