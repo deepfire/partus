@@ -1574,12 +1574,6 @@ def unsigned_byte(x, type):
 
 ## Non-standard
 @_deftype
-def pytypename(x, type):
-        return ((x, type, True)  if len(type) is not 1                                       else
-                (x, type, False) if not (isinstance(x, symbol_t) and _symbol_python_type(x)) else
-                nil)
-
-@_deftype
 def maybe(x, type):
         return ((x, type, True)  if len(type) is not 2 else
                 _poor_man_let(_type_mismatch(x, type[1]),
@@ -2228,9 +2222,9 @@ def _print_frame(f, stream = None, **keys):
         write_string(_pp_frame(f, **keys), _defaulted_to_var(stream, _debug_io_))
 
 def _print_frames(fs, stream = None, frame_ids = None):
-        mapc(lambda i, f: format(_defaulted_to_var(stream, _debug_io_), "%2d: %s\n" %
-                                 (i, _pp_frame(f, lineno = True, frame_id = frame_ids))),
-             *zip(*enumerate(fs)))
+        for i, f in enumerate(fs):
+                format(_defaulted_to_var(stream, _debug_io_), "%2d: %s\n" %
+                       (i, _pp_frame(f, lineno = True, frame_id = frame_ids)))
 
 def _backtrace(x = -1, stream = None, frame = None, frame_ids = None, offset = 0):
         _print_frames(_frames_calling(_defaulted(frame, _this_frame()))[1 + offset:x],
@@ -5576,7 +5570,8 @@ executes the following:
                         x if isinstance(x, str) else more_ast.pp_ast_as_code(x), type_of(x))
           def process(method_name, default_maker):
                   "Return a validated and normalised named method body 'return'-wise."
-                  x = find(method_name, body_ast, key = _slotting("name"))
+                  xs = [ x for x in body_ast if x.name is method_name ]
+                  x = xs[0] if xs else nil
                   method_name = method_name_fn(method_name)
                   if x:
                           x.name, x.args = method_name, _defaulted(arguments_ast, x.args)
@@ -6067,11 +6062,12 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
                   if len(ast_field_types) != len(ast_type._fields):
                           error("In DEFAST %s:the amount of provided type specifiers (%d) does not match the AST _fields: %s",
                                 name, len(ast_field_types), ast_type._fields)
-                  type_specifier_type = (or_t, pytuple_t, type, pytypename_t)
+                  type_specifier_type = (or_t, pytuple_t, type)
                   if not all(typep(x, type_specifier_type) for x in ast_field_types):
-                          mismatched = find_if_not(_of_type(type_specifier_type), ast_field_types)
+                          mismatched = [ x for x in ast_field_types
+                                         if not typep(x, type_specifier_type) ]
                           error("In DEFAST %s: the AST field type specifiers must be of type %s, found: %s",
-                                name, type_specifier_type, mismatched)
+                                name, type_specifier_type, ", ".join(str(x) for x in mismatched))
                   for i, (fname, ast_fname) in enumerate(zip(ast_field_names, ast_type._fields)):
                           if fname != ast_fname:
                                   error("In DEFAST %s: the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s",
