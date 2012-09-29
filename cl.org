@@ -4782,12 +4782,12 @@ def _expand_quasiquotation(form):
                         _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
         return result
 
-def _pp_consfully(x):
+def _pp_consly(x):
         if consp(x):
                 acc = []
                 ptr = x
                 while ptr:
-                        acc.append(_pp_consfully(ptr[0]))
+                        acc.append(_pp_consly(ptr[0]))
                         ptr = ptr[1]
                 return "(" + " ".join(acc) + ")"
         return str(x)
@@ -4804,7 +4804,7 @@ def _run_tests_quasiquotation():
                               list_(__list, list_(quote, 3)), 4,
                               list_(__list, list_(quote, 5)), list_(__list, list_(__append, list_(__list, 6), 7)),
                               8, 9),
-                        printer = _pp_consfully))
+                        printer = _pp_consly))
         print("; QUASIQUOTATION-SIMPLE: passed")
         
         assert(_runtest(_expand_quasiquotation,
@@ -4823,7 +4823,7 @@ def _run_tests_quasiquotation():
                                                   list_(__list, list_(quote, __list), 5),
                                                   list_(quote, 6),
                                                   7))),
-                        printer = _pp_consfully))
+                        printer = _pp_consly))
         print("; QUASIQUOTATION-NESTED: passed")
 
 if _getenv("CL_RUN_TESTS"):
