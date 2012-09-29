@@ -1215,7 +1215,7 @@ def keyword(x, type):
 @_deftype("OR")
 def or_(x, type):
         return ((x, type, False) if len(type) is 1 else
-                _poor_man_let((_type_mismatch(ix, ty) for ix, ty in zip([x] * (len(type) - 1), type[1:])),
+                _poor_man_let(list(_type_mismatch(ix, ty) for ix, ty in zip([x] * (len(type) - 1), type[1:])),
                               lambda mismatches:
                                       (_some_fast(lambda m: m and m[2] and m, mismatches) or
                                        (all(x for x in mismatches) and (x, type, False)))))
