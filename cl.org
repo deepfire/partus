@@ -8670,7 +8670,9 @@ def _ir_affected(form):
 #+begin_src python
 _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
 def _run_tests_metasex():
-        def printer(x): return "%s\n%s\n%s" % x if isinstance(x, tuple) else str(x)
+        def printer(x): return ("%s\n%s\n%s" % (x[0], _pp_consly(x[1]), _pp_consly(x[2])) if isinstance(x, tuple) else
+                                _pp_consly(x)                                             if consp(x)             else
+                                str(x))
         def just_match(input):
                 _metasex.per_use_init()
                 return _match(_metasex, input,
@@ -8684,7 +8686,8 @@ def _run_tests_metasex():
                                         (second, (__car,))),
                            'body':     (_body,)},
                          t,
-                         False))
+                         False),
+                        printer = printer)
 
         def pp():
                 _metasex_pp.per_use_init()
@@ -8701,7 +8704,8 @@ def _run_tests_metasex():
                          """(LET ((FIRST ())
       (SECOND (CAR)))
   &BODY)""",
-                         False))
+                         False),
+                        printer = printer)
 
         def mal_pp():
                 _metasex_nonstrict_pp.per_use_init()
@@ -8716,7 +8720,8 @@ def _run_tests_metasex():
         #                  """(LET ((FIRST ())
         #     (SECOND (CAR)))
         # &BODY)""",
-        #                  False))
+        #                  False),
+        #                 printer = printer)
 
         def empty():
                 _metasex_pp.per_use_init()
@@ -8724,7 +8729,8 @@ def _run_tests_metasex():
         assert _runtest(empty,
                         ({ 'whole': () },
                          "()",
-                         False))
+                         False),
+                        printer = printer)
 
         def empty_cross():
                 _metasex_pp.per_use_init()
@@ -8732,7 +8738,8 @@ def _run_tests_metasex():
         assert _runtest(empty_cross,
                         ({ 'a': (), 'b': () },
                          "()",
-                         False))
+                         False),
+                        printer = printer)
 
         def alternates():
                 _metasex_pp.per_use_init()
@@ -8741,7 +8748,8 @@ def _run_tests_metasex():
         assert _runtest(alternates,
                         ({ 'whole': (1, "a") },
                          '(1"a")',
-                         False))
+                         False),
+                        printer = printer)
 
         _intern_and_bind_names_in_module("PI")
         def simplex():
@@ -8753,7 +8761,8 @@ def _run_tests_metasex():
                         ({ 'head': ((),),
                            'tail': pi },
                          "(()PI)",
-                         False))
+                         False),
+                        printer = printer)
 
         def mid_complex():
                 _metasex_pp.per_use_init()
@@ -8774,9 +8783,9 @@ def _run_tests_metasex():
                           'nameseq': (pi, pi),
                           'tailname': pi },
                          "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)",
-                         False)
+                         False),
                         # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
-                        )
+                        printer = printer)
 
         def simple_maybe():
                 _metasex_pp.per_use_init()
@@ -8784,7 +8793,8 @@ def _run_tests_metasex():
         assert _runtest(simple_maybe,
                         ({ 'pi': (pi,), 'car': car, 'cdr': cdr, },
                          "(PICARCDR)",
-                         False))
+                         False),
+                        printer = printer)
 
 if _getenv("CL_RUN_TESTS"):
         _run_tests_metasex()
