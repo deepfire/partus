@@ -10,7 +10,7 @@ from cl           import _prefix_suffix_if as prefix_suffix_if, _prefix_suffix_i
 from cl           import _map_into_hash as map_into_hash, _remap_hash_table as remap_hash_table
 from cl           import _not_implemented_error as not_implemented_error, _not_implemented as not_implemented
 from cl           import _curry as curry, _compose as compose
-from cl           import _mapset as mapset, _mapsetn as mapsetn, _mapcar_star as mapcar_star
+from cl           import _mapset as mapset, _mapsetn as mapsetn
 from cl           import _slotting as slotting, _slot_of as slot_of
 from cl           import _indexing as indexing, _index_of as index_of, _index_equal as index_equal
 from cl           import _ensure_list as ensure_list

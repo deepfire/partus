@@ -4967,7 +4967,8 @@ returned by COMPUTE-RESTARTS is every modified.
         restarts = list()
         for cluster in reversed(_symbol_value(_restart_clusters_)):
                 # format(t, "Analysing cluster %s for \"%s\".", cluster, name)
-                restarts.extend(remove_if_not(_curry(restart_condition_association_check, condition), cluster.values())
+                restarts.extend([ x for x in cluster.values()
+                                  if restart_condition_association_check(condition, x) ]
                                 if condition else
                                 cluster.values())
         return restarts
@@ -5053,8 +5054,9 @@ table of VALID-DECLARATIONS, return the body, documentation and declarations if 
                                (nil, content))
         declarations, body = _prefix_suffix_if(_curry(_ast_call_to_name_p, "declare"), body)
         return body, documentation, group_declarations(valid_declarations,
-                                                       mapcan(lambda dexcall: ensure_valid_declarations(dexcall.value),
-                                                              declarations))
+                                                       reduce(lambda acc, dexcall:
+                                                                      acc + ensure_valid_declarations(dexcall.value),
+                                                              declarations, []))
 
 def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast = None):
         method_specs = list((mspec if isinstance(mspec, tuple) else
@@ -5092,10 +5094,10 @@ def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast
                 return _ast_compiled_name(method_name, x or default_maker(method_name),
                                           locals = locals(), globals = globals())
         ##
-        body_ast = remove_if(_of_type(_ast.Pass), body_ast) # Remove noise.
-        non_fdefns = find_if_not(_of_type(_ast.FunctionDef), body_ast)
+        body_ast = [ x for x in body_ast if not typep(x, _ast.Pass )] # Remove noise.
+        non_fdefns = [ x for x in body_ast if not typep(x, _ast.FunctionDef) ]
         if non_fdefns:
-                fail(non_fdefns)
+                fail(non_fdefns[0])
         specified_method_names = { x.name:x for x in body_ast }
         invalid_methods = set(specified_method_names) - _mapset(_indexing(0), method_specs)
         if invalid_methods:
@@ -6251,9 +6253,9 @@ def _compiler_defconstant(name, value):
         _variable_scope[name] = var
 
 def _check_no_locally_rebound_constants(locals, use = "local variable"):
-        constant_rebound = find_if(_global_variable_constant_p, locals)
+        constant_rebound = [ x for x in locals if _global_variable_constant_p(x) ]
         if constant_rebound:
-                simple_program_error("%s names a defined constant, and cannot be used as a %s.", constant_rebound, use)
+                simple_program_error("%s names a defined constant, and cannot be used as a %s.", constant_rebound[0], use)
 
 @defun
 def constantp(form, environment = None):
@@ -7094,9 +7096,6 @@ Examples:
                                 summarize_compilation_unit(not succeeded_p)
                                 # _debug_printf("############################################  ..left %s", id)
 
-_intern_and_bind_names_in_module_specifically(
-        ("list_",  "LIST"))
-
 def _compilation_unit_prologue(funs, syms, gfuns, gvars):
         """Emit a prologue for a standalone unit referring to SYMBOLS."""
         def import_prologue():
@@ -7894,6 +7893,12 @@ def _ir_affected(form):
 
 _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
 def _run_tests_metasex(print_results = None):
+        def _runtest(fun, bindings, result):
+                b, r, f = fun()
+                _results_.append((fun, b, r, f))
+                return (b == bindings,
+                        r == result,
+                        f is None)
         def _print_results():
                 for fun, b, r, f in _results_[-1:]:
                         _debug_printf("%15s bound: %s", fun.__name__, b)
@@ -8323,7 +8328,8 @@ def _ir_prepare_lambda_list(lambda_list_, context, allow_defaults = None, defaul
                                                         bodypos    if bodyposp    else
                                                         keypos     if keyposp     else None))])
         if not all(isinstance(x, symbol_t) for x in fixed):
-                error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, find_if_not(symbolp, fixed))
+                error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, [ x for x in fixed
+                                                                                               if symbolp(x) ][0])
         total = fixed + optional + ([rest_or_body] if rest_or_body else []) + keys
         ### 4. validate syntax of the provided individual argument specifiers
         if not all(valid_parameter_specifier_p(x) for x in total):
@@ -8973,7 +8979,7 @@ def tagbody():
                  go_tag,
                  return_tag) = (gensym(x + "-TAG-") for x in ["INIT", "GO", "RETURN"])
                 body         = (init_tag,) + tags_and_forms
-                tags         = [ f for f in body if isinstance(f, symbol_t)] ## ..vs: remove_if_not(symbolp, body)
+                tags         = [ f for f in body if isinstance(f, symbol_t)]
                 fun_names    = { tag: gensym("TAG-%s-" % symbol_name(tag)) for tag in tags }
                 def lam_(seq):
                         label, s = seq[0], seq[1:]
@@ -9442,6 +9448,12 @@ def apply():
 _intern_and_bind_names_in_module("COND")
 
 def _run_tests_known():
+        def _runtest(fun, bindings, result):
+                b, r, f = fun()
+                _results_.append((fun, b, r, f))
+                return (b == bindings,
+                        r == result,
+                        f is None)
         _metasex_pp.per_use_init()
         form = (ir_args,
                 (__car,),
@@ -12603,12 +12615,12 @@ implementation."""
         if slot_boundp(method, "__generic_function__") and method.__generic_function__:
                 error("ADD-METHOD called to add %s, when it was already attached to %s.",
                       method, method.__generic_function__)
-        old_method = find_if(lambda m: _method_agrees_with_qualifiers_specializers(m,
-                                                                                   method_qualifiers(method),
-                                                                                   method_specializers(method)),
-                             generic_function_methods(generic_function))
+        old_method = [ m for m in generic_function_methods(generic_function)
+                       if _method_agrees_with_qualifiers_specializers(m,
+                                                                      method_qualifiers(method),
+                                                                      method_specializers(method)) ]
         if old_method:
-                remove_method(generic_function, old_method)
+                remove_method(generic_function, old_method[0])
         generic_function.__methods__[method.specializers] = method
         method.__generic_function__ = generic_function
         for s in method_specializers(method):
