@@ -7374,8 +7374,7 @@ def _try_primitivise_constant(x):
 def _primitivise_constant(x):
         prim, successp = _try_primitivise_constant(x)
         return (prim if successp else
-                error("Cannot primitivise value %s.  Is it a literal?",
-                      prin1_to_string(x)))
+                error("Cannot primitivise value %s.  Is it a literal?", _pp_consly(x)))
 
 def _ir_funcall(func, *args):
         return (apply, (function, ((quote, (func,)) if isinstance(func, str) else
@@ -9730,8 +9729,8 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
         ## Compiler macro expansion, unless disabled by a NOTINLINE declaration, SAME MODE
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
-                kind, maybe_name = ((form[0], form[1]) if listp(form) and length(form) > 1 else
-                                    (form[0], "")      if listp(form) and form             else
+                kind, maybe_name = ((form[0], form[1][0]) if listp(form) and length(form) > 1 else
+                                    (form[0], "")         if listp(form) and form             else
                                     (form, ""))
                 _debug_printf("; compiling (%s%s%s%s)",
                               kind, " " if len(form) > 1 else "", maybe_name, " ..." if len(form) > 2 else "")
