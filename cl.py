@@ -2307,11 +2307,15 @@ def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 _results_ = []
 def _runtest(fn, input, expected, printer = str):
         result = fn(input)
+        name = fn.__name__.upper().replace("_", "-")
         if result != expected:
-                _debug_printf("Failed %s: on input:\n%s\nexpected:\n%s\ngot:\n%s",
-                              fn.__name__.upper(), printer(input), printer(expected), printer(result))
+                _debug_printf("; %30s:  FAILED\n;  input:\n%s\n;  expected:\n%s\n;  actual:\n%s",
+                              name, printer(input), printer(expected), printer(result))
         _results_.append((fn, result))
-        return result == expected
+        successp = result == expected
+        if successp:
+                print("; %30s:  ok" % name)
+        return successp and result
 
 # Basic functions
 
@@ -3557,12 +3561,12 @@ def _consify_pyseq(xs):
                       reversed(xs),
                       nil)
 
-def _consify_tuple(xs):
-        return _consify_pyseq([ (_consify_tuple(x) if isinstance(x, tuple) else x)
-                                for x in xs ])
+def _consify_tuple_tree(xs):
+        return _consify_pyseq([ (_consify_tuple_tree(x) if isinstance(x, tuple) else x)
+                                for x in xs ]) if isinstance(xs, (list, tuple)) else xs
 
-def _consify_tuples(*xs):
-        return _consify_tuple(xs)
+def _consify_tuple_trees(*xs):
+        return _consify_tuple_tree(xs)
 
 # Sequences
 
@@ -4302,7 +4306,9 @@ def _pp_consly(x):
         return str(x)
 
 def _run_tests_quasiquotation():
-        assert(_runtest(_expand_quasiquotation,
+        def quasiquotation_simple(x): return _expand_quasiquotation(x)
+        def quasiquotation_nested(x): return _expand_quasiquotation(x)
+        assert(_runtest(quasiquotation_simple,
                         ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
                         list_(quasiquote, list_(1, list_(comma, 2), 3, list_(splice, 4), 5,
                                           list_(list_(comma, 6), list_(splice, 7)),
@@ -4314,9 +4320,8 @@ def _run_tests_quasiquotation():
                               list_(__list, list_(quote, 5)), list_(__list, list_(__append, list_(__list, 6), 7)),
                               8, 9),
                         printer = _pp_consly))
-        print("; QUASIQUOTATION-SIMPLE: passed")
         
-        assert(_runtest(_expand_quasiquotation,
+        assert(_runtest(quasiquotation_nested,
                         ## `(a ,b ,@c `(d ,,e ,@f ,@,g)) -- numbers don't do, as CONSTANTP is used for simplification.
                         list_(quasiquote,
                               list_(1, list_(comma, 2), list_(splice, 3),
@@ -4333,7 +4338,6 @@ def _run_tests_quasiquotation():
                                                   list_(quote, 6),
                                                   7))),
                         printer = _pp_consly))
-        print("; QUASIQUOTATION-NESTED: passed")
 
 if _getenv("CL_RUN_TESTS"):
         _run_tests_quasiquotation()
@@ -6337,22 +6341,7 @@ _compiler_defconstant(nil, nil)
 EmptyDict = dict()
 EmptySet = frozenset()
 
-# Matcher
-
-#       A large part of work is development of a calling convention.  Multiple values, as a
-#       concept, is an important, but basic step in the general direction.
-
-_intern_and_bind_names_in_module("%NAME", "%MAYBE")
-
-def _maybe_destructure_binding(pat):
-        return ((None, pat)               if not isinstance(pat, dict) else
-                tuple(pat.items())[0] if len(pat) == 1        else
-                error_bad_pattern(pat))
-
-def _error_bad_pattern(pat):
-        raise Exception("Bad pattern: %s." % (pat,))
-
-_intern_and_bind_names_in_module("%CALL", "%RETURN")
+# Tracing
 
 _trace_table = dict()
 def _do_tracep(*props):
@@ -6372,12 +6361,11 @@ def _untrace(*props):
         else:
                 _tracep = _no_trace
 
-### Default trace settings:
 _untrace()
 
 def _trace_printf(tracespec, control, *args):
         if _tracep(*(tracespec                    if isinstance(tracespec, tuple) else
-                     (tracespec,)                 if isinstance(tracespec, str) else
+                     (tracespec,)                 if isinstance(tracespec, str)   else
                      (tracespec, _caller_name(1)))):
                 _debug_printf(control, *(args if not (len(args) == 1 and functionp(args[0])) else
                                          args[0]()))
@@ -6427,11 +6415,23 @@ _match_level = _defwith("_match_level",
                         lambda *_:   __enable_matcher_tracing__ and _dynamic_scope_pop(),
                         __new__ = _make_ml)
 
+# Main part
+
+_intern_and_bind_names_in_module("%NAME", "%MAYBE")
+_intern_and_bind_names_in_module("%CALL", "%RETURN")
 _intern_and_bind_names_in_module_specifically(
         ("_some",    "%SOME"),
         ("_or",      "%OR"),
         ("_maybe",   "%MAYBE"),
         ("ir_args",  "IR-ARGS"))
+
+def _maybe_destructure_binding(pat):
+        return ((None, pat)           if not isinstance(pat, dict) else
+                tuple(pat.items())[0] if len(pat) == 1             else
+                error_bad_pattern(pat))
+
+def _error_bad_pattern(pat):
+        raise Exception("Bad pattern: %s." % (pat,))
 
 class _matcher():
         class matchod():
@@ -6475,15 +6475,15 @@ class _matcher():
                 b, r, f = x
                 return ((m.bind(exp, b, name), r, f) if f is None else
                         x) # propagate failure as-is
-        def coor(m, l0ret, lR, orig_tuple_p = False, combine_fail = None):
+        def coor(m, l0ret, lR, originalp = False, combine_fail = None):
                 with _match_level():
                         # _trace_frame()
                         l0b, l0r, l0f = l0ret
                         if l0f is None: return m.succ(l0b, l0r)
                         lRb, lRr, lRf = lR()
                         if lRf is None: return m.succ(lRb, lRr)
-                        return m.fail(l0b, *combine_fail(l0r, l0f, lRr, lRf, orig_tuple_p))
-        def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
+                        return m.fail(l0b, *combine_fail(l0r, l0f, lRr, lRf, originalp))
+        def crec(m, exp, l0, lR, horisontal = True, originalp = False):
                 # _trace_frame()
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 b0, bR, fx0, fxR, fp0, fpR  = None, None, None, None, None, None
@@ -6497,9 +6497,9 @@ class _matcher():
                         if fpR is None: return fxR
                 with _match_level():
                         result = (m.comh if horisontal else
-                                  m.comr)(try_0, try_R, orig_tuple_p)
+                                  m.comr)(try_0, try_R, originalp)
                         # _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
-                        #               lambda: (exp, orig_tuple_p, _caller_name(2), _caller_name(1), result))
+                        #               lambda: (exp, originalp, _caller_name(2), _caller_name(1), result))
                         return (m.succ(bR, result)      if fp0 is None and fpR is None else
                                 m.fail(*((b0, fx0, fp0) if fp0 is not None             else
                                          (bR, fxR, fpR))))
@@ -6569,75 +6569,78 @@ class _matcher():
                 with _match_level():
                         # _trace_frame()
                         ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
-                        return m.complex(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+                        return m.complex(bound, name, exp, [pat[0][1], pat[1]], orifst, aux, limit)
         def simplex_identity(m, bound, name, exp, pat, orifst):
                 with _match_level():
                         # _trace_frame()
                         ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
-                        return m.simplex(bound, name, exp, pat[1], orifst)
+                        return m.simplex(bound, name, exp, pat[1][0], orifst)
         def ignore(m, bound, name, exp, pat, orifst, aux, limit):
                 with _match_level():
-                        return m.match(bound, name, exp, pat[1:], (False, False), aux, limit)
+                        return m.match(bound, name, exp, pat[1], (False, False), aux, limit)
         ###
         # Methods to be implemented:
         # 
-        # def forc(f0, fR, orig_tuple_p)
-        # def prod(exp, orig_tuple_p)
+        # def forc(f0, fR, originalp)
+        # def prod(exp, originalp)
         # def nonliteral_atom_p(exp) -- XXX: abstraction leak!
         ###
         def segment(m, bound, name, exp, pat, orifst, aux, limit, end = None):
                 # _trace_frame()
                 def posn(x, xs):
-                        for i, ix in enumerate(xs):
-                                if x == ix: return i
+                        pos, i = xs, 0
+                        while pos:
+                                if x == pos[0]: return i
+                                pos = pos[1]
                 def constant_pat_p(pat):
-                        def nonconstant_pat_p(x): return isinstance(x, tuple) or m.nonliteral_atom_p(x)
+                        def nonconstant_pat_p(x): return isinstance(x, list) or m.nonliteral_atom_p(x)
                         return not nonconstant_pat_p(tuple(pat.items())[0][1] if isinstance(pat, dict) else
                                                      pat)
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                 ## 1. Destructure the pattern, deduce the situation.
-                seg_pat, rest_pat = pat[0][1:], pat[1:]
+                seg_pat, rest_pat = pat[0][1], pat[1]
                 firstp = aux is None
                 ## 2. Memoize the tuple being iteratively matched upon.
-                aux = ((seg_pat + ((_some,) + seg_pat,)) if aux is None    else
-                        aux)
+                ## Unregistered Issue TRY-SIMPLIFY-OUT-AUX
+                aux = list_(seg_pat, list_(_some, seg_pat)) if aux is None else aux
                 with _match_level([exp, pat]):
                         # _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
                         #               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
-                        # ## 3. (Re-)establish and check the boundary.
-                        end = (end                        if end is not None                          else
+                        ## 3. (Re-)establish and check the boundary.
+                        end = (end                    if end is not None                          else
                                posn(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                                0)
                         if ((end and end > len(exp)) or ## All legitimate splits failed.
-                            end is None):                   ## A constant pattern was missing, likewise.
+                            end is None):               ## A constant pattern was missing, likewise.
                                 # _debug_printf("   FAILing seg: %s", pat)
                                 return m.fail(bound, exp, pat)
                         ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
-                        cut = end if rest_pat else len(exp)
-                        seg_exp, rest_exp = (exp[0:cut], exp[len(exp) if cut is None else cut:])
+                        cut = end if rest_pat else length(exp)
+                        seg_exp, rest_exp = (subseq(exp, 0, cut),
+                                             exp if cut is None else subseq(exp, cut))
                         # _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
                         ## 5. Recursion and alternate length attempts.
                         return m.coor(m.crec(exp,
-                                               lambda:
-                                                       ((lambda seg_bound, seg_r, seg_fail_pat:
-                                                                 m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
-                                                                        if_exists = replace))
-                                                        (*(## Test for success -- segment piece exhausted.
-                                                           m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp == () else
-                                                           ## Test specific for bounded matching.
-                                                           m.fail(bound, exp, pat)                                if limit == 0    else
-                                                           ## Try biting one more iteration off seg_exp:
-                                                           m.match(bound, name,  seg_exp,     aux,  (False,
-                                                                                                     firstp), aux, limit - 1)))),
-                                               lambda seg_bound:
-                                                       m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
-                                               orig_tuple_p = firstp and orifst[0] and seg_exp != (),
-                                               horisontal = t),
+                                             lambda:
+                                                     ((lambda seg_bound, seg_r, seg_fail_pat:
+                                                               m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
+                                                                      if_exists = replace))
+                                                      (*(## Test for success -- segment piece exhausted.
+                                                         m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp is nil else
+                                                         ## Test specific for bounded matching.
+                                                         m.fail(bound, exp, pat)                                if limit == 0     else
+                                                         ## Try biting one more iteration off seg_exp:
+                                                         m.match(bound, name,  seg_exp,     aux,  (False,
+                                                                                                   firstp), aux, limit - 1)))),
+                                             lambda seg_bound:
+                                                     m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
+                                             originalp = firstp and orifst[0] and seg_exp is not nil,
+                                             horisontal = t),
                                         ## Retry with a longer part of expression allotted to this segment.
                                         lambda: m.segment(bound, name,      exp,      pat, orifst,   None,  limit,
                                                           end + 1),
                                         combine_fail = (lambda e0, p0, eR, pR, _:
-                                                                # _debug_printf("    SEGFAIL %s   %s:\nef0: %s  %s\nefR: %s  %s\nret: %s",
+                                                        # _debug_printf("    SEGFAIL %s   %s:\nef0: %s  %s\nefR: %s  %s\nret: %s",
                                                         #               pat, seg_pat, e0, p0, eR, pR,
                                                         #               ((e0, p0) if pR == pat else
                                                         #                (eR, pR))) or
@@ -6651,20 +6654,20 @@ class _matcher():
                 ## So, do we need a separate stack for aux here?  Sounds like an in inevitability..
                 ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
                 with _match_level():
-                        return m.segment(bound, name, exp, ((_some,) + pat[0][1:],) + pat[1:], orifst, None, 1)
+                        return m.segment(bound, name, exp, [list_(_some, pat[0][1]), pat[1]], orifst, None, 1)
         def or_(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
-                alternatives = pat[0][1:]
+                alternatives = pat[0][1]
                 def fail(): return m.fail(bound, exp, pat[0])
                 def rec(current, other_options):
-                        return m.coor(m.match(bound, name, exp, (current,) + pat[1:], orifst, None, -1),
+                        return m.coor(m.match(bound, name, exp, [current, pat[1]], orifst, None, -1),
                                       ## Unregistered Issue MATCHER-OR-FAILED-EXPRESSION-TOO-UNSPECIFIC
                                       lambda: (fail() if not other_options else
-                                               rec(other_options[0], other_options[1:])),
+                                               rec(other_options[0], other_options[1])),
                                       combine_fail = lambda e0, p0, eR, pR, _: (exp, pat))
                 with _match_level():
                         return (fail() if not alternatives else
-                                m.post_fail(rec(alternatives[0], alternatives[1:]),
+                                m.post_fail(rec(alternatives[0], alternatives[1]),
                                             pat[0]))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
@@ -6675,14 +6678,14 @@ class _matcher():
                 # _trace_frame()
                 def maybe_get0Rname(pat):
                         ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
-                        (name, pat0), patR = _maybe_destructure_binding(pat[0]), pat[1:]
+                        (name, pat0), patR = _maybe_destructure_binding(pat[0]), pat[1]
                         return (name, pat0, name and m.simplex_pat_p(pat0), patR,
-                                (((pat0,) + patR) if name is not None else
+                                ([pat0, patR] if name is not None else
                                  pat)) ## Attempt to avoid consing..
                 ## I just caught myself feeling so comfortable thinking about life matters,
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
                 ## the acute sense of time being wasted..
-                atomp, null = not isinstance(pat, tuple), pat == ()
+                atomp, null = atom(pat), pat is nil
                 # _trace_printf("match", "       _match  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  %s  %s, atomp: %s, null: %s, complexp: %s, simplexp: %s",
                 #               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
                 #                        atomp, null,
@@ -6691,23 +6694,23 @@ class _matcher():
                 with _match_level([exp, pat]):
                  return \
                      (m.test((m.atom(exp, pat) if atomp else
-                              exp == ()),
-                             bound, name, lambda: m.prod(exp, orifst[0]), exp, pat)     if atomp or null        else
-                      m.simplex(bound, name, exp,  pat, (isinstance(exp, tuple),
-                                                          orifst[1]))              if m.simplex_pat_p(pat) else
-                      m.complex(bound, name, (exp,), (pat,), orifst, None, limit) if m.complex_pat_p(pat) else
+                              exp is nil),
+                             bound, name, lambda: m.prod(exp, orifst[0]), exp, pat)         if atomp or null        else
+                      m.simplex(bound, name, exp,  pat, (consp(exp),
+                                                          orifst[1]))                       if m.simplex_pat_p(pat) else
+                      m.complex(bound, name, list_(exp), list_(pat), orifst, None, limit)   if m.complex_pat_p(pat) else
                       (lambda pat0name, pat0, pat0simplexp, patR, clean_pat:
                                (m.equo(name, exp,
                                        m.complex(bound, pat0name, exp, clean_pat, orifst, aux, limit))
-                                if m.complex_pat_p(pat0)         else
-                                m.fail(bound, exp, pat)   if not isinstance(exp, tuple) or exp == () else # pat tupleful, exp tupleful
+                                                                 if m.complex_pat_p(pat0) else
+                                m.fail(bound, exp, pat)          if not consp(exp)        else
                                 m.equo(name, exp,
                                        m.crec(exp,
                                               lambda:        m.match(bound, pat0name, exp[0],  pat0, (isinstance(exp[0], tuple),
                                                                                                       orifst[1]),
                                                                      None, -1),
-                                              (lambda b0und: m.match(b0und, None,     exp[1:], patR, (False, orifst[1]), aux, limit)),
-                                              orig_tuple_p = orifst[0],
+                                              (lambda b0und: m.match(b0und, None,     exp[1], patR, (False, orifst[1]), aux, limit)),
+                                              originalp = orifst[0],
                                               horisontal = nil))))
                       (*maybe_get0Rname(pat)))
 
@@ -7422,7 +7425,7 @@ def _preprocess_metasex(pat):
                                                           if _metasex_leaf_word_p(pat[0]) else
                                                           (_preprocess_metasex(x) for x in pat[1:])))
         # _here("\n ==> %s   -   %s", pat, ret, callers = 15)
-        return ret
+        return _consify_tuple_tree(ret)
 
 # DEFKNOWN
 
@@ -7521,13 +7524,13 @@ def _form_metasex(form):
         ## Unregistered Issue FORM-METASEX-SHOULD-COMPUTE-METASEX-OF-DEFINED-MACROS
         ## Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
         return _preprocess_metasex(
-                (_typep, t)                             if not isinstance(form, tuple)                            else
+                (_typep, t)                             if not consp(form)                                        else
                 ()                                      if not form                                               else
                 _find_known(form[0]).metasex            if isinstance(form[0], symbol_t) and _find_known(form[0]) else
                 (_form, "\n", [(_notlead, " "), _form]) if isinstance(form[0], tuple) and form[0] and form[0][0] is lambda_ else
                 ([(_notlead, " "), _form],))
 
-def _combine_t_or_None(f0, fR, orig_tuple_p):
+def _combine_t_or_None(f0, fR, originalp):
         f0r = f0()
         if f0r is not None:
                 fRr = fR()
@@ -7560,13 +7563,13 @@ class _metasex_matcher(_matcher):
                 m.register_complex_matcher(_nottail,     m.identity)
                 m.register_complex_matcher(_count_scope, m.identity)
         @staticmethod
-        def preprocess(pat):            return _preprocess_metasex(pat)
+        def preprocess(pat):         return _preprocess_metasex(pat)
         @staticmethod
-        def prod(x, orig_tuple_p):      return ""
+        def prod(x, originalp):      return ""
         @staticmethod
-        def comh(f0, fR, orig_tuple_p): return _combine_t_or_None(f0, fR, orig_tuple_p)
+        def comh(f0, fR, originalp): return _combine_t_or_None(f0, fR, originalp)
         @staticmethod
-        def comr(f0, fR, orig_tuple_p): return _combine_t_or_None(f0, fR, orig_tuple_p)
+        def comr(f0, fR, originalp): return _combine_t_or_None(f0, fR, originalp)
         @staticmethod
         def nonliteral_atom_p(x):
                 ## Currently only depended upon by the segment matcher.
@@ -7587,15 +7590,15 @@ class _metasex_matcher(_matcher):
                         #                        pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), type(exp)))
                         return result
         def process_formpat_arguments(m, form, pat):
-                arg_handlers = { _for_matchers_xform:     (lambda arg: m in arg[1:],
+                arg_handlers = { _for_matchers_xform:     (lambda arg: m in _vectorise_cons_list(arg[1]),
                                                            lambda arg: arg[0](form)),
-                                 _for_not_matchers_xform: (lambda arg: m not in arg[1:],
+                                 _for_not_matchers_xform: (lambda arg: m not in _vectorise_cons_list(arg[1]),
                                                            lambda arg: arg[0](form)),
                                  }
                 if consp(pat):
-                        _, *args = pat
+                        args = pat[1]
                         # _debug_printf("args of %s: %s, ", pat, args)
-                        for (argname, *argval) in args:
+                        for argname, argval in args:
                                 if argname not in arg_handlers:
                                         error("Invalid FORM argument: %s, pat: %s", argname, pat)
                                 arg_applicable_p, arg_handler = arg_handlers[argname]
@@ -7614,19 +7617,19 @@ class _metasex_matcher(_matcher):
                                 return ret
                         form_pat = _form_metasex(form)
                         # _trace_printf("form", "=== form for %s:\n    %s", lambda: (repr(form), form_pat))
-                        return m.match(bound, name, form, form_pat, (isinstance(form, tuple), orifst[1]), None, -1)
+                        return m.match(bound, name, form, form_pat, (consp(form), orifst[1]), None, -1)
         def symbol(m, bound, name, form, pat, orifst):
                 with _match_level():
                         # _trace_frame()
-                        return m.test(form is pat[1], bound, name, lambda: m.prod(form, orifst),
+                        return m.test(form is pat[1][0], bound, name, lambda: m.prod(form, orifst),
                                       form, pat)
         def typep(m, bound, name, form, pat, orifst):
                 with _match_level():
                         # _trace_frame()
-                        return m.test(typep(form, pat[1]), bound, name, lambda: m.prod(form, orifst),
+                        return m.test(typep(form, pat[1][0]), bound, name, lambda: m.prod(form, orifst),
                                       form, pat)
 
-def _combine_pp(f0, fR, orig_tuple_p):
+def _combine_pp(f0, fR, originalp):
         def orig_tuple_comb(body):
                 new_base = _pp_depth() + 1
                 with progv({ _pp_base_depth_: new_base }):
@@ -7639,7 +7642,7 @@ def _combine_pp(f0, fR, orig_tuple_p):
                         fRr = fR()
                         if fRr is None: return
                         return f0r + fRr
-        return (orig_tuple_comb if orig_tuple_p else
+        return (orig_tuple_comb if originalp else
                 lambda f: f(_pp_base_depth()))(body)
 
 class _metasex_matcher_pp(_metasex_matcher):
@@ -7651,57 +7654,57 @@ class _metasex_matcher_pp(_metasex_matcher):
                 m.register_complex_matcher(_notlead,     m.notlead)
                 m.register_complex_matcher(_nottail,     m.nottail)
         @staticmethod
-        def prod(x, orig_tuple_p):
+        def prod(x, originalp):
                 # _trace_frame()
-                result = (""            if not (orig_tuple_p or x or (orig_tuple_p and x == ()) or x is nil) else
-                          '"' + x + '"' if isinstance(x, str)                                                else
+                result = (""            if not (originalp or x or (originalp and x is nil) or x is nil) else
+                          '"' + x + '"' if isinstance(x, str)                                           else
                           str(x))
                 # _trace_printf("yield", "+++ YIELD prod:\n%s", result)
                 return result
         @staticmethod
-        def comh(f0, fR, orig_tuple_p): return _combine_pp(f0, fR, orig_tuple_p)
+        def comh(f0, fR, originalp): return _combine_pp(f0, fR, originalp)
         @staticmethod
-        def comr(f0, fR, orig_tuple_p): return _combine_pp(f0, fR, orig_tuple_p)
+        def comr(f0, fR, originalp): return _combine_pp(f0, fR, originalp)
         def newline(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
-                n, tail = pat[0][1], pat[1:]
+                n, tail = pat[0][1][0], pat[1]
                 new_base = _pp_base_depth() + n
                 with progv({ _pp_depth_:      new_base,
-                             _pp_base_depth_: new_base}):
+                             _pp_base_depth_: new_base }):
                         return m.post(m.match(m.bind(new_base, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: "\n" + (" " * new_base) + r)
         def indent(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
-                n, tail = pat[0][1], pat[1:]
+                n, tail = pat[0][1][0], pat[1]
                 new_depth = _pp_depth() + n
                 with progv({ _pp_depth_: new_depth }):
                         return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: (" " * n) + r)
         def lead(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
-                maybe_pat = pat[0][1]
+                maybe_pat = pat[0][1][0]
                 # _trace_printf("lead", "!!! lead: first:%s %s %s", orifst[1], pat, exp)
                 if not orifst[1]:
-                        return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
+                        return m.match(bound, name, exp, pat[1],             orifst, aux, limit)
                 ############## act as identity
-                return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+                return         m.match(bound, name, exp, pat[0][1] + pat[1], orifst, aux, limit)
         def notlead(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
-                maybe_pat = pat[0][1]
+                maybe_pat = pat[0][1][0]
                 # _trace_printf("notlead", "!!! notlead: first:%s %s %s", orifst[1], pat, exp)
                 if orifst[1]:
-                        return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
+                        return m.match(bound, name, exp, pat[1],             orifst, aux, limit)
                 ############## act as identity
-                return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+                return         m.match(bound, name, exp, pat[0][1] + pat[1], orifst, aux, limit)
         def nottail(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
-                maybe_pat = pat[0][1]
-                before_end = exp == ()
+                maybe_pat = pat[0][1][0]
+                before_end = exp is nil
                 # _trace_printf("nottail", "!!! nottail: before-end:%s %s %s", before_end, pat, exp)
                 if before_end:
-                        return m.match(bound, name, exp, pat[1:],              orifst, aux, limit)
+                        return m.match(bound, name, exp, pat[1],             orifst, aux, limit)
                 ############## act as identity
-                return         m.match(bound, name, exp, pat[0][1:] + pat[1:], orifst, aux, limit)
+                return         m.match(bound, name, exp, pat[0][1] + pat[1], orifst, aux, limit)
 
 _intern_and_bind_names_in_module_specifically(
         ("_lax",        "%LAX"))
@@ -7715,7 +7718,7 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                         ######################### Thought paused here..
                         m.match(bound, name, exp, (([(_lax,)] if isinstance(exp[0], tuple) else
                                                     (_typep, t)), (_lax,)), (False, False), None, -1))
-        def crec(m, exp, l0, lR, horisontal = True, orig_tuple_p = False):
+        def crec(m, exp, l0, lR, horisontal = True, originalp = False):
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 #
                 ##
@@ -7738,7 +7741,7 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                         return m.match({}, None, exp, ([(_lax,)],) if isinstance(exp, tuple) else (_typep, t),
                                        (None, None), None, None)
                 result = (m.comh if horisontal else
-                          m.comr)(try_0, try_R, orig_tuple_p)
+                          m.comr)(try_0, try_R, originalp)
                 # _trace_printf("yield", "+t+ YIELD for %s:\n%s\nfailpat: %s", exp, result, failpat)
                 return (m.succ(boundR, result) if failpat is None else
                         m.fail(boundR or bound0, failex, failpat))
@@ -7891,129 +7894,91 @@ def _ir_affected(form):
 # Testing
 
 _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
-def _run_tests_metasex(print_results = None):
-        def _runtest(fun, bindings, result):
-                b, r, f = fun()
-                _results_.append((fun, b, r, f))
-                return (b == bindings,
-                        r == result,
-                        f is None)
-        def _print_results():
-                for fun, b, r, f in _results_[-1:]:
-                        _debug_printf("%15s bound: %s", fun.__name__, b)
-                        _debug_printf("%15s res: %s", fun.__name__, r)
-        def just_match():
+def _run_tests_metasex():
+        def printer(x): return "%s\n%s\n%s" % x if isinstance(x, tuple) else str(x)
+        def just_match(input):
                 _metasex.per_use_init()
-                return _match(_metasex,
-                              (let, ((first, ()),
-                                     (second, (__car,))),
-                                _body),
+                return _match(_metasex, input,
                               (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                                  1, {"body":[(_notlead, "\n"), _form]}))
-        bound_good, result_good, nofail = _runtest(just_match,
-                                                   { 'bindings': ((first, ()),
-                                                                  (second, (__car,))),
-                                                     'body':     (_body,)},
-                                                   t)
-        print_results and _print_results()
-        assert(nofail)
-        assert(bound_good)
-        assert(result_good)
-        print("; JUST-MATCH: passed")
+        assert _runtest(just_match,
+                        _consify_tuple_trees(let, ((first, ()),
+                                                   (second, (__car,))),
+                                            _body),
+                        ({ 'bindings': ((first, ()),
+                                        (second, (__car,))),
+                           'body':     (_body,)},
+                         t,
+                         False))
 
         def pp():
                 _metasex_pp.per_use_init()
                 return _match(_metasex_pp,
-                              (let, ((first, ()),
-                                     (second, (__car,))),
-                                _body),
+                              _consify_tuple_trees(let, ((first, ()),
+                                                         (second, (__car,))),
+                                                    _body),
                               (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                                  1, {"body":[(_notlead, "\n"), _form]}))
-        bound_good, result_good, nofail = _runtest(pp,
-                                                   { 'bindings': ((first, ()),
-                                                                  (second, (__car,))),
-                                                     'body':     (_body,)},
-                                                   """(LET ((FIRST ())
+        assert _runtest(pp,
+                        ({ 'bindings': ((first, ()),
+                                        (second, (__car,))),
+                                       'body':     (_body,)},
+                         """(LET ((FIRST ())
       (SECOND (CAR)))
-  &BODY)""")
-        print_results and _print_results()
-        assert(nofail)
-        assert(bound_good)
-        assert(result_good)
-        print("; PP: passed")
+  &BODY)""",
+                         False))
 
         def mal_pp():
                 _metasex_nonstrict_pp.per_use_init()
                 return _match(_metasex_nonstrict_pp,
-                              (let, ((first),
-                                     (second, (__car,), ())),
-                                _body),
+                              _consify_tuple_trees(let, ((first),
+                                                         (second, (__car,), ())),
+                                                    _body),
                               (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
                                  1, [(_notlead, "\n"), _form]))
-        #       bound_good, result_good, nofail = _runtest(mal_pp,
-        #                                                  {},
-        #                                                  """(LET ((FIRST ())
+        # assert _runtest(mal_pp,
+        #                 ({},
+        #                  """(LET ((FIRST ())
         #     (SECOND (CAR)))
-        # &BODY)""")
-        #       print_results and _print_results()
-        #       assert(nofail)
-        #       assert(bound_good)
-        #       assert(result_good)
-        #       print("; MAL-PP: passed")
+        # &BODY)""",
+        #                  False))
 
         def empty():
                 _metasex_pp.per_use_init()
-                return _match(_metasex_pp, (), {"whole":()})
-        bound_good, result_good, nofail = _runtest(empty,
-                                                   { 'whole': () },
-                                                   "()")
-        print_results and _print_results()
-        assert(nofail)
-        assert(bound_good)
-        assert(result_good)
-        print("; EMPTY: passed")
+                return _match(_metasex_pp, nil, {"whole":()})
+        assert _runtest(empty,
+                        ({ 'whole': () },
+                         "()",
+                         False))
 
         def empty_cross():
                 _metasex_pp.per_use_init()
-                return _match(_metasex_pp, (), ({"a":[_name]}, {"b":[(_name,)]},))
-        bound_good, result_good, nofail = _runtest(empty_cross,
-                                                   { 'a': (), 'b': () },
-                                                   "()")
-        print_results and _print_results()
-        assert(nofail)
-        assert(bound_good)
-        assert(result_good)
-        print("; EMPTY-CROSS: passed")
+                return _match(_metasex_pp, nil, ({"a":[_name]}, {"b":[(_name,)]},))
+        assert _runtest(empty_cross,
+                        ({ 'a': (), 'b': () },
+                         "()",
+                         False))
 
         def alternates():
                 _metasex_pp.per_use_init()
-                return _match(_metasex_pp, (1, "a"), {"whole":([(_or, (_typep, int),
-                                                                      (_typep, str))],)})
-        bound_good, result_good, nofail = _runtest(alternates,
-                                                   { 'whole': (1, "a") },
-                                                   '(1"a")')
-        print_results and _print_results()
-        assert(nofail)
-        assert(bound_good)
-        assert(result_good)
-        print("; ALTERNATES: passed")
+                return _match(_metasex_pp, list_(1, "a"), {"whole":([(_or, (_typep, int),
+                                                                           (_typep, str))],)})
+        assert _runtest(alternates,
+                        ({ 'whole': (1, "a") },
+                         '(1"a")',
+                         False))
 
         _intern_and_bind_names_in_module("PI")
         def simplex():
                 _metasex_pp.per_use_init()
                 pat = ({'head':[()]}, {'tail':_name})
-                exp = ((), pi)
+                exp = list_(nil, pi)
                 return _match(_metasex_pp, exp, pat)
-        bound_good, result_good, nofail = _runtest(simplex,
-                                                   { 'head': ((),),
-                                                     'tail': pi },
-                                                   "(()PI)"
-                                                   )
-        print_results and _print_results()
-        assert(nofail)
-        assert(bound_good)
-        assert(result_good)
-        print("; SIMPLEX: passed")
+        assert _runtest(simplex,
+                        ({ 'head': ((),),
+                           'tail': pi },
+                         "(()PI)",
+                         False))
 
         def mid_complex():
                 _metasex_pp.per_use_init()
@@ -8023,38 +7988,31 @@ def _run_tests_metasex(print_results = None):
                                                             {"fix1tupseq":[(_name,)]},
                                                                                    {"nameseq":[_name]},
                                                                                         {"tailname":_name})
-                exp =              (pi,   (pi,),   (pi,), (pi, pi), (pi, pi, pi), (pi,), (pi,), (pi,),   pi, pi, pi)
+                exp =         list_(pi, list_(pi), list_(pi), list_(pi, pi), list_(pi, pi, pi),
+                                    list_(pi), list_(pi), list_(pi), pi, pi, pi)
                 return _match(_metasex_pp, exp, pat)
-        bound_good, result_good, nofail = _runtest(mid_complex,
-                                                   { 'headname': pi,
-                                                     'headtupname': (pi,),
-                                                     'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
-                                                     'fix1tupseq': ((pi,), (pi,), (pi,)),
-                                                     'nameseq': (pi, pi),
-                                                     'tailname': pi },
-                                                   "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)"
-                                                   # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
-                                                   )
-        print_results and _print_results()
-        assert(nofail)
-        assert(bound_good)
-        assert(result_good)
-        print("; MID-COMPLEX: passed")
+        assert _runtest(mid_complex,
+                        ({ 'headname': pi,
+                          'headtupname': (pi,),
+                          'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
+                          'fix1tupseq': ((pi,), (pi,), (pi,)),
+                          'nameseq': (pi, pi),
+                          'tailname': pi },
+                         "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)",
+                         False)
+                        # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
+                        )
 
         def simple_maybe():
                 _metasex_pp.per_use_init()
-                return _match(_metasex_pp, (pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
-        bound_good, result_good, nofail = _runtest(simple_maybe,
-                                                   { 'pi': (pi,), 'car': car, 'cdr': cdr, },
-                                                   "(PICARCDR)")
-        print_results and _print_results()
-        assert(nofail)
-        assert(bound_good)
-        assert(result_good)
-        print("; SIMPLE-MAYBE: passed")
+                return _match(_metasex_pp, list_(pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
+        assert _runtest(simple_maybe,
+                        ({ 'pi': (pi,), 'car': car, 'cdr': cdr, },
+                         "(PICARCDR)",
+                         False))
 
 if _getenv("CL_RUN_TESTS"):
-        _run_tests_metasex(print_results = nil)
+        _run_tests_metasex()
 
 # Macroexpansion
 
@@ -8179,16 +8137,16 @@ class _macroexpander_matcher(_metasex_matcher):
                             _macroexpander_form_binds_: nil}):
                         return _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t, ignore_args = t)
         @staticmethod
-        def prod(x, orig_tuple_p): return x
+        def prod(x, originalp): return x
         @staticmethod
-        def comh(f0, fR, orig_tuple_p):
+        def comh(f0, fR, originalp):
                 f0r = f0()
                 if f0r is not None:
                         fRr = fR()
                         if fRr is not None:
                                 return f0r + fRr
         @staticmethod
-        def comr(f0, fR, orig_tuple_p):
+        def comr(f0, fR, originalp):
                 f0r = f0()
                 if f0r is not None:
                         fRr = fR()
@@ -8216,15 +8174,16 @@ _ensure_function_pyname(defmacro) ## This is only needed due to the special defi
 # ((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
-        return _consify_tuples(eval_when, (_compile_toplevel, _load_toplevel, _execute),
-                               ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
-                               # (function, (def_, name, lambda_list) + body),
-                               (ir_args,
-                                (lambda_, lambda_list) + body,
-                                ("decorators", [_consify_tuple(_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
-                                                                                  [quote, name], [quote, [name, lambda_list] +
-                                                                                                  _consify_tuple(body)]))]),
-                                ("name", name)))
+        return _consify_tuple_trees(
+                eval_when, (_compile_toplevel, _load_toplevel, _execute),
+                ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
+                # (function, (def_, name, lambda_list) + body),
+                (ir_args,
+                 (lambda_, lambda_list) + body,
+                 ("decorators", [_consify_tuple_tree(_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
+                                                                        [quote, name], [quote, [name, lambda_list] +
+                                                                                        _consify_tuple_tree(body)]))]),
+                 ("name", name)))
 
 # Out-of-band IR argument passing: %IR-ARGS, %IR
 
