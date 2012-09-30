@@ -3785,7 +3785,7 @@ def consp(x):       return isinstance(x, list) and len(x) is 2
 def _consp_fast(x): return isinstance(x, list)
 
 @defun
-def atom(x):        return not isinstance(x, list) or x == () or x is nil
+def atom(x):        return not isinstance(x, list) or len(x) != 2
 
 # RPLACA
 # RPLACD
@@ -6510,8 +6510,8 @@ class _matcher():
         def register_complex_matcher(m, name, matcher):
                 __metasex_words__.add(name)
                 m.__complex_patterns__[name] = m.matchod(name, matcher)
-        def simplex_pat_p(m, x): return isinstance(x, tuple) and x and isinstance(x[0], symbol_t) and x[0] in m.__simplex_patterns__
-        def complex_pat_p(m, x): return isinstance(x, tuple) and x and isinstance(x[0], symbol_t) and x[0] in m.__complex_patterns__
+        def simplex_pat_p(m, x): return consp(x) and isinstance(x[0], symbol_t) and x[0] in m.__simplex_patterns__
+        def complex_pat_p(m, x): return consp(x) and isinstance(x[0], symbol_t) and x[0] in m.__complex_patterns__
         def simplex(m, bound, name, exp, pat, orifst):
                 # _trace_frame()
                 # _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s",
@@ -6565,11 +6565,11 @@ class _matcher():
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
         def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
                 raise Exception("Not yet capable of matching simplex patterns of type %s.", pat[0])
-        def identity(m, bound, name, exp, pat, orifst, aux, limit):
+        def complex_identity(m, bound, name, exp, pat, orifst, aux, limit):
                 with _match_level():
                         # _trace_frame()
                         ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
-                        return m.complex(bound, name, exp, [pat[0][1], pat[1]], orifst, aux, limit)
+                        return m.complex(bound, name, exp, [pat[0][1][0], pat[1]], orifst, aux, limit)
         def simplex_identity(m, bound, name, exp, pat, orifst):
                 with _match_level():
                         # _trace_frame()
@@ -7558,10 +7558,10 @@ class _metasex_matcher(_matcher):
                 m.register_simplex_matcher(_typep,       m.typep)
                 m.register_complex_matcher(_newline,     m.ignore)
                 m.register_complex_matcher(_indent,      m.ignore)
-                m.register_complex_matcher(_lead,        m.identity)
-                m.register_complex_matcher(_notlead,     m.identity)
-                m.register_complex_matcher(_nottail,     m.identity)
-                m.register_complex_matcher(_count_scope, m.identity)
+                m.register_complex_matcher(_lead,        m.complex_identity)
+                m.register_complex_matcher(_notlead,     m.complex_identity)
+                m.register_complex_matcher(_nottail,     m.complex_identity)
+                m.register_complex_matcher(_count_scope, m.complex_identity)
         @staticmethod
         def preprocess(pat):         return _preprocess_metasex(pat)
         @staticmethod
