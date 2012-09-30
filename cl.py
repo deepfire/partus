@@ -6557,19 +6557,19 @@ class _matcher():
                 #               lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                 #                        name, bound, exp, pat))
                 mtd = m.__simplex_patterns__[pat[0]]
-                def exp_store():
-                        try:
-                                return mtd.cache[exp]
-                        except TypeError:
-                                pass
-                store = _without_condition_system(exp_store)
-                if store is not None:
-                        exp_pat_hit = store.get(pat)
-                        if exp_pat_hit:
-                                return exp_pat_hit
+                # def exp_store():
+                #         try:
+                #                 return mtd.cache[exp]
+                #         except TypeError:
+                #                 pass
+                # store = _without_condition_system(exp_store)
+                # if store is not None:
+                #         exp_pat_hit = store.get(pat)
+                #         if exp_pat_hit:
+                #                 return exp_pat_hit
                 res = _, __, f = mtd.method(bound, name, exp, pat, orifst)
-                if store is not None and f is None:
-                        store[pat] = res
+                # if store is not None and f is None:
+                #         store[pat] = res
                 return res
                 # return m.__simplex_patterns__[pat[0][0]](bound, name, exp, pat, orifst)
         def complex(m, bound, name, exp, pat, orifst, aux, limit):
