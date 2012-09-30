@@ -733,7 +733,6 @@ def _boot_check_type(pred, x):
 ******* Package system conditions
 
 #+begin_src python +n
-
 def _package_not_found_error(x):
         error("The name \"%s\" does not designate any package.", x)
 
@@ -5552,102 +5551,102 @@ executes the following:
     This is used by @defast and @defknown.
 
 #+begin_src python +n
-  def _defbody_parse_ast(names, asts, valid_declarations = make_hash_table()):
-          """Given a list of defined parameter NAMES, a list of statement ASTS and a
-  table of VALID-DECLARATIONS, return the body, documentation and declarations if any."""
-          def _ast_call_to_name_p(name, x):
-                  return (isinstance(x, _ast.Expr)            and
-                          isinstance(x.value, _ast.Call)      and
-                          isinstance(x.value.func, _ast.Name) and
-                          x.value.func.id == name)
-          def ensure_valid_declarations(decls):
-                  # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
-                  def fail():
-                          import more_ast
-                          err("invalid declaration form: %s", more_ast.pp_ast_as_code(decls))
-                  def ensure_valid_declaration(decl):
-                          isinstance(decl, _ast.Tuple) and decl.elts and isinstance(decl.elts[0], _ast.Name) or fail()
-                          decl_name = decl.elts[0].id
-                          if decl_name not in valid_declarations:
-                                  err("unknown declaration: %s", decl_name.upper())
-                          n_decl_args = valid_declarations[decl_name]
-                          if len(decl.elts) < 1 + n_decl_args + 1:
-                                  err("invalid declaration %s: no parameter names specified", decl_name.upper())
-                          all(isinstance(x, _ast.Name) for x in decl.elts[1 + n_decl_args:]) or fail()
-                          decl_param_names = tuple(x.id for x in decl.elts[1 + n_decl_args:])
-                          unknown_param_names = set(decl_param_names) - set(names)
-                          if unknown_param_names:
-                                  err("invalid declaration %s: invalid parameter names: %s",
-                                      decl_name.upper(), ", ".join(x.upper() for x in unknown_param_names))
-                          return (decl_name,
-                                  tuple(extract_sexp(x) for x in decl.elts[1:1 + n_decl_args]),
-                                  decl_param_names)
-                  not (decls.keywords or decls.starargs or decls.kwargs) or fail()
-                  return [ ensure_valid_declaration(x) for x in decls.args ]
-          def group_declarations(valid_declspecs, decls):
-                  def _declaration_names(x): return set(x[1 + valid_declspecs[x[0]]:])
-                  return { name: set(d[0:2] for d in decls
-                                     if name in d[2:])
-                           for name in _mapsetn(_declaration_names, decls) } # INDEXING..
-          content, _ = _prefix_suffix_if(_not_of_type(_ast.Pass), asts)
-          documentation, body = ((content[0].value.s, content[1:]) if (len(content) > 1 and
-                                                                       isinstance(content[0], _ast.Expr) and
-                                                                       isinstance(content[0].value, _ast.Str)) else
-                                 (nil, content))
-          declarations, body = _prefix_suffix_if(_curry(_ast_call_to_name_p, "declare"), body)
-          return body, documentation, group_declarations(valid_declarations,
-                                                         reduce(lambda acc, dexcall:
-                                                                        acc + ensure_valid_declarations(dexcall.value),
-                                                                declarations, []))
+def _defbody_parse_ast(names, asts, valid_declarations = make_hash_table()):
+        """Given a list of defined parameter NAMES, a list of statement ASTS and a
+table of VALID-DECLARATIONS, return the body, documentation and declarations if any."""
+        def _ast_call_to_name_p(name, x):
+                return (isinstance(x, _ast.Expr)            and
+                        isinstance(x.value, _ast.Call)      and
+                        isinstance(x.value.func, _ast.Name) and
+                        x.value.func.id == name)
+        def ensure_valid_declarations(decls):
+                # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
+                def fail():
+                        import more_ast
+                        err("invalid declaration form: %s", more_ast.pp_ast_as_code(decls))
+                def ensure_valid_declaration(decl):
+                        isinstance(decl, _ast.Tuple) and decl.elts and isinstance(decl.elts[0], _ast.Name) or fail()
+                        decl_name = decl.elts[0].id
+                        if decl_name not in valid_declarations:
+                                err("unknown declaration: %s", decl_name.upper())
+                        n_decl_args = valid_declarations[decl_name]
+                        if len(decl.elts) < 1 + n_decl_args + 1:
+                                err("invalid declaration %s: no parameter names specified", decl_name.upper())
+                        all(isinstance(x, _ast.Name) for x in decl.elts[1 + n_decl_args:]) or fail()
+                        decl_param_names = tuple(x.id for x in decl.elts[1 + n_decl_args:])
+                        unknown_param_names = set(decl_param_names) - set(names)
+                        if unknown_param_names:
+                                err("invalid declaration %s: invalid parameter names: %s",
+                                    decl_name.upper(), ", ".join(x.upper() for x in unknown_param_names))
+                        return (decl_name,
+                                tuple(extract_sexp(x) for x in decl.elts[1:1 + n_decl_args]),
+                                decl_param_names)
+                not (decls.keywords or decls.starargs or decls.kwargs) or fail()
+                return [ ensure_valid_declaration(x) for x in decls.args ]
+        def group_declarations(valid_declspecs, decls):
+                def _declaration_names(x): return set(x[1 + valid_declspecs[x[0]]:])
+                return { name: set(d[0:2] for d in decls
+                                   if name in d[2:])
+                         for name in _mapsetn(_declaration_names, decls) } # INDEXING..
+        content, _ = _prefix_suffix_if(_not_of_type(_ast.Pass), asts)
+        documentation, body = ((content[0].value.s, content[1:]) if (len(content) > 1 and
+                                                                     isinstance(content[0], _ast.Expr) and
+                                                                     isinstance(content[0].value, _ast.Str)) else
+                               (nil, content))
+        declarations, body = _prefix_suffix_if(_curry(_ast_call_to_name_p, "declare"), body)
+        return body, documentation, group_declarations(valid_declarations,
+                                                       reduce(lambda acc, dexcall:
+                                                                      acc + ensure_valid_declarations(dexcall.value),
+                                                              declarations, []))
 
-  def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast = None):
-          method_specs = list((mspec if isinstance(mspec, tuple) else
-                              (mspec, _defbody_make_required_method_error(desc))) for mspec in method_specs)
-          def fail(x):
-                  import more_ast
-                  error("In %s: definition body may only contain definitions of %s methods, encountered: %s, an object of type %s", desc,
-                        (", ".join([x.upper() for x, _ in method_specs[:-1]]) +
-                         (" and " if len(method_specs) > 1 else "") +
-                         (method_specs[-1][0].upper() if method_specs else "")),
-                        x if isinstance(x, str) else more_ast.pp_ast_as_code(x), type_of(x))
-          def process(method_name, default_maker):
-                  "Return a validated and normalised named method body 'return'-wise."
-                  xs = [ x for x in body_ast if x.name is method_name ]
-                  x = xs[0] if xs else nil
-                  method_name = method_name_fn(method_name)
-                  if x:
-                          x.name, x.args = method_name, _defaulted(arguments_ast, x.args)
-                          ## recursively analyse RETURN-ality
-                          def massage_tail(x, multiline):
-                                  if multiline:
-                                          if hasattr(x.body[-1], "body"):
-                                                  massage_tail(x.body[-1], True)
-                                          elif not isinstance(x.body[-1], _ast.Return):
-                                                  error("In %s: multi-line methods must include an explicit terminating Return statement", desc)
-                                  elif not(isinstance(x.body[0], _ast.Return)):
-                                          if hasattr(x.body[0], "value"):
-                                                  x.body[0] = _ast.Return(x.body[0].value)
-                                          elif hasattr(x.body[0], "body"):
-                                                  massage_tail(x.body[0], len(x.body[0].body) > 1)
-                                          else:
-                                                  error("In %s: tail-positioned form %s has no redeeming qualities what so ever.",
-                                                        desc, type_of(x.body[0]))
-                          massage_tail(x, len(x.body) > 1)
-                  return _ast_compiled_name(method_name, x or default_maker(method_name),
-                                            locals = locals(), globals = globals())
-          ##
-          body_ast = [ x for x in body_ast if not typep(x, _ast.Pass )] # Remove noise.
-          non_fdefns = [ x for x in body_ast if not typep(x, _ast.FunctionDef) ]
-          if non_fdefns:
-                  fail(non_fdefns[0])
-          specified_method_names = { x.name:x for x in body_ast }
-          invalid_methods = set(specified_method_names) - _mapset(_indexing(0), method_specs)
-          if invalid_methods:
-                  fail(invalid_methods.pop().upper())
-          return (process(*mspec) for mspec in method_specs)
+def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast = None):
+        method_specs = list((mspec if isinstance(mspec, tuple) else
+                            (mspec, _defbody_make_required_method_error(desc))) for mspec in method_specs)
+        def fail(x):
+                import more_ast
+                error("In %s: definition body may only contain definitions of %s methods, encountered: %s, an object of type %s", desc,
+                      (", ".join([x.upper() for x, _ in method_specs[:-1]]) +
+                       (" and " if len(method_specs) > 1 else "") +
+                       (method_specs[-1][0].upper() if method_specs else "")),
+                      x if isinstance(x, str) else more_ast.pp_ast_as_code(x), type_of(x))
+        def process(method_name, default_maker):
+                "Return a validated and normalised named method body 'return'-wise."
+                xs = [ x for x in body_ast if x.name is method_name ]
+                x = xs[0] if xs else nil
+                method_name = method_name_fn(method_name)
+                if x:
+                        x.name, x.args = method_name, _defaulted(arguments_ast, x.args)
+                        ## recursively analyse RETURN-ality
+                        def massage_tail(x, multiline):
+                                if multiline:
+                                        if hasattr(x.body[-1], "body"):
+                                                massage_tail(x.body[-1], True)
+                                        elif not isinstance(x.body[-1], _ast.Return):
+                                                error("In %s: multi-line methods must include an explicit terminating Return statement", desc)
+                                elif not(isinstance(x.body[0], _ast.Return)):
+                                        if hasattr(x.body[0], "value"):
+                                                x.body[0] = _ast.Return(x.body[0].value)
+                                        elif hasattr(x.body[0], "body"):
+                                                massage_tail(x.body[0], len(x.body[0].body) > 1)
+                                        else:
+                                                error("In %s: tail-positioned form %s has no redeeming qualities what so ever.",
+                                                      desc, type_of(x.body[0]))
+                        massage_tail(x, len(x.body) > 1)
+                return _ast_compiled_name(method_name, x or default_maker(method_name),
+                                          locals = locals(), globals = globals())
+        ##
+        body_ast = [ x for x in body_ast if not typep(x, _ast.Pass )] # Remove noise.
+        non_fdefns = [ x for x in body_ast if not typep(x, _ast.FunctionDef) ]
+        if non_fdefns:
+                fail(non_fdefns[0])
+        specified_method_names = { x.name:x for x in body_ast }
+        invalid_methods = set(specified_method_names) - _mapset(_indexing(0), method_specs)
+        if invalid_methods:
+                fail(invalid_methods.pop().upper())
+        return (process(*mspec) for mspec in method_specs)
 
-  def _defbody_make_required_method_error(desc):
-          return lambda method_name: error("In %s: missing method %s.", desc, str(method_name).upper())
+def _defbody_make_required_method_error(desc):
+        return lambda method_name: error("In %s: missing method %s.", desc, str(method_name).upper())
 #+end_src
 
 *** AST
@@ -6074,97 +6073,96 @@ def _atree_xtnls(atree): return _atree_bound_free(atree)[2]
 ******* @DEFAST
 
 #+begin_src python +n
-  def defast(fn):
-          ### generic tools
-          def declaredp(grouped_decls, x, as_):
-                  return x in grouped_decls and (as_,) in grouped_decls
-          def lambda_list_names(lambda_list, remove_optional = t):
-                  (fixed, optional, args, keyword, keys) = lambda_list
-                  xform = (lambda x: x[0]) if remove_optional else identity
-                  return (tuple(fixed) +
-                          tuple(xform(x) for x in optional) + (() if not args else (args,)) +
-                          tuple(xform(x) for x in keyword)  + (() if not keys else (keys,)))
-          ### end-of-generic-tools
-          def validate_defast_name(name):
-                  if not name.startswith("_ast_"):
-                          error("In DEFAST %s: the AST name must be prefixed with \"_ast_\"", name)
-                  name = name[5:]
-                  ast_type, therep = gethash(name, _ast.__dict__)
-                  if not therep:
-                          error("In DEFAST %s: '%s' does not denote a known AST type", name, name)
-                  return name, ast_type
-          name, ast_type = validate_defast_name(fn.__name__)
-          def validate_defast_lambda_list(ast_type, lambda_list, annotations):
-                  (fixed, optional, args, keyword, keys) = lambda_list
-                  if args or keyword or keys:
-                          err("only fixed and optional arguments are allowed")
-                  ast_field_names = fixed + [ x[0] for x in optional ]
-                  ast_field_names_with_defaults = fixed + optional
-                  ast_field_types = [ annotations[name] for name in ast_field_names ]
-                  if len(ast_field_types) != len(ast_type._fields):
-                          error("In DEFAST %s:the amount of provided type specifiers (%d) does not match the AST _fields: %s",
-                                name, len(ast_field_types), ast_type._fields)
-                  type_specifier_type = (or_t, pytuple_t, type)
-                  if not all(typep(x, type_specifier_type) for x in ast_field_types):
-                          mismatched = [ x for x in ast_field_types
-                                         if not typep(x, type_specifier_type) ]
-                          error("In DEFAST %s: the AST field type specifiers must be of type %s, found: %s",
-                                name, type_specifier_type, ", ".join(str(x) for x in mismatched))
-                  for i, (fname, ast_fname) in enumerate(zip(ast_field_names, ast_type._fields)):
-                          if fname != ast_fname:
-                                  error("In DEFAST %s: the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s",
-                                        name, i, fname, ast_fname, ast_type._fields)
-                  return ast_field_types
-          def arglist_field_infos(parameters, nfix, with_defaults, ast_field_types, grouped_decls):
-                  fields = _without_condition_system(lambda: _collections.OrderedDict())
-                  def process_ast_field_arglist_entry(name, type, default, fixed = t):
-                          walkp = (type in __ast_walkable_field_types__ or
-                                   declaredp(grouped_decls, p, "walk"))
-                          fields[p] = (dict(name = name, type = type, walk = walkp) if fixed else
-                                       dict(name = name, type = type, walk = walkp, default = default))
-                  for p, type, defaulted in zip(parameters[:nfix], ast_field_types[:nfix], with_defaults[:nfix]):
-                          process_ast_field_arglist_entry(p, type, None,         fixed = t)
-                  for p, type, defaulted in zip(parameters[nfix:], ast_field_types[nfix:], with_defaults[nfix:]):
-                          process_ast_field_arglist_entry(p, type, defaulted[1], fixed = nil)
-                  return fields
-          def make_default_bound_free(name, arguments_ast, fields):
-                  # compile down to:
-                  # return _separate(3, _ast_bound_free, [<fields>])
-                  # ..where <fields> is [ f["name"] for f in fields if f["walk"] ]
-                  return _ast.FunctionDef(
-                          name, arguments_ast,
-                          [_ast.Return(
-                           _ast_funcall("_separate",
-                                        [ 3,
-                                          _ast_funcall("_bound_free_recursor", []),
-                                          # _ast.Name("_ast_bound_free", _ast.Load()),
-                                          _ast.List([ _ast.Name(f["name"], _ast.Load())
-                                                      for f in fields.values()
-                                                      if f["walk"] ],
-                                                   _ast.Load()) ]))],
-                          [], None)
-          lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
-          ast_field_types = validate_defast_lambda_list(ast_type, lambda_list, fn.__annotations__)
-          parameters, with_defaults = (lambda_list_names(lambda_list),
-                                       lambda_list_names(lambda_list, remove_optional = nil))
-          args_ast, body_ast = _function_ast(fn)
-          valid_declspecs = dict(walk  = 0)
-          body, documentation, declarations = _defbody_parse_ast(parameters, body_ast,
-                                                                 valid_declarations = valid_declspecs)
-          fields = arglist_field_infos(parameters, len(fixed), with_defaults, ast_field_types, declarations)
-          [bound_free] = _defbody_methods("DEFAST " + name, body,
-                                          lambda method: "_ast_%s_%s" % (name, method),
-                                          [("bound_free", lambda name: make_default_bound_free(name, args_ast, fields))],
-                                          arguments_ast = args_ast)
-          # _debug_printf("bound_free for %s is %s", name, bound_free)
-          __ast_infos__[ast_type] = _ast_info(type       = ast_type,
-                                              fields     = fields,
-                                              bound_free = bound_free,
-                                              nfixed     = len(fixed))
+def defast(fn):
+        ### generic tools
+        def declaredp(grouped_decls, x, as_):
+                return x in grouped_decls and (as_,) in grouped_decls
+        def lambda_list_names(lambda_list, remove_optional = t):
+                (fixed, optional, args, keyword, keys) = lambda_list
+                xform = (lambda x: x[0]) if remove_optional else identity
+                return (tuple(fixed) +
+                        tuple(xform(x) for x in optional) + (() if not args else (args,)) +
+                        tuple(xform(x) for x in keyword)  + (() if not keys else (keys,)))
+        ### end-of-generic-tools
+        def validate_defast_name(name):
+                if not name.startswith("_ast_"):
+                        error("In DEFAST %s: the AST name must be prefixed with \"_ast_\"", name)
+                name = name[5:]
+                ast_type, therep = gethash(name, _ast.__dict__)
+                if not therep:
+                        error("In DEFAST %s: '%s' does not denote a known AST type", name, name)
+                return name, ast_type
+        name, ast_type = validate_defast_name(fn.__name__)
+        def validate_defast_lambda_list(ast_type, lambda_list, annotations):
+                (fixed, optional, args, keyword, keys) = lambda_list
+                if args or keyword or keys:
+                        err("only fixed and optional arguments are allowed")
+                ast_field_names = fixed + [ x[0] for x in optional ]
+                ast_field_names_with_defaults = fixed + optional
+                ast_field_types = [ annotations[name] for name in ast_field_names ]
+                if len(ast_field_types) != len(ast_type._fields):
+                        error("In DEFAST %s:the amount of provided type specifiers (%d) does not match the AST _fields: %s",
+                              name, len(ast_field_types), ast_type._fields)
+                type_specifier_type = (or_t, pytuple_t, type)
+                if not all(typep(x, type_specifier_type) for x in ast_field_types):
+                        mismatched = [ x for x in ast_field_types
+                                       if not typep(x, type_specifier_type) ]
+                        error("In DEFAST %s: the AST field type specifiers must be of type %s, found: %s",
+                              name, type_specifier_type, ", ".join(str(x) for x in mismatched))
+                for i, (fname, ast_fname) in enumerate(zip(ast_field_names, ast_type._fields)):
+                        if fname != ast_fname:
+                                error("In DEFAST %s: the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s",
+                                      name, i, fname, ast_fname, ast_type._fields)
+                return ast_field_types
+        def arglist_field_infos(parameters, nfix, with_defaults, ast_field_types, grouped_decls):
+                fields = _without_condition_system(lambda: _collections.OrderedDict())
+                def process_ast_field_arglist_entry(name, type, default, fixed = t):
+                        walkp = (type in __ast_walkable_field_types__ or
+                                 declaredp(grouped_decls, p, "walk"))
+                        fields[p] = (dict(name = name, type = type, walk = walkp) if fixed else
+                                     dict(name = name, type = type, walk = walkp, default = default))
+                for p, type, defaulted in zip(parameters[:nfix], ast_field_types[:nfix], with_defaults[:nfix]):
+                        process_ast_field_arglist_entry(p, type, None,         fixed = t)
+                for p, type, defaulted in zip(parameters[nfix:], ast_field_types[nfix:], with_defaults[nfix:]):
+                        process_ast_field_arglist_entry(p, type, defaulted[1], fixed = nil)
+                return fields
+        def make_default_bound_free(name, arguments_ast, fields):
+                # compile down to:
+                # return _separate(3, _ast_bound_free, [<fields>])
+                # ..where <fields> is [ f["name"] for f in fields if f["walk"] ]
+                return _ast.FunctionDef(
+                        name, arguments_ast,
+                        [_ast.Return(
+                         _ast_funcall("_separate",
+                                      [ 3,
+                                        _ast_funcall("_bound_free_recursor", []),
+                                        # _ast.Name("_ast_bound_free", _ast.Load()),
+                                        _ast.List([ _ast.Name(f["name"], _ast.Load())
+                                                    for f in fields.values()
+                                                    if f["walk"] ],
+                                                 _ast.Load()) ]))],
+                        [], None)
+        lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
+        ast_field_types = validate_defast_lambda_list(ast_type, lambda_list, fn.__annotations__)
+        parameters, with_defaults = (lambda_list_names(lambda_list),
+                                     lambda_list_names(lambda_list, remove_optional = nil))
+        args_ast, body_ast = _function_ast(fn)
+        valid_declspecs = dict(walk  = 0)
+        body, documentation, declarations = _defbody_parse_ast(parameters, body_ast,
+                                                               valid_declarations = valid_declspecs)
+        fields = arglist_field_infos(parameters, len(fixed), with_defaults, ast_field_types, declarations)
+        [bound_free] = _defbody_methods("DEFAST " + name, body,
+                                        lambda method: "_ast_%s_%s" % (name, method),
+                                        [("bound_free", lambda name: make_default_bound_free(name, args_ast, fields))],
+                                        arguments_ast = args_ast)
+        # _debug_printf("bound_free for %s is %s", name, bound_free)
+        __ast_infos__[ast_type] = _ast_info(type       = ast_type,
+                                            fields     = fields,
+                                            bound_free = bound_free,
+                                            nfixed     = len(fixed))
 
-  ## AST + Symbols
-  _register_astifier_for_type(symbol_t, nil, (lambda sym: _ast_funcall("_find_symbol_or_fail", [symbol_name(sym)])))
-
+## AST + Symbols
+_register_astifier_for_type(symbol_t, nil, (lambda sym: _ast_funcall("_find_symbol_or_fail", [symbol_name(sym)])))
 #+end_src
 
 ******* Definitions
@@ -8145,7 +8143,7 @@ def _preprocess_metasex(pat):
                (((identity if _metasex_word_p(pat[0])      else _preprocess_metasex)(pat[0]),)
                 + (pat[1:] if _metasex_leaf_word_p(pat[0]) else tuple(_preprocess_metasex(x) for x in pat[1:]))))
         # _here("\n ==> %s   -   %s", pat, ret, callers = 15)
-        return ret
+        return _consify_tuple_tree(ret)
 #+END_SRC
 
 *** DEFKNOWN
@@ -8576,9 +8574,10 @@ _metasex_nonstrict_pp = _metasex_matcher_nonstrict_pp()
 # _trace(_return, "form")
 # _trace(_return, "typep")
 
-def _match_sex(sex, pattern = None):
-        _metasex.per_use_init()
-        return _match(_metasex, sex, _defaulted(pattern, _form_metasex(sex)))
+def _match_sex(sex, pattern = None, matcher = None):
+        matcher = _defaulted(matcher, _metasex)
+        matcher.per_use_init()
+        return _match(matcher, sex, _defaulted(pattern, _form_metasex(sex)))
 
 ## WIP: set specifiers (got bored)
 _string_set("*SETSPEC-SCOPE*", nil)
@@ -8709,19 +8708,33 @@ def _ir_affected(form):
 #+begin_src python
 _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
 def _run_tests_metasex():
-        def printer(x): return ("%s\n%s\n%s" % (x[0], _pp_consly(x[1]), _pp_consly(x[2])) if isinstance(x, tuple) else
-                                _matcher_pp(x)                                            if isinstance(x, dict)  else
-                                _matcher_pp(x)                                            if consp(x)             else
-                                str(x))
-        def just_match(input):
-                _metasex.per_use_init()
-                return _match(_metasex, input,
-                              (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
-                                 1, {"body":[(_notlead, "\n"), _form]}))
+        def printer(x):
+                return ((("%s\n%s\n%s" % (x[0], _pp_consly(x[1]), _pp_consly(x[2])))
+                         if len(x) is 3 else
+                         ("%s\n%s" % (_pp_consly(x[0]), _pp_consly(x[1]))))
+                                                                                  if isinstance(x, tuple) else
+                        _matcher_pp(x)                                            if isinstance(x, dict)  else
+                        _matcher_pp(x)                                            if consp(x)             else
+                        str(x))
+        def do_run_test(input, matcher = _metasex_pp):
+                return _match_sex(input[0], input[1], matcher = matcher)
+        def just_match(input):   return do_run_test(input, matcher = _metasex)
+        def pp(input):           return do_run_test(input)
+        def mal_pp(input):       return do_run_test(input)
+        def empty(input):        return do_run_test(input)
+        def empty_cross(input):  return do_run_test(input)
+        def alternates(input):   return do_run_test(input)
+        def simplex(input):      return do_run_test(input)
+        def mid_complex(input):  return do_run_test(input)
+        def simple_maybe(input): return do_run_test(input)
+
+        ###
         assert _runtest(just_match,
-                        _consify_tuple_trees(let, ((first, ()),
-                                                   (second, (__car,))),
-                                            _body),
+                        (_consify_tuple_trees(let, ((first, ()),
+                                                    (second, (__car,))),
+                                              _body),
+                         (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+                                  1, {"body":[(_notlead, "\n"), _form]})),
                         ({ 'bindings': _consify_tuple_trees((first, ()),
                                                             (second, (__car,))),
                            'body':     _consify_tuple_trees(_body) },
@@ -8729,111 +8742,94 @@ def _run_tests_metasex():
                          None),
                         printer = printer)
 
-        def pp():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp,
-                              _consify_tuple_trees(let, ((first, ()),
-                                                         (second, (__car,))),
-                                                    _body),
-                              (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
-                                 1, {"body":[(_notlead, "\n"), _form]}))
         assert _runtest(pp,
-                        ({ 'bindings': ((first, ()),
-                                        (second, (__car,))),
-                                       'body':     (_body,)},
+                        (_consify_tuple_trees(let, ((first, ()),
+                                                    (second, (__car,))),
+                                              _body),
+                         (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+                            1, {"body":[(_notlead, "\n"), _form]})),
+                        ({ 'bindings': _consify_tuple_trees((first, ()),
+                                                            (second, (__car,))),
+                           'body':     _consify_tuple_trees(_body,)},
                          """(LET ((FIRST ())
       (SECOND (CAR)))
   &BODY)""",
-                         False),
+                         None),
                         printer = printer)
 
-        def mal_pp():
-                _metasex_nonstrict_pp.per_use_init()
-                return _match(_metasex_nonstrict_pp,
-                              _consify_tuple_trees(let, ((first),
-                                                         (second, (__car,), ())),
-                                                    _body),
-                              (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
-                                 1, [(_notlead, "\n"), _form]))
         # assert _runtest(mal_pp,
+        #                 (_consify_tuple_trees(let, ((first),
+        #                                             (second, (__car,), ())),
+        #                                        _body),
+        #                  (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
+        #                    1, [(_notlead, "\n"), _form])),
         #                 ({},
         #                  """(LET ((FIRST ())
         #     (SECOND (CAR)))
         # &BODY)""",
-        #                  False),
+        #                  None),
         #                 printer = printer)
-
-        def empty():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp, nil, {"whole":()})
         assert _runtest(empty,
-                        ({ 'whole': () },
+                        (nil,
+                         {"whole":()}),
+                        ({ 'whole': nil },
                          "()",
-                         False),
+                         None),
                         printer = printer)
 
-        def empty_cross():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp, nil, ({"a":[_name]}, {"b":[(_name,)]},))
         assert _runtest(empty_cross,
-                        ({ 'a': (), 'b': () },
+                        (nil,
+                         ({"a":[_name]}, {"b":[(_name,)]},)),
+                        ({ 'a': nil, 'b': nil },
                          "()",
-                         False),
+                         None),
                         printer = printer)
 
-        def alternates():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp, list_(1, "a"), {"whole":([(_or, (_typep, int),
-                                                                           (_typep, str))],)})
         assert _runtest(alternates,
-                        ({ 'whole': (1, "a") },
+                        (list_(1, "a"),
+                         {"whole":([(_or, (_typep, int),
+                                          (_typep, str))],)}),
+                        ({ 'whole': list_(1, "a") },
                          '(1"a")',
-                         False),
+                         None),
                         printer = printer)
 
         _intern_and_bind_names_in_module("PI")
-        def simplex():
-                _metasex_pp.per_use_init()
-                pat = ({'head':[()]}, {'tail':_name})
-                exp = list_(nil, pi)
-                return _match(_metasex_pp, exp, pat)
         assert _runtest(simplex,
-                        ({ 'head': ((),),
+                        (list_(nil, pi),
+                         ({'head':[()]}, {'tail':_name})),
+                        ({ 'head': list_(nil),
                            'tail': pi },
                          "(()PI)",
-                         False),
+                         None),
                         printer = printer)
 
-        def mid_complex():
-                _metasex_pp.per_use_init()
-                pat = ({"headname":_name},
+        assert _runtest(mid_complex,
+                        (list_(pi, list_(pi), list_(pi), list_(pi, pi), list_(pi, pi, pi),
+                                     list_(pi), list_(pi), list_(pi), pi, pi, pi),
+                         ({"headname":_name},
                           {"headtupname":(_name,)},
                                    {"varitupseq":[(_name, [_name])]},
                                                             {"fix1tupseq":[(_name,)]},
                                                                                    {"nameseq":[_name]},
-                                                                                        {"tailname":_name})
-                exp =         list_(pi, list_(pi), list_(pi), list_(pi, pi), list_(pi, pi, pi),
-                                    list_(pi), list_(pi), list_(pi), pi, pi, pi)
-                return _match(_metasex_pp, exp, pat)
-        assert _runtest(mid_complex,
+                                                                                        {"tailname":_name})),
                         ({ 'headname': pi,
-                          'headtupname': (pi,),
-                          'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
-                          'fix1tupseq': ((pi,), (pi,), (pi,)),
-                          'nameseq': (pi, pi),
+                          'headtupname': list_(pi),
+                          'varitupseq': _consify_tuple_trees((pi,), (pi, pi), (pi, pi, pi)),
+                          'fix1tupseq': _consify_tuple_trees((pi,), (pi,), (pi,)),
+                          'nameseq': list_(pi, pi),
                           'tailname': pi },
                          "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)",
-                         False),
+                         None),
                         # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
                         printer = printer)
 
-        def simple_maybe():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp, list_(pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
         assert _runtest(simple_maybe,
-                        ({ 'pi': (pi,), 'car': car, 'cdr': cdr, },
+                        (list_(pi, car, cdr),
+                         ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name}))),
+                        ({ 'pi': list_(pi), 'car': car, 'cdr': cdr, },
                          "(PICARCDR)",
-                         False),
+                         None),
                         printer = printer)
 
 if _getenv("CL_RUN_TESTS"):

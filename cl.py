@@ -5643,12 +5643,12 @@ def _ast_FunctionDef(name:            string_t,
                         free,
                         set())        # these do not escape..
 #       | ClassDef(identifier name,
-#                  expr* bases,
-#                  keyword* keywords,
-#                  expr? starargs,
-#                  expr? kwargs,
-#                  stmt* body,
-#                  expr* decorator_list)
+# 		   expr* bases,
+# 		   keyword* keywords,
+# 		   expr? starargs,
+# 		   expr? kwargs,
+# 		   stmt* body,
+# 		   expr* decorator_list)
 @defast
 def _ast_ClassDef(name:            string_t,
                   bases:          (pylist_t, _ast.expr),
@@ -7721,7 +7721,6 @@ class _metasex_matcher_pp(_metasex_matcher):
                                       lambda r: (" " * n) + r)
         def lead(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
-                # [[crap, [x, nil]], REST]
                 maybe_pat = pat[0][1][0]
                 # _trace_printf("lead", "!!! lead: first:%s %s %s", orifst[1], pat, exp)
                 if not orifst[1]:
@@ -7810,9 +7809,10 @@ _metasex_nonstrict_pp = _metasex_matcher_nonstrict_pp()
 # _trace(_return, "form")
 # _trace(_return, "typep")
 
-def _match_sex(sex, pattern = None):
-        _metasex.per_use_init()
-        return _match(_metasex, sex, _defaulted(pattern, _form_metasex(sex)))
+def _match_sex(sex, pattern = None, matcher = None):
+        matcher = _defaulted(matcher, _metasex)
+        matcher.per_use_init()
+        return _match(matcher, sex, _defaulted(pattern, _form_metasex(sex)))
 
 ## WIP: set specifiers (got bored)
 _string_set("*SETSPEC-SCOPE*", nil)
@@ -7935,19 +7935,33 @@ def _ir_affected(form):
 
 _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
 def _run_tests_metasex():
-        def printer(x): return ("%s\n%s\n%s" % (x[0], _pp_consly(x[1]), _pp_consly(x[2])) if isinstance(x, tuple) else
-                                _matcher_pp(x)                                            if isinstance(x, dict)  else
-                                _matcher_pp(x)                                            if consp(x)             else
-                                str(x))
-        def just_match(input):
-                _metasex.per_use_init()
-                return _match(_metasex, input,
-                              (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
-                                 1, {"body":[(_notlead, "\n"), _form]}))
+        def printer(x):
+                return ((("%s\n%s\n%s" % (x[0], _pp_consly(x[1]), _pp_consly(x[2])))
+                         if len(x) is 3 else
+                         ("%s\n%s" % (_pp_consly(x[0]), _pp_consly(x[1]))))
+                                                                                  if isinstance(x, tuple) else
+                        _matcher_pp(x)                                            if isinstance(x, dict)  else
+                        _matcher_pp(x)                                            if consp(x)             else
+                        str(x))
+        def do_run_test(input, matcher = _metasex_pp):
+                return _match_sex(input[0], input[1], matcher = matcher)
+        def just_match(input):   return do_run_test(input, matcher = _metasex)
+        def pp(input):           return do_run_test(input)
+        def mal_pp(input):       return do_run_test(input)
+        def empty(input):        return do_run_test(input)
+        def empty_cross(input):  return do_run_test(input)
+        def alternates(input):   return do_run_test(input)
+        def simplex(input):      return do_run_test(input)
+        def mid_complex(input):  return do_run_test(input)
+        def simple_maybe(input): return do_run_test(input)
+
+        ###
         assert _runtest(just_match,
-                        _consify_tuple_trees(let, ((first, ()),
-                                                   (second, (__car,))),
-                                            _body),
+                        (_consify_tuple_trees(let, ((first, ()),
+                                                    (second, (__car,))),
+                                              _body),
+                         (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+                                  1, {"body":[(_notlead, "\n"), _form]})),
                         ({ 'bindings': _consify_tuple_trees((first, ()),
                                                             (second, (__car,))),
                            'body':     _consify_tuple_trees(_body) },
@@ -7955,111 +7969,94 @@ def _run_tests_metasex():
                          None),
                         printer = printer)
 
-        def pp():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp,
-                              _consify_tuple_trees(let, ((first, ()),
-                                                         (second, (__car,))),
-                                                    _body),
-                              (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
-                                 1, {"body":[(_notlead, "\n"), _form]}))
         assert _runtest(pp,
-                        ({ 'bindings': ((first, ()),
-                                        (second, (__car,))),
-                                       'body':     (_body,)},
+                        (_consify_tuple_trees(let, ((first, ()),
+                                                    (second, (__car,))),
+                                              _body),
+                         (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
+                            1, {"body":[(_notlead, "\n"), _form]})),
+                        ({ 'bindings': _consify_tuple_trees((first, ()),
+                                                            (second, (__car,))),
+                           'body':     _consify_tuple_trees(_body,)},
                          """(LET ((FIRST ())
       (SECOND (CAR)))
   &BODY)""",
-                         False),
+                         None),
                         printer = printer)
 
-        def mal_pp():
-                _metasex_nonstrict_pp.per_use_init()
-                return _match(_metasex_nonstrict_pp,
-                              _consify_tuple_trees(let, ((first),
-                                                         (second, (__car,), ())),
-                                                    _body),
-                              (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
-                                 1, [(_notlead, "\n"), _form]))
         # assert _runtest(mal_pp,
+        #                 (_consify_tuple_trees(let, ((first),
+        #                                             (second, (__car,), ())),
+        #                                        _body),
+        #                  (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
+        #                    1, [(_notlead, "\n"), _form])),
         #                 ({},
         #                  """(LET ((FIRST ())
         #     (SECOND (CAR)))
         # &BODY)""",
-        #                  False),
+        #                  None),
         #                 printer = printer)
-
-        def empty():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp, nil, {"whole":()})
         assert _runtest(empty,
-                        ({ 'whole': () },
+                        (nil,
+                         {"whole":()}),
+                        ({ 'whole': nil },
                          "()",
-                         False),
+                         None),
                         printer = printer)
 
-        def empty_cross():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp, nil, ({"a":[_name]}, {"b":[(_name,)]},))
         assert _runtest(empty_cross,
-                        ({ 'a': (), 'b': () },
+                        (nil,
+                         ({"a":[_name]}, {"b":[(_name,)]},)),
+                        ({ 'a': nil, 'b': nil },
                          "()",
-                         False),
+                         None),
                         printer = printer)
 
-        def alternates():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp, list_(1, "a"), {"whole":([(_or, (_typep, int),
-                                                                           (_typep, str))],)})
         assert _runtest(alternates,
-                        ({ 'whole': (1, "a") },
+                        (list_(1, "a"),
+                         {"whole":([(_or, (_typep, int),
+                                          (_typep, str))],)}),
+                        ({ 'whole': list_(1, "a") },
                          '(1"a")',
-                         False),
+                         None),
                         printer = printer)
 
         _intern_and_bind_names_in_module("PI")
-        def simplex():
-                _metasex_pp.per_use_init()
-                pat = ({'head':[()]}, {'tail':_name})
-                exp = list_(nil, pi)
-                return _match(_metasex_pp, exp, pat)
         assert _runtest(simplex,
-                        ({ 'head': ((),),
+                        (list_(nil, pi),
+                         ({'head':[()]}, {'tail':_name})),
+                        ({ 'head': list_(nil),
                            'tail': pi },
                          "(()PI)",
-                         False),
+                         None),
                         printer = printer)
 
-        def mid_complex():
-                _metasex_pp.per_use_init()
-                pat = ({"headname":_name},
+        assert _runtest(mid_complex,
+                        (list_(pi, list_(pi), list_(pi), list_(pi, pi), list_(pi, pi, pi),
+                                     list_(pi), list_(pi), list_(pi), pi, pi, pi),
+                         ({"headname":_name},
                           {"headtupname":(_name,)},
                                    {"varitupseq":[(_name, [_name])]},
                                                             {"fix1tupseq":[(_name,)]},
                                                                                    {"nameseq":[_name]},
-                                                                                        {"tailname":_name})
-                exp =         list_(pi, list_(pi), list_(pi), list_(pi, pi), list_(pi, pi, pi),
-                                    list_(pi), list_(pi), list_(pi), pi, pi, pi)
-                return _match(_metasex_pp, exp, pat)
-        assert _runtest(mid_complex,
+                                                                                        {"tailname":_name})),
                         ({ 'headname': pi,
-                          'headtupname': (pi,),
-                          'varitupseq': ((pi,), (pi, pi), (pi, pi, pi)),
-                          'fix1tupseq': ((pi,), (pi,), (pi,)),
-                          'nameseq': (pi, pi),
+                          'headtupname': list_(pi),
+                          'varitupseq': _consify_tuple_trees((pi,), (pi, pi), (pi, pi, pi)),
+                          'fix1tupseq': _consify_tuple_trees((pi,), (pi,), (pi,)),
+                          'nameseq': list_(pi, pi),
                           'tailname': pi },
                          "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)",
-                         False),
+                         None),
                         # "(PI (PI) (PI) (PI PI) (PI PI PI) (PI) (PI) (PI) PI PI PI)"
                         printer = printer)
 
-        def simple_maybe():
-                _metasex_pp.per_use_init()
-                return _match(_metasex_pp, list_(pi, car, cdr), ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name})))
         assert _runtest(simple_maybe,
-                        ({ 'pi': (pi,), 'car': car, 'cdr': cdr, },
+                        (list_(pi, car, cdr),
+                         ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name}))),
+                        ({ 'pi': list_(pi), 'car': car, 'cdr': cdr, },
                          "(PICARCDR)",
-                         False),
+                         None),
                         printer = printer)
 
 if _getenv("CL_RUN_TESTS"):
@@ -10975,15 +10972,15 @@ correspondences are as follows:
 
 Table 2: Initialization arguments and accessors for generic function metaobjects.
 
-Initialization Argument         Generic Function
+Initialization Argument		Generic Function
 --------------------------------------------------------------------------
-:argument-precedence-order      generic-function-argument-precedence-order
-:declarations                   generic-function-declarations
-:documentation                  documentation
-:lambda-list                    generic-function-lambda-list
-:method-combination             generic-function-method-combination
-:method-class                   generic-function-method-class
-:name                           generic-function-name
+:argument-precedence-order 	generic-function-argument-precedence-order
+:declarations 			generic-function-declarations
+:documentation 			documentation
+:lambda-list 			generic-function-lambda-list
+:method-combination 		generic-function-method-combination
+:method-class 			generic-function-method-class
+:name 				generic-function-name
 
 Methods:
 
