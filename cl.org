@@ -4049,15 +4049,16 @@ def _consify_tuple_tree(xs):
 def _consify_tuple_trees(*xs):
         return _consify_tuple_tree(xs)
 
-def _pp_consly(x):
+def _pp_consly(x, dispatch = dict()):
         if consp(x):
                 acc = []
                 ptr = x
                 while ptr:
-                        acc.append(_pp_consly(ptr[0]))
+                        acc.append(_pp_consly(ptr[0], dispatch = dispatch))
                         ptr = ptr[1]
                 return "(" + " ".join(acc) + ")"
-        return str(x)
+        return (repr              if isinstance(x, str)  else
+                dispatch[type(x)] if type(x) in dispatch else str)(x)
 #+end_src
 
 *** Sequences
@@ -7048,6 +7049,9 @@ def _trace_frame():
                 _debug_printf(" *** frame %s exceeded livelock suspicion threshold:", _frame_id(f)[:4])
                 _backtrace(frame_ids = True)
 
+def _matcher_pp(x):
+        return _pp_consly(x, dispatch = { dict: lambda x: repr(list(x.keys())[0]) + "::" + _pp_consly(list(x.values())[0]) })
+
 def _r(x, y, retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex", "simplex"]), id_frames = False):
         def pp_frame(f):
                 return ("%s_%s" % (_frame_fun_name(f),
@@ -7353,6 +7357,8 @@ class _matcher():
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
                 ## the acute sense of time being wasted..
                 atomp, null = atom(pat), pat is nil
+                def pp_binding(x):
+                        return repr(list(x.keys())[0]) + "::" + _pp_consly(list(x.values())[0])
                 # _trace_printf("match", "       _match  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  %s  %s, atomp: %s, null: %s, complexp: %s, simplexp: %s",
                 #               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, aux, limit,
                 #                        atomp, null,
@@ -8706,7 +8712,8 @@ def _ir_affected(form):
 _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
 def _run_tests_metasex():
         def printer(x): return ("%s\n%s\n%s" % (x[0], _pp_consly(x[1]), _pp_consly(x[2])) if isinstance(x, tuple) else
-                                _pp_consly(x)                                             if consp(x)             else
+                                _matcher_pp(x)                                            if isinstance(x, dict)  else
+                                _matcher_pp(x)                                            if consp(x)             else
                                 str(x))
         def just_match(input):
                 _metasex.per_use_init()
