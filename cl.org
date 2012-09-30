@@ -7273,7 +7273,7 @@ class _matcher():
                 firstp = aux is None
                 ## 2. Memoize the tuple being iteratively matched upon.
                 ## Unregistered Issue TRY-SIMPLIFY-OUT-AUX
-                aux = list_(seg_pat, list_(_some, seg_pat)) if aux is None else aux
+                aux = append(seg_pat, pat) if aux is None else aux
                 with _match_level([exp, pat]):
                         # _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
                         #               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
@@ -7325,7 +7325,7 @@ class _matcher():
                 ## So, do we need a separate stack for aux here?  Sounds like an in inevitability..
                 ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
                 with _match_level():
-                        return m.segment(bound, name, exp, [list_(_some, pat[0][1]), pat[1]], orifst, None, 1)
+                        return m.segment(bound, name, exp, [[_some, pat[0][1]], pat[1]], orifst, None, 1)
         def or_(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
                 alternatives = pat[0][1]
@@ -8133,21 +8133,19 @@ def _preprocess_metasex(pat):
         "Expand syntactic sugars."
         def prep_binding(b):
                 k, v = tuple(b.items())[0]
-                return {k: _preprocess_metasex(v)}
-        ret = ((_count_scope, (_some,) +
-                tuple(_preprocess_metasex(x) for x in pat)) if isinstance(pat, list)                else
-                prep_binding(pat)                           if isinstance(pat, dict)                else
-                (_form,)                                    if pat is _form                         else
-                (_newline, 0)                               if pat == "\n"                          else
-                (_newline, pat)                             if isinstance(pat, int)                 else
-                (_indent, 1)                                if pat == " "                           else
-                pat                                         if not (pat and isinstance(pat, tuple)) else
-                ((identity if _metasex_word_p(pat[0]) else
-                  _preprocess_metasex)(pat[0]),) + tuple((                     x  for x in pat[1:])
-                                                          if _metasex_leaf_word_p(pat[0]) else
-                                                          (_preprocess_metasex(x) for x in pat[1:])))
+                return { k: _preprocess_metasex(v) }
+        ret = ((_count_scope,
+                 (_some,) + tuple(_preprocess_metasex(x) for x in pat)) if isinstance(pat, list)                   else
+               prep_binding(pat)                                        if isinstance(pat, dict)                   else
+               (_form,)                                                 if pat is _form                            else
+               (_newline, 0)                                            if pat == "\n"                             else
+               (_newline, pat)                                          if isinstance(pat, int)                    else
+               (_indent, 1)                                             if pat == " "                              else
+               pat                                                      if not isinstance(pat, tuple) or pat == () else
+               (((identity if _metasex_word_p(pat[0])      else _preprocess_metasex)(pat[0]),)
+                + (pat[1:] if _metasex_leaf_word_p(pat[0]) else tuple(_preprocess_metasex(x) for x in pat[1:]))))
         # _here("\n ==> %s   -   %s", pat, ret, callers = 15)
-        return _consify_tuple_tree(ret)
+        return ret
 #+END_SRC
 
 *** DEFKNOWN
@@ -8405,8 +8403,8 @@ class _metasex_matcher(_matcher):
                                  }
                 if consp(pat):
                         args = pat[1]
-                        # _debug_printf("args of %s: %s, ", pat, args)
-                        for argname, argval in args:
+                        # _debug_printf("args of %s: %s", _pp_consly(pat), _pp_consly(args))
+                        for argname, argval in _vectorise_cons_list(args):
                                 if argname not in arg_handlers:
                                         error("Invalid FORM argument: %s, pat: %s", argname, pat)
                                 arg_applicable_p, arg_handler = arg_handlers[argname]
@@ -8493,26 +8491,26 @@ class _metasex_matcher_pp(_metasex_matcher):
                 maybe_pat = pat[0][1][0]
                 # _trace_printf("lead", "!!! lead: first:%s %s %s", orifst[1], pat, exp)
                 if not orifst[1]:
-                        return m.match(bound, name, exp, pat[1],             orifst, aux, limit)
+                        return m.match(bound, name, exp, pat[1],              orifst, aux, limit)
                 ############## act as identity
-                return         m.match(bound, name, exp, pat[0][1] + pat[1], orifst, aux, limit)
+                return         m.match(bound, name, exp, [maybe_pat, pat[1]], orifst, aux, limit)
         def notlead(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
                 maybe_pat = pat[0][1][0]
                 # _trace_printf("notlead", "!!! notlead: first:%s %s %s", orifst[1], pat, exp)
                 if orifst[1]:
-                        return m.match(bound, name, exp, pat[1],             orifst, aux, limit)
+                        return m.match(bound, name, exp, pat[1],              orifst, aux, limit)
                 ############## act as identity
-                return         m.match(bound, name, exp, pat[0][1] + pat[1], orifst, aux, limit)
+                return         m.match(bound, name, exp, [maybe_pat, pat[1]], orifst, aux, limit)
         def nottail(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
                 maybe_pat = pat[0][1][0]
                 before_end = exp is nil
                 # _trace_printf("nottail", "!!! nottail: before-end:%s %s %s", before_end, pat, exp)
                 if before_end:
-                        return m.match(bound, name, exp, pat[1],             orifst, aux, limit)
+                        return m.match(bound, name, exp, pat[1],              orifst, aux, limit)
                 ############## act as identity
-                return         m.match(bound, name, exp, pat[0][1] + pat[1], orifst, aux, limit)
+                return         m.match(bound, name, exp, [maybe_pat, pat[1]], orifst, aux, limit)
 
 _intern_and_bind_names_in_module_specifically(
         ("_lax",        "%LAX"))
@@ -8724,11 +8722,11 @@ def _run_tests_metasex():
                         _consify_tuple_trees(let, ((first, ()),
                                                    (second, (__car,))),
                                             _body),
-                        ({ 'bindings': ((first, ()),
-                                        (second, (__car,))),
-                           'body':     (_body,)},
+                        ({ 'bindings': _consify_tuple_trees((first, ()),
+                                                            (second, (__car,))),
+                           'body':     _consify_tuple_trees(_body) },
                          t,
-                         False),
+                         None),
                         printer = printer)
 
         def pp():
