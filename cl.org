@@ -7276,15 +7276,16 @@ class _matcher():
                         # _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
                         #               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
                         ## 3. (Re-)establish and check the boundary.
+                        exlen = length(exp)
                         end = (end                    if end is not None                          else
                                posn(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                                0)
-                        if ((end and end > len(exp)) or ## All legitimate splits failed.
-                            end is None):               ## A constant pattern was missing, likewise.
+                        if ((end and end > exlen) or ## All legitimate splits failed.
+                            end is None):            ## A constant pattern was missing, likewise.
                                 # _debug_printf("   FAILing seg: %s", pat)
                                 return m.fail(bound, exp, pat)
                         ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
-                        cut = end if rest_pat else length(exp)
+                        cut = end if rest_pat else exlen
                         seg_exp, rest_exp = (subseq(exp, 0, cut),
                                              exp if cut is None else subseq(exp, cut))
                         # _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
@@ -7295,9 +7296,9 @@ class _matcher():
                                                                m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
                                                                       if_exists = replace))
                                                       (*(## Test for success -- segment piece exhausted.
-                                                         m.succ(m.bind((), bound, name), m.prod((), orifst[0])) if seg_exp is nil else
+                                                         m.succ(m.bind(nil, bound, name), m.prod(nil, orifst[0])) if seg_exp is nil else
                                                          ## Test specific for bounded matching.
-                                                         m.fail(bound, exp, pat)                                if limit == 0     else
+                                                         m.fail(bound, exp, pat)                                  if limit == 0     else
                                                          ## Try biting one more iteration off seg_exp:
                                                          m.match(bound, name,  seg_exp,     aux,  (False,
                                                                                                    firstp), aux, limit - 1)))),
@@ -7377,8 +7378,8 @@ class _matcher():
                                 m.fail(bound, exp, pat)          if not consp(exp)        else
                                 m.equo(name, exp,
                                        m.crec(exp,
-                                              lambda:        m.match(bound, pat0name, exp[0],  pat0, (isinstance(exp[0], tuple),
-                                                                                                      orifst[1]),
+                                              lambda:        m.match(bound, pat0name, exp[0], pat0, (listp(exp[0]),
+                                                                                                     orifst[1]),
                                                                      None, -1),
                                               (lambda b0und: m.match(b0und, None,     exp[1], patR, (False, orifst[1]), aux, limit)),
                                               originalp = orifst[0],
@@ -8460,8 +8461,8 @@ class _metasex_matcher_pp(_metasex_matcher):
         @staticmethod
         def prod(x, originalp):
                 # _trace_frame()
-                result = (""            if not (originalp or x or (originalp and x is nil) or x is nil) else
-                          '"' + x + '"' if isinstance(x, str)                                           else
+                result = (""            if x is nil and (not originalp) else
+                          '"' + x + '"' if isinstance(x, str)           else
                           str(x))
                 # _trace_printf("yield", "+++ YIELD prod:\n%s", result)
                 return result
@@ -8536,13 +8537,13 @@ class _metasex_matcher_nonstrict_pp(_metasex_matcher_pp):
                         nonlocal bound0, failex, failpat
                         _, failex, failpat = l0()
                         if failpat is None: return failex
-                        return m.match({}, None, exp, ([(_lax,)],) if isinstance(exp, tuple) else (_typep, t),
+                        return m.match({}, None, exp, ([(_lax,)],) if listp(exp) else (_typep, t),
                                        (None, None), None, None)
                 def try_R():
                         nonlocal boundR, failex, failpat
                         _, failex, failpat = lR(bound0)
                         if failpat is None: return failex
-                        return m.match({}, None, exp, ([(_lax,)],) if isinstance(exp, tuple) else (_typep, t),
+                        return m.match({}, None, exp, ([(_lax,)],) if listp(exp) else (_typep, t),
                                        (None, None), None, None)
                 result = (m.comh if horisontal else
                           m.comr)(try_0, try_R, originalp)
@@ -8751,7 +8752,7 @@ def _run_tests_metasex():
                         ({ 'bindings': _consify_tuple_trees((first, ()),
                                                             (second, (__car,))),
                            'body':     _consify_tuple_trees(_body,)},
-                         """(LET ((FIRST ())
+                         """(LET ((FIRST NIL)
       (SECOND (CAR)))
   &BODY)""",
                          None),
@@ -8771,9 +8772,9 @@ def _run_tests_metasex():
         #                 printer = printer)
         assert _runtest(empty,
                         (nil,
-                         {"whole":()}),
+                         {"whole":nil}),
                         ({ 'whole': nil },
-                         "()",
+                         "NIL",
                          None),
                         printer = printer)
 
@@ -8781,7 +8782,7 @@ def _run_tests_metasex():
                         (nil,
                          ({"a":[_name]}, {"b":[(_name,)]},)),
                         ({ 'a': nil, 'b': nil },
-                         "()",
+                         "NIL",
                          None),
                         printer = printer)
 
@@ -8797,10 +8798,10 @@ def _run_tests_metasex():
         _intern_and_bind_names_in_module("PI")
         assert _runtest(simplex,
                         (list_(nil, pi),
-                         ({'head':[()]}, {'tail':_name})),
+                         ({'head':[nil]}, {'tail':_name})),
                         ({ 'head': list_(nil),
                            'tail': pi },
-                         "(()PI)",
+                         "(NILPI)",
                          None),
                         printer = printer)
 
