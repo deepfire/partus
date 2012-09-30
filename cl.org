@@ -4060,7 +4060,42 @@ def _consify_tuple_trees(*xs):
 
 @defun
 def subseq(xs, start, end = nil):
-        _not_implemented()
+        def error_bad_indices(start, end, actual):
+                error("The bounding indices %d and %s are bad for a sequence of length %d",
+                      start, end, actual)
+        if not (isinstance(start, int) and start > -1):
+                error("Invalid sequence index: %s", start)
+        if listp(xs):
+                i = 0
+                if end:
+                        while i != start:
+                                if xs is nil:
+                                        error_bad_indices(start, end, i)
+                                xs = xs[1]
+                                i += 1
+                        if end is start:
+                                return nil
+                        if xs is nil:
+                                error_bad_indices(start, end, i)
+                        ret = ptr = [xs[0], nil]
+                        while True:
+                                i += 1
+                                if i == end:
+                                        return ret
+                                xs = xs[1]
+                                if xs is nil:
+                                        error_bad_indices(start, end, i)
+                                ptr[1] = [xs[0], nil]
+                else:
+                        ptr = xs
+                        while i != start:
+                                if ptr is nil:
+                                        error_bad_indices(start, end, i)
+                                ptr = ptr[1]
+                                i += 1
+                        return ptr
+        else:
+                _not_implemented("Non-cons case of SUBSEQ.")
 
 _key_, _start, _end, _from_end = [ _keyword(x) for x in ["KEY", "START", "END", "FROM-END"] ]
 
