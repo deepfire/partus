@@ -3568,6 +3568,16 @@ def _consify_tuple_tree(xs):
 def _consify_tuple_trees(*xs):
         return _consify_tuple_tree(xs)
 
+def _pp_consly(x):
+        if consp(x):
+                acc = []
+                ptr = x
+                while ptr:
+                        acc.append(_pp_consly(ptr[0]))
+                        ptr = ptr[1]
+                return "(" + " ".join(acc) + ")"
+        return str(x)
+
 # Sequences
 
 # COPY-SEQ
@@ -4329,16 +4339,6 @@ def _expand_quasiquotation(form):
                 else:
                         _debug_printf(";;;%s quasiquotation had no effect", _sex_space(-3, ";"))
         return result
-
-def _pp_consly(x):
-        if consp(x):
-                acc = []
-                ptr = x
-                while ptr:
-                        acc.append(_pp_consly(ptr[0]))
-                        ptr = ptr[1]
-                return "(" + " ".join(acc) + ")"
-        return str(x)
 
 def _run_tests_quasiquotation():
         def quasiquotation_simple(x): return _expand_quasiquotation(x)
