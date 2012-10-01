@@ -7137,8 +7137,9 @@ class _matcher():
                 #         _debug_printf("replacing fail %s ---> %s", x[2], pat)
                 return x if x[2] is None else (x[0], x[1], pat)
         ###
-        def test(m, test, bound, name, resf:"() -> result", exp, fail_pat, if_exists:{error, replace} = error):
-                with _match_level():
+        def test(m, test, bound, name, resf:"() -> result", exp, fail_pat,
+                 if_exists:{error, replace} = error, comment = None):
+                with _match_level([test] + ([comment] if comment else [])):
                         # _debug_printf("test: %s", exp)
                         # _trace_frame()
                         return (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
