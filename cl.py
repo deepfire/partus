@@ -6439,18 +6439,19 @@ def _r(x, y, retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex"
 __enable_matcher_tracing__ = False
 _string_set("*MATCHER-DEPTH*", 0)
 
-def _matcher_deeper(x):
+def _matcher_deeper(x, name = None):
         depth = symbol_value(_matcher_depth_)
-        _debug_printf("%s%s    %s", " " * depth, _caller_name(1).upper(), x or "")
+        _debug_printf("%s%s    %s", " " * depth, _defaulted(name, _caller_name(1).upper()),
+                      ("  -  ".join(_matcher_pp(x) for x in x)) if x else "")
         _dynamic_scope_push({ _matcher_depth_: depth + 1 })
 
-def _make_ml(_, x = None, **args):
+def _make_ml(_, x = None, name = None, **args):
         o = object.__new__(_, **args)
-        o.x = x
+        o.x, o.name = x, name
         return o
 
 _match_level = _defwith("_match_level",
-                        lambda self: __enable_matcher_tracing__ and _matcher_deeper(self.x),
+                        lambda self: __enable_matcher_tracing__ and _matcher_deeper(self.x, name = self.name),
                         lambda *_:   __enable_matcher_tracing__ and _dynamic_scope_pop(),
                         __new__ = _make_ml)
 
@@ -6522,26 +6523,27 @@ class _matcher():
                         lRb, lRr, lRf = lR()
                         if lRf is None: return m.succ(lRb, lRr)
                         return m.fail(l0b, *combine_fail(l0r, l0f, lRr, lRf, originalp))
-        def crec(m, exp, l0, lR, horisontal = True, originalp = False):
+        def crec(m, expat, l0, lR, horisontal = True, originalp = False):
                 # _trace_frame()
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 b0, bR, fx0, fxR, fp0, fpR  = None, None, None, None, None, None
                 def try_0():
                         nonlocal b0, fx0, fp0
-                        b0, fx0, fp0 = l0()
+                        with _match_level(name = "CAR"):
+                                b0, fx0, fp0 = l0()
                         if fp0 is None: return fx0
                 def try_R():
                         nonlocal bR, fxR, fpR
-                        bR, fxR, fpR = lR(b0)
+                        with _match_level(name = "CDR"):
+                                bR, fxR, fpR = lR(b0)
                         if fpR is None: return fxR
-                with _match_level():
-                        result = (m.comh if horisontal else
-                                  m.comr)(try_0, try_R, originalp)
-                        # _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
-                        #               lambda: (exp, originalp, _caller_name(2), _caller_name(1), result))
-                        return (m.succ(bR, result)      if fp0 is None and fpR is None else
-                                m.fail(*((b0, fx0, fp0) if fp0 is not None             else
-                                         (bR, fxR, fpR))))
+                result = (m.comh if horisontal else
+                          m.comr)(try_0, try_R, originalp)
+                # _trace_printf("yield", "+++ YIELD for %s (orig: %s, call: %s->%s):\n%s",
+                #               lambda: (exp, originalp, _caller_name(2), _caller_name(1), result))
+                return (m.succ(bR, result)      if fp0 is None and fpR is None else
+                        m.fail(*((b0, fx0, fp0) if fp0 is not None             else
+                                 (bR, fxR, fpR))))
         ###
         def register_simplex_matcher(m, name, matcher):
                 __metasex_words__.add(name)
@@ -6642,23 +6644,27 @@ class _matcher():
                 ## 2. Memoize the tuple being iteratively matched upon.
                 ## Unregistered Issue TRY-SIMPLIFY-OUT-AUX
                 aux = append(seg_pat, pat) if aux is None else aux
-                with _match_level([exp, pat]):
-                        # _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
-                        #               lambda: (id(exp) ^ id(pat), name, bound, exp, pat, orifst, firstp, aux, limit))
-                        ## 3. (Re-)establish and check the boundary.
-                        exlen = length(exp)
-                        end = (end                    if end is not None                          else
-                               posn(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
-                               0)
-                        if ((end and end > exlen) or ## All legitimate splits failed.
-                            end is None):            ## A constant pattern was missing, likewise.
-                                # _debug_printf("   FAILing seg: %s", pat)
-                                return m.fail(bound, exp, pat)
-                        ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
-                        cut = end if rest_pat else exlen
-                        seg_exp, rest_exp = (subseq(exp, 0, cut),
-                                             exp if cut is None else subseq(exp, cut))
-                        # _trace_printf("segment", "segment  seg_exp:%s", seg_exp)
+                _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
+                              lambda: (id(exp) ^ id(pat), name, bound,
+                                       _matcher_pp(exp), _matcher_pp(pat), orifst, firstp, _matcher_pp(aux), limit))
+                ## 3. (Re-)establish and check the boundary.
+                exlen = length(exp)
+                end = (end                    if end is not None                          else
+                       posn(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
+                       0)
+                if ((end and end > exlen) or ## All legitimate splits failed.
+                    end is None):            ## A constant pattern was missing, likewise.
+                        # _debug_printf("   FAILing seg: %s  -at-  %s,   end:%s exlen:%s,    --  %s",
+                        #               _matcher_pp(pat), _matcher_pp(exp), end, exlen,
+                        #               "(end and end > exlen)" if (end and end > exlen) else
+                        #               "end is None"           if end is None           else
+                        #               error("INTERNAL ERROR"))
+                        return m.fail(bound, exp, pat)
+                ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
+                cut = end if rest_pat else exlen
+                seg_exp, rest_exp = (subseq(exp, 0, cut),
+                                     exp if cut is None else subseq(exp, cut))
+                with _match_level([exp, seg_exp, rest_exp, pat]):
                         ## 5. Recursion and alternate length attempts.
                         return m.coor(m.crec(exp,
                                              lambda:
@@ -6747,7 +6753,7 @@ class _matcher():
                                                                  if m.complex_pat_p(pat0) else
                                 m.fail(bound, exp, pat)          if not consp(exp)        else
                                 m.equo(name, exp,
-                                       m.crec(exp,
+                                       m.crec([exp, pat],
                                               lambda:        m.match(bound, pat0name, exp[0], pat0, (listp(exp[0]),
                                                                                                      orifst[1]),
                                                                      None, -1),
@@ -7648,7 +7654,7 @@ class _metasex_matcher(_matcher):
                                         return True, ret
                 return None, None
         def form(m, bound, name, form, pat, orifst, ignore_args = None):
-                with _match_level(form):
+                with _match_level([form, pat]):
                         # _trace_frame()
                         ## This is actually a filter.
                         # _debug_printf("\n\nFORM -- %s -- %s", form, pat)
