@@ -7060,7 +7060,10 @@ def _r(x, y, retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex"
                                        for f in _frames_calling(_caller_frame(2))
                                        if _frame_fun_name(f) not in ignore_callers))))
                 return (":".join(pp_frame(f) for f in frames),
-                        q, retval, x, y)
+                        q, "<==%s  %s  %s==>" % (retval[0],
+                                                 _matcher_pp(retval[1]),
+                                                 _matcher_pp(retval[2])),
+                        _matcher_pp(x), _matcher_pp(y))
         # _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s", trace_args)
         return retval
 
