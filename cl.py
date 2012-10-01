@@ -6436,6 +6436,7 @@ def _r(x, y, retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex"
                                                  _matcher_pp(retval[1]),
                                                  _matcher_pp(retval[2])),
                         _matcher_pp(x), _matcher_pp(y))
+        _trace_printf(_return, "--- %s%3s\n   %s   %s   %s", trace_args)
         return retval
 
 __enable_matcher_tracing__ = False
