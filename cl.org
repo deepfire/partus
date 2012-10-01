@@ -7267,7 +7267,7 @@ class _matcher():
                                 if x == pos[0]: return i
                                 pos = pos[1]
                 def constant_pat_p(pat):
-                        def nonconstant_pat_p(x): return isinstance(x, list) or m.nonliteral_atom_p(x)
+                        def nonconstant_pat_p(x): return consp(x) or m.nonliteral_atom_p(x)
                         return not nonconstant_pat_p(tuple(pat.items())[0][1] if isinstance(pat, dict) else
                                                      pat)
                 ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
@@ -7276,7 +7276,7 @@ class _matcher():
                 firstp = aux is None
                 ## 2. Memoize the tuple being iteratively matched upon.
                 ## Unregistered Issue TRY-SIMPLIFY-OUT-AUX
-                aux = append(seg_pat, pat) if aux is None else aux
+                aux = append(seg_pat, list_(pat[0])) if aux is None else aux
                 _trace_printf("segment", "segment  %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  firstp:%s newaux:%s limit:%s",
                               lambda: (id(exp) ^ id(pat), name, bound,
                                        _matcher_pp(exp), _matcher_pp(pat), orifst, firstp, _matcher_pp(aux), limit))
@@ -7299,7 +7299,7 @@ class _matcher():
                                      exp if cut is None else subseq(exp, cut))
                 with _match_level([exp, seg_exp, rest_exp, pat]):
                         ## 5. Recursion and alternate length attempts.
-                        return m.coor(m.crec(exp,
+                        return m.coor(m.crec([exp, pat],
                                              lambda:
                                                      ((lambda seg_bound, seg_r, seg_fail_pat:
                                                                m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
