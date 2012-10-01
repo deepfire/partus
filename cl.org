@@ -7149,14 +7149,6 @@ class _matcher():
                 b, r, f = x
                 return ((m.bind(exp, b, name), r, f) if f is None else
                         x) # propagate failure as-is
-        def coor(m, l0ret, lR, originalp = False, combine_fail = None):
-                with _match_level():
-                        # _trace_frame()
-                        l0b, l0r, l0f = l0ret
-                        if l0f is None: return m.succ(l0b, l0r)
-                        lRb, lRr, lRf = lR()
-                        if lRf is None: return m.succ(lRb, lRr)
-                        return m.fail(l0b, *combine_fail(l0r, l0f, lRr, lRf, originalp))
         def crec(m, expat, l0, lR, horisontal = True, originalp = False):
                 # _trace_frame()
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
@@ -7298,34 +7290,35 @@ class _matcher():
                 cut = end if rest_pat else exlen
                 seg_exp, rest_exp = (subseq(exp, 0, cut),
                                      exp if cut is None else subseq(exp, cut))
-                with _match_level([exp, seg_exp, rest_exp, pat]):
-                        ## 5. Recursion and alternate length attempts.
-                        return m.coor(m.crec([exp, pat],
-                                             lambda:
-                                                     ((lambda seg_bound, seg_r, seg_fail_pat:
-                                                               m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
-                                                                      if_exists = replace))
-                                                      (*(## Test for success -- segment piece exhausted.
-                                                         m.succ(m.bind(nil, bound, name), m.prod(nil, orifst[0])) if seg_exp is nil else
-                                                         ## Test specific for bounded matching.
-                                                         m.fail(bound, exp, pat)                                  if limit == 0     else
-                                                         ## Try biting one more iteration off seg_exp:
-                                                         m.match(bound, name,  seg_exp,     aux,  (False,
-                                                                                                   firstp), aux, limit - 1)))),
-                                             lambda seg_bound:
-                                                     m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
-                                             originalp = firstp and orifst[0] and seg_exp is not nil,
-                                             horisontal = t),
-                                        ## Retry with a longer part of expression allotted to this segment.
-                                        lambda: m.segment(bound, name,      exp,      pat, orifst,   None,  limit,
-                                                          end + 1),
-                                        combine_fail = (lambda e0, p0, eR, pR, _:
-                                                        # _debug_printf("    SEGFAIL %s   %s:\nef0: %s  %s\nefR: %s  %s\nret: %s",
-                                                        #               pat, seg_pat, e0, p0, eR, pR,
-                                                        #               ((e0, p0) if pR == pat else
-                                                        #                (eR, pR))) or
-                                                        ((e0, p0) if pR == pat else
-                                                         (eR, pR))))
+                with _match_level([end, exp, seg_exp, rest_exp, pat]):
+                        ## 5. Try match at the chosen split -- the rest part first, then the segment part.
+                        brf_0 = m.crec([exp, pat],
+                                       lambda:
+                                               ((lambda seg_bound, seg_r, seg_fail_pat, comment:
+                                                         m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
+                                                                if_exists = replace, comment = comment))
+                                                (*(## Test for success -- segment piece exhausted.
+                                                   m.succ(m.bind(nil, bound, name), m.prod(nil, orifst[0]))
+                                                   + ("segment exhausted",)           if seg_exp is nil else
+                                                   ## Test specific for bounded matching.
+                                                   m.fail(bound, exp, pat)
+                                                   + ("segment match limit reached",) if limit == 0     else
+                                                   ## Try biting one more iteration off seg_exp:
+                                                   m.match(bound, name,  seg_exp,     aux,  (False,
+                                                                                             firstp), aux, limit - 1)
+                                                   + ("try match car",)))),
+                                       lambda seg_bound:
+                                               m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
+                                       originalp = firstp and orifst[0] and seg_exp is not nil,
+                                       horisontal = t)
+                        if brf_0[2] is None:
+                                return m.succ(brf_0[0], brf_0[1])
+                ## 6. Alternate length attempts.
+                brf_1 = m.segment(bound, name, exp, pat, orifst, None, limit, end + 1)
+                if brf_1[2] is None:
+                        return m.succ(brf_1[0], brf_1[1])
+                return m.fail(brf_0[0], *((brf_0[1], brf_0[2]) if brf_1[2] == pat else
+                                          (brf_1[1], brf_1[2])))
         def maybe(m, bound, name, exp, pat, orifst, aux, limit):
                 # _trace_frame()
                 ## The semantics of aux are painfully unclear here:
@@ -7340,15 +7333,18 @@ class _matcher():
                 alternatives = pat[0][1]
                 def fail(): return m.fail(bound, exp, pat[0])
                 def rec(current, other_options):
-                        return m.coor(m.match(bound, name, exp, [current, pat[1]], orifst, None, -1),
-                                      ## Unregistered Issue MATCHER-OR-FAILED-EXPRESSION-TOO-UNSPECIFIC
-                                      lambda: (fail() if not other_options else
-                                               rec(other_options[0], other_options[1])),
-                                      combine_fail = lambda e0, p0, eR, pR, _: (exp, pat))
-                with _match_level():
-                        return (fail() if not alternatives else
-                                m.post_fail(rec(alternatives[0], alternatives[1]),
-                                            pat[0]))
+                        with _match_level([[current, pat[1]], exp], name = "OR"):
+                                brf_0 = m.match(bound, name, exp, [current, pat[1]], orifst, None, -1)
+                        if brf_0[2] is None:
+                                return m.succ(brf_0[0], brf_0[1])
+                        brf_1 = (fail() if not other_options else
+                                 rec(other_options[0], other_options[1]))
+                        if brf_1[2] is None:
+                                return m.succ(brf_1[0], brf_1[1])
+                        return m.fail(brf_0[0], exp, pat)
+                return (fail() if not alternatives else
+                        m.post_fail(rec(alternatives[0], alternatives[1]),
+                                    pat[0]))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
         ## 0. mostly is already done
