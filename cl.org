@@ -4077,7 +4077,7 @@ def subseq(xs, start, end = nil):
                 error("Invalid sequence index: %s", start)
         if listp(xs):
                 i = 0
-                if end:
+                if end is not nil:
                         while i != start:
                                 if xs is nil:
                                         error_bad_indices(start, end, i)
