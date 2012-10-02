@@ -6437,7 +6437,7 @@ def _r(x, y, retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex"
                                                  _matcher_pp(retval[1]),
                                                  _matcher_pp(retval[2])),
                         _matcher_pp(x), _matcher_pp(y))
-        _trace_printf(_return, "--- %s%3s\n   %s   %s   %s", trace_args)
+        _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s", trace_args)
         return retval
 
 __enable_matcher_tracing__ = False
@@ -7878,7 +7878,8 @@ def _pp_sex(sex, strict = t, initial_depth = None):
                 pat = _form_metasex(sex)
                 _, r, f = _match(_metasex_pp, sex, pat)
         if f is not None:
-                error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s", sex, pat, f, repr(r))
+                error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s",
+                      _matcher_pp(sex), _matcher_pp(pat), _matcher_pp(f), _matcher_pp(r))
         return r or ""
 
 def _ir_minify(form):
@@ -8072,6 +8073,7 @@ if _getenv("CL_RUN_TESTS"):
         _run_tests_metasex()
 
 # Macroexpansion
+_intern_and_bind_names_in_module("APPLY", "FUNCALL")
 
 def _do_macroexpand_1(form, env = nil, compilerp = nil):
         """This handles:
@@ -9432,7 +9434,7 @@ def lambda_():
 #         :CL:       [ ]
 #         :END:
 
-@defknown((intern("APPLY")[0], " ", _form, " ", _form, [" ", _form]))
+@defknown((apply, " ", _form, " ", _form, [" ", _form]))
 def apply():
         def nvalues(func, _, *__):            return _ir_function_form_nvalues(func)
         def nth_value(n, orig, func, _, *__): return _ir_function_form_nth_value_form(n, func, orig)
