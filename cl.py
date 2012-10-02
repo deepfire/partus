@@ -6661,7 +6661,7 @@ class _matcher():
                 cut = end if rest_pat else exlen
                 seg_exp, rest_exp = (subseq(exp, 0, cut),
                                      exp if cut is None else subseq(exp, cut))
-                with _match_level([end, exp, seg_exp, rest_exp, pat]):
+                with _match_level([end, seg_exp, cut, rest_exp, pat, exp]):
                         ## 5. Try match at the chosen split -- the rest part first, then the segment part.
                         brf_0 = m.crec([exp, pat],
                                        lambda:
