@@ -4096,6 +4096,7 @@ def subseq(xs, start, end = nil):
                                 if xs is nil:
                                         error_bad_indices(start, end, i)
                                 ptr[1] = [xs[0], nil]
+                                ptr = ptr[1]
                 else:
                         ptr = xs
                         while i != start:
