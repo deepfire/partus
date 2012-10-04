@@ -2131,9 +2131,6 @@ def _plist_keys(xs):        return xs[::2]
 def _plist_values(xs):      return xs[1::2]
 def _plist_keys_values(xs): return xs[::2], xs[1::2]
 
-def _hash_table_alist(xs):
-        return xs.items()
-
 def _alist_hash_table(xs):
         return dict(xs)
 
@@ -2356,26 +2353,6 @@ def _take(n, xs):
                 if elt is not _termination_marker:
                         yield elt
 
-@defun
-def every(fn, *xss, start = 0):
-        for xs in _from(start, zip(*xss)):
-                if not fn(*xs): return nil
-        return (xs or t) if "xs" in locals() else t
-
-@defun
-def notevery(fn, *xss, start = 0):
-        for xs in _from(start, zip(*xss)):
-                ret = fn(*xs)
-                if not ret: return ret or t
-        return nil
-
-@defun
-def some(fn, *xss, start = 0):
-        for xs in _from(start, zip(*xss)):
-                ret = fn(*xs)
-                if ret: return ret or t
-        return nil
-
 def _some_fast(fn, xs):
         for x in xs:
                 ret = fn(x)
@@ -2387,12 +2364,6 @@ def _some_fast_2(fn, xs, ys):
                 ret = fn(x, y)
                 if ret: return ret or t
         return nil
-
-@defun
-def notany(fn, *xss, start = 0):
-        for xs in _from(start, zip(*xss)):
-                if fn(*xs): return nil
-        return (xs or t) if "xs" in locals() else t
 
 def _xorf(x, y):
         return (x or y) and not (x and y)
@@ -3549,24 +3520,32 @@ together."""
 
 # Cons <-> vector xform
 
-def _vectorise_cons_list(x):
+def _vectorise(x):
+        res = []
+        while x:
+                res.append(x[0] if not consp(x[0]) else
+                           _vectorise_tree(x[0]))
+                x = x[1]
+        return res
+
+def _vectorise_linear(x):
         res = []
         while x:
                 res.append(x[0])
                 x = x[1]
         return res
 
-def _consify_pyseq(xs):
+def _consify(xs):
+        return _consify_linear([ (_consify(x) if isinstance(x, tuple) else x)
+                                 for x in xs ]) if isinstance(xs, (list, tuple)) else xs
+
+def _consify_star(*xs):
+        return _consify(xs)
+
+def _consify_linear(xs, last_cdr = nil):
         return reduce(lambda acc, x: [x, acc],
                       reversed(xs),
-                      nil)
-
-def _consify_tuple_tree(xs):
-        return _consify_pyseq([ (_consify_tuple_tree(x) if isinstance(x, tuple) else x)
-                                for x in xs ]) if isinstance(xs, (list, tuple)) else xs
-
-def _consify_tuple_trees(*xs):
-        return _consify_tuple_tree(xs)
+                      last_cdr)
 
 def _pp_consly(x, dispatch = dict()):
         if consp(x):
@@ -3578,6 +3557,32 @@ def _pp_consly(x, dispatch = dict()):
                 return "(" + " ".join(acc) + ")"
         return (repr              if isinstance(x, str)  else
                 dispatch[type(x)] if type(x) in dispatch else str)(x)
+
+def _xmap_to_vector(f, *xss):
+        not xss and error("Invalid number of arguments: %d", 1)
+        if len(xss) is 1:
+                acc, xs = [], xss[0]
+                while xs:
+                        acc.append(f(xs[0]))
+                        xs = xs[1]
+                return acc
+        else:
+                not_implemented("%XMAP-TO-VECTOR: multiple-list case")
+
+def _xmap_to_conses(f, *xss):
+        not xss and error("Invalid number of arguments: %d", 1)
+        if len(xss) is 1:
+                xs, lim = xss[0], len(xss[0])
+                if not xs:
+                        return nil
+                acc = ptr = [f(xs[0]), nil]
+                i = 1
+                while i < lim:
+                        ptr[1] = ptr = [f(xs[i]), nil]
+                        i += 1
+                return acc
+        else:
+                not_implemented("%XMAP-TO-CONSES: multiple-list case")
 
 # Sequences
 
@@ -3843,8 +3848,6 @@ def car(x):         return x[0] if x else nil
 @defun
 def cdr(x):         return x[1] if x else nil
 
-# CAR
-# CDR
 # CAAR
 # CADR
 # CDAR
@@ -3886,9 +3889,11 @@ def cdr(x):         return x[1] if x else nil
 # COPY-LIST
 
 @defun("LIST")
-def list_(*xs):     return _consify_pyseq(xs)
+def list_(*xs):     return _consify_linear(xs)
 
-# LIST*
+@defun("LIST*")
+def list__(*xs):
+        return _consify_linear(_itertools.islice(xs, 0, len(xs) - 1), last_cdr = xs[-1])
 # LIST-LENGTH
 
 @defun
@@ -3905,7 +3910,11 @@ def make_list(length, *rest):
 # PUSH
 # POP
 # FIRST
-# SECOND
+
+@defun
+def second(x):
+        return nil if not x or not x[1] else x[1][0]
+
 # THIRD
 # FOURTH
 # FIFTH
@@ -4002,9 +4011,8 @@ def mapc(f, *xs):
          _not_implemented()
 
 @defun
-def mapcar(f, *xss):
-        not xss and error("Invalid number of arguments: %d", 1)
-        if len(xss) is 1:
+def mapcar(f, xs, *xss):
+        if not xss:
                 xs = xss[0]
                 if not xs:
                         return nil
@@ -4063,6 +4071,88 @@ def setf_getf(value, xs, key):
 # SUBSETP
 # UNION
 # NUNION
+
+# Data function part of 5.3
+
+# Function APPLY
+
+# Accessor FDEFINITION
+
+# Function FBOUNDP
+
+# Function FMAKUNBOUND
+
+# Function FUNCALL
+
+# Function FUNCTION-LAMBDA-EXPRESSION
+
+# Function FUNCTIONP
+
+# Function COMPILED-FUNCTION-P
+
+# Function NOT
+
+# Function EQ
+
+# Function EQL
+
+# Function EQUAL
+
+# Function EQUALP
+
+# Function IDENTITY
+
+# Function COMPLEMENT
+
+# Function CONSTANTLY
+
+@defun
+def every(fn, xs, *xss):
+        if not xss:
+                while xs:
+                        if not fn(xs[0]):
+                                 return nil
+                        xs = xs[1]
+                return t
+        else:
+                not_implemented("EVERY: multiple-list case")
+
+@defun
+def some(fn, xs, *xss):
+        if not xss:
+                while xs:
+                        if fn(xs[0]):
+                                 return t
+                        xs = xs[1]
+                return nil
+        else:
+                not_implemented("SOME: multiple-list case")
+
+@defun
+def notevery(fn, xs, *xss):
+        if not xss:
+                while xs:
+                        if not fn(xs[0]):
+                                 return t
+                        xs = xs[1]
+                return nil
+        else:
+                not_implemented("NOTEVERY: multiple-list case")
+
+@defun
+def notany(fn, xs, *xss):
+        if not xss:
+                while xs:
+                        if fn(xs[0]):
+                                 return nil
+                        xs = xs[1]
+                return t
+        else:
+                not_implemented("NOTANY: multiple-list case")
+
+# Function VALUES-LIST
+
+# Function GET-SETF-EXPANSION
 
 # Arrays
 
@@ -4332,7 +4422,7 @@ def _expand_quasiquotation(form):
                                for x in acc[1:]):
                                 new = (__list,) + tuple(x[1][0] for x in acc[1:])
                                 acc = new
-                        return _consify_pyseq(acc)
+                        return _consify_linear(acc)
         result = process_form(form)
         if symbol_value(_reader_trace_qqexpansion_):
                 if form != result:
@@ -4525,7 +4615,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                                         error("Consing dot not implemented")
                                 ret.append(obj)
                 # _here("< %s" % (ret,))
-                return _consify_pyseq(ret)
+                return _consify_linear(ret)
         def read_string():
                 ret = ""
                 read_char(stream) # seek the opening double-quote
@@ -5343,7 +5433,7 @@ def _literal_ast_sex(ast_):
                 error("Invalid sexp: %s.", more_ast.pp_ast_as_code(sex))
         return (ast_.id                                                if isinstance(ast_, _ast.Name)  else
                 ast_.n                                                 if isinstance(ast_, _ast.Num)   else
-                _consify_pyseq([ extract_sexp(x) for x in ast_.elts ]) if isinstance(ast_, _ast.Tuple) else
+                _consify_linear([ extract_sexp(x) for x in ast_.elts ]) if isinstance(ast_, _ast.Tuple) else
                 fail(ast_))
 
 def _read_ast(x):
@@ -5356,8 +5446,8 @@ def _read_ast(x):
                 return (x.n                                      if isinstance(x, _ast.Num)   else
                         x.s                                      if isinstance(x, _ast.Str)   else
                         read_symbol(x.id)                        if isinstance(x, _ast.Name)  else
-                        _consify_pyseq([rec(e) for e in x])      if isinstance(x, list)       else
-                        _consify_pyseq([rec(e) for e in x.elts]) if isinstance(x, _ast.Tuple) else
+                        _consify_linear([rec(e) for e in x])      if isinstance(x, list)       else
+                        _consify_linear([rec(e) for e in x.elts]) if isinstance(x, _ast.Tuple) else
                         _read_ast(x.value)                       if isinstance(x, _ast.Expr)  else
                         error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
         with progv(# {_read_case_: _keyword("preserve")}
@@ -6437,7 +6527,7 @@ def _r(x, y, retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex"
                                                  _matcher_pp(retval[1]),
                                                  _matcher_pp(retval[2])),
                         _matcher_pp(x), _matcher_pp(y))
-        _trace_printf(_return, "--- %s%3s\n   < %s   %s   %s", trace_args)
+        _trace_printf(_return, "--- %s%3s\n   %s   %s   %s", trace_args)
         return retval
 
 __enable_matcher_tracing__ = False
@@ -7429,8 +7519,8 @@ def _primitivise_constant(x):
                 error("Cannot primitivise value %s.  Is it a literal?", _pp_consly(x)))
 
 def _ir_funcall(func, *args):
-        return _consify_tuple_tree((apply, (function, ((quote, (func,)) if isinstance(func, str) else
-                                                       func))) + args + ((quote, nil),))
+        return _consify((apply, (function, ((quote, (func,)) if isinstance(func, str) else
+                                            func))) + args + ((quote, nil),))
 
 def _ir_cl_module_name(name):
         return ("cl", name)
@@ -7439,7 +7529,7 @@ def _ir_cl_module_call(name, *ir_args):
         return _ir_funcall((quote, _ir_cl_module_name(name)), *ir_args)
 
 def _ir_lambda_to_def(name, lambda_expression):
-        return _ir_args(lambda_, the(symbol_t, name), *lambda_expression[1:],
+        return _ir_args(lambda_, the(symbol_t, name), *_vectorise_linear(lambda_expression[1]),
                         name = name)
 
 # Matcher: MetaSEX preprocessing
@@ -7472,7 +7562,7 @@ def _preprocess_metasex(pat):
                (((identity if _metasex_word_p(pat[0])      else _preprocess_metasex)(pat[0]),)
                 + (pat[1:] if _metasex_leaf_word_p(pat[0]) else tuple(_preprocess_metasex(x) for x in pat[1:]))))
         # _here("\n ==> %s   -   %s", pat, ret, callers = 15)
-        return _consify_tuple_tree(ret)
+        return _consify(ret)
 
 # DEFKNOWN
 
@@ -7637,15 +7727,15 @@ class _metasex_matcher(_matcher):
                         #                        pat is _name, symbolp(pat), _name, symbolp(exp), keywordp(exp), type(exp)))
                         return result
         def process_formpat_arguments(m, form, pat):
-                arg_handlers = { _for_matchers_xform:     (lambda arg: m in _vectorise_cons_list(arg[1]),
+                arg_handlers = { _for_matchers_xform:     (lambda arg: m in _vectorise_linear(arg[1]),
                                                            lambda arg: arg[0](form)),
-                                 _for_not_matchers_xform: (lambda arg: m not in _vectorise_cons_list(arg[1]),
+                                 _for_not_matchers_xform: (lambda arg: m not in _vectorise_linear(arg[1]),
                                                            lambda arg: arg[0](form)),
                                  }
                 if consp(pat):
                         args = pat[1]
                         # _debug_printf("args of %s: %s", _pp_consly(pat), _pp_consly(args))
-                        for argname, argval in _vectorise_cons_list(args):
+                        for argname, argval in _vectorise_linear(args):
                                 if argname not in arg_handlers:
                                         error("Invalid FORM argument: %s, pat: %s", argname, pat)
                                 arg_applicable_p, arg_handler = arg_handlers[argname]
@@ -7883,8 +7973,8 @@ def _pp_sex(sex, strict = t, initial_depth = None):
         return r or ""
 
 def _ir_minify(form):
-        return ('"%s"' % form if stringp(form)                                            else
-                str(form)     if symbolp(form) or not form or not isinstance(form, tuple) else
+        return ('"%s"' % form if stringp(form)                                else
+                str(form)     if symbolp(form) or not form or not consp(form) else
                 ("(%s ...)" % _ir_minify(form[0])))
 
 def _mockup_sex(sex, initial_depth = None, max_level = None):
@@ -7899,13 +7989,14 @@ def _mockup_sex(sex, initial_depth = None, max_level = None):
                 elif atom(sex):
                         return mock_atom(sex)
                 else:
-                        head, *tail = sex
-                        complex_tail_start = position_if_not(atom, tail)
-                        simple_tail, complex_tail = (tail[0:complex_tail_start],
-                                                     tail[_defaulted(complex_tail_start, len(tail)):])
-                        if atom(head):
+                        car, cdr = sex
+                        complex_tail_start = position_if_not(atom, cdr)
+                        simple_tail, complex_tail = (subseq(tail, complex_tail_start),
+                                                     subseq(tail, complex_tail_start if complex_tail_start is not nil else
+                                                                  length(cdr)))
+                        if atom(car):
                                 return ("(" + " ".join(mock_atom(x)
-                                                 for x in [head] + simple_tail) +
+                                                       for x in [car] + _vectorise_linear(simple_tail)) +
                                         ("" if not complex_tail else
                                          ((("\n  " + _sex_space()) if complex_tail and level < max_level else "") +
                                           (mock_complexes(complex_tail, level + 1) if level < max_level else
@@ -7918,29 +8009,8 @@ def _mockup_sex(sex, initial_depth = None, max_level = None):
         with progv({ _pp_base_depth_: initial_depth }):
                 return rec(sex, 0)
 
-# IR method -based services
-
-def _ir_nvalues(form):
-        return (lambda known: (known.nvalues(*form[1:])            if known else
-                               None))                (_form_known(form))
-def _ir_nth_value(n, form):
-        return (lambda known: (known.nth_value(n, form, *form[1:]) if known else
-                               (nth_value, n, form)))(_form_known(form))
-def _ir_prologue_p(form):
-        return (lambda known: (known.prologuep(*form[1:])          if known                                         else
-                               nil                                 if isinstance(form, symbol_t) or constantp(form) else
-                               error("Prologue queries only defined on known forms, not %s.", repr(form))))(_form_known(form))
-def _ir_binds(form):
-        return (lambda known: (known.binds(*form[1:])              if known else
-                               dict()))          (_form_known(form))
-def _ir_effects(form):
-        return (lambda known: (known.effects(*form[1:])            if known else
-                               t))                   (_form_known(form))
-def _ir_affected(form):
-        return (lambda known: (known.affected(*form[1:])           if known else
-                               t))                   (_form_known(form))
-
 # Testing
+
 def _matcher_result_printer(x):
         return ((("%s\n%s\n%s" % (x[0], _pp_consly(x[1]), _pp_consly(x[2])))
                  if len(x) is 3 else
@@ -7967,27 +8037,27 @@ def _run_tests_metasex():
 
         ###
         assert _runtest(just_match,
-                        (_consify_tuple_trees(let, ((first, ()),
-                                                    (second, (__car,))),
-                                              _body),
+                        (_consify_star(let, ((first, ()),
+                                             (second, (__car,))),
+                                        _body),
                          (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                                   1, {"body":[(_notlead, "\n"), _form]})),
-                        ({ 'bindings': _consify_tuple_trees((first, ()),
-                                                            (second, (__car,))),
-                           'body':     _consify_tuple_trees(_body) },
+                        ({ 'bindings': _consify_star((first, ()),
+                                                     (second, (__car,))),
+                           'body':     _consify_star(_body) },
                          t,
                          None),
                         printer = printer)
 
         assert _runtest(pp,
-                        (_consify_tuple_trees(let, ((first, ()),
-                                                    (second, (__car,))),
-                                              _body),
+                        (_consify_star(let, ((first, ()),
+                                              (second, (__car,))),
+                                        _body),
                          (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                             1, {"body":[(_notlead, "\n"), _form]})),
-                        ({ 'bindings': _consify_tuple_trees((first, ()),
-                                                            (second, (__car,))),
-                           'body':     _consify_tuple_trees(_body,)},
+                        ({ 'bindings': _consify_star((first, ()),
+                                                     (second, (__car,))),
+                           'body':     _consify_star(_body,)},
                          """(LET ((FIRST NIL)
       (SECOND (CAR)))
   &BODY)""",
@@ -7995,9 +8065,9 @@ def _run_tests_metasex():
                         printer = printer)
 
         # assert _runtest(mal_pp,
-        #                 (_consify_tuple_trees(let, ((first),
-        #                                             (second, (__car,), ())),
-        #                                        _body),
+        #                 (_consify_star(let, ((first),
+        #                                      (second, (__car,), ())),
+        #                                 _body),
         #                  (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
         #                    1, [(_notlead, "\n"), _form])),
         #                 ({},
@@ -8052,8 +8122,8 @@ def _run_tests_metasex():
                                                                                         {"tailname":_name})),
                         ({ 'headname': pi,
                           'headtupname': list_(pi),
-                          'varitupseq': _consify_tuple_trees((pi,), (pi, pi), (pi, pi, pi)),
-                          'fix1tupseq': _consify_tuple_trees((pi,), (pi,), (pi,)),
+                          'varitupseq': _consify_star((pi,), (pi, pi), (pi, pi, pi)),
+                          'fix1tupseq': _consify_star((pi,), (pi,), (pi,)),
                           'nameseq': list_(pi, pi),
                           'tailname': pi },
                          "(PI(PI)(PI)(PIPI)(PIPIPI)(PI)(PI)(PI)PIPIPI)",
@@ -8073,6 +8143,7 @@ if _getenv("CL_RUN_TESTS"):
         _run_tests_metasex()
 
 # Macroexpansion
+
 _intern_and_bind_names_in_module("APPLY", "FUNCALL")
 
 def _do_macroexpand_1(form, env = nil, compilerp = nil):
@@ -8091,13 +8162,13 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
                 global_, lexical_ = ((nil, nil)               if not lookupable             else
                                      (maybe_fnref[1][0], nil) if maybe_fnref[0] is quote    else
                                      (nil, maybe_fnref[1][0]) if maybe_fnref[0] is function else
-                                     (nil, nil))
+                                      (nil, nil))
                 return (compiler_macro_function(global_ or lexical_, check_shadow = lexical_)
                         if global_ or lexical_ else
                         nil)
         def knownifier_and_maybe_compiler_macroexpander(form, known):
                 if not known: ## ..then it's a funcall, because all macros
-                        xformed = _ir_funcall(form[0], *_vectorise_cons_list(form[1]))
+                        xformed = _ir_funcall(form[0], *_vectorise_linear(form[1]))
                         return lambda *_: (find_compiler_macroexpander(xformed) or identity)(xformed)
                 else:
                         return (find_compiler_macroexpander(form) if known.name in (apply, funcall) else
@@ -8110,7 +8181,7 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
                           (_symbol_macro_expander(form, env), nil) if isinstance(form, symbol_t) else ## Notice, how NIL is not expanded.
                           (nil, nil))
         return ((form, nil) if not expander else
-                (expander(*_vectorise_cons_list(args)), t))
+                (expander(*_vectorise_linear(args)), t))
 
 ## Unregistered Issue COMPLIANCE-MACROEXPAND-HOOK-MUST-BE-FUNCALL-BUT-IT-IS-NOT-A-FUNCTION
 _string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
@@ -8233,15 +8304,14 @@ _ensure_function_pyname(defmacro) ## This is only needed due to the special defi
 # ((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
-        return _consify_tuple_trees(
+        return _consify_star(
                 eval_when, (_compile_toplevel, _load_toplevel, _execute),
                 ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
                 # (function, (def_, name, lambda_list) + body),
                 (ir_args,
                  (lambda_, lambda_list) + body,
-                 ("decorators", [_consify_tuple_tree(_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
-                                                                        [quote, name], [quote, [name, lambda_list] +
-                                                                                        _consify_tuple_tree(body)]))]),
+                 ("decorators", [_consify(_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
+                                                             [quote, name], [quote, [name, lambda_list] + _consify(body)]))]),
                  ("name", name)))
 
 # Out-of-band IR argument passing: %IR-ARGS, %IR
@@ -8255,8 +8325,8 @@ def ir_args():
 
 def _destructure_possible_ir_args(x):
         "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
-        return ((t, x[1], x[2:]) if isinstance(x, tuple) and x and x[0] is ir_args else
-                (nil, x, ()))
+        return ((t,   x[1][0], x[1][1]) if consp(x) and x[0] is ir_args else
+                (nil, x,       nil))
 
 def _ir(*ir, **keys):
         "This IR-ARGS constructur is meant to be used to pass extended arguments down."
@@ -8265,12 +8335,33 @@ def _ir(*ir, **keys):
         if invalid_params:
                 error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
                       known.name, known.lower_params, invalid_params)
-        return (ir_args, ir) + tuple(_hash_table_alist(keys))
+        return list__(ir_args, ir, _consify_linear([ [k, v] for k, v in keys.items() ]))
 
 def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
 
-# Multiple-value function call dependency support
+# IR methods
+
+def _ir_nvalues(form):
+        return (lambda known: (known.nvalues(*_vectorise_linear(form[1]))            if known else
+                               None))                (_form_known(form))
+def _ir_nth_value(n, form):
+        return (lambda known: (known.nth_value(n, form, *_vectorise_linear(form[1])) if known else
+                               list_(nth_value, n, form)))(_form_known(form))
+def _ir_prologue_p(form):
+        return (lambda known: (known.prologuep(*_vectorise_linear(form[1])           if known else
+                               nil                                 if isinstance(form, symbol_t) or constantp(form) else
+                               error("Prologue queries only defined on known forms, not %s.", repr(form)))))(_form_known(form))
+def _ir_binds(form):
+        # As of early October 2012, used only by macroexpander.
+        return (lambda known: (known.binds(*_vectorise_linear(form[1])               if known else
+                               dict())))             (_form_known(form))
+def _ir_effects(form):
+        return (lambda known: (known.effects(*_vectorise_linear(form[1]))            if known else
+                               t))                   (_form_known(form))
+def _ir_affected(form):
+        return (lambda known: (known.affected(*_vectorise_linear(form[1]))           if known else
+                               t))                   (_form_known(form))
 
 def _ir_function_form_nvalues(func):
         return _defaulted(
@@ -8291,24 +8382,35 @@ def _ir_function_form_nth_value_form(n, func, orig_form):
                         ## Let's not get lulled, though -- this is nothing more than a
                         ## fun optimisation, and not a substitute for proper constant propagation.
                         ("effects",     lambda x: not x)),
-                (nth_value, n, orig_form))
+                list_(nth_value, n, orig_form))
+
+def _ir_nth_valueify_last_subform(n, form):
+        return append(butlast(form), list_(list_(nth_value, n, lastcar(form))))
+
+# Prologue queries (legacy)
+
+def _ir_body_prologuep(body):
+        ## Unregistered Issue BODY-PROLOGUEP-PESSIMISTIC-WRT-DISCARDED-PURE-FORMS
+        return len(body) > 1 or len(body) == 1 and _ir_prologue_p(body[0])
 
 # Lambda list lowering
 
-def _ir_prepare_lambda_list(lambda_list_, context, allow_defaults = None, default_expr = None):
+def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None, default_expr = None):
         ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
         default_expr = _defaulted(default_expr, (_name, "None"))
-        if not isinstance(lambda_list_, tuple):
-                error("In %s: lambda list must be a tuple, was: %s.", context, lambda_list_)
+        if not listp(lambda_list):
+                error("In %s: lambda list must be a proper list, was: %s.", context, _pp_consly(lambda_list))
+        lambda_list = _vectorise_linear(lambda_list)
         def valid_parameter_specifier_p(x): return isinstance(x, symbol_t) and symbol_package(x) is not __keyword
-        test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (isinstance(x, tuple) and len(x) == 2 and
-                                                                               valid_parameter_specifier_p(x[0])),
-                                 "In %s: lambda lists can only contain non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
-                                 if allow_defaults else
-                                 (valid_parameter_specifier_p, "In %s: lambda list must consist of non-keyword symbols: %s.  Default values are forbidden in this context."))
+        # test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (isinstance(x, tuple) and len(x) == 2 and
+        #                                                                        valid_parameter_specifier_p(x[0])),
+        #                          "In %s: lambda lists can only contain non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
+        #                          if allow_defaults else
+        #                          (valid_parameter_specifier_p, "In %s: lambda list must consist of non-keyword symbols: %s.  Default values are forbidden in this context."))
         ### 0. locate lambda list keywords
         lambda_words = [_optional, _rest, _body, _key]
-        optpos,  restpos,  bodypos,  keypos  = posns = [ position(x, lambda_list_) for x in lambda_words ]
+        optpos,  restpos,  bodypos,  keypos  = posns = [ (lambda i: x if x >= 0 else None)
+                                                         (lambda_list.index(x)) for x in lambda_words ]
         ### 1. ensure proper order of provided lambda list keywords
         optposp, restposp, bodyposp, keyposp = [ x is not None for x in posns ]
         def test_lambda_list_word_order():
@@ -8328,32 +8430,34 @@ def _ir_prepare_lambda_list(lambda_list_, context, allow_defaults = None, defaul
         #                "toptpos", "trestpos", "tkeypos")
         ### 2. ensure correct amount of names for provided lambda list keywords
         if (restposp or bodyposp) and (keyposp and (keypos - restpos != 1)):
-                error("In %s: found garbage instead of a lambda list: %s", context, lambda_list_)
+                error("In %s: found garbage instead of a lambda list: %s", context, lambda_list)
         ### 3. compute argument specifier sets, as determined by provided lambda list keywords
-        _keys = list(lambda_list_[keypos + 1:]) if keypos else ()
-        keys, keydefs = (list(_ensure_car(x) for x in _keys),
-                         list((x[1] if isinstance(x, tuple) else default_expr)
+        _keys = lambda_list[keypos + 1:] if keypos else ()
+        keys, keydefs = (list(_ensure_car(x)
+                              for x in _keys),
+                         list((default_expr if not consp(x) else second(x))
                               for x in _keys))
-        rest_or_body = (lambda_list_[restpos + 1] if restposp else
-                        lambda_list_[bodypos + 1] if bodyposp else
+        rest_or_body = (lambda_list[restpos + 1] if restposp else
+                        lambda_list[bodypos + 1] if bodyposp else
                         None)
-        optional = list(lambda_list_[optpos + 1:bodypos or restpos or keypos or None]) if optposp else []
-        optional, optdefs = (list(_ensure_car(x) for x in optional),
-                             list((x[1] if isinstance(x, tuple) else default_expr)
-                                      for x in optional))
-        fixed = list(lambda_list_[0:_defaulted(optpos, (restpos    if restposp    else
-                                                        bodypos    if bodyposp    else
-                                                        keypos     if keyposp     else None))])
+        optional = lambda_list[optpos + 1:bodypos or restpos or keypos or None] if optposp else []
+        optional, optdefs = (list(_ensure_car(x)
+                                  for x in optional),
+                             list((default_expr if not consp(x) else second(x))
+                                  for x in optional))
+        fixed = lambda_list[0:_defaulted(optpos, (restpos    if restposp    else
+                                                  bodypos    if bodyposp    else
+                                                  keypos     if keyposp     else None))]
         if not all(isinstance(x, symbol_t) for x in fixed):
                 error("In %s: fixed arguments must be symbols, but %s wasn't one.", context, [ x for x in fixed
                                                                                                if symbolp(x) ][0])
         total = fixed + optional + ([rest_or_body] if rest_or_body else []) + keys
         ### 4. validate syntax of the provided individual argument specifiers
         if not all(valid_parameter_specifier_p(x) for x in total):
-                error(failure_message, context, lambda_list_)
+                error(failure_message, context, lambda_list)
         ### 5. check for duplicate lambda list specifiers
         if len(total) != len(set(total)):
-                error("In %s: duplicate parameter names in lambda list: %s.", context, lambda_list_)
+                error("In %s: duplicate parameter names in lambda list: %s.", context, lambda_list)
         return (total,
                 (fixed, optional, rest_or_body, keys),
                 (optdefs, keydefs))
@@ -8364,10 +8468,10 @@ def _lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_d
         def to_names(xs): return [ p.name(_unit_variable_pyname(x)) for x in xs ]
         return (to_names(fixed),
                 to_names(optional),
-                [ _primitivise(x) for x in _defaulted(opt_defaults, _repeat((ref, (quote, ("None",))))) ],
+                [ _primitivise(x) for x in _defaulted(opt_defaults, _repeat(_consify(ref, (quote, ("None",))))) ],
                 p.name(_unit_variable_pyname(rest)) if rest else None,
                 to_names(keys),
-                [ _primitivise(x) for x in _defaulted(key_defaults, _repeat((ref, (quote, ("None",))))) ],
+                [ _primitivise(x) for x in _defaulted(key_defaults, _repeat(_consify(ref, (quote, ("None",))))) ],
                 None)
 
 # Toolkit
@@ -8439,7 +8543,7 @@ def _rewritep(x):                     return isinstance(x, tuple) and isinstance
 @defknown((intern("SETQ")[0], " ", (_typep, symbol_t), " ", _form))
 def setq():
         def nvalues(_, __):                                               return 1
-        def nth_value(n, orig, _, value):                                 return orig if n is 0 else (progn, orig, nil)
+        def nth_value(n, orig, _, value):                                 return orig if n is 0 else list_(progn, orig, nil)
         def binds(name, value, *_):
                 assert(not _)
                 return dict()
@@ -8492,7 +8596,7 @@ def quote():
                                 return _lowered(prim)
                         else:
                                 _compiler_trace_choice(quote, x, "SEX")
-                                return _lowered(p.literal_list(*(_primitivise((quote, x)) for x in x)))
+                                return _lowered(p.literal_list(*_xmap_to_vector(lambda x: _primitivise((quote, x)), x)))
         def effects(x):            return nil
         def affected(x):           return nil
 
@@ -8522,7 +8626,7 @@ def multiple_value_call():
                 ## We have no choice, but to lower immediately, and by hand.
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
                 return _lowered(p.apply(_primitivise(fn),
-                                        p.add(*(p.slice(_primitivise(x), 1, nil, nil) for x in arg_forms))))
+                                        p.add(*_xmap_to_vector(lambda x: p.slice(_primitivise(x), 1, nil, nil), arg_forms))))
         def effects(fn, *arg_forms):
                 return (any(_ir_effects(arg) for arg in arg_forms) or
                         _ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
@@ -8539,13 +8643,6 @@ def multiple_value_call():
 #         :CL:       [X]
 #         :END:
 
-def _ir_nth_valueify_last_subform(n, form):
-        return form[:-1] + ((nth_value, n, form[-1]),)
-
-def _ir_body_prologuep(body):
-        ## Unregistered Issue BODY-PROLOGUEP-PESSIMISTIC-WRT-DISCARDED-PURE-FORMS
-        return len(body) > 1 or len(body) == 1 and _ir_prologue_p(body[0])
-
 @defknown((intern("PROGN")[0],
             1, [(_notlead, "\n"), _form]))
 def progn():
@@ -8553,7 +8650,7 @@ def progn():
         def nth_value(n, orig, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def prologuep(*body):          return _ir_body_prologuep(body)
         def lower(*body):
-                return _lowered(p.progn(*(_primitivise(x) for x in body)) if body else
+                return _lowered(p.progn(*_xmap_to_vector(_primitivise, body)) if body else
                                 _primitivise(nil))
         def effects(*body):            return any(_ir_effects(f) for f in body)
         def affected(*body):           return any(_ir_affected(f) for f in body)
@@ -8573,7 +8670,7 @@ def progn():
 def if_():
         def nvalues(test, consequent, antecedent):
                 nconseq, nante = _ir_nvalues(consequent), _ir_nvalues(antecedent)
-                return (nconseq                 if nconseq == nante                      else
+                return (nconseq             if nconseq == nante                      else
                         max(nconseq, nante) if integerp(nconseq) and integerp(nante) else
                         t)
         def nth_value(n, orig, test, consequent, antecedent):
@@ -8581,9 +8678,9 @@ def if_():
                 ## Warning: this something, that goes on here, is quite interesting!
                 ## Thinking pause: WHY DO WE DO THIS ..and.. WHAT EXACTLY DO WE DO HERE?
                 ##  - what: lowering valueness?  ..a good initial approach to understanding..
-                return ((nth_value, n, orig) if _ir_effects(consequent) or _ir_effects(antecedent) else
-                        vconseq              if (vconseq == vante) and not _ir_effects(test)       else
-                        (if_, test, vconseq, vante))
+                return (list_(nth_value, n, orig) if _ir_effects(consequent) or _ir_effects(antecedent) else
+                        vconseq                   if (vconseq == vante) and not _ir_effects(test)       else
+                        list_(if_, test, vconseq, vante))
         def prologuep(*tca):
                 return any(_ir_prologue_p(x) for x in tca)
         def lower(test, consequent, antecedent):
@@ -8614,15 +8711,17 @@ def let():
                 return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
-                if not (isinstance(bindings, tuple) and
-                        all(typep(x, (pytuple_t, symbol_t, t)) for x in bindings)):
+                if not (listp(bindings) and
+                        every(lambda x: isinstance(x, symbol_t) or consp(x), bindings)):
                         error("LET: malformed bindings: %s.", bindings)
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
-                normalised_bindings = tuple(_ensure_cons(b, nil) for b in bindings)
-                _check_no_locally_rebound_constants(names)
-                tns, frame = _variable_frame_bindings(symbol_value(_compiler_lambda_), *zip(*normalised_bindings))
+                # Normalisation is vain -- EFFECTS, AFFECTED and BINDS all need it..
+                # Unregistered Issue NORMALISING-PREMACRO-REQUIRED-FOR-KNOWN-PREPROCESSING
+                normalised = _vectorise(bindings)
+                _check_no_locally_rebound_constants(x[0] for x in normalised)
+                tns, frame = _variable_frame_bindings(symbol_value(_compiler_lambda_), zip(*normalised))
                 return _lowered(p.let(((tn, _primitivise(form))
-                                       for tn, (_, form) in zip(tns, normalised_bindings)),
+                                       for tn, (_, form) in zip(tns, normalised)),
                                       *(_with_lexenv_frame(frame,
                                                            lambda: _primitivise(x))
                                         for x in body)))
@@ -8656,15 +8755,18 @@ def flet():
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-                if not all(typep(x, (partuple_t, symbol_t, pytuple_t))  for x in bindings):
+                if not listp(bindings) or some(lambda x: length(x) < 2
+                                               or not isinstance(x[0], symbol_t),
+                                               or not listp(x[1][0])):
                         error("FLET: malformed bindings: %s.", bindings)
-                # Unregistered Issue LEXICAL-CONTEXTS-REQUIRED -- ???
+                normalised = _xmap_to_vector(lambda x: [x[0], x[1][0], _vectorise_linear(x[1][1])],
+                                             bindings)
                 clambdas = [ _compiler_lambda(name, lambda_list)
-                             for name, lambda_list, *_ in bindings ]
+                             for name, lambda_list, *_ in normalised ]
                 tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), [ (c.name, c) for c in clambdas ])
                 return _lowered(p.flet(((tn, _lower_lambda_list(lam)
                                          ) + tuple(_primitivise(x)  for x in body)
-                                        for tn, (name, lam, *body) in zip(tns, bindings)),
+                                        for tn, (name, lam, *body) in zip(tns, normalised)),
                                        *(_with_lexenv_frame(frame,
                                                             lambda: _primitivise(x))
                                          for x in body)))
@@ -8697,15 +8799,19 @@ def labels():
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
-                if not all(typep(x, (partuple_t, symbol_t, pytuple_t)) for x in bindings):
+                if not listp(bindings) or some(lambda x: length(x) < 2
+                                               or not isinstance(x[0], symbol_t),
+                                               or not listp(x[1][0])):
                         error("LABELS: malformed bindings: %s.", bindings)
+                normalised = _xmap_to_vector(lambda x: [x[0], x[1][0], _vectorise_linear(x[1][1])],
+                                             bindings)
                 clambdas = [ _compiler_lambda(name, lambda_list)
-                             for name, lambda_list, *_ in bindings ]
+                             for name, lambda_list, *_ in normalised ]
                 tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), [ (c.name, c) for c in clambdas ])
                 with progv({ _lexenv_: frame }):
                         return _lowered(p.labels(((tn, _lower_lambda_list(lam))
                                                   + tuple(_primitivise(x)  for x in body)
-                                                  for tn, (name, lam, *body) in zip(tns, bindings)),
+                                                  for tn, (name, lam, *body) in zip(tns, normalised)),
                                                  *(_primitivise(x)
                                                    for x in body)))
         def effects(bindings, *body):
@@ -8728,17 +8834,18 @@ _intern_and_bind_names_in_module("SETF")
 
 @defknown
 def function():
-        ## A purely marker known, for now.
         ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
         def prologuep(_):          return nil
         def lower(name):
-                def pycall_p(x): return typep(x, (pytuple_t, (eql_t, quote), (homotuple_t, string_t)))
+                ## (QUOTE ("str"))
+                def pycall_p(x): return (consp(name) and name[0] is quote and consp(name[1])
+                                         and consp(name[1][0]) and isinstance(name[1][0][0], str))
                 if pycall_p(name):
                         ## this is not scoped -- a raw, unchecked call
                         return _lowered(p.prim_attr_chain([ p.name(name[1][0]) ]
-                                                          + [ p.string(x) for x in name[1][1:] ]))
+                                                          + _xmap_to_vector(p.string, name[1][0])))
                 lexical_binding, lexenv = symbol_value(_lexenv_).lookup_func(the(symbol_t, name))
                 if not lexical_binding:
                         ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
@@ -8793,7 +8900,8 @@ behavior."""
             1, [(_notlead, "\n"), _form]))
 def unwind_protect():
         def nvalues(form, *unwind_body):            return _ir_nvalues(form)
-        def nth_value(n, orig, form, *unwind_body): return (unwind_protect, _ir_nth_value(n, form)) + unwind_body
+        def nth_value(n, orig, form, *unwind_body): return list__(unwind_protect, _ir_nth_value(n, form),
+                                                                  _consify_linear(unwind_body))
         def prologuep(*_):                          return t
         def lower(form, *unwind_body):
                 return _lowered(p.unwind_protect(_primitivise(form),
@@ -8819,12 +8927,12 @@ def macrolet():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
-                return { macro: { _function_binding(name, _fun_tn_no_unit(name), macro, (lambda_list, body))
-                                  for name, lambda_list, *body in bindings } }
+                return { macro: { _function_binding(name, _fun_tn_no_unit(name), macro, list_(lambda_list, body))
+                                  for name, lambda_list, *body in _vectorise_linear(bindings) } }
         def prologuep(bindings, *body):          return _ir_body_prologuep(body)
         def lower(bindings, *body):
                 ## By the time we get to the lowering stage, all macros have already been expanded.
-                return _rewritten((progn,) + body)
+                return _rewritten(cons(progn, _consify_linear(body)))
         def effects(bindings, *body):
                 return any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -8846,13 +8954,13 @@ def symbol_macrolet():
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
                 return { symbol_macro: { _variable_binding(name, _var_tn_no_unit(name), symbol_macro, form)
-                                         for name, form in bindings } }
+                                         for name, form in _vectorise_linear(bindings) } }
         def prologuep(bindings, *body):          return _ir_body_prologuep(body)
         def lower(bindings, *body):
-                bindings_thru_defaulting = tuple(_ensure_cons(b, nil) for b in bindings)
-                _check_no_locally_rebound_constants([ x[0] for x in bindings_thru_defaulting ], "symbol macro")
+                normalised = _vectorise_linear(bindings)
+                _check_no_locally_rebound_constants([ x[0] for x in normalised ], "symbol macro")
                 ## By the time we get to the lowering stage, all macros are already expanded.
-                return _rewritten((progn,) + body)
+                return _rewritten(cons(progn, _consify_linear(body)))
         def effects(bindings, *body):
                 return any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -8877,7 +8985,7 @@ def block():
         def prologuep(name, *body):          return _ir_body_prologuep(body)
         def lower(name, *body):
                 nonce = gensym("BLOCK-" + symbol_name(name) + "-")
-                catch_target = (catch, (quote, nonce)) + body
+                catch_target = list__(catch, list_(quote, nonce), _consify_linear(body))
                 has_return_from = nil
                 def update_has_return_from(sex):
                         nonlocal has_return_from
@@ -8890,8 +8998,7 @@ def block():
                                           { _lexenv_: _make_lexenv(name_blockframe = { name: _block_binding(name, nonce) }) })
                 else:
                         _compiler_trace_choice(quote, name, "NO-RETURN-FROM")
-                        return _rewritten((progn,) +
-                                          body)
+                        return _rewritten(cons(progn, _consify_linear(body)))
         def effects(name, *body):            return any(_ir_effects(f) for f in body)
         def affected(name, *body):           return any(_ir_affected(f) for f in body)
 
@@ -8913,7 +9020,7 @@ def return_from():
                 binding, lexenv = symbol_value(_lexenv_).lookup_block(the(symbol_t, name))
                 if not binding:
                         simple_program_error("return for unknown block: %s", name)
-                return _rewritten((throw, (quote, binding.value), value))
+                return _rewritten(list_(throw, list_(quote, binding.value), value))
         def effects(_, value):            return _ir_effects(value)
         def affected(_, value):           return _ir_affected(value)
 
@@ -8931,8 +9038,8 @@ def return_from():
 def catch():
         ## Critical Issue CATCH-MULTIPLE-VALUES-NOT-IMPLEMENTED
         def nvalues(_, *body):              return 1 if not body else _not_implemented()
-        def nth_value(n, orig, tag, *body): return (_not_implemented() if body             else
-                                                    (progn, tag, nil)  if _ir_effects(tag) else
+        def nth_value(n, orig, tag, *body): return (_not_implemented()      if body             else
+                                                    list_(progn, tag, nil)  if _ir_effects(tag) else
                                                     nil)
         ## Unregistered Issue DOUBT-WHETHER-LAMBDA-CAN-LOWER-PROLOGUESSLY-DUE-TO-C-L-A-N-T
         def prologuep(tag, *body_):         return _ir_prologue_p(tag) or _ir_body_prologuep(body)
@@ -8954,7 +9061,7 @@ def catch():
 @defknown((intern("THROW")[0], " ", _form, (_maybe, " ", _form)))
 def throw():
         def nvalues(_, value):            return _ir_nvalues(value)
-        def nth_value(n, orig, _, value): return ((progn, tag, _ir_nth_value(value)) if _ir_effects(tag) else
+        def nth_value(n, orig, _, value): return (list_(progn, tag, _ir_nth_value(value)) if _ir_effects(tag) else
                                                   _ir_nth_value(value))
         def prologuep(tag, value):        return _ir_prologue_p(tag) or _ir_prologue_p(value)
         def lower(tag, value):
@@ -8986,7 +9093,7 @@ def tagbody():
         def nvalues(*tags_and_forms):            return 1
         def nth_value(_, orig, *tags_and_forms): return (nil if not any(_ir_effects(f) for f in tags_and_forms
                                                                         if isinstance(f, symbol_t)) else
-                                                         (progn, orig, nil))
+                                                         list_(progn, orig, nil))
         ## Unregistered Issue TAGBODY-BINDS-METHOD-IMPRECISE-AND-CANNOT-BE-SO-MADE-EASILY
         def binds(*tags_and_forms):              return { tag: t for tag in tags_and_forms
                                                           if isinstance(tag, symbol_t) }
@@ -8995,18 +9102,20 @@ def tagbody():
                 (init_tag,
                  go_tag,
                  return_tag) = (gensym(x + "-TAG-") for x in ["INIT", "GO", "RETURN"])
-                body         = (init_tag,) + tags_and_forms
-                tags         = [ f for f in body if isinstance(f, symbol_t)]
-                fun_names    = { tag: gensym("TAG-%s-" % symbol_name(tag)) for tag in tags }
+                body         = cons(init_tag, tags_and_forms)
+                tags         = remove_if_not(symbolp, body)
+                fun_names    = { tag: gensym("TAG-%s-" % symbol_name(tag)) for tag in _vectorise_linear(tags) }
                 def lam_(seq):
-                        label, s = seq[0], seq[1:]
+                        label, body = seq[0], seq[1]
                         if not atom(label):
-                                return ()
-                        p = position_if(atom, s)
-                        return ((fun_names[label], ()) + s[:p if p is not None else len(s)] +
-                                (_ir_funcall(fun_names[s[p]]) if p is not None else
-                                 (throw, return_tag, nil),),)
-                funs        = tuple(mapcon(lam_, body))
+                                return nil
+                        nextl = find_if(atom, body)
+                        nlposn = position_if(atom, body)
+                        return list_(list__(fun_names[label], nil,
+                                            nconc(subseq(body, nlposn),
+                                                  list_(_ir_funcall(fun_names[nextl]) if nlposn else
+                                                        list_(throw, return_tag, nil)))))
+                funs        = mapcon(lam_, body)
                 # (mapcon #'(lambda (seq &aux (label (car seq) (s (cdr seq)))      
                 #             (when (atom label)                                   
                 #               (let ((p (position-if #'atom s)))                  
@@ -9015,23 +9124,22 @@ def tagbody():
                 #                      ,(if p `(,(label-to-functionname (elt s p)))
                 #                             `(throw ,return-tag nil)))))))
                 #         `(,init-tag ,@body))
-                form = (let, ((go_tag, (apply, (function, list_), (quote, nil), (quote, nil))),),
-                         (let, ((return_tag, (apply, (function, list_), (quote, nil), (quote, nil))),) +
-                              tuple((name, go_tag) for name in fun_names.values()),
-                           (catch, return_tag,
-                             (labels, funs,
-                               (let, ((nxt_label, (function, funs[0][0])),),
-                                 (protoloop,
-                                   (setq, nxt_label,
-                                          (catch, go_tag, (apply, nxt_label, (quote, nil))))))))))
+                l, l_ = list_, list__
+                form = l(let, l(l(go_tag, l(apply, l(function, list_), l(quote, nil), l(quote, nil)))),
+                         l(let, l_(l(return_tag, l(apply, l(function, list_), l(quote, nil), l(quote, nil))),
+                                   _consify_linear(l(name, go_tag) for name in fun_names.values())),
+                           l(catch, return_tag,
+                             l(labels, funs,
+                               l(let, l(l(nxt_label, l(function, funs[0][0]))),
+                                 l(protoloop,
+                                   l(setq, nxt_label,
+                                           l(catch, go_tag, l(apply, nxt_label, l(quote, nil))))))))))
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(name_gotagframe =
                                                            { tag: _gotag_binding(tag, fun_names[tag])
-                                                             for tag in tags[1:] }) })
-        def effects(*tags_and_forms):            return any(_ir_effects(f) for f in tags_and_forms
-                                                                if not isinstance(f, symbol_t))
-        def affected(*tags_and_forms):           return any(_ir_affected(f) for f in tags_and_forms
-                                                                if not isinstance(f, symbol_t))
+                                                             for tag in _vectorise_linear(tags[1]) }) })
+        def effects(*tags_and_forms):            return some(_ir_effects, remove_if(symbolp, tags_and_forms))
+        def affected(*tags_and_forms):           return some(_ir_affected, remove_if(symbolp, tags_and_forms))
 
 # GO
 #         :PROPERTIES:
@@ -9051,7 +9159,7 @@ def go():
                 binding, lexenv = symbol_value(_lexenv_).lookup_gotag(the(symbol_t, name))
                 if not binding:
                         simple_program_error("attempt to GO to nonexistent tag: %s", name)
-                return _rewritten((throw, binding.value, (function, binding.value)))
+                return _rewritten(list_(throw, binding.value, list_(function, binding.value)))
         def effects(_):            return t
         def affected(_):           return nil
 
@@ -9116,7 +9224,7 @@ when EVAL-WHEN appears as a top level form."""
                 ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
                 ## so that they're never seen at this level.)
                 _compiler_trace_choice(eval_when, when, "EXECUTE" if exec else "NO-EXECUTE")
-                return _rewritten(((progn,) + body) if exec else
+                return _rewritten(cons(progn, body) if exec else
                                   nil)
 
 # THE
@@ -9187,9 +9295,14 @@ def let_():
 @defknown((intern("PROGV")[0], " ", _form, " ", _form, ([(_notlead, "\n"), (_bound, _form)],)))
 def progv_():
         def nvalues(_, __, *body):                    return 1 if not body else _ir_nvalues(body[-1])
-        def nth_value(n, orig, names, values, *body): return (_ir_nth_valueify_last_subform(n, orig) if body                  else
-                                                              (progn, names, values, nil)  if (_ir_effects(names) or
-                                                                                               _ir_effects(values)) else
+        def nth_value(n, orig, names, values, *body): return (_ir_nth_valueify_last_subform(n, orig)
+                                                              if body                     else
+                                                              list_(progn,
+                                                                    list_(__list, names),
+                                                                    list_(__list, values),
+                                                                    nil)
+                                                              if (_ir_effects(names)
+                                                                  or _ir_effects(values)) else
                                                               nil)
         def prologuep(names, values, *body):          return not not names or _ir_body_prologuep(body)
         def lower(vars, vals, *body):
@@ -9228,10 +9341,11 @@ def locally():
 @defknown((intern("MULTIPLE-VALUE-PROG1")[0], " ", _form, (["\n", _form],)))
 def multiple_value_prog1():
         def nvalues(first_form, *forms):            return _ir_nvalues(first_form)
-        def nth_value(n, orig, first_form, *forms): return (_ir_nth_value(n, first_form) if not any(_ir_effects(f) for f in forms) else
-                                                            (lambda sym: ((let, ((sym, _ir_nth_value(n, first_form)))) +
-                                                                            forms +
-                                                                            (sym,)))(gensym("MV-PROG1-VALUE-")))
+        def nth_value(n, orig, first_form, *forms):
+                return (_ir_nth_value(n, first_form) if not any(_ir_effects(f) for f in forms) else
+                        (lambda sym: list__(let, list_(list_(sym, _ir_nth_value(n, first_form))),
+                                            _consify_pyseq(forms, list_(sym))))
+                        (gensym("MV-PROG1-VALUE-")))
         def prologuep(first_form, *forms):          return not not forms or _ir_prologue_p(first_form)
         def lower(first_form, *forms):              _not_implemented()
         def effects(first_form, *forms):            return _ir_effects(first_form) or any(_ir_effects(f) for f in forms)
@@ -9283,9 +9397,9 @@ def ref():
 def nth_value():
         def nvalues(_, __):    return 1
         def nth_value(n, orig, form_n, form):
-                return ((nth_value, n, orig) if not (integerp(n) and integerp(form_n)) else ## Give up.  Too early?
-                        nil                  if n != form_n and not _ir_effects(form)  else
-                        (progn, form, nil)   if n != form_n                            else
+                return (list_(nth_value, n, orig) if not (integerp(n) and integerp(form_n)) else ## Give up.  Too early?
+                        nil                       if n != form_n and not _ir_effects(form)  else
+                        list_(progn, form, nil)   if n != form_n                            else
                         _ir_nth_value(n, form)) ## We don't risque unbounded recursion here, so let's further analysis..
         def prologuep(n, form): return _ir_prologue_p(n) or _ir_prologue_p(form)
         def lower(n, form):
@@ -9404,7 +9518,7 @@ def lambda_():
                                                           p.funcall(p.impl_ref("_without_condition_system"),
                                                                     p.attribute(p.name("pdb"), "set_trace")) )
                                                         if name and _compiler_function_trapped_p(name) else ())
-                                                     + (((_var_tn(rest), p.funcall(p.impl_ref("_consify_pyseq"),
+                                                     + (((_var_tn(rest), p.funcall(p.impl_ref("_consify_linear"),
                                                                                    gs_r.tn)),)
                                                         if rest else ())
                                                      + (((tn_ht, p.funcall(p.blin_ref("dict"),
@@ -9447,11 +9561,11 @@ def apply():
                 ## the comparison against a literal NIL is much weaker than a NULL type membership test.
                 ## Therefore, the important evolutionary question, is what kind of preparations are
                 ## required to make such type analysis viable.
-                if rest is nil or rest == (quote, nil):
+                if rest is nil or rest == list_(quote, nil):
                         return _lowered(p.funcall(_primitivise(func), *(_primitivise(x) for x in fixed)))
                 else:
                         return _lowered(p.apply(_primitivise(func), *((_primitivise(x) for x in fixed)
-                                                                      + [ p.funcall(p.impl_ref("_vectorise_cons_list"),
+                                                                      + [ p.funcall(p.impl_ref("_vectorise_linear"),
                                                                                     _primitivise(rest)) ])))
         def effects(func, arg, *args):
                 return (any(_ir_effects(arg) for arg in (func, arg) + args) or
@@ -9473,7 +9587,7 @@ def _run_tests_known():
         assert _runtest(applyification,
                         list_(cond),
                         ({},
-                         _consify_tuple_trees(apply, (function, cond), (quote, nil)),
+                         _consify_star(apply, (function, cond), (quote, nil)),
                          None))
 
 if _getenv("CL_RUN_TESTS"):
@@ -9629,7 +9743,8 @@ def _emit_ast(prim) -> [p.stmt]:
 
 def _lower(form, lexenv = nil):
         "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
-        prim = _primitivise(form, lexenv = lexenv)
+        vectree = _vectorise(form)
+        prim = _primitivise(vectree, lexenv = lexenv)
         return _emit_ast(prim)
 
 def _compile(form, lexenv = nil):
@@ -11463,8 +11578,8 @@ executed."""
                                # (or_t, (pylist_t, (or_t, star, list)),
                                #        function_t),
                                if ((_listp(qualifier_spec) and
-                                    some(_curry(method_qualifiers_match_pattern_p, qualifiers),
-                                         qualifier_spec))
+                                    any(method_qualifiers_match_pattern_p(qualifiers, x)
+                                        for x in qualifier_spec))
                                    # must be an fbound symbol, as per the above TYPEP
                                    or qualifier_spec(qualifiers)):
                                        grouped_methods[group.name].append(method)
@@ -12195,7 +12310,7 @@ GENERIC-FUNCTION argument is then returned."""
                      generic_function_methods(generic_function))
         if lambda_list:
                 fixed, optional, args, keyword, kwarg = lambda_list
-                if some(lambda x: x[1] is not None, list(optional) + list(keyword)):
+                if any(x[1] is not None for x in list(optional) + list(keyword)):
                         error("Generic function arglist cannot specify default parameter values.")
         initargs = _only_specified_keys(
                 argument_precedence_order = argument_precedence_order,
@@ -12499,14 +12614,15 @@ object2). Otherwise P1,i and P2,i do not agree.
 
 3. The two lists of qualifiers are the same under equal."""
         lambda_list = method_lambda_list(method)
-        return (len(lambda_list[0]) == len(specializers)       and
-                every(lambda ms, s: ((ms is s) or
-                                     (_listp(ms) and _listp(s) and
-                                      len(ms) == len(s) == 2 and
-                                      ms[0] == s[0] == eql     and
-                                      eql(ms[1], s[1]))),
-                      method_specializers(method), specializers) and
-                equal(method_qualifiers(method), qualifiers))
+        return (len(lambda_list[0]) == len(specializers)
+                and all(((ms is s)
+                         or (_listp(ms) and _listp(s)
+                             and len(ms) == len(s) == 2
+                             and ms[0] == s[0] == eql
+                             and eql(ms[1], s[1])))
+                        for m, ms in
+                        zip(method_specializers(method), specializers))
+                and equal(method_qualifiers(method), qualifiers))
 
 def _generic_function_lambda_list_incongruent_with_method_list_p(generic_function_lambda_list,
                                                                  method_lambda_list):
