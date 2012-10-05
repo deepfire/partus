@@ -357,7 +357,10 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         #                                                   pre_spills)
                         ## only allowable spills will land here
                         # cl._debug_printf("pre-spills of %s: %s", primitive, pre_spills)
-                        last_spilled_posn = position_if(identity, pre_spills, from_end = t, key = indexing(1))
+                        last_spilled_posns = [ i
+                                               for i, x in reversed(list(enumerate(pre_spills)))
+                                               if x[0] ]
+                        last_spilled_posn = last_spilled_posns[0] if last_spilled_posns else None
                         n_spilled = (last_spilled_posn + 1 if last_spilled_posn is not None else
                                      0)
                         for_spill, unspilled = args[:n_spilled], args[n_spilled:]
