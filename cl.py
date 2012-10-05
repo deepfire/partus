@@ -2397,18 +2397,6 @@ def stable_sort(xs, predicate):
         return sorted(xs, key = _functools.cmp_to_key(predicate))
 
 @defun
-def vector_push(vec, x):
-        "XXX: compliance"
-        vec.append(x)
-        return vec
-
-@defun
-def vector_push_extend(vec, x):
-        "XXX: compliance"
-        vec.append(x)
-        return vec
-
-@defun
 def aref(xs, *indices):
         r = xs
         for i in indices:
