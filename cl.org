@@ -3291,13 +3291,13 @@ _intern_and_bind_names_in_module("DEFMACRO")
 _compiler_safe_namespace_separation = t
 
 def _ensure_function_pyname(symbol):
-        if symbol.function_pyname is not None:
+        if the(symbol_t, symbol).function_pyname is not None:
                 return symbol.function_pyname
         symbol.function_pyname = (_gensymname("FUN_" + str(symbol) + "-") if _compiler_safe_namespace_separation else
                                   str(symbol))
         return symbol.function_pyname
 def _ensure_symbol_pyname(symbol):
-        if symbol.symbol_pyname is not None:
+        if the(symbol_t, symbol).symbol_pyname is not None:
                 return symbol.symbol_pyname
         symbol.symbol_pyname = (_gensymname("SYM_" + str(symbol) + "-") if _compiler_safe_namespace_separation else
                                 str(symbol))
@@ -3307,11 +3307,11 @@ def _ensure_variable_pyname(x):
         return _frost.full_symbol_name_python_name(x)
 
 def _get_function_pyname(symbol):
-        if symbol.function_pyname is None:
+        if the(symbol_t, symbol).function_pyname is None:
                 error("Function %s has no mapping to a python name.", symbol)
         return symbol.function_pyname
 def _get_symbol_pyname(symbol):
-        if symbol.symbol_pyname is None:
+        if the(symbol_t, symbol).symbol_pyname is None:
                 error("Symbol %s has no mapping to a python name.", symbol)
         return symbol.symbol_pyname
 
