@@ -2618,10 +2618,6 @@ def _slotting(x):             return lambda y: getattr(y, x, None)
 def _slot_of(x):              return lambda y: getattr(x, y, None)
 def _slot_equal(slot, val):   return lambda y: getattr(y, slot, None) == val
 
-def _indexing(*is_):          return lambda y: aref(y, *is_)
-def _index_of(xs):            return lambda *is_: aref(xs, *is_)
-def _index_equal(index, val): return lambda y: y[index] == val
-
 def _updated_dict(to, from_):
         to.update(from_)
         return to

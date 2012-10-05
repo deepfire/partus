@@ -2,7 +2,6 @@ import cl
 from cl import *
 from cl import _gensymname as gensymname
 from cl import _ensure_symbol_pyname as ensure_symbol_pyname
-from cl import _indexing as indexing
 from cl import _sex_space as sex_space
 
 import ast
