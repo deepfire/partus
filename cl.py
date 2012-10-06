@@ -3508,7 +3508,7 @@ def _vectorise(x):
         res = []
         while x:
                 res.append(x[0] if not consp(x[0]) else
-                           _vectorise_tree(x[0]))
+                           _vectorise(x[0]))
                 x = x[1]
         return res
 
@@ -3520,15 +3520,17 @@ def _vectorise_linear(x):
         return res
 
 def _consify(xs):
-        return _consify_linear([ (_consify(x) if isinstance(x, tuple) else x)
-                                 for x in xs ]) if isinstance(xs, (list, tuple)) else xs
+        return _consify_linear(( (_consify(x) if isinstance(x, (list, tuple)) else x)
+                                 for x in xs )) if isinstance(xs, (list, tuple)) else xs
 
 def _consify_star(*xs):
         return _consify(xs)
 
 def _consify_linear(xs, last_cdr = nil):
+        if consp(xs):
+                error("Asked to consify a CONS:\n%s", xs)
         return reduce(lambda acc, x: [x, acc],
-                      reversed(xs),
+                      reversed(tuple(xs)),
                       last_cdr)
 
 def _pp_consly(x, dispatch = dict()):
@@ -3569,6 +3571,25 @@ def _xmap_to_conses(f, *xss):
                 not_implemented("%XMAP-TO-CONSES: multiple-list case")
 
 # Sequences
+def _compute_predicate(key, elt, test = eql, test_not = nil):
+        if test and test_not:
+                error("Incomprehensible simultaneous specification of :TEST and :TEST-NOT.")
+        test = test or test_not
+        return ((lambda x: test(elt, x))
+                if key is identity else
+                (lambda x: test(elt, key(x))))
+
+## Uncomment in emergency:
+#
+# __key_map__ = { "key":      _key_,
+#                 "start":    _start,
+#                 "end":      _end,
+#                 "from_end": _from_end,
+#                 "test":     _test,
+#                 "test_not": _test_not,
+#                 }
+# def _read_keys(keys):
+#         return { __key_map__[k]: v for k, v in keys }
 
 # COPY-SEQ
 # ELT
@@ -3615,7 +3636,8 @@ def subseq(xs, start, end = nil):
         else:
                 _not_implemented("Non-cons case of SUBSEQ.")
 
-_key_, _start, _end, _from_end = [ _keyword(x) for x in ["KEY", "START", "END", "FROM-END"] ]
+_key_, _start, _end, _from_end, _test, _test_not = [ _keyword(x) for x in
+                                                     ["KEY", "START", "END", "FROM-END", "TEST", "TEST-NOT" ] ]
 
 # MAP
 # MAP-INTO
@@ -3682,69 +3704,96 @@ def nreverse(xs):
 # SORT
 # STABLE-SORT
 
+def _find_if(pred, xs, keys):
+        key, start, end, from_end = [ keys.get(k, df) for k, df
+                                      in [ (_key_,     identity),
+                                           (_start,    0),
+                                           (_end,      nil),
+                                           (_from_end, nil) ] ]
+        endp = end is not nil
+        if from_end:
+                _not_implemented(":FROM-END")
+        the_test = pred if not key else lambda x: pred(key(x))
+        if listp(xs):
+                i, ptr = start, nthcdr(start, xs) if start else xs
+                while ptr:
+                        if endp and i >= end: ## Hoist?
+                                return nil
+                        if the_test(ptr[0]):
+                                return ptr[0]
+                        i, ptr = i + 1, ptr[1]
+                return nil
+        else:
+                _not_implemented("FIND-IF: non-list case")
+
 @defun
 def find(elt, xs, *rest):
         keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
-        key, start, end, from_end, test, test_not = [ keys.get(k, df) for k, df
-                                                      in [ (_key_,     identity),
-                                                           (_start,    0),
-                                                           (_end,      nil),
-                                                           (_from_end, nil),
-                                                           (_test,     nil),
-                                                           (_test_not, nil) ] ]
-        _not_implemented()
+        key, test, test_not = [ keys.get(k, df) for k, df
+                                in [ (_key_,     identity),
+                                     (_test,     eql),
+                                     (_test_not, nil) ] ]
+        if _key_     in keys: del keys[_key_]
+        if _test     in keys: del keys[_test]
+        if _test_not in keys: del keys[_test_not]
+        return _find_if(_compute_predicate(key, elt, test = test, test_not = test_not),
+                        xs, keys)
 
 @defun
 def find_if(p, xs, *rest):
         keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
-        key, start, end, from_end = [ keys.get(k, df) for k, df
-                                      in [ (_key_,     identity),
-                                           (_start,    0),
-                                           (_end,      nil),
-                                           (_from_end, nil) ] ]
-        _not_implemented()
+        return _find_if(p, xs, keys)
+
 
 @defun
 def find_if_not(p, xs, *rest):
         keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
+        return _find_if(lambda x: not p(x), xs, keys)
+
+def _position_if(pred, xs, keys):
         key, start, end, from_end = [ keys.get(k, df) for k, df
                                       in [ (_key_,     identity),
                                            (_start,    0),
                                            (_end,      nil),
                                            (_from_end, nil) ] ]
-        _not_implemented()
+        endp = end is not nil
+        if from_end:
+                _not_implemented(":FROM-END")
+        the_test = pred if not key else lambda x: pred(key(x))
+        if listp(xs):
+                i, ptr = start, nthcdr(start, xs) if start else xs
+                while ptr:
+                        if endp and i >= end: ## Hoist?
+                                return nil
+                        if the_test(ptr[0]):
+                                return i
+                        i, ptr = i + 1, ptr[1]
+                return nil
+        else:
+                _not_implemented("POSITION-IF: non-list case")
 
 @defun
 def position(elt, xs, *rest):
         keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
-        key, start, end, from_end, test, test_not = [ keys.get(k, df) for k, df
-                                                      in [ (_key_,     identity),
-                                                           (_start,    0),
-                                                           (_end,      nil),
-                                                           (_from_end, nil),
-                                                           (_test,     nil),
-                                                           (_test_not, nil) ] ]
-        _not_implemented()
+        key, test, test_not = [ keys.get(k, df) for k, df
+                                in [ (_key_,     identity),
+                                     (_test,     eql),
+                                     (_test_not, nil) ] ]
+        if _key_     in keys: del keys[_key_]
+        if _test     in keys: del keys[_test]
+        if _test_not in keys: del keys[_test_not]
+        return _position_if(_compute_predicate(key, elt, test = test, test_not = test_not),
+                            xs, keys)
 
 @defun
 def position_if(p, xs, *rest):
         keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
-        key, start, end, from_end = [ keys.get(k, df) for k, df
-                                      in [ (_key_,     identity),
-                                           (_start,    0),
-                                           (_end,      nil),
-                                           (_from_end, nil) ] ]
-        _not_implemented()
+        return _position_if(p, xs, keys)
 
 @defun
 def position_if_not(p, xs, *rest):
         keys = _extract_keywords(rest, [_key_, _start, _end, _from_end])
-        key, start, end, from_end = [ keys.get(k, df) for k, df
-                                      in [ (_key_,     identity),
-                                           (_start,    0),
-                                           (_end,      nil),
-                                           (_from_end, nil) ] ]
-        _not_implemented()
+        return _position_if(lambda x: not p(x), xs, keys)
 
 # SEARCH
 # MISMATCH
@@ -3870,7 +3919,20 @@ def cdr(x):         return x[1] if x else nil
 # NSUBST-IF
 # NSUBST-IF-NOT
 # TREE-EQUAL
-# COPY-LIST
+
+def _copy_list_with_lastcdr(x, cdr):
+        if not x:
+                return cdr
+        ret = ptr = [x[0], cdr]
+        while True:
+                x = x[1]
+                if not x:
+                        return ret
+                ptr[1] = ptr = [x[0], cdr]
+
+@defun
+def copy_list(xs):
+        return _copy_list_with_lastcdr(xs, nil)
 
 @defun("LIST")
 def list_(*xs):     return _consify_linear(xs)
@@ -3928,16 +3990,7 @@ def nconc(*xs):
 def append(*xs):
         if not xs:
                 return nil
-        def copy_list_with_lastcdr(x, cdr):
-                if not x:
-                        return cdr
-                ret = ptr = [x[0], cdr]
-                while True:
-                        x = x[1]
-                        if not x:
-                                return ret
-                        ptr[1] = [x[0], cdr]
-        return copy_list_with_lastcdr(xs[0], append(*xs[1:]))
+        return _copy_list_with_lastcdr(xs[0], append(*xs[1:]))
 
 # REVAPPEND
 # NRECONC
@@ -3968,7 +4021,12 @@ def tailp(object, list):
 true; otherwise, it returns false."""
         _not_implemented()
 
-# NTHCDR
+@defun
+def nthcdr(n, xs):
+        while n and xs:
+                n, xs = n - 1, xs[1]
+        return xs
+
 # REST
 
 @defun
@@ -3995,8 +4053,8 @@ def mapc(f, *xs):
          _not_implemented()
 
 @defun
-def mapcar(f, xs, *xss):
-        if not xss:
+def mapcar(f, *xss):
+        if len(xss) == 1:
                 xs = xss[0]
                 if not xs:
                         return nil
@@ -4007,7 +4065,7 @@ def mapcar(f, xs, *xss):
                         ptr[1] = ptr = [f(car), nil]
                 return acc
         else:
-                not_implemented("MAPCAR: multiple-list case")
+                _not_implemented("MAPCAR: multiple-list case")
 
 @defun
 def mapcan(f, *xs):
@@ -4017,8 +4075,23 @@ def mapcan(f, *xs):
 # MAPLIST
 
 @defun
-def mapcon(f, *xs):
-         _not_implemented()
+def mapcon(f, *xss):
+        if len(xss) == 1:
+                xs = xss[0]
+                acc = nil
+                while xs and not acc:
+                        acc = f(xs)
+                        xs = xs[1]
+                ptr = acc
+                while xs:
+                        res = f(xs)
+                        if res:
+                                last(ptr)[1] = res
+                                ptr = res
+                        xs = xs[1]
+                return acc
+        else:
+                _not_implemented("MAPCON: multiple-list case")
 
 # ACONS
 
@@ -4092,7 +4165,7 @@ def setf_getf(value, xs, key):
 
 @defun
 def every(fn, xs, *xss):
-        if not xss:
+        if len(xss) == 1:
                 while xs:
                         if not fn(xs[0]):
                                  return nil
@@ -4103,7 +4176,7 @@ def every(fn, xs, *xss):
 
 @defun
 def some(fn, xs, *xss):
-        if not xss:
+        if len(xss) == 1:
                 while xs:
                         if fn(xs[0]):
                                  return t
@@ -4114,7 +4187,7 @@ def some(fn, xs, *xss):
 
 @defun
 def notevery(fn, xs, *xss):
-        if not xss:
+        if len(xss) == 1:
                 while xs:
                         if not fn(xs[0]):
                                  return t
@@ -4125,7 +4198,7 @@ def notevery(fn, xs, *xss):
 
 @defun
 def notany(fn, xs, *xss):
-        if not xss:
+        if len(xss) == 1:
                 while xs:
                         if fn(xs[0]):
                                  return nil
@@ -4141,7 +4214,7 @@ def notany(fn, xs, *xss):
 # Arrays
 
 @defun
-def vector(*xs):    return list(xs)
+def vector(*xs):    return [len(xs), t] + list(xs)
 
 # Cold printer
 
