@@ -4672,7 +4672,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                                         error("Consing dot not implemented")
                                 ret.append(obj)
                 # _here("< %s" % (ret,))
-                return _consify_linear(ret)
+                return _consify_linear(tuple(ret)) ## Beacon DEBUG-RELATED-SLOWDOWN
         def read_string():
                 ret = ""
                 read_char(stream) # seek the opening double-quote
@@ -5287,7 +5287,7 @@ def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast
         if non_fdefns:
                 fail(non_fdefns[0])
         specified_method_names = { x.name:x for x in body_ast }
-        invalid_methods = set(specified_method_names) - _mapset(_indexing(0), method_specs)
+        invalid_methods = set(specified_method_names) - _mapset(lambda x: x[0], method_specs)
         if invalid_methods:
                 fail(invalid_methods.pop().upper())
         return (process(*mspec) for mspec in method_specs)
@@ -5598,7 +5598,7 @@ def _ast_bound_free(astxs):
                         if __atrees_validate__:
                                 _ast_info_check_args_type(info, args, atreep = nil)
                         return info.bound_free(*args)
-                return _separate(3, bound_free, remove(None, _ensure_list(astxs)))
+                return _separate(3, bound_free, [ x for x in _ensure_list(astxs) if x is not None ])
         with progv({_bound_free_recursor_: ast_rec}):
                 return ast_rec(the((or_t, _ast.AST, (pylist_t, _ast.AST)),
                                    astxs))
@@ -5623,7 +5623,7 @@ def _atree_bound_free(atreexs):
                         args = atree[1:]
                         _ast_info_check_args_type(info, args, atreep = t)
                         return info.bound_free(*args)
-                return _separate(3, bound_free, remove(None, _ensure_list(atreexs)))
+                return _separate(3, bound_free, [ x for x in _ensure_list(atreexs) if x is not None ])
         with progv({_bound_free_recursor_: atree_rec}):
                 return atree_rec(the((or_t, pytuple_t, (pylist_t, pytuple_t)),
                                      atreexs))
@@ -6912,7 +6912,7 @@ class _matcher():
 
 def _match(matcher, exp, pat):
         matcher.per_use_init()
-        name, prepped = _maybe_destructure_binding(matcher.preprocess(pat))
+        name, prepped = _maybe_destructure_binding(pat)
         return matcher.match(dict(), name, exp, prepped, (True, False), None, -1)
 
 # Compiler conditions
@@ -6956,7 +6956,7 @@ def _parse_body(body, doc_string_allowed = t):
 _eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
 _eval_when_keywords = set(_eval_when_ordered_keywords)
 def _parse_eval_when_situations(situ_form):
-        if not (isinstance(situ_form, tuple) and not (set(situ_form) - _eval_when_keywords)):
+        if not (listp(situ_form) and not (set(_vectorise_linear(situ_form)) - _eval_when_keywords)):
                 error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
         return [x in situ_form for x in _eval_when_ordered_keywords]
 
@@ -7301,7 +7301,7 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                 return _emit_ast(p.import_(p.name("cl"))) 
         def symbol_prologue():
                 def wrap(x):
-                        return _defaulted(x, (ref, (quote, ("None",))))
+                        return _defaulted(x, _consify_star(ref, (quote, ("None",))))
                 with progv({ _compiler_trace_pretty_full_: nil,
                              _compiler_trace_forms_:       nil,
                              _compiler_trace_primitives_:  nil,
@@ -7310,22 +7310,23 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                              _compiler_trace_rewrites_:    nil,
                              _compiler_trace_result_:      nil }):
                  symbols = sorted(funs | syms, key = str)
-                 return _lower((progn,
-                                _ir_cl_module_call(
+                 return _lower(list_(progn,
+                                     _ir_cl_module_call(
                                          "_fop_make_symbol_available",
                                          _ir_funcall("globals"),
-                                         "COMMON-LISP", "VECTOR", _ensure_function_pyname(vector), (ref, (quote, ("None",))),
+                                         "COMMON-LISP", "VECTOR", _ensure_function_pyname(__vector),
+                                         list_(ref, list_(quote, list_("None"))),
                                          True, False),
-                                _ir_cl_module_call(
+                                     _ir_cl_module_call(
                                          "_fop_make_symbols_available",
                                          _ir_funcall("globals"),
-                                         _ir_funcall(vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
-                                                                    for sym in symbols )),
-                                         _ir_funcall(vector, *tuple(symbol_name(sym)          for sym in symbols )),
-                                         _ir_funcall(vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
-                                         _ir_funcall(vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                                         _ir_funcall(vector, *tuple(sym in gfuns              for sym in symbols )),
-                                         _ir_funcall(vector, *tuple(sym in gvars              for sym in symbols )))),
+                                         _ir_funcall(__vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
+                                                                      for sym in symbols )),
+                                         _ir_funcall(__vector, *tuple(symbol_name(sym)          for sym in symbols )),
+                                         _ir_funcall(__vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
+                                         _ir_funcall(__vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
+                                         _ir_funcall(__vector, *tuple(sym in gfuns              for sym in symbols )),
+                                         _ir_funcall(__vector, *tuple(sym in gvars              for sym in symbols )))),
                                ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
                                lexenv = _make_null_lexenv(nil))
         with _no_compiler_debugging():
@@ -7576,14 +7577,16 @@ def _primitivise_constant(x):
                 error("Cannot primitivise value %s.  Is it a literal?", _pp_consly(x)))
 
 def _ir_funcall(func, *args):
-        return _consify((apply, (function, ((quote, (func,)) if isinstance(func, str) else
-                                            func))) + args + ((quote, nil),))
+        l, l_ = list_, list__
+        return l_(apply, l(function, (l(quote, l(func)) if isinstance(func, str) else
+                                      func)),
+                  _consify_linear(args, l(l(quote, nil))))
 
 def _ir_cl_module_name(name):
-        return ("cl", name)
+        return list_("cl", name)
 
 def _ir_cl_module_call(name, *ir_args):
-        return _ir_funcall((quote, _ir_cl_module_name(name)), *ir_args)
+        return _ir_funcall(list_(quote, _ir_cl_module_name(name)), *ir_args)
 
 def _ir_lambda_to_def(name, lambda_expression):
         return _ir_args(lambda_, the(symbol_t, name), *_vectorise_linear(lambda_expression[1]),
@@ -7605,27 +7608,41 @@ def _metasex_leaf_word_p(x): return isinstance(x, symbol_t) and x in __metasex_l
 
 def _preprocess_metasex(pat):
         "Expand syntactic sugars."
-        def prep_binding(b):
-                k, v = tuple(b.items())[0]
-                return { k: _preprocess_metasex(v) }
-        ret = ((_count_scope,
-                 (_some,) + tuple(_preprocess_metasex(x) for x in pat)) if isinstance(pat, list)                   else
-               prep_binding(pat)                                        if isinstance(pat, dict)                   else
-               (_form,)                                                 if pat is _form                            else
-               (_newline, 0)                                            if pat == "\n"                             else
-               (_newline, pat)                                          if isinstance(pat, int)                    else
-               (_indent, 1)                                             if pat == " "                              else
-               pat                                                      if not isinstance(pat, tuple) or pat == () else
-               (((identity if _metasex_word_p(pat[0])      else _preprocess_metasex)(pat[0]),)
-                + (pat[1:] if _metasex_leaf_word_p(pat[0]) else tuple(_preprocess_metasex(x) for x in pat[1:]))))
+        def rec(pat):
+                def prep_binding(b):
+                        k, v = tuple(b.items())[0]
+                        return { k: _consify(rec(v)) }
+                return ((_count_scope,
+                         (_some,) + tuple(rec(x) for x in pat)) if isinstance(pat, list)                   else
+                        prep_binding(pat)                       if isinstance(pat, dict)                   else
+                        (_form,)                                if pat is _form                            else
+                        (_newline, 0)                           if pat == "\n"                             else
+                        (_newline, pat)                         if isinstance(pat, int)                    else
+                        (_indent, 1)                            if pat == " "                              else
+                        pat                                     if not isinstance(pat, tuple) or pat == () else
+                        (((identity if _metasex_word_p(pat[0])      else rec)(pat[0]),)
+                         + (pat[1:] if _metasex_leaf_word_p(pat[0]) else tuple(rec(x) for x in pat[1:]))))
         # _here("\n ==> %s   -   %s", pat, ret, callers = 15)
-        return _consify(ret)
+        return _consify(rec(pat))
+
+def _strip_metasex_pp(x):
+        ret = mapcon(lambda xs:
+                             (list_(xs[0])                          if not consp(xs[0])                                 else
+                              list_(_strip_metasex_pp(xs[0][1][0])) if xs[0][0] is _count_scope                         else
+                              list_(_strip_metasex_pp(xs[0]))       if (not symbolp(xs[0][0])
+                                                                        or xs[0][0] not in (_newline, _indent,
+                                                                                            _lead, _notlead, _nottail)) else
+                               nil),
+                      x)
+        # _debug_printf("STRIP: %s\n--->\n%s", _pp_consly(x), _pp_consly(ret))
+        return ret
 
 # DEFKNOWN
 
 _known = _poor_man_defstruct("known",
                              "name",
                              "metasex",
+                             "metasex_pp",
                              "nvalues", "nth_value",
                              "binds",
                              "prologuep",
@@ -7683,14 +7700,16 @@ The NAME is bound, in separate namespaces, to:
                                                       error('Effect analysis unsupported for known %s.')""", pyname, sym)])
                 lower_key_args = _function_lambda_list(lower)[3]
                 ## Complete, record the deeds.
+                metasex = _preprocess_metasex(metasex)
                 sym.known = _known(name = sym,
-                                   metasex = metasex,
+                                   metasex = _strip_metasex_pp(metasex),
+                                   metasex_pp = metasex,
                                    binds = binds,
                                    nvalues = nvalues, nth_value = nth_value,
                                    prologuep = prologuep,
                                    lower = lower,
                                    effects = effects, affected = affected,
-                                   lower_params = _mapset(_indexing(0), lower_key_args))
+                                   lower_params = _mapset(lambda x: x[0], lower_key_args))
                 return sym # pass through
         def _defknown(fn, name = name, metasex = metasex_or_fn):
                 _, sym, pyname = _interpret_toplevel_value(fn, functionp)
@@ -7713,16 +7732,20 @@ def _form_known(form):
         complex_form_p = consp(form) and isinstance(form[0], symbol_t)
         return complex_form_p and _find_known(form[0])
 
-def _form_metasex(form):
+_string_set("*METASEX-PP*", nil)
+
+def _form_metasex(form, pp = nil):
         "Return a normalised MetaSEX for FORM."
         ## Unregistered Issue FORM-METASEX-SHOULD-COMPUTE-METASEX-OF-DEFINED-MACROS
         ## Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
-        return _preprocess_metasex(
-                (_typep, t)                             if not consp(form)                                        else
-                ()                                      if not form                                               else
-                _find_known(form[0]).metasex            if isinstance(form[0], symbol_t) and _find_known(form[0]) else
-                (_form, "\n", [(_notlead, " "), _form]) if isinstance(form[0], tuple) and form[0] and form[0][0] is lambda_ else
-                ([(_notlead, " "), _form],))
+        return (_preprocess_metasex((_typep, t))  if not consp(form)                                        else
+                ()                                if not form                                               else
+                getattr(_find_known(form[0]),
+                        "metasex_pp" if pp else
+                        "metasex")                if isinstance(form[0], symbol_t) and _find_known(form[0]) else
+                _preprocess_metasex((_form, "\n", [(_notlead, " "), _form]))
+                                                  if isinstance(form[0], tuple) and form[0] and form[0][0] is lambda_ else
+                _preprocess_metasex(([(_notlead, " "), _form],)))
 
 def _combine_t_or_None(f0, fR, originalp):
         f0r = f0()
@@ -7756,8 +7779,6 @@ class _metasex_matcher(_matcher):
                 m.register_complex_matcher(_notlead,     m.complex_identity)
                 m.register_complex_matcher(_nottail,     m.complex_identity)
                 m.register_complex_matcher(_count_scope, m.complex_identity)
-        @staticmethod
-        def preprocess(pat):         return _preprocess_metasex(pat)
         @staticmethod
         def prod(x, originalp):      return ""
         @staticmethod
@@ -7809,7 +7830,7 @@ class _metasex_matcher(_matcher):
                         handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
                         if handled:
                                 return ret
-                        form_pat = _form_metasex(form)
+                        form_pat = _form_metasex(form, pp = symbol_value(_metasex_pp_))
                         # _trace_printf("form", "=== form for %s:\n    %s", lambda: (repr(form), form_pat))
                         return m.match(bound, name, form, form_pat, (consp(form), orifst[1]), None, -1)
         def symbol(m, bound, name, form, pat, orifst):
@@ -8017,13 +8038,12 @@ def _map_sex(fn, sex):
 
 def _pp_sex(sex, strict = t, initial_depth = None):
         _metasex_pp.per_use_init()
-        # _debug_printf("\n   pretty-printing:\n%s", sex)
         ## Unregistered Issue RELAXED-METASEX-PRETTY-PRINTER-MODE-NEEDED
         initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
         with progv({ _pp_depth_:      initial_depth,
-                     _pp_base_depth_: initial_depth}):
-                pat = _form_metasex(sex)
-                _, r, f = _match(_metasex_pp, sex, pat)
+                     _pp_base_depth_: initial_depth,
+                     _metasex_pp_:    t }): ## Guide the nested %FORM-METASEX invocations.
+                _, r, f = _match(_metasex_pp, sex, _form_metasex(sex, pp = t))
         if f is not None:
                 error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s",
                       _matcher_pp(sex), _matcher_pp(pat), _matcher_pp(f), _matcher_pp(r))
@@ -8048,9 +8068,9 @@ def _mockup_sex(sex, initial_depth = None, max_level = None):
                 else:
                         car, cdr = sex
                         complex_tail_start = position_if_not(atom, cdr)
-                        simple_tail, complex_tail = (subseq(tail, complex_tail_start),
-                                                     subseq(tail, complex_tail_start if complex_tail_start is not nil else
-                                                                  length(cdr)))
+                        simple_tail, complex_tail = (subseq(cdr, 0, complex_tail_start),
+                                                     subseq(cdr, (complex_tail_start if complex_tail_start is not nil else
+                                                                  length(cdr))))
                         if atom(car):
                                 return ("(" + " ".join(mock_atom(x)
                                                        for x in [car] + _vectorise_linear(simple_tail)) +
@@ -8081,7 +8101,7 @@ _intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY"
 def _run_tests_metasex():
         printer = _matcher_result_printer
         def do_run_test(input, matcher = _metasex_pp):
-                return _match_sex(input[0], input[1], matcher = matcher)
+                return _match_sex(input[0], _preprocess_metasex(input[1]), matcher = matcher)
         def just_match(input):   return do_run_test(input, matcher = _metasex)
         def pp(input):           return do_run_test(input)
         def mal_pp(input):       return do_run_test(input)
@@ -8226,6 +8246,7 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
         def knownifier_and_maybe_compiler_macroexpander(form, known):
                 if not known: ## ..then it's a funcall, because all macros
                         xformed = _ir_funcall(form[0], *_vectorise_linear(form[1]))
+                        # _debug_printf("APPLYIFIED\n%s\n->\n%s", _pp_consly(form), _pp_consly(xformed))
                         return lambda *_: (find_compiler_macroexpander(xformed) or identity)(xformed)
                 else:
                         return (find_compiler_macroexpander(form) if known.name in (apply, funcall) else
@@ -8269,7 +8290,7 @@ def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignor
         env = _symbol_value(_macroexpander_env_)
         expanded_form, _ = macroexpand(form, env, compilerp = compilerp)
         ## 2. Compute bindings contributed by this outer form.
-        # _debug_printf("\nexpanded %s -> %s", form, expanded_form)
+        # _debug_printf("\nexpanded\n%s\n->\n%s", _pp_consly(form), _pp_consly(expanded_form))
         known = _find_known(expanded_form[0]) if consp(expanded_form) else nil
         (symbol_frame,
          mfunc_frame,
@@ -8361,15 +8382,16 @@ _ensure_function_pyname(defmacro) ## This is only needed due to the special defi
 # ((intern("DEFMACRO")[0], " ", _name, " ", ([(_notlead, " "), _name],),
 #   1, [(_notlead, "\n"), (_bound, _form)]))
 def DEFMACRO(name, lambda_list, *body):
-        return _consify_star(
-                eval_when, (_compile_toplevel, _load_toplevel, _execute),
-                ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
-                # (function, (def_, name, lambda_list) + body),
-                (ir_args,
-                 (lambda_, lambda_list) + body,
-                 ("decorators", [_consify(_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
-                                                             [quote, name], [quote, [name, lambda_list] + _consify(body)]))]),
-                 ("name", name)))
+        l, l_ = list_, list__
+        return l(eval_when, l(_compile_toplevel, _load_toplevel, _execute),
+                 ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
+                 # (function, (def_, name, lambda_list) + body),
+                 (ir_args,
+                  l_(lambda_, lambda_list, _consify(body)),
+                  l("decorators", [_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
+                                                      (quote, name),
+                                                      (quote, (name, lambda_list) + body))]),
+                  l("name", name)))
 
 # Out-of-band IR argument passing: %IR-ARGS, %IR
 
@@ -8401,24 +8423,25 @@ def _ir_args_when(when, ir, **parameters):
 
 def _ir_nvalues(form):
         return (lambda known: (known.nvalues(*_vectorise_linear(form[1]))            if known else
-                               None))                (_form_known(form))
+                               None))                       (_form_known(form))
 def _ir_nth_value(n, form):
         return (lambda known: (known.nth_value(n, form, *_vectorise_linear(form[1])) if known else
-                               list_(nth_value, n, form)))(_form_known(form))
+                               list_(nth_value, n, form)))  (_form_known(form))
 def _ir_prologue_p(form):
         return (lambda known: (known.prologuep(*_vectorise_linear(form[1])           if known else
                                nil                                 if isinstance(form, symbol_t) or constantp(form) else
-                               error("Prologue queries only defined on known forms, not %s.", repr(form)))))(_form_known(form))
+                               error("Prologue queries only defined on known forms, not %s.", repr(form)))))(
+                                                             _form_known(form))
 def _ir_binds(form):
         # As of early October 2012, used only by macroexpander.
         return (lambda known: (known.binds(*_vectorise_linear(form[1])               if known else
-                               dict())))             (_form_known(form))
+                               dict())))                    (_form_known(form))
 def _ir_effects(form):
         return (lambda known: (known.effects(*_vectorise_linear(form[1]))            if known else
-                               t))                   (_form_known(form))
+                               t))                          (_form_known(form))
 def _ir_affected(form):
         return (lambda known: (known.affected(*_vectorise_linear(form[1]))           if known else
-                               t))                   (_form_known(form))
+                               t))                          (_form_known(form))
 
 def _ir_function_form_nvalues(func):
         return _defaulted(
