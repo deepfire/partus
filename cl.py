@@ -3536,6 +3536,9 @@ def _pp_consly(x, dispatch = dict()):
                 acc = []
                 ptr = x
                 while ptr:
+                        if not consp(ptr):
+                                acc.append(". " + str(ptr))
+                                break
                         acc.append(_pp_consly(ptr[0], dispatch = dispatch))
                         ptr = ptr[1]
                 return "(" + " ".join(acc) + ")"
