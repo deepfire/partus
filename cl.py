@@ -2129,20 +2129,10 @@ def _example_frame():
 # sys.settrace(self.trace_dispatch)
 # self.lastcmd = p.lastcmd
 
-# Alist/plist extensions
-
-def _plist_alist(xs):
-        acc = []
-        for i in range(0, len(xs), 2):
-                acc.append((xs[i], xs[i + 1]))
-        return acc
-
-def _plist_keys(xs):        return xs[::2]
-def _plist_values(xs):      return xs[1::2]
-def _plist_keys_values(xs): return xs[::2], xs[1::2]
+# Alexandria
 
 def _alist_hash_table(xs):
-        return dict(xs)
+        return { x[0]: x[1] for x in _vectorise_linear(xs) }
 
 # %CACHE
 
