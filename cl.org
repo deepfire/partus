@@ -369,6 +369,7 @@ import socket      as _socket
 import hashlib     as _hashlib
 import inspect     as _inspect
 import marshal     as _marshal
+import builtins    as _builtins
 import operator    as _operator
 import platform    as _platform
 import functools   as _functools
@@ -1480,7 +1481,9 @@ def _deftype(type_name_or_fn, globals = None):
                 old_global_name = (type_name_or_fn.__name__ if functionp(type_name_or_fn) else
                                    fn.__name__)
                 globals = _defaulted(globals, _py.globals())
-                old_global = globals.get(old_global_name, None)
+                old_global = (globals.get(old_global_name)
+                              or _builtins.__dict__.get(old_global_name, None)
+                              or None)
                 symbol = _intern(type_name)[0]
                 symbol.type_predicate = fn
                 _frost.setf_global(symbol, old_global_name + ("" if old_global_name.endswith("_") else "_") + "t",
