@@ -9183,12 +9183,12 @@ def DEFMACRO(name, lambda_list, *body):
         return l(eval_when, l(_compile_toplevel, _load_toplevel, _execute),
                  ## Unregistered Issue MATCH-FAILURE-POINTS-INTO-THE-FAILED-SEX-AND-PATTERN-NOT-AT
                  # (function, (def_, name, lambda_list) + body),
-                 (ir_args,
-                  l_(lambda_, lambda_list, _consify(body)),
-                  l("decorators", [_ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
-                                                      (quote, name),
-                                                      (quote, (name, lambda_list) + body))]),
-                  l("name", name)))
+                 l(ir_args,
+                   l_(lambda_, lambda_list, _consify_linear(body)),
+                   l("decorators", _ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
+                                                      l(quote, name),
+                                                      l(quote, l_(name, lambda_list, _consify_linear(body))))),
+                   ["name", name]))
 
 #+end_src
 
