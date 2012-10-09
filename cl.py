@@ -6555,19 +6555,6 @@ def _trace_printf(tracespec, control, *args):
                 _debug_printf(control, *(args if not (len(args) == 1 and functionp(args[0])) else
                                          args[0]()))
 
-__enable_livelock_detector__           = False
-__livelock_detector_frames__           = _collections.defaultdict(lambda: 0)
-__frame_livelock_suspicion_threshold__ = 1000
-def _trace_frame():
-        if not __enable_livelock_detector__:
-                return
-        f = _caller_frame(0)
-        fid = id(f)
-        __livelock_detector_frames__[fid] += 1
-        if __livelock_detector_frames__[fid] > __frame_livelock_suspicion_threshold__:
-                _debug_printf(" *** frame %s exceeded livelock suspicion threshold:", _frame_id(f)[:4])
-                _backtrace(frame_ids = True)
-
 def _matcher_pp(x):
         return _pp_consly(x, dispatch = { dict: lambda x: repr(list(x.keys())[0]) + "::" + _pp_consly(list(x.values())[0]) })
 
@@ -6660,7 +6647,6 @@ class _matcher():
                  if_exists:{error, replace} = error, comment = None):
                 with _match_level([test] + ([comment] if comment else [])):
                         # _debug_printf("test: %s", exp)
-                        # _trace_frame()
                         return (m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
                                 m.fail(bound, exp, fail_pat))
         def equo(m, name, exp, x):
@@ -6669,7 +6655,6 @@ class _matcher():
                 return ((m.bind(exp, b, name), r, f) if f is None else
                         x) # propagate failure as-is
         def crec(m, expat, l0, lR, horisontal = True, originalp = False):
-                # _trace_frame()
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 b0, bR, fx0, fxR, fp0, fpR  = None, None, None, None, None, None
                 def try_0():
@@ -6699,7 +6684,6 @@ class _matcher():
         def simplex_pat_p(m, x): return consp(x) and isinstance(x[0], symbol_t) and x[0] in m.__simplex_patterns__
         def complex_pat_p(m, x): return consp(x) and isinstance(x[0], symbol_t) and x[0] in m.__complex_patterns__
         def simplex(m, bound, name, exp, pat, orifst):
-                # _trace_frame()
                 # _trace_printf("simplex", "simplex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s",
                 #               lambda: (pat[0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                 #                        name, bound, exp, pat))
@@ -6720,7 +6704,6 @@ class _matcher():
                 return res
                 # return m.__simplex_patterns__[pat[0][0]](bound, name, exp, pat, orifst)
         def complex(m, bound, name, exp, pat, orifst, aux, limit):
-                # _trace_frame()
                 # _trace_printf("complex", "complex  %s (call: %s->%s) %x  %10s  %20s\n -EE %s\n -PP %s\n -OF %s  %s  %s",
                 #               lambda: (pat[0][0], _caller_name(2), _caller_name(1), id(exp) ^ id(pat),
                 #                        name, bound, exp, pat, orifst, aux, limit))
@@ -6753,12 +6736,10 @@ class _matcher():
                 raise Exception("Not yet capable of matching simplex patterns of type %s.", pat[0])
         def complex_identity(m, bound, name, exp, pat, orifst, aux, limit):
                 with _match_level():
-                        # _trace_frame()
                         ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
                         return m.complex(bound, name, exp, [pat[0][1][0], pat[1]], orifst, aux, limit)
         def simplex_identity(m, bound, name, exp, pat, orifst):
                 with _match_level():
-                        # _trace_frame()
                         ## Unregistered Issue IDENTITY-IGNORE-MATCHERS-COMPLEX/MATCH-USE-UNCLEAR
                         return m.simplex(bound, name, exp, pat[1][0], orifst)
         def ignore(m, bound, name, exp, pat, orifst, aux, limit):
@@ -6772,7 +6753,6 @@ class _matcher():
         # def nonliteral_atom_p(exp) -- XXX: abstraction leak!
         ###
         def segment(m, bound, name, exp, pat, orifst, aux, limit, end = None):
-                # _trace_frame()
                 def posn(x, xs):
                         pos, i = xs, 0
                         while pos:
@@ -6839,7 +6819,6 @@ class _matcher():
                 return m.fail(brf_0[0], *((brf_0[1], brf_0[2]) if brf_1[2] == pat else
                                           (brf_1[1], brf_1[2])))
         def maybe(m, bound, name, exp, pat, orifst, aux, limit):
-                # _trace_frame()
                 ## The semantics of aux are painfully unclear here:
                 ##  - we need to perform aux pass-through, for any potential surrounding segment match
                 ##  - we need a clean slate for this segment..
@@ -6848,7 +6827,6 @@ class _matcher():
                 with _match_level():
                         return m.segment(bound, name, exp, [[_some, pat[0][1]], pat[1]], orifst, None, 1)
         def or_(m, bound, name, exp, pat, orifst, aux, limit):
-                # _trace_frame()
                 alternatives = pat[0][1]
                 def fail(): return m.fail(bound, exp, pat[0])
                 def rec(current, other_options):
@@ -6870,7 +6848,6 @@ class _matcher():
         ## 1. type narrows down the case analysis chain (of which there is a lot)
         ## 2. expressions also need typing..
         def match(m, bound, name, exp, pat, orifst, aux, limit):
-                # _trace_frame()
                 def maybe_get0Rname(pat):
                         ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                         (name, pat0), patR = _maybe_destructure_binding(pat[0]), pat[1]
@@ -7792,7 +7769,6 @@ class _metasex_matcher(_matcher):
                 return x == _name
         @staticmethod
         def atom(exp, pat):
-                # _trace_frame()
                 with _match_level():
                         symp = isinstance(exp, symbol_t)
                         ## Wanna some fun?  Replace -- not keywordp(exp), with:
@@ -7825,7 +7801,6 @@ class _metasex_matcher(_matcher):
                 return None, None
         def form(m, bound, name, form, pat, orifst, ignore_args = None):
                 with _match_level([form, pat]):
-                        # _trace_frame()
                         ## This is actually a filter.
                         # _debug_printf("\n\nFORM -- %s -- %s", form, pat)
                         handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
@@ -7836,12 +7811,10 @@ class _metasex_matcher(_matcher):
                         return m.match(bound, name, form, form_pat, (consp(form), orifst[1]), None, -1)
         def symbol(m, bound, name, form, pat, orifst):
                 with _match_level():
-                        # _trace_frame()
                         return m.test(form is pat[1][0], bound, name, lambda: m.prod(form, orifst),
                                       form, pat)
         def typep(m, bound, name, form, pat, orifst):
                 with _match_level():
-                        # _trace_frame()
                         return m.test(typep(form, pat[1][0]), bound, name, lambda: m.prod(form, orifst),
                                       form, pat)
 
@@ -7871,7 +7844,6 @@ class _metasex_matcher_pp(_metasex_matcher):
                 m.register_complex_matcher(_nottail,     m.nottail)
         @staticmethod
         def prod(x, originalp):
-                # _trace_frame()
                 result = (""            if x is nil and (not originalp) else
                           '"' + x + '"' if isinstance(x, str)           else
                           str(x))
@@ -7882,7 +7854,6 @@ class _metasex_matcher_pp(_metasex_matcher):
         @staticmethod
         def comr(f0, fR, originalp): return _combine_pp(f0, fR, originalp)
         def newline(m, bound, name, exp, pat, orifst, aux, limit):
-                # _trace_frame()
                 n, tail = pat[0][1][0], pat[1]
                 new_base = _pp_base_depth() + n
                 with progv({ _pp_depth_:      new_base,
@@ -7890,14 +7861,12 @@ class _metasex_matcher_pp(_metasex_matcher):
                         return m.post(m.match(m.bind(new_base, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: "\n" + (" " * new_base) + r)
         def indent(m, bound, name, exp, pat, orifst, aux, limit):
-                # _trace_frame()
                 n, tail = pat[0][1][0], pat[1]
                 new_depth = _pp_depth() + n
                 with progv({ _pp_depth_: new_depth }):
                         return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: (" " * n) + r)
         def lead(m, bound, name, exp, pat, orifst, aux, limit):
-                # _trace_frame()
                 maybe_pat = pat[0][1][0]
                 # _trace_printf("lead", "!!! lead: first:%s %s %s", orifst[1], pat, exp)
                 if not orifst[1]:
@@ -7905,7 +7874,6 @@ class _metasex_matcher_pp(_metasex_matcher):
                 ############## act as identity
                 return         m.match(bound, name, exp, [maybe_pat, pat[1]], orifst, aux, limit)
         def notlead(m, bound, name, exp, pat, orifst, aux, limit):
-                # _trace_frame()
                 maybe_pat = pat[0][1][0]
                 # _trace_printf("notlead", "!!! notlead: first:%s %s %s", orifst[1], pat, exp)
                 if orifst[1]:
@@ -7913,7 +7881,6 @@ class _metasex_matcher_pp(_metasex_matcher):
                 ############## act as identity
                 return         m.match(bound, name, exp, [maybe_pat, pat[1]], orifst, aux, limit)
         def nottail(m, bound, name, exp, pat, orifst, aux, limit):
-                # _trace_frame()
                 maybe_pat = pat[0][1][0]
                 before_end = exp is nil
                 # _trace_printf("nottail", "!!! nottail: before-end:%s %s %s", before_end, pat, exp)
