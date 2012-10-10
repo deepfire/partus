@@ -3515,6 +3515,14 @@ def _vectorise(x):
                 x = x[1]
         return res
 
+def _vectorise_to_tuple(x):
+        res = ()
+        while x:
+                res += ((x[0] if not consp(x[0]) else
+                         _vectorise_to_tuple(x[0])),)
+                x = x[1]
+        return res
+
 def _vectorise_linear(x):
         res = []
         while x:
