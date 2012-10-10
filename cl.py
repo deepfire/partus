@@ -2859,7 +2859,10 @@ def _set_function_definition(globals, x, lambda_expression = None, check_redefin
                 if not identity_redef and function:
                         x.function, x.macro_function = function, nil
                         _frost.make_object_like_python_function(x, function)
-                        globals["__" + function.__name__.rstrip("_")] = function.name = x
+                        forigname = function.__name__
+                        globals["__" + forigname[:None if (forigname[:-1].endswith("_")
+                                                           or not forigname.endswith("_")) else
+                                                  -1]] = function.name = x
                         globals[_ensure_function_pyname(x)] = function
                 return x
         return do_set_function_definition
