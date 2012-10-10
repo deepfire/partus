@@ -5,6 +5,7 @@ from cl import _ensure_symbol_pyname as ensure_symbol_pyname
 from cl import _sex_space as sex_space
 
 import ast
+import sys
 import frost
 import types
 import collections
@@ -126,7 +127,7 @@ def determine(cls, args, keys):
                 if test(*args, **keys):
                         ## Simplify and compute spills.
                         xf = (xform_or_keys if not isinstance(xform_or_keys, list) else
-                                cls.find_method(xform_or_keys))
+                              cls.find_method(xform_or_keys))
                         # if cls is progn:
                         #         # cl._debug_printf("PROGN-DET args %s", args)
                         # cl._debug_printf("xf %s", xf)
@@ -206,12 +207,15 @@ def help(x) -> ([stmt], expr):
         spills = help_prog(x.spills)
         if not isinstance(x, name) and symbol_value(_compiler_trace_primitives_):
                 ssp = sex_space()
-                cl._debug_printf("%s---- helpery %s --->\n%s%s%s\n%s%s\n%s",
+                cl._debug_printf("%s---- helpery %s --->\n"
+                                 "%s%s\n"
+                                 "%s%s\n"
+                                 "%s%s\n",
                                  ssp, cl._pp_chain_of_frame(cl._caller_frame(), callers = 15),
-                                 ("%s%s\n%s- spielleren ^v form -\n" %
-                                  (ssp, ("\n" + ssp).join(str(x) for x in x.spills), ssp)) if x.spills else "",
+                                 ssp, ("%s\n%s- spielleren ^v form -" %
+                                       (("\n" + ssp).join(str(x) for x in x.spills), ssp)) if x.spills else "",
                                  ssp, x,
-                                 ssp, ssp, ("\n" + ssp).join(pp_ast_as_code(x) for x in spills + p + [v]))
+                                 ssp, ("\n" + ssp).join(pp_ast_as_code(x) for x in spills + p + [v]))
         return spills + p or TheEmptyList, v
 
 def help_expr(x) -> expr:
@@ -349,7 +353,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                 def expr_tuple_spill_partition(spec, args):
                         pre_spills = []
                         for s, a in zip(spec, a_fixed):
-                                pre_spills.append(process(s, a, force_spill = force_spill))
+                                pre_spills.append(process(s,      a, force_spill = force_spill))
                         for a in a_segment:
                                 pre_spills.append(process(s_spec, a, force_spill = force_spill))
                         # isinstance(primitive, defun) and cl._debug_printf("presp %s",
@@ -358,7 +362,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         # cl._debug_printf("pre-spills of %s: %s", primitive, pre_spills)
                         last_spilled_posns = [ i
                                                for i, x in reversed(list(enumerate(pre_spills)))
-                                               if x[0] ]
+                                               if x[1] ]
                         last_spilled_posn = last_spilled_posns[0] if last_spilled_posns else None
                         n_spilled = (last_spilled_posn + 1 if last_spilled_posn is not None else
                                      0)
@@ -371,11 +375,16 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                 ## Re-collecting spills, while forcing spill for unspilled spillables.
                 forms, spills = [], []
                 for s, a in zip(for_spill_ss, for_spill_as):
-                        form, spills = process(s, a, force_spill = t)
-                        forms += (form,)
-                        spills.extend(spills)
-                return (tuple(forms) + tuple(unspilled),
+                        form, spill = process(s, a, force_spill = for_spill_as)
+                        forms.append(form)
+                        spills.extend(spill)
+                r = (tuple(forms) + tuple(unspilled),
                         spills)
+                # if spills:
+                #         cl._debug_printf("spilled tuple %s, into:\n%s",
+                #                          " ".join(str(x) for x in args),
+                #                          "\n".join(str(x) for x in spills))
+                return r
         def options_spills(spec, arg, force_spill = nil):
                 for option in spec:
                         try:
@@ -412,10 +421,21 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                 return (arg,
                                         [])
                         tn = genname("EXP-") ## Temporary Name.
-                        return (tn,
-                                arg.spills + [ assign(tn, arg) ])
+                        spill = arg.spills + [ assign(tn, arg) ]
+                        # if spill:
+                        #         cl._debug_printf("process spills for %s, to:\n%s\n due to:"
+                        #                          "\n  forc %s" "\n  stmt %s" "\n  aspi %s",
+                        #                          arg,
+                        #                          ", ".join(str(x) for x in spill),
+                        #                          force_spill, isinstance(arg, stmt), arg.spills)
+                        return (tn, spill)
                 return processors.get(type(spec), type_check)(spec, arg, force_spill = force_spill)
+        unspilled = str(primitive)
         primitive.args, primitive.spills = tuple_spills(primitive.form_specifier, primitive.args)
+        # if primitive.spills:
+        #         cl._debug_printf("\nspilled:\n%s\n     ------>\n%s\n%s\n",
+        #                          unspilled, "\n".join(str(x) for x in primitive.spills), primitive)
+        #         sys.exit()
         return primitive
 
 def process(p):
@@ -496,8 +516,8 @@ class assign(stmt):
                 simple_tgt_p = isinstance(place, name)
                 ret =  (p + ([ ast.Assign([ help_expr(the_tn) ], v) ] if p else [])
                         ) + [ ast.Assign([ help_expr(place) ], help_expr(value if not statem_val_p else the_tn))
-                              ], help_expr(value if simple_val_p else
-                                           place if simple_tgt_p else
+                              ], help_expr(place if simple_tgt_p else ## There is a higher chance, that tgt will be simple.
+                                           value if simple_val_p else
                                            the_tn)
                 # cl._debug_printf("ASSIGN:\nsimp-val-p  %s\nstmt-val-p  %s\nsimp-tgt-p  %s",
                 #                  simple_val_p,
