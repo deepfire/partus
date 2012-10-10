@@ -13,8 +13,8 @@ import types
 
 import cl
 
-from cl         import t, nil, typep, null, integerp, floatp, sequencep, functionp, stringp, mapcar, mapc,\
-                       remove_if, sort, car, identity, every, find, with_output_to_string, error, reduce,\
+from cl         import t, nil, typep, null, integerp, floatp, sequencep, functionp, stringp,\
+                       car, identity, with_output_to_string, error, reduce, \
                        symbol_value, progv
 from cl         import _ast_rw as ast_rw, __ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
 from cl         import _ast_funcall as ast_funcall, _ast_maybe_normalise_string as ast_maybe_normalise_string
@@ -38,7 +38,7 @@ def extract_symtable(source, filename):
 ###
 def ast_strtuple(x, writep = False):
     assert(isinstance(x, tuple))
-    return ast.Tuple(elts = mapcar(ast_string, x), ctx = ast_rw(writep))
+    return ast.Tuple(elts = [ ast_string(x) for x in x ], ctx = ast_rw(writep))
 
 def ast_marshal(x):
     return ast_funcall(ast_attribute(ast_name("marshal"), "loads"), (ast_bytes if py3p() else ast_string)(marshal.dumps(x)))
@@ -82,8 +82,8 @@ def ast_expression(expr):
     return ast.Expression(body = expr, lineno = 0)
 
 def ast_def(name, args, *body):
-    filtered_body = remove_if(null, body)
-    assert stringp(name) and all(mapcar(astp, filtered_body))
+    filtered_body = [ x for x in body if x ]
+    assert stringp(name) and all(astp(x) for x in filtered_body)
     ast_args = ast.arguments(
                              args=args,
                              defaults=[],
@@ -117,7 +117,7 @@ def ast_func_name(x):
 ## statements
 def astlist_prog(*body):
     "WARNING: not an actual node, returns a list!"
-    return remove_if(null, body) or [ast.Pass()]
+    return [ x for x in body if x ] or [ast.Pass()]
 
 def ast_expression(node): return ast.Expression(body = the(ast.AST, node))
 
@@ -133,17 +133,18 @@ def ast_append_var(name, value):
     return ast.AugAssign(value=value, target=ast_name(name, True), op=ast.Add())
 
 def ast_when(test, *body):
-    return ast.If(test=test, body=remove_if(null, body), orelse=[])
+    return ast.If(test=test, body = [ x for x in body if x ], orelse=[])
 
 def ast_unless(test, *body):
-    return ast.If(test=test, body=[], orelse=remove_if(null, body))
+    return ast.If(test = test, body = [], orelse = [ x for x in body if x ])
 
 def ast_try_except(body, except_handlers, *else_body):
-    return ast.TryExcept(body=remove_if(null, body),
-                         handlers=[ast.ExceptHandler(name=xname,
-                                                     type=ast_name(xtype),
-                                                     body=remove_if(null, xhandler_body)) for (xtype, xname, xhandler_body) in except_handlers],
-                         orelse=remove_if(null, else_body))
+    return ast.TryExcept(body = [ x for x in body if x ],
+                         handlers = [ ast.ExceptHandler(name = xname,
+                                                       type = ast_name(xtype),
+                                                       body = [ x for x in xhandler_body if x ])
+                                      for (xtype, xname, xhandler_body) in except_handlers ],
+                         orelse = [ x for x in else_body if x ])
 
 def ast_print(*strings):
     return ast_expr(ast_funcall('print', *strings))
@@ -194,12 +195,12 @@ def ast_first_subnode_at_lineno(form, lineno):
 some subform of FORM."""
         assert(lineno >= form.lineno)
         def rec(form):
-                return if_let(find_if(lambda form: lineno >= form.lineno,
-                                             sorted(ast_children(form, lineno_only = t),
-                                                    key = slotting("lineno")),
-                                             from_end = t),
-                              rec,
-                              lambda: form)
+                children = sorted(ast_children(form, lineno_only = t),
+                                  key = slotting("lineno"))
+                for c in children[::-1]:
+                        if lineno >= c.lineno:
+                                return rec(c)
+                return form
         return rec(form)
 
 def pp_ast(o, stream = sys.stdout):
@@ -344,7 +345,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                 return ((fmtctl % lineno) if line_numbers else
                         "") + tab * symbol_value(_ast_pp_depth_)
         def iterate(xs):
-                return mapcar(rec, xs)
+                return [ rec(x) for x in xs ]
         def rec(x):
                 ## Expressions
                 def pp_call(x):
@@ -381,13 +382,12 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         return "%s%s%s%s" % (l,
                                              ", ".join(iterate(x.elts)
                                                        if not ast_dict_p(x) else
-                                                       mapcar(lambda k, v: "%s: %s" % (rec(k), rec(v)),
-                                                              x.keys,
-                                                              x.values)),
+                                                       [ "%s: %s" % (rec(k), rec(v))
+                                                         for k, v in zip(x.keys, x.values) ]),
                                              "," if (ast_tuple_p(x) and len(x.elts) == 1) else "",
                                              r)
                 def pp_string(x):
-                        q = "'''" if find("\n", x.s) else "'"
+                        q = "'''" if "\n" in x.s else "'"
                         val = with_output_to_string(lambda s: print(x.s, file = s, end = ""))
                         return q + val + q
                 def pp_num(x):     return str(x.n)
@@ -428,17 +428,17 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         (args, vararg,
                          kwonlyargs, kwarg,
                          defaults,
-                         kw_defaults) = mapcar(lambda a: getattr(args, a),
-                                               ["args", "vararg", "kwonlyargs", "kwarg",
-                                                "defaults", "kw_defaults"])
+                         kw_defaults) = [ getattr(args, a)
+                                          for a in [ "args", "vararg", "kwonlyargs", "kwarg",
+                                                     "defaults", "kw_defaults" ]]
                         fixs = len(args) - len(defaults)
-                        return ", ".join(mapcar(rec, args[:fixs]) +
-                                         mapcar(lambda var, val: rec(var) + " = " + val,
-                                                args[fixs:], iterate(defaults)) +
-                                         ([("*" + vararg)] if vararg else []) +
-                                         mapcar(lambda var, val: rec(var) + " = " + val,
-                                                kwonlyargs, iterate(kw_defaults)) +
-                                         ([("**" + rec(kwarg))] if kwarg else []))
+                        return ", ".join([ rec(x) for x in args[:fixs] ]
+                                         + [ rec(var) + " = " + val
+                                             for var, val in zip(args[fixs:], iterate(defaults)) ]
+                                         + ([("*" + vararg)] if vararg else [])
+                                         + [ rec(var) + " = " + val
+                                             for var, val in zip(kwonlyargs, iterate(kw_defaults)) ]
+                                         + ([("**" + rec(kwarg))] if kwarg else []))
                 def pp_lambda(x):
                         args = rec(x.args)
                         return "(lambda%s: %s)" % (" " + args if args else "", rec(x.body))
@@ -596,7 +596,8 @@ def pp_symtable(o):
     attributes = symtab_attributes + ((fnsymtab_attributes if typep(o, symtable.Function) else []))
     mesg('   ' + o.get_type() + " symtab '" + o.get_name() + "':\n%s", reduce(lambda x, y: x + '\n        ' + y + ': ' \
          + str(getattr(o, y)()), attributes, ''))
-    mapc(pp_symbol, o.get_symbols())
+    for s in o.get_symbols():
+            pp_symbol(s)
 
 def totalise_symtable(symtab):
     return ascend_tree(lambda x, *xs: reduce(multiset_appendf, xs, multiset(x.get_symbols(), symtable.Symbol.get_name)),
