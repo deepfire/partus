@@ -4536,7 +4536,8 @@ def _run_tests_quasiquotation():
                         printer = _pp_consly))
 
 if _getenv("CL_RUN_TESTS"):
-        _run_tests_quasiquotation()
+        with progv({ _reader_trace_qqexpansion_: nil }):
+                _run_tests_quasiquotation()
 
 # Cold reader
 
