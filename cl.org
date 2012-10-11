@@ -7311,20 +7311,20 @@ class _matcher():
                 b, r, f = x
                 return ((m.bind(exp, b, name), r, f) if f is None else
                         x) # propagate failure as-is
-        def crec(m, expat, l0, lR, horisontal = True, originalp = False):
+        def crec(m, expat, l0, lR, combine, originalp = False, name0 = None, nameR = "CDR"):
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 b0, bR, fx0, fxR, fp0, fpR  = None, None, None, None, None, None
                 def try_0():
                         nonlocal b0, fx0, fp0
-                        b0, fx0, fp0 = l0()
+                        with _match_level_immediate(name = name0) if name0 else _withless():
+                                b0, fx0, fp0 = l0()
                         if fp0 is None: return fx0
                 def try_R():
                         nonlocal bR, fxR, fpR
-                        with _match_level_immediate(name = "CDR"):
+                        with _match_level_immediate(name = nameR) if nameR else _withless():
                                 bR, fxR, fpR = lR(b0)
                         if fpR is None: return fxR
-                result = (m.comh if horisontal else
-                          m.comr)(try_0, try_R, originalp)
+                result = combine(try_0, try_R, originalp)
                 return (m.succ(bR, result)      if fp0 is None and fpR is None else
                         m.fail(*((b0, fx0, fp0) if fp0 is not None             else
                                  (bR, fxR, fpR))))
@@ -7396,7 +7396,6 @@ class _matcher():
         ###
         # Methods to be implemented:
         # 
-        # def forc(f0, fR, originalp)
         # def prod(exp, originalp)
         # def nonliteral_atom_p(exp) -- XXX: abstraction leak!
         ###
@@ -7453,8 +7452,8 @@ class _matcher():
                                                    + ("try match car",)))),
                                        lambda seg_bound:
                                                m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
-                                       originalp = firstp and orifst[0] and seg_exp is not nil,
-                                       horisontal = t)
+                                       m.comh,
+                                       originalp = firstp and orifst[0] and seg_exp is not nil)
                         if brf_0[2] is None:
                                 return _r(m.succ(brf_0[0], brf_0[1]))
                         _match_level_concede("SEGMENT", seg_pat, cut, seg_exp, rest_exp, brf_0[1], brf_0[2])
@@ -7525,8 +7524,8 @@ class _matcher():
                                                                                                        orifst[1]),
                                                                        None, -1),
                                                 (lambda b0und: m.match(b0und, None,     exp[1], patR, (False, orifst[1]), aux, limit)),
-                                                originalp = orifst[0],
-                                                horisontal = nil))))
+                                                m.comr,
+                                                originalp = orifst[0]))))
                         (*maybe_get0Rname(pat)))
 
 def _match(matcher, exp, pat):
@@ -7765,7 +7764,7 @@ class _fn():
                      globalp = t,
                      args_types = None, values_types = None,
                      effects = None, affected = None):
-                check_type(arglist, tuple)
+                check_type(arglist, list_t)
                 args_types = tuple(t for _ in arglist)
                 check_type(name, symbol_t)
                 if name in _fns:
@@ -7947,7 +7946,8 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
         def symbol_prologue():
                 def wrap(x):
                         return _defaulted(x, _consify_star(ref, (quote, ("None",))))
-                with progv({ _compiler_trace_pretty_full_: nil,
+                with progv({ _compiler_trace_toplevels_:   nil,
+                             _compiler_trace_pretty_full_: nil,
                              _compiler_trace_forms_:       nil,
                              _compiler_trace_primitives_:  nil,
                              _compiler_trace_choices_:     nil,
@@ -7955,23 +7955,25 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                              _compiler_trace_rewrites_:    nil,
                              _compiler_trace_result_:      nil }):
                  symbols = sorted(funs | syms, key = str)
-                 return _lower(list_(progn,
-                                     _ir_cl_module_call(
-                                         "_fop_make_symbol_available",
-                                         _ir_funcall("globals"),
-                                         "COMMON-LISP", "VECTOR", _ensure_function_pyname(__vector),
-                                         list_(ref, list_(quote, list_("None"))),
-                                         True, False),
-                                     _ir_cl_module_call(
-                                         "_fop_make_symbols_available",
-                                         _ir_funcall("globals"),
-                                         _ir_funcall(__vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
-                                                                      for sym in symbols )),
-                                         _ir_funcall(__vector, *tuple(symbol_name(sym)          for sym in symbols )),
-                                         _ir_funcall(__vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
-                                         _ir_funcall(__vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                                         _ir_funcall(__vector, *tuple(sym in gfuns              for sym in symbols )),
-                                         _ir_funcall(__vector, *tuple(sym in gvars              for sym in symbols )))),
+                 prologue = list_(progn,
+                                  _ir_cl_module_call(
+                                 "_fop_make_symbol_available",
+                                 _ir_funcall("globals"),
+                                 "COMMON-LISP", "VECTOR", _ensure_function_pyname(__vector),
+                                 list_(ref, list_(quote, list_("None"))),
+                                 True, False),
+                                  _ir_cl_module_call(
+                                 "_fop_make_symbols_available",
+                                 _ir_funcall("globals"),
+                                 _ir_funcall(__vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
+                                                              for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(symbol_name(sym)          for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(sym in gfuns              for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(sym in gvars              for sym in symbols ))))
+                 # _debug_printf("prologue:\n%s", _pp_consly(prologue))
+                 return _lower(prologue,
                                ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
                                lexenv = _make_null_lexenv(nil))
         with _no_compiler_debugging():
@@ -8164,9 +8166,9 @@ def _fop_make_symbol_available(globals, package_name, symbol_name,
 def _fop_make_symbols_available(globals, package_names, symbol_names,
                                 function_pynames, symbol_pynames,
                                 gfunps, gvarps):
-        for fop_msa_args in zip(package_names, symbol_names,
-                                function_pynames, symbol_pynames,
-                                gfunps, gvarps):
+        for fop_msa_args in zip(package_names[2:], symbol_names[2:],
+                                function_pynames[2:], symbol_pynames[2:],
+                                gfunps[2:], gvarps[2:]):
                 _fop_make_symbol_available(globals, *fop_msa_args)
 #+END_SRC
 
@@ -8245,9 +8247,9 @@ def _primitivise_constant(x):
 
 def _ir_funcall(func, *args):
         l, l_ = list_, list__
-        return l_(apply, l(function, (l(quote, l(func)) if isinstance(func, str) else
-                                      func)),
-                  _consify_linear(args, l(l(quote, nil))))
+        return l(apply, l(function, (l(quote, l(func)) if isinstance(func, str) else
+                                     func)),
+                 *(args + (l(quote, nil),)))
 
 def _ir_cl_module_name(name):
         return list_("cl", name)
@@ -8509,6 +8511,29 @@ def _combine_t_or_None(f0, fR, originalp):
                 if fRr is not None:
                         return t
 
+def _combine_pp(f0, fR, originalp, consdotp):
+        def orig_tuple_comb(body):
+                new_base = _pp_depth() + 1
+                with progv({ _pp_base_depth_: new_base }):
+                        ret = body(new_base)
+                        return None if ret is None else ("(" + ret + ")")
+        def body(base):
+                f0r = f0()
+                if f0r is None: return
+                with progv({ _pp_depth_: base + len(f0r.split("\n")[-1]) }):
+                        fRr = fR()
+                        if fRr is None: return
+                        return f0r + (" . " if consdotp else "") + fRr
+        return (orig_tuple_comb if originalp else
+                lambda f: f(_pp_base_depth()))(body)
+
+def _combine_cons(f0, fR, originalp):
+        f0r = f0()
+        if f0r is not None:
+                fRr = fR()
+                if fRr is not None:
+                        return [f0r, fRr]
+
 _intern_and_bind_names_in_module_specifically(
         ("_form",        "%FORM"),
         ("_bound",       "%BOUND"),
@@ -8524,6 +8549,7 @@ _intern_and_bind_names_in_module_specifically(
 class _metasex_matcher(_matcher):
         def __init__(m):
                 _matcher.__init__(m)
+                m.register_simplex_matcher(_cons,        m.cons)
                 m.register_simplex_matcher(_form,        m.form)
                 m.register_simplex_matcher(_bound,       m.simplex_identity)
                 m.register_simplex_matcher(_symbol,      m.symbol)
@@ -8540,6 +8566,8 @@ class _metasex_matcher(_matcher):
         def comh(f0, fR, originalp): return _combine_t_or_None(f0, fR, originalp)
         @staticmethod
         def comr(f0, fR, originalp): return _combine_t_or_None(f0, fR, originalp)
+        @staticmethod
+        def comc(f0, fR, originalp): return _combine_t_or_None(f0, fR, originalp)
         @staticmethod
         def nonliteral_atom_p(x):
                 ## Currently only depended upon by the segment matcher.
@@ -8572,10 +8600,16 @@ class _metasex_matcher(_matcher):
                                         # _debug_printf("\n\nMATCHED/xformed: %s", ret)
                                         return True, ret
                 return None, None
+        def cons(m, bound, name, form, pat, orifst, ignore_args = None):
+                with _match_level([form, pat[1]]):
+                        return _r(m.crec([form, pat],
+                                         lambda:    m.match(bound, None, form[0], pat[1][0],    (orifst[0], True),  None, -1),
+                                         lambda b0: m.match(b0,    None, form[1], pat[1][1][0], (orifst[0], False), None, -1),
+                                         m.comc,
+                                         originalp = orifst[0], name0 = None, nameR = None))
         def form(m, bound, name, form, pat, orifst, ignore_args = None):
                 with _match_level([form, pat]):
                         ## This is actually a filter.
-                        # _debug_printf("\n\nFORM -- %s -- %s", form, pat)
                         handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
                         if handled:
                                 return ret
@@ -8589,22 +8623,6 @@ class _metasex_matcher(_matcher):
                 with _match_level([form, pat]):
                         return _r(m.test(typep(form, pat[1][0]), bound, name, lambda: m.prod(form, orifst),
                                          form, pat))
-
-def _combine_pp(f0, fR, originalp):
-        def orig_tuple_comb(body):
-                new_base = _pp_depth() + 1
-                with progv({ _pp_base_depth_: new_base }):
-                        ret = body(new_base)
-                        return None if ret is None else ("(" + ret + ")")
-        def body(base):
-                f0r = f0()
-                if f0r is None: return
-                with progv({ _pp_depth_: base + len(f0r.split("\n")[-1]) }):
-                        fRr = fR()
-                        if fRr is None: return
-                        return f0r + fRr
-        return (orig_tuple_comb if originalp else
-                lambda f: f(_pp_base_depth()))(body)
 
 class _metasex_matcher_pp(_metasex_matcher):
         def __init__(m):
@@ -8621,9 +8639,11 @@ class _metasex_matcher_pp(_metasex_matcher):
                           str(x))
                 return result
         @staticmethod
-        def comh(f0, fR, originalp): return _combine_pp(f0, fR, originalp)
+        def comh(f0, fR, originalp): return _combine_pp(f0, fR, originalp, nil)
         @staticmethod
-        def comr(f0, fR, originalp): return _combine_pp(f0, fR, originalp)
+        def comr(f0, fR, originalp): return _combine_pp(f0, fR, originalp, nil)
+        @staticmethod
+        def comc(f0, fR, originalp): return _combine_pp(f0, fR, originalp, t)
         def newline(m, bound, name, exp, pat, orifst, aux, limit):
                 n, tail = pat[0][1][0], pat[1]
                 new_base = _pp_base_depth() + n
@@ -8714,13 +8734,6 @@ _setspec = _defscope("_setspec", _setspec_scope_)
 ***** Mapping
 
 #+BEGIN_SRC python
-def _combine_identity(f0, fR):
-        f0r = f0()
-        if f0r is not None:
-                fRr = fR()
-                if fRr is not None:
-                        return [f0r, fRr]
-
 _string_set("*MAPPER-FN*", nil)
 
 class _metasex_mapper(_metasex_matcher):
@@ -8733,6 +8746,8 @@ class _metasex_mapper(_metasex_matcher):
         def comh(f0, fR, _): return _combine_identity(f0, fR)
         @staticmethod
         def comr(f0, fR, _): return _combine_identity(f0, fR)
+        @staticmethod
+        def comc(f0, fR, _): return _combine_cons(f0, fR, nil)
         def form(m, bound, name, form, pat, orifst, ignore_args = None):
                 "Used as a simplex matcher in _macroexpander_matcher."
                 # _debug_printf("%%MXER-INNER: -->\n%s", exp)
@@ -9025,10 +9040,14 @@ def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignor
         if handled:
                 return m.succ(bound, ret)
         env = _symbol_value(_macroexpander_env_)
-        expanded_form, _ = macroexpand(form, env, compilerp = compilerp)
+        expanded_form, expandedp = macroexpand(form, env, compilerp = compilerp)
         ## 2. Compute bindings contributed by this outer form.
-        # _debug_printf("\nexpanded\n%s\n->\n%s", _pp_consly(form), _pp_consly(expanded_form))
-        known = _find_known(expanded_form[0]) if consp(expanded_form) else nil
+        # if expandedp:
+        #         _debug_printf("\nexpanded\n%s\n->\n%s",
+        #                       _pp_consly(form),
+        #                       _pp_consly(expanded_form))
+        known = _find_known(expanded_form[0]) if (consp(expanded_form) and
+                                                  symbolp(expanded_form[0])) else nil
         (symbol_frame,
          mfunc_frame,
          ffunc_frame) = ((_dict_select_keys(_ir_binds(expanded_form), symbol_macro),
@@ -9091,12 +9110,9 @@ class _macroexpander_matcher(_metasex_matcher):
                         if fRr is not None:
                                 return append(f0r, fRr)
         @staticmethod
-        def comr(f0, fR, originalp):
-                f0r = f0()
-                if f0r is not None:
-                        fRr = fR()
-                        if fRr is not None:
-                                return [f0r, fRr]
+        def comr(f0, fR, originalp): return _combine_cons(f0, fR, originalp)
+        @staticmethod
+        def comc(f0, fR, originalp): return _combine_cons(f0, fR, originalp)
 
 _macroexpander = _macroexpander_matcher()
 
@@ -9150,7 +9166,7 @@ def DEFMACRO(name, lambda_list, *body):
 *** Out-of-band IR argument passing: %IR-ARGS, %IR
 
 #+begin_src python +n
-@defknown((ir_args, "\n", _form, ["\n", ((_typep, str), " ", (_typep, t))],))
+@defknown((ir_args, "\n", _form, ["\n", (_cons, (_typep, str), _form)],))
 def ir_args():
         def prologuep(known, *_):  return _ir_prologue_p(known)
         def lower(*_):             error("Invariant failed: %s is not meant to be lowered.", ir_args)
@@ -9342,10 +9358,10 @@ def _lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_d
         def to_names(xs): return [ p.name(_unit_variable_pyname(x)) for x in xs ]
         return (to_names(fixed),
                 to_names(optional),
-                [ _primitivise(x) for x in _defaulted(opt_defaults, _repeat(_consify(ref, (quote, ("None",))))) ],
+                [ _primitivise(x) for x in _defaulted(opt_defaults, _repeat(_consify((ref, (quote, ("None",)))))) ],
                 p.name(_unit_variable_pyname(rest)) if rest else None,
                 to_names(keys),
-                [ _primitivise(x) for x in _defaulted(key_defaults, _repeat(_consify(ref, (quote, ("None",))))) ],
+                [ _primitivise(x) for x in _defaulted(key_defaults, _repeat(_consify((ref, (quote, ("None",)))))) ],
                 None)
 #+end_src
 
@@ -9491,7 +9507,7 @@ def quote():
                                 return _lowered(prim)
                         else:
                                 _compiler_trace_choice(quote, x, "SEX")
-                                return _lowered(p.literal_list(*_xmap_to_vector(lambda x: _primitivise((quote, x)), x)))
+                                return _lowered(p.literal_list(*(_primitivise(list_(quote, x)) for x in x)))
         def effects(x):            return nil
         def affected(x):           return nil
 
@@ -9524,7 +9540,7 @@ def multiple_value_call():
                 ## We have no choice, but to lower immediately, and by hand.
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
                 return _lowered(p.apply(_primitivise(fn),
-                                        p.add(*_xmap_to_vector(lambda x: p.slice(_primitivise(x), 1, nil, nil), arg_forms))))
+                                        p.add(*(p.slice(_primitivise(x), 1, nil, nil) for x in arg_forms))))
         def effects(fn, *arg_forms):
                 return (any(_ir_effects(arg) for arg in arg_forms) or
                         _ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
@@ -9550,7 +9566,7 @@ def progn():
         def nth_value(n, orig, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def prologuep(*body):          return _ir_body_prologuep(body)
         def lower(*body):
-                return _lowered(p.progn(*_xmap_to_vector(_primitivise, body)) if body else
+                return _lowered(p.progn(*(_primitivise(x) for x in body)) if body else
                                 _primitivise(nil))
         def effects(*body):            return any(_ir_effects(f) for f in body)
         def affected(*body):           return any(_ir_affected(f) for f in body)
@@ -10402,7 +10418,7 @@ class _compiler_lambda():
         def __init__(self, name, lambda_list):
                 total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 _check_no_locally_rebound_constants(total)
-                self.name, self.lambda_list = name, lambda_list
+                self.name, self.lambda_list = the(symbol_t, name), the(list_t, lambda_list)
                 (self.fixed, self.optional, self.rest, self.keys), (self.optdefs, self.keydefs) = args, defaults
                 self.total_bound = self.fixed + self.optional + self.keys + [self.rest] if self.rest else []
                 self.nonlocal_refs, self.nonlocal_setqs = set(), set()
@@ -10412,14 +10428,14 @@ class _compiler_lambda():
 def lambda_():
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def binds(lambda_list, *body, name = nil, decorators = [], evaluate_defaults_early = nil):
+        def binds(lambda_list, *body, name = nil, decorators = nil, evaluate_defaults_early = nil):
                 total, _, __ = _ir_prepare_lambda_list(lambda_list, "LAMBDA")
                 return { variable: { _variable_binding(name, _var_tn_no_unit(variable), variable, None)
                                      for name in total } }
         def prologuep(lambda_list, *body):
                 total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 return len(body) < 2 and any( _ir_body_prologuep(x) for x in body + tuple(defaults[0]) + tuple(defaults[1]))
-        def lower(lambda_list, *body, name = nil, decorators = [], evaluate_defaults_early = nil):
+        def lower(lambda_list, *body, name = nil, decorators = nil, evaluate_defaults_early = nil):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
                 # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
@@ -10492,7 +10508,7 @@ def lambda_():
                                                      *prim_body,
                                                      headp = t) ]),
                                         name = fn_tn,
-                                        decorators = [ _primitivise(x) for x in decorators ]))
+                                        decorators = _xmap_to_vector(_primitivise, decorators)))
         def effects(*_):            return nil
         def affected(*_):           return nil
 #+end_src
@@ -10588,7 +10604,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
         def compiler_note_result(form, prim):
                 if (symbol_value(_compiler_trace_result_) and _debugging_compiler() and
                     ## Too trivial to take notice
-                    not typep(form, (or_t, symbol_t, (cons_t, (member_t, quote, function, ref), t)))):
+                    not typep(form, (or_t, symbol_t, string_t, integer_t, (cons_t, (member_t, quote, function, ref), t)))):
                         ssp = _sex_space()
                         _debug_printf(";;;\n;;; knowns ->\n;;;\n%s%s\n;;;\n;;; -> primitives\n%s%s",
                                       ssp, _pp(form),
@@ -10602,7 +10618,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
                 if listp(x):
                         def call_known(known, forms, args):
                                 compiler_note_parts(known.name, forms)
-                                ret = known.lower(*forms, **_alist_hash_table(_vectorise_linear(args)))
+                                ret = known.lower(*forms, **_alist_hash_table(args))
                                 if _rewritep(ret):
                                         form, scope = ret
                                         compiler_note_rewrite(known.name, forms, form)
@@ -10706,8 +10722,16 @@ def _emit_ast(prim) -> [p.stmt]:
 
 def _lower(form, lexenv = nil):
         "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
+        ## HIR -> LIR
         prim = _primitivise(form, lexenv = lexenv)
-        return _emit_ast(prim)
+        ##
+        ## LIR -> target AST
+        ast  = _emit_ast(prim)
+        if symbol_value(_compiler_trace_toplevels_):
+                _debug_printf(";;; Lisp ================\n%s\n;;; Primitives ==========\n%s\n;;; .....................\n",
+                              _pp(form),
+                              prim)
+        return ast
 
 def _compile(form, lexenv = nil):
         "Same as %LOWER, but also macroexpand.  Requires %WITH-SYMBOL-UNIT-MAGIC context all the same."
@@ -10759,13 +10783,13 @@ def _assemble(ast: [_ast.stmt], form: cons_t, filename = "") -> "code":
         import more_ast
         more_ast.assign_meaningful_locations(ast)
         if symbol_value(_compiler_trace_toplevels_):
-                _debug_printf(";;; Lisp ================\n%s\n;;; Python ------------->\n%s\n;;; .....................\n",
-                              _pp(form), "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
-                                                  for x in ast))
-                ############################ This is an excess newline, so it is a bug workaround.
-                ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
-                if isinstance(ast[0], _ast.FunctionDef):
-                        _debug_printf("type of ast: %s\ndecorators: %s", type_of(ast[0]), ast[0].decorator_list)
+                _debug_printf(";;; Python ------------->\n%s\n;;; .....................\n",
+                              "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
+                                        for x in ast))
+                # ############################ This is an excess newline, so it is a bug workaround.
+                # ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
+                # if isinstance(ast[0], _ast.FunctionDef):
+                #         _debug_printf("type of ast: %s\ndecorators: %s", type_of(ast[0]), ast[0].decorator_list)
         bytecode = _py.compile(_ast.fix_missing_locations(_ast_module(ast)), filename, "exec")
         if symbol_value(_compiler_trace_toplevels_disasm_):
                 _debug_printf(";;; Bytecode ================\n")
@@ -10947,11 +10971,11 @@ def lisp(function):
 def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
         "There really is no other way.  Trust me.  Please."
         form = _ir_args_when(globalp, _ir_lambda_to_def(name, lambda_expression),
-                             decorators = [_ir_cl_module_call("_set_macro_definition",
-                                                              _ir_funcall("globals"), name, lambda_expression)
-                                           if macrop else
-                                           _ir_cl_module_call("_set_function_definition",
-                                                              _ir_funcall("globals"), name, lambda_expression)])
+                             decorators = list_(_ir_cl_module_call("_set_macro_definition",
+                                                                   _ir_funcall("globals"), name, lambda_expression)
+                                                if macrop else
+                                                _ir_cl_module_call("_set_function_definition",
+                                                                   _ir_funcall("globals"), name, lambda_expression)))
         bytecode = _process_as_loadable(_linearise_processor(_compile), form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
         function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
@@ -11307,12 +11331,12 @@ def _configure_recursion_limit(new_limit):
 
 _configure_recursion_limit(262144)
 
-_compiler_config_tracing(# toplevels = t,
+_compiler_config_tracing(toplevels = t,
                          # toplevels_disasm = t,
                          # entry_forms = t,
                          # forms = t,
                          # primitives = t,
-                         macroexpansion = t,
+                         # macroexpansion = t,
                          # true_death_of_code = t,
                          # result = t,
                          # rewrites = t,
@@ -14407,7 +14431,7 @@ def _callify(form, package = None, quoted = nil):
                                       set(paramspec.args[nfix:] + paramspec.kwonlyargs))
                 fixargs = args[0:nfix]
                 keyargs = ({ _lisp_symbol_python_name(k):v
-                             for k, v in _plist_alist(args[nfix:]) })
+                             for k, v in zip(args[nfix::2], args[nfix + 1::2]) })
                 if not allow_other_keys:
                         for k in keyargs.keys():
                                 if k not in keynames:
