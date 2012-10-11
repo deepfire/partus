@@ -247,7 +247,7 @@ def help_progn(xs) -> ([stmt], expr):
 def help_progn_star(*xs) -> ([stmt], expr):
         return help_progn(xs)
 
-def help_tail_prog(xs, kind):
+def help_prog_tail(xs, kind):
         p, v = help_progn(the((pyseq_t, prim), xs))
         p.append(kind(value = v))
         return p
@@ -664,7 +664,7 @@ class defun(body):
                                 args = help_args(*pyargs),
                                 decorator_list = help_exprs(decorators),
                                 returns = None,
-                                body = help_tail_prog(body, kind = ast.Return))
+                                body = help_prog_tail(body, kind = ast.Return))
                          ], help_expr(nam)
         @defmethod(lambda_)
         def lambda_(pyargs, expr, name = nil, decorators = []):
