@@ -4535,7 +4535,7 @@ def _run_tests_quasiquotation():
                                                   7))),
                         printer = _pp_consly))
 
-if _getenv("CL_RUN_TESTS"):
+if _getenv("CL_RUN_TESTS") != "nil":
         with progv({ _reader_trace_qqexpansion_: nil }):
                 _run_tests_quasiquotation()
 
@@ -8167,7 +8167,7 @@ def _run_tests_metasex():
                          list_(list_(_typep, t))),
                         printer = printer)
 
-if _getenv("CL_RUN_TESTS"):
+if _getenv("CL_RUN_TESTS") != "nil":
         _run_tests_metasex()
 
 # Macroexpansion
@@ -9624,7 +9624,7 @@ def _run_tests_known():
                          _consify_star(apply, (function, cond), (quote, nil)),
                          None))
 
-if _getenv("CL_RUN_TESTS"):
+if _getenv("CL_RUN_TESTS") != "nil":
         _run_tests_known()
 
 # Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
