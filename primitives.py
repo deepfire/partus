@@ -2,7 +2,7 @@ import cl
 from cl import *
 from cl import _gensymname as gensymname
 from cl import _ensure_symbol_pyname as ensure_symbol_pyname
-from cl import _sex_space as sex_space
+from cl import _sex_space as sex_space, _defaulted as defaulted
 
 import ast
 import sys
@@ -268,8 +268,11 @@ def help_args(fixed, opts, optvals, args, keys, keyvals, restkey):
 def help_ctx(writep):
         return (ast.Store if writep else ast.Load)()
 
+def prim_nil():
+        return name(cl._unit_symbol_pyname(nil))
+
 def help_nil():
-        return help_expr(name(cl._unit_symbol_pyname(nil)))
+        return help_expr(prim_nil())
 
 def          fixed_ll(fixed):                    return (fixed, [],  [],     None, [], [], None)
 def      fixed_opt_ll(fixed, opt, optval):       return (fixed, opt, optval, None, [], [], None)
@@ -379,7 +382,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         forms.append(form)
                         spills.extend(spill)
                 r = (tuple(forms) + tuple(unspilled),
-                        spills)
+                     spills)
                 # if spills:
                 #         cl._debug_printf("spilled tuple %s, into:\n%s",
                 #                          " ".join(str(x) for x in args),
@@ -414,10 +417,10 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         check_prim_type(arg, ((or_t, (eql_t, nil), expr, stmt) if maybe else
                                               (or_t, expr, stmt)))
                         ## Spill, iff any of the conditions hold:
-                        if (maybe and arg is nil or       # - no spilling for an optional, non-provided primitive argument
-                            not (force_spill           or # - spilling is required
-                                 isinstance(arg, stmt) or # - the argument is not an expression
-                                 arg.spills)):            # - the argument has spilled itself
+                        if (maybe and arg is nil             # - no spilling for an optional, non-provided primitive argument
+                            or not (force_spill              # - spilling is required
+                                    or isinstance(arg, stmt) # - the argument is not an expression
+                                    or arg.spills)):         # - the argument has spilled itself
                                 return (arg,
                                         [])
                         tn = genname("EXP-") ## Temporary Name.
@@ -672,7 +675,7 @@ class defun(body):
 
 @defprim(intern("LAMBDA-EXPR")[0],
          ((([name],),
-           ([name],), ([expr_spill],), name,
+           ([name],), ([expr_spill],), name,   ## It's not a bug -- it's a tool -- use with care!
            ([name],), ([expr_spill],), name),
           expr))
 class lambda_expr(expr):
@@ -697,7 +700,7 @@ class let(indet):
         b_stmt = defstrategy(keys = body)
 
 @defprim(intern("LET-EXPR")[0],
-         (([(name, expr_spill)],),
+         (([(name, expr_spill)],), ## Unregistered Issue VALIDATE-CORRECT-LET-SPILL-ORDER
           expr))
 class let_expr(expr):
         def help(bindings, expr):
@@ -708,7 +711,7 @@ class let_expr(expr):
         let = identity_method()
 
 @defprim(intern("LET-THUNK")[0],
-         (([(name, expr_spill)],),
+         (([(name, expr_spill)],), ## Unregistered Issue VALIDATE-CORRECT-LET-SPILL-ORDER
           [prim]))
 class let_thunk(body):
         "The most universal, yet bulky kind of LET."
@@ -750,7 +753,7 @@ class let__setq(body):
         let_ = identity_method(setq)
 
 @defprim(intern("LET*-EXPR")[0],
-         (([(name, expr_spill)],),
+         (([(name, expr)],),
           expr))
 class let__expr(expr):
         def help(bindings, expr):
@@ -791,8 +794,8 @@ flet = intern("FLET")[0]
 
 @defprim(flet,
          (([(name, (([name],),
-                    ([name],), ([expr_spill],), name,
-                    ([name],), ([expr_spill],), name),
+                    ([name],), ([expr],), name,
+                    ([name],), ([expr],), name),
              [prim])],),
           [prim]))
 class flet(indet):
@@ -804,11 +807,11 @@ class flet(indet):
 
 @defprim(intern("FLET-EXPR")[0],
          (([(name, (([name],),
-                    ([name],), ([expr_spill],), name,  ## EXPR-SPILL?
-                    ([name],), ([expr_spill],), name),
+                    ([name],), ([expr],), name,
+                    ([name],), ([expr],), name),
              expr)],),
           expr))
-class flet_expr(body):
+class flet_expr(expr):
         def help(bindings, expr):
                 ns, lls, bs = zip(*bindings)
                 return help(funcall(lambda_expr(fixed_ll(ns),
@@ -819,8 +822,8 @@ class flet_expr(body):
 
 @defprim(intern("FLET-STMT")[0],
          (([(name, (([name],),
-                    ([name],), ([expr_spill],), name,  ## EXPR-SPILL?
-                    ([name],), ([expr_spill],), name),
+                    ([name],), ([prim],), name,
+                    ([name],), ([prim],), name),
              [prim])],),
           [prim]))
 class flet_stmt(body):
@@ -838,8 +841,8 @@ class flet_stmt(body):
 
 @defprim(intern("LABELS")[0],
          (([(name, (([name],),
-                    ([name],), ([expr_spill],), name,  ## EXPR-SPILL?
-                    ([name],), ([expr_spill],), name),
+                    ([name],), ([expr],), name,  ## EXPR-SPILL?
+                    ([name],), ([expr],), name),
              [prim])],),
           [prim]))
 class labels(body):
