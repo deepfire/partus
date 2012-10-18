@@ -1047,7 +1047,7 @@ class rplacd(expr):
 def help_boolop(op, xs):     return ast.BoolOp(op(), [ help_expr(x) for x in xs ])
 def help_unop(op, x):        return ast.UnaryOp(op(), help_expr(x))
 def help_binop(op, x, y):    return ast.BinOp(help_expr(x), op(), help_expr(y))
-def help_compare(op, x, ys): return ast.Compare(help_expr(x), op(), [ help_expr(y) for y in ys ])
+def help_compare(op, x, ys): return ast.Compare(help_expr(x), [op()] * len(ys), [ help_expr(y) for y in ys ])
 
 def help_binop_seq(args, type, one):
         init, rest = ((args[0], args[1:]) if args else (one, args))
