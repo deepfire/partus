@@ -7485,7 +7485,7 @@ class _matcher():
                 brf_1 = m.segment(bound, name, exp, pat, orifst, None, limit, end + 1)
                 if brf_1[2] is None:
                         return m.succ(brf_1[0], brf_1[1])
-                return m.fail(brf_0[0], *((brf_0[1], brf_0[2]) if brf_1[2] == pat else
+                return m.fail(brf_0[0], *((brf_0[1], brf_0[2]) if True else
                                           (brf_1[1], brf_1[2])))
         def maybe(m, bound, name, exp, pat, orifst, aux, limit):
                 ## The semantics of aux are painfully unclear here:
@@ -8560,6 +8560,7 @@ def _combine_cons(f0, fR, originalp):
                         return [f0r, fRr]
 
 _intern_and_bind_names_in_module_specifically(
+        ("_cons",        "%CONS"),
         ("_form",        "%FORM"),
         ("_bound",       "%BOUND"),
         ("_symbol",      "%SYMBOL"),
@@ -8768,9 +8769,9 @@ class _metasex_mapper(_metasex_matcher):
         @staticmethod
         def prod(x, _):      return x
         @staticmethod
-        def comh(f0, fR, _): return _combine_identity(f0, fR)
+        def comh(f0, fR, _): return _combine_cons(f0, fR, nil)
         @staticmethod
-        def comr(f0, fR, _): return _combine_identity(f0, fR)
+        def comr(f0, fR, _): return _combine_cons(f0, fR, nil)
         @staticmethod
         def comc(f0, fR, _): return _combine_cons(f0, fR, nil)
         def form(m, bound, name, form, pat, orifst, ignore_args = None):
@@ -8990,7 +8991,7 @@ def _run_tests_metasex():
                          list_(list_(_typep, t))),
                         printer = printer)
 
-if _getenv("CL_RUN_TESTS"):
+if _getenv("CL_RUN_TESTS") != "nil":
         _run_tests_metasex()
 
 #+end_src
@@ -10592,7 +10593,7 @@ def _run_tests_known():
                          _consify_star(apply, (function, cond), (quote, nil)),
                          None))
 
-if _getenv("CL_RUN_TESTS"):
+if _getenv("CL_RUN_TESTS") != "nil":
         _run_tests_known()
 #+end_src
 
