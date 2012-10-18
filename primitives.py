@@ -428,7 +428,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         return (spill,
                                 tn)
                 return processors.get(type(spec), type_check)(spec, arg, force_spill = force_spill)
-        unspilled = str(primitive)
+        # unspilled = str(primitive)
         spills, primitive.args  = tuple_spills(primitive.form_specifier, primitive.args)
         if spills:
                 spilled = progn(*spills + [primitive])

@@ -1542,7 +1542,7 @@ def or_(x, type):
                 _poor_man_let(list(_type_mismatch(ix, ty) for ix, ty in zip([x] * (len(type) - 1), type[1:])),
                               lambda mismatches:
                                       (_some_fast(lambda m: m and m[2] and m, mismatches) or
-                                       (all(x for x in mismatches) and (x, type, False)))))
+                                       (all(mismatches) and (x, type, False)))))
 
 @_deftype("AND")
 def and_(x, type):
