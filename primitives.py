@@ -586,26 +586,27 @@ def prim_attr_chain(xs, writep = nil):
 class return_(stmt):
         def help(x):
                 return [ ast.Return(help_expr(x)) ], help_nil()
+
 @defprim(intern("GLOBAL")[0],
          ([name],))
 class global_(stmt):
         def help(*xs):
                 return [ ast.Global([ x.value() for x in xs ]
-                                  ) ], help_expr(name("None"))
+                                  ) ], help_nil()
 
 @defprim(intern("NONLOCAL")[0],
          ([name],))
 class nonlocal_(stmt):
         def help(*xs):
                 return [ ast.Nonlocal([ x.value() for x in xs ]
-                                      ) ], help_expr(name("None"))
+                                      ) ], help_nil()
 
 @defprim(intern("IMPORT")[0],
          ([name],))
 class import_(stmt):
         def help(*xs):
                 return [ ast.Import([ ast.alias(x.value(), None) for x in xs ]
-                                    ) ], help_expr(name("None"))
+                                    ) ], help_nil()
 
 ###
 ### Constants
