@@ -7306,7 +7306,7 @@ Examples:
 def _compilation_unit_prologue(funs, syms, gfuns, gvars):
         """Emit a prologue for a standalone unit referring to SYMBOLS."""
         def import_prologue():
-                return _emit_ast(p.import_(p.name("cl"))) 
+                return p.help(p.import_(p.name("cl")))[0]
         def symbol_prologue():
                 def wrap(x):
                         return _defaulted(x, _consify_star(ref, (quote, ("None",))))
