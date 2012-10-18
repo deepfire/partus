@@ -9547,7 +9547,7 @@ class _compiler_lambda():
                 self.total_bound = total
                 self.nonlocal_refs, self.nonlocal_setqs = set(), set()
 
-@defknown((lambda_, " ", ([(_notlead, " "), _form],),
+@defknown((lambda_, " ", ([(_notlead, " "), (_or, _name, (_name, _form))],),
             1, [(_notlead, "\n"), (_bound, _form)]))
 def lambda_():
         def nvalues(*_):            return 1
