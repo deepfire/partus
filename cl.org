@@ -8015,7 +8015,7 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                  return _lower(prologue,
                                ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
                                lexenv = _make_null_lexenv(nil))
-        with _no_compiler_debugging():
+        with _no_compiler_debugging(): #_withless():#
                 return (import_prologue() +
                         symbol_prologue())
 #+end_src
@@ -9189,7 +9189,8 @@ def DEFMACRO(name, lambda_list, *body):
                    l_(lambda_, lambda_list, _consify_linear(body)),
                    l("decorators", _ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
                                                       l(quote, name),
-                                                      l(quote, l_(name, lambda_list, _consify_linear(body))))),
+                                                      l(quote, nil # l_(name, lambda_list, _consify_linear(body))
+                                                        ))),
                    ["name", name]))
 
 #+end_src

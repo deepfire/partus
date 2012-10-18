@@ -12,7 +12,7 @@
         ("name" . ,name)
         ("decorators" (apply (function (quote ("cl" "_set_function_definition")))
                              (apply (function (quote ("globals"))) 'nil)
-                             ',name '(lambda ,lambda-list ,@body)
+                             ',name nil ;; '(lambda ,lambda-list ,@body)
                              'nil)))
        'nil)))
 
