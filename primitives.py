@@ -8,6 +8,7 @@ import ast
 import sys
 import frost
 import types
+import builtins
 import collections
 
 from more_ast import pp_ast_as_code
@@ -69,7 +70,8 @@ def defprim(name, form_specifier):
                                 continue
                         ## otherwise, must be an indet method
                         method, identityp, keys = \
-                            ((method_spec,    nil, ())             if isinstance(method_spec, types.FunctionType) else
+                            ((method_spec,    nil, ())  if isinstance(method_spec, (types.FunctionType,
+                                                                                    builtins.staticmethod)) else
                              (cls, t,   method_spec[1]) if (isinstance(method_spec, tuple) and
                                                                        method_spec[0] is identity) else
                              error("Invalid method specifier: %s", method_spec))
