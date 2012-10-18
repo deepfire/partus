@@ -692,8 +692,12 @@ class lambda_expr(expr):
 ### Binding
 ###
 def bindings_free_eval_order_p(bindings):
-        return all(isinstance(x, (name, const))
-                   for x, form in bindings)
+        return (all(isinstance(form, const)
+                    for _, form in bindings)
+                or (all(isinstance(form, (name, const))
+                        for _, form in bindings)
+                    and not (set(zip(*bindings)[0]) &
+                             set(zip(*bindings)[1]))))
 
 @defprim(intern("LET")[0],
          (([(name, prim)],),
