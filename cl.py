@@ -6981,25 +6981,32 @@ def _self_evaluating_form_p(x):
 
 _compiler_max_mockup_level = 3
 
-_string_set("*COMPILER-TRACE-TOPLEVELS*",          nil)
-_string_set("*COMPILER-TRACE-TOPLEVELS-DISASM*",   nil)
-_string_set("*COMPILER-TRACE-ENTRY-FORMS*",        nil)
-_string_set("*COMPILER-TRACE-MACROEXPANSION*",     nil)
-_string_set("*COMPILER-TRACE-TRUE-DEATH-OF-CODE*", nil)
-
 _string_set("*COMPILER-TRACE-FORMS*",              nil)
+_string_set("*COMPILER-TRACE-MACROEXPANDED*",      nil)
+_string_set("*COMPILER-TRACE-KNOWNS*",             nil)
 _string_set("*COMPILER-TRACE-PRIMITIVES*",         nil)
-_string_set("*COMPILER-TRACE-SUBFORMS*",           nil)
-_string_set("*COMPILER-TRACE-REWRITES*",           nil)
-_string_set("*COMPILER-TRACE-CHOICES*",            nil)
-_string_set("*COMPILER-TRACE-RESULT*",             nil)
+_string_set("*COMPILER-TRACE-AST*",                nil)
+_string_set("*COMPILER-TRACE-MODULE-AST*",         nil)
+_string_set("*COMPILER-TRACE-BYTECODE*",           nil)
+
+_string_set("*COMPILER-TRACE-TOPLEVELS*",          nil)
+_string_set("*COMPILER-TRACE-COMPILE-TIME-EVAL*",  nil)
+
+_string_set("*COMPILER-TRACE-SUBKNOWNS*",          nil)
+_string_set("*COMPILER-TRACE-INNER-KNOWNS*",       nil)
+_string_set("*COMPILER-TRACE-KNOWN-CHOICES*",      nil)
+_string_set("*COMPILER-TRACE-KNOWN-REWRITES*",     nil)
+_string_set("*COMPILER-TRACE-KNOWN-PRIMITIVES*",   nil)
+
 _string_set("*COMPILER-TRACE-PRETTY-FULL*",        nil)
 
 _string_set("*COMPILER-DEBUG-P*",                  nil)
 _string_set("*COMPILER-TRAPPED-FUNCTIONS*",        set()) ## Emit a debug entry for those functions.
 
-__known_trace_args__ = {"toplevels", "entry_forms", "macroexpansion",
-                        "forms", "subforms", "rewrites", "choices", "result", "pretty_full"}
+__known_trace_args__ = {"forms", "macroexpanded", "knowns", "primitives", "ast", "module_ast", "bytecode",
+                        "toplevels",
+                        "subknowns", "inner_knowns", "known_choices", "known_rewrites", "known_primitives",
+                        "pretty_full"}
 
 def _compiler_explain_tracing():
         def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
@@ -7060,8 +7067,8 @@ def _compiler_debug_printf(control, *args):
                 def fix_string(x): return x.replace("\n", "\n" + justification) if isinstance(x, str) else x
                 _debug_printf(justification + fix_string(control), *tuple(fix_string(a) for a in args))
 
-def _compiler_trace_choice(ir_name, id, choice):
-        if symbol_value(_compiler_trace_choices_):
+def _compiler_trace_known_choice(ir_name, id, choice):
+        if symbol_value(_compiler_trace_known_choices_):
                 _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, _ir_minify(id), choice)
 
 if probe_file("/home/deepfire/.partus-debug-compiler"):
@@ -7306,14 +7313,24 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
         def symbol_prologue():
                 def wrap(x):
                         return _defaulted(x, _consify_star(ref, (quote, ("None",))))
-                with progv({ _compiler_trace_toplevels_:   nil,
-                             _compiler_trace_pretty_full_: nil,
-                             _compiler_trace_forms_:       nil,
-                             _compiler_trace_primitives_:  nil,
-                             _compiler_trace_choices_:     nil,
-                             _compiler_trace_subforms_:    nil,
-                             _compiler_trace_rewrites_:    nil,
-                             _compiler_trace_result_:      nil }):
+                with progv({ _compiler_trace_forms_:             nil,
+                             _compiler_trace_macroexpanded_:     nil,
+                             _compiler_trace_knowns_:            nil,
+                             _compiler_trace_primitives_:        nil,
+                             _compiler_trace_ast_:               nil,
+                             _compiler_trace_module_ast_:        nil,
+                             _compiler_trace_bytecode_:          nil,
+
+                             _compiler_trace_toplevels_:         nil,
+                             _compiler_trace_compile_time_eval_: nil,
+
+                             _compiler_trace_subknowns_:         nil,
+                             _compiler_trace_inner_knowns_:      nil,
+                             _compiler_trace_known_choices_:     nil,
+                             _compiler_trace_known_rewrites_:    nil,
+                             _compiler_trace_known_primitives_:  nil,
+
+                             _compiler_trace_pretty_full_:    nil }):
                  symbols = sorted(funs | syms, key = str)
                  prologue = list_(progn,
                                   _ir_cl_module_call(
@@ -8036,7 +8053,7 @@ def _ir_minify(form):
                 str(form)     if symbolp(form) or not form or not consp(form) else
                 ("(%s ...)" % _ir_minify(form[0])))
 
-def _mockup_sex(sex, initial_depth = None, max_level = None):
+def _mock(sex, initial_depth = None, max_level = None):
         max_level = _defaulted(max_level, _compiler_max_mockup_level)
         def mock_atom(x):       return '"' + x + '"' if isinstance(x, str) else str(x)
         def mock_complexes(xs, new_level):
@@ -8636,7 +8653,7 @@ def setq():
                 assert(not _)
                 lexical_binding, lexenv = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is special:
-                        _compiler_trace_choice(setq, name, "GLOBAL")
+                        _compiler_trace_known_choice(setq, name, "GLOBAL")
                         gvar = _find_global_variable(name)
                         if gvar and gvar.kind is constant:
                                 simple_program_error("%s is a constant and thus can't be set.", name)
@@ -8644,7 +8661,7 @@ def setq():
                                 simple_style_warning("undefined variable: %s", name)
                                 _compiler_defvar_without_actually_defvar(name, value)
                         return _lowered(p.special_setq(p.name(_unit_symbol_pyname(name)), _primitivise(value)))
-                _compiler_trace_choice(setq, name, "LEXICAL")
+                _compiler_trace_known_choice(setq, name, "LEXICAL")
                 current_clambda = symbol_value(_compiler_lambda_)
                 if current_clambda and current_clambda is not lexenv.clambda:
                         current_clambda.nonlocal_setqs.add(name)
@@ -8669,15 +8686,15 @@ def quote():
         def lower(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if isinstance(x, symbol_t) and not constantp(x):
-                        _compiler_trace_choice(quote, x, "NONCONSTANT-SYMBOL")
+                        _compiler_trace_known_choice(quote, x, "NONCONSTANT-SYMBOL")
                         return _lowered(p.symbol(_unit_symbol_pyname(x)))
                 else:
                         prim, successp = _try_primitivise_constant(x)
                         if successp:
-                                _compiler_trace_choice(quote, x, "CONSTANT")
+                                _compiler_trace_known_choice(quote, x, "CONSTANT")
                                 return _lowered(prim)
                         else:
-                                _compiler_trace_choice(quote, x, "SEX")
+                                _compiler_trace_known_choice(quote, x, "SEX")
                                 return _lowered(p.literal_list(*(_primitivise(list_(quote, x)) for x in x)))
         def effects(x):            return nil
         def affected(x):           return nil
@@ -9071,11 +9088,11 @@ def block():
                                 has_return_from = t
                 _map_sex(update_has_return_from, catch_target)
                 if has_return_from:
-                        _compiler_trace_choice(quote, name, "HAS-RETURN-FROM")
+                        _compiler_trace_known_choice(quote, name, "HAS-RETURN-FROM")
                         return _rewritten(catch_target,
                                           { _lexenv_: _make_lexenv(name_blockframe = { name: _block_binding(name, nonce) }) })
                 else:
-                        _compiler_trace_choice(quote, name, "NO-RETURN-FROM")
+                        _compiler_trace_known_choice(quote, name, "NO-RETURN-FROM")
                         return _rewritten(cons(progn, _consify_linear(body)))
         def effects(name, *body):            return any(_ir_effects(f) for f in body)
         def affected(name, *body):           return any(_ir_affected(f) for f in body)
@@ -9301,7 +9318,7 @@ when EVAL-WHEN appears as a top level form."""
                 ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
                 ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
                 ## so that they're never seen at this level.)
-                _compiler_trace_choice(eval_when, when, "EXECUTE" if exec else "NO-EXECUTE")
+                _compiler_trace_known_choice(eval_when, when, "EXECUTE" if exec else "NO-EXECUTE")
                 return _rewritten(cons(progn, body) if exec else
                                   nil)
 
@@ -9561,12 +9578,12 @@ def lambda_():
                         ## &key and &optional require run-time defaulting
                         ## &key require run-time arg parsing
                         ## so, the simple case is this..
-                        _compiler_trace_choice(lambda_, lambda_list, "NO-REST-KEYS-FIXED-LAMBDA/NON-DEFERRED-OPTIONALS")
+                        _compiler_trace_known_choice(lambda_, lambda_list, "NO-REST-KEYS-FIXED-LAMBDA/NON-DEFERRED-OPTIONALS")
                         return _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *(args + defaults)),
                                                   *(nonlocal_decl +
                                                     prim_body)))
                 ## So, full complexity, head-on?
-                _compiler_trace_choice(lambda_, lambda_list, "FULL-COMPLEXITY-HEAD-ON")
+                _compiler_trace_known_choice(lambda_, lambda_list, "FULL-COMPLEXITY-HEAD-ON")
                 need_rest = rest or keys ## &key is processed through parsing of *rest
                 gsy_o, gs_r = ([ _gensym_tn("OPT-" + symbol_name(x) + "-") for x in optional ],
                                _gensym_tn("REST-" + symbol_name(rest) + "-") if need_rest else None)
@@ -9671,8 +9688,31 @@ if _getenv("CL_RUN_TESTS") != "nil":
 
 # Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
 
-def _dump_form(form):
-        _debug_printf("%s\n", "*** " + "\n*** ".join(_pp_sex(form).split("\n")))
+def _report(known = None, primitive = None, ast = None, bytecode = None,
+            desc = "", form_id = None):
+        desc = "%s - " % desc if desc is not None else ""
+        fid = ("  %x" % form_id) if form_id else ""
+        if known is not None:
+                _debug_printf(";;; %sLisp ................%s\n%s\n",
+                              desc, fid, _pp(known))
+        if primitive is not None:
+                _debug_printf(";;; %sPrimitives ==========%s\n%s\n",
+                              desc, fid, primitive)
+        if ast:
+                import more_ast
+                _debug_printf(";;; %sPython ------------->%s\n%s\n",
+                              desc, fid, "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
+                                             for x in ast))
+        if bytecode:
+                _debug_printf(";;; %sBytecode ************%s\n", desc, fid)
+                import dis
+                def rec(x):
+                        dis.dis(x)
+                        for sub in x.co_consts:
+                                if isinstance(sub, _types.CodeType):
+                                        _debug_printf(";;; child code -------------\n")
+                                        rec(sub)
+                rec(bytecode)
 
 # Unregistered Issue COMPILER-MACRO-SYSTEM
 def _primitivise(form, lexenv = nil) -> p.prim:
@@ -9680,17 +9720,17 @@ def _primitivise(form, lexenv = nil) -> p.prim:
         # - scopes
         # - symbols not terribly clear
         # - proper quote processing
-        def compiler_note_form(x):
-                if (symbol_value(_compiler_trace_forms_) and _debugging_compiler() and
+        def compiler_maybe_note_subknown(x):
+                if (symbol_value(_compiler_trace_subknowns_) and _debugging_compiler() and
                     not isinstance(x, (symbol_t, bool))                            and
                     not (consp(x) and x[0] in [ref, function, quote])):
                         _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp(x))
-        def compiler_note_parts(known_name, xs):
-                if symbol_value(_compiler_trace_subforms_) and _debugging_compiler() and known_name is not symbol:
+        def compiler_maybe_note_inner(known_name, xs):
+                if symbol_value(_compiler_trace_inner_knowns_) and _debugging_compiler() and known_name is not symbol:
                         _debug_printf("%s>>> %s\n%s%s", _sex_space(), name,
                                       _sex_space(), ("\n" + _sex_space()).join(_pp(f) for f in xs))
-        def compiler_note_rewrite(known_name, known_subforms, result_form):
-                if symbol_value(_compiler_trace_rewrites_) and _debugging_compiler() and known_name not in (symbol, ref):
+        def compiler_maybe_note_rewrite(known_name, known_subforms, result_form):
+                if symbol_value(_compiler_trace_known_rewrites_) and _debugging_compiler() and known_name not in (symbol, ref):
                         _debug_printf("%s======================================================\n%s\n"
                                       "%s--------------------- rewrote ------------------------>\n%s\n"
                                       # "%s--------------------- rewrote ------------------------>",
@@ -9698,27 +9738,26 @@ def _primitivise(form, lexenv = nil) -> p.prim:
                                       _sex_space(), _sex_space() + _pp((known_name,) + known_subforms),
                                       _sex_space(), _sex_space() + _pp(result_form),
                                       _sex_space())
-        def compiler_note_result(form, prim):
-                if (symbol_value(_compiler_trace_result_) and _debugging_compiler() and
+        def compiler_maybe_note_known_primitives(form, prim):
+                if (symbol_value(_compiler_trace_known_primitives_) and _debugging_compiler() and
                     ## Too trivial to take notice
                     not typep(form, (or_t, symbol_t, string_t, integer_t, (cons_t, (member_t, quote, function, ref), t)))):
                         ssp = _sex_space()
-                        _debug_printf(";;;\n;;; knowns ->\n;;;\n%s%s\n;;;\n;;; -> primitives\n%s%s",
+                        _debug_printf(";;;\n;;; knowns ->\n;;;\n%s%s\n;;;\n;;; -> primitives\n%s",
                                       ssp, _pp(form),
-                                      "\n".join(str(x) for x in prim.spills) + ("\n" if prim.spills else ""),
                                       prim)
         def rec(x):
                 ## XXX: what are the side-effects?
                 ## NOTE: we are going to splice unquoting processing here, as we must be able
                 ## to work in READ-less environment.
-                compiler_note_form(x)
+                compiler_maybe_note_subknown(x)
                 if listp(x):
                         def call_known(known, forms, args):
-                                compiler_note_parts(known.name, forms)
+                                compiler_maybe_note_inner(known.name, forms)
                                 ret = known.lower(*forms, **_alist_hash_table(args))
                                 if _rewritep(ret):
                                         form, scope = ret
-                                        compiler_note_rewrite(known.name, forms, form)
+                                        compiler_maybe_note_rewrite(known.name, forms, form)
                                         if scope:
                                                 with progv(scope):
                                                         return _sex_deeper(4, lambda: rec(form))
@@ -9755,7 +9794,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
         ## XXX: what about side-effects?
         with progv({ _lexenv_: _coerce_to_lexenv(lexenv) }):
                 prim = the(p.prim, rec(form))
-                compiler_note_result(form, prim)
+                compiler_maybe_note_known_primitives(form, prim)
                 return prim
 
 _fixupp = gensym("FIXUPP")
@@ -9765,7 +9804,6 @@ class _name_context_fixer(_ast.NodeTransformer):
                 return (_ast.Name(o.id, _ast.Store()) if symbol_value(_fixupp) else
                         o)
         def visit_Assign(w, o):
-                import more_ast
                 with progv({ _fixupp: t }):
                         targets = [ w.visit(x)
                                     for x in o.targets ]
@@ -9811,7 +9849,6 @@ _name_context_fixer = _name_context_fixer()
 
 def _emit_ast(prim) -> [p.stmt]:
         def fixup_written_name_contexts(x):
-                import more_ast
                 with progv({ _fixupp: nil }):
                         return _name_context_fixer.visit(the(_ast.AST, x))
         xs = p.help_prog([prim])
@@ -9820,29 +9857,31 @@ def _emit_ast(prim) -> [p.stmt]:
 def _lower(form, lexenv = nil):
         "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
         ## HIR -> LIR
-        prim = _primitivise(form, lexenv = lexenv)
+        if symbol_value(_compiler_trace_knowns_):
+                _report(known = form, form_id = id(form), desc = "%LOWER")
+        prim = _primitivise(form, lexenv = lexenv)    ## No other high-level entry point to %PRIMITIVISE.
+        if symbol_value(_compiler_trace_primitives_):
+                _report(primitive = prim, form_id = id(form), desc = "%LOWER")
         ##
         ## LIR -> target AST
         ast  = _emit_ast(prim)
-        if symbol_value(_compiler_trace_toplevels_):
-                _debug_printf(";;; Lisp ================\n%s\n;;; Primitives ==========\n%s\n;;; .....................\n",
-                              _pp(form),
-                              prim)
+        if symbol_value(_compiler_trace_ast_):        ## No other high-level entry point to %EMIT-AST.
+                _report(ast = ast, form_id = id(form), desc = "%LOWER")
         return ast
 
 def _compile(form, lexenv = nil):
         "Same as %LOWER, but also macroexpand.  Requires %WITH-SYMBOL-UNIT-MAGIC context all the same."
         check_type(lexenv, (or_t, null_t, _lexenv))
+        if symbol_value(_compiler_trace_forms_):
+                _debug_printf(";;;%s compiling:\n%s%s",
+                              _sex_space(-3, ";"), _sex_space(), _pp(form))
         macroexpanded = macroexpand_all(form, lexenv = lexenv, compilerp = t)
-        if symbol_value(_compiler_trace_macroexpansion_):
+        if symbol_value(_compiler_trace_macroexpanded_):
                 if form != macroexpanded:
                         _debug_printf(";;;%s macroexpanded:\n%s%s",
                                       _sex_space(-3, ";"), _sex_space(), _pp(macroexpanded))
                 else:
                         _debug_printf(";;;%s macroexpansion had no effect", _sex_space(-3, ";"))
-        if symbol_value(_compiler_trace_entry_forms_):
-                _debug_printf(";;;%s compiling:\n%s%s",
-                              _sex_space(-3, ";"), _sex_space(), _pp(form))
         return _lower(macroexpanded, lexenv = lexenv)
 
 # Linkage: %ASSEMBLE, %PROCESS-AS-LOADABLE, %LOAD-MODULE-BYTECODE
@@ -9877,25 +9916,11 @@ def _with_symbol_unit_magic(body, standalone = nil, id = "UNIT-"):
 def _assemble(ast: [_ast.stmt], form: cons_t, filename = "") -> "code":
         import more_ast
         more_ast.assign_meaningful_locations(ast)
-        if symbol_value(_compiler_trace_toplevels_):
-                _debug_printf(";;; Python ------------->\n%s\n;;; .....................\n",
-                              "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
-                                        for x in ast))
-                # ############################ This is an excess newline, so it is a bug workaround.
-                # ############################ Unregistered Issue PP-AST-AS-CODE-INCONSISTENT-NEWLINES
-                # if isinstance(ast[0], _ast.FunctionDef):
-                #         _debug_printf("type of ast: %s\ndecorators: %s", type_of(ast[0]), ast[0].decorator_list)
+        if symbol_value(_compiler_trace_module_ast_):
+                _report(ast = ast, form_id = id(form), desc = "%ASSEMBLE")
         bytecode = _py.compile(_ast.fix_missing_locations(_ast_module(ast)), filename, "exec")
-        if symbol_value(_compiler_trace_toplevels_disasm_):
-                _debug_printf(";;; Bytecode ================\n")
-                import dis
-                def rec(x):
-                        dis.dis(x)
-                        for sub in x.co_consts:
-                                if isinstance(sub, _types.CodeType):
-                                        _debug_printf(";;; child code -------------\n")
-                                        rec(sub)
-                rec(bytecode)
+        if symbol_value(_compiler_trace_bytecode_):
+                _report(bytecode = bytecode, form_id = id(form), desc = "%ASSEMBLE")
         return bytecode
 
 def _process_as_loadable(processor, form, lexenv = nil, id = "PROCESSED-"):
@@ -9930,11 +9955,11 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
                                     (form, ""))
                 _debug_printf("; compiling (%s%s%s%s)",
                               kind, " " if length(form) > 1 else "", maybe_name, " ..." if length(form) > 2 else "")
-        if symbol_value(_compiler_trace_entry_forms_):
+        if symbol_value(_compiler_trace_forms_):
                 _debug_printf(";;;%s compiling:\n%s%s",
                               _sex_space(-3, ";"), _sex_space(), _pp(form))
         macroexpanded = macroexpand_all(form, lexenv = lexenv, compilerp = t)
-        if symbol_value(_compiler_trace_macroexpansion_):
+        if symbol_value(_compiler_trace_macroexpanded_):
                 if form != macroexpanded:
                         _debug_printf(";;;%s macroexpanded:\n%s%s",
                                       _sex_space(-3, ";"), _sex_space(), _pp(macroexpanded))
@@ -9965,11 +9990,15 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
                         stmts, *unit_data = _with_symbol_unit_magic(lambda: _lower(_consify_linear(form), lexenv = lexenv),
                                                                     id = "PROCESS-TOPLEVEL-")
                 if process:
+                        if toplevel and symbol_value(_compiler_trace_toplevels_):
+                                _report(known = form, ast = stmts, desc = "processed TLF")
                         run_time_results.extend(stmts)
                         _compilation_unit_adjoin_symbols(*unit_data)
                 if eval:
-                        bytecode = _assemble(_compilation_unit_prologue(*unit_data) +
-                                             stmts,
+                        if toplevel and symbol_value(_compiler_trace_compile_time_eval_):
+                                _report(known = form, ast = stmts, desc = "CT eval")
+                        bytecode = _assemble(_compilation_unit_prologue(*unit_data)
+                                             + stmts,
                                              form)
                         # _debug_printf(";; ..compile-time code object execution")
                         _, broken_globals, good_globals = _load_module_bytecode(bytecode)
@@ -10416,18 +10445,26 @@ def _configure_recursion_limit(new_limit):
 
 _configure_recursion_limit(262144)
 
-_compiler_config_tracing(toplevels = t,
-                         # toplevels_disasm = t,
-                         # entry_forms = t,
-                         # forms = t,
-                         # primitives = t,
-                         # macroexpansion = t,
-                         # true_death_of_code = t,
-                         # result = t,
-                         # rewrites = t,
-                         # choices = t,
-                         pretty_full = t
-                         )
+def _setup_tracing():
+        _compiler_config_tracing(# forms = t,
+                                 # macroexpanded = t,
+                                 # knowns = t,
+                                 # primitives = t,
+                                 # ast = t,
+                                 # module_ast = t,
+                                 # bytecode = t,
+
+                                 # toplevels = t,
+                                 # compile_time_eval = t,
+
+                                 # subknowns = t,
+                                 # inner_knowns = t,
+                                 # known_choices = t,
+                                 # known_rewrites = t,
+                                 # known_primitives = t,
+                                 pretty_full = t
+                                 )
+_setup_tracing()
 
 # _compiler_trap_function(intern("DEFPACKAGE")[0])
 
