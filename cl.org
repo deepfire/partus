@@ -9689,9 +9689,9 @@ def let():
                 tns, frame = _variable_frame_bindings(symbol_value(_compiler_lambda_), zip(*normalised))
                 return _lowered(p.let(((tn, _primitivise(form))
                                        for tn, (_, form) in zip(tns, normalised)),
-                                      *(_with_lexenv_frame(frame,
-                                                           lambda: _primitivise(x))
-                                        for x in body)))
+                                      p.progn(*(_with_lexenv_frame(frame,
+                                                                   lambda: _primitivise(x))
+                                                for x in body))))
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
                 return any(_ir_effects(f) for f in tuple(x[1] for x in bindings) + body)
@@ -9736,9 +9736,9 @@ def flet():
                 return _lowered(p.flet(((tn, _lower_lambda_list(lam)
                                          ) + tuple(_primitivise(x)  for x in body)
                                         for tn, (name, lam, *body) in zip(tns, normalised)),
-                                       *(_with_lexenv_frame(frame,
-                                                            lambda: _primitivise(x))
-                                         for x in body)))
+                                       p.progn(*(_with_lexenv_frame(frame,
+                                                                    lambda: _primitivise(x))
+                                                 for x in body))))
         def effects(bindings, *body):
                 return any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -9783,8 +9783,8 @@ def labels():
                         return _lowered(p.labels(((tn, _lower_lambda_list(lam))
                                                   + tuple(_primitivise(x)  for x in body)
                                                   for tn, (name, lam, *body) in zip(tns, normalised)),
-                                                 *(_primitivise(x)
-                                                   for x in body)))
+                                                 p.progn(*(_primitivise(x)
+                                                           for x in body))))
         def effects(bindings, *body):
                 return any(_ir_effects(f) for f in body)
         def affected(bindings, *body):
@@ -9876,7 +9876,7 @@ def unwind_protect():
         def prologuep(*_):                          return t
         def lower(form, *unwind_body):
                 return _lowered(p.unwind_protect(_primitivise(form),
-                                                 *(_primitivise(x) for x in unwind_body)))
+                                                 p.progn(*(_primitivise(x) for x in unwind_body))))
         def effects(form, *unwind_body):
                 return any(_ir_effects(f) for f in (form,) + body)
         def affected(form, *unwind_body):
@@ -10026,7 +10026,7 @@ def catch():
         def prologuep(tag, *body_):         return _ir_prologue_p(tag) or _ir_body_prologuep(body)
         def lower(tag, *body):
                 return _lowered(p.catch(_primitivise(tag),
-                                        *(_primitivise(x) for x in body)))
+                                        p.progn(*(_primitivise(x) for x in body))))
         def effects(tag, *body):  return _ir_effects(tag) or any(_ir_effects(f) for f in body)
         def affected(tag, *body): return _ir_affected(tag) or any(_ir_affected(f) for f in body)
 #+end_src
@@ -10315,7 +10315,7 @@ def progv_():
         def prologuep(names, values, *body):          return not not names or _ir_body_prologuep(body)
         def lower(vars, vals, *body):
                 return _lowered(p.progv((_primitivise(x) for x in vars), (_primitivise(x) for x in vals),
-                                        *(_primitivise(x) for x in body)))
+                                        p.progn(*(_primitivise(x) for x in body))))
         def effects(names, values, *body):            return any(_ir_effects(f) for f in (names, values) + body)
         def affected(names, values, *body):           return any(_ir_affected(f) for f in (names, values) + body)
 
@@ -10442,7 +10442,7 @@ def protoloop():
         def nth_value(n, *_):       return _not_implemented()
         def prologuep(*_):          return t
         def lower(*body):
-                return _lowered(p.loop(*(_primitivise(x) for x in body)))
+                return _lowered(p.loop(p.progn(*(_primitivise(x) for x in body))))
         def effects(*body):         return any(_ir_effects(x)  for x in body)
         def affected(*body):        return any(_ir_affected(x) for x in body)
 #+end_src
@@ -10507,8 +10507,8 @@ def lambda_():
                         ## so, the simple case is this..
                         _compiler_trace_known_choice(lambda_, lambda_list, "NO-REST-KEYS-FIXED-LAMBDA/NON-DEFERRED-OPTIONALS")
                         return _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *(args + defaults)),
-                                                  *(nonlocal_decl +
-                                                    prim_body)))
+                                                  p.progn(*(nonlocal_decl +
+                                                            prim_body))))
                 ## So, full complexity, head-on?
                 _compiler_trace_known_choice(lambda_, lambda_list, "FULL-COMPLEXITY-HEAD-ON")
                 need_rest = rest or keys ## &key is processed through parsing of *rest
@@ -10526,6 +10526,7 @@ def lambda_():
                                                                        [], [], [])),
                                         # We're primed with LET*, but what about nonlocal..
                                         # ..we need to split them and dispatch the pieces..
+                                        p.progn(
                                         *(nonlocal_decl
                                           + ( [ p.assert_(p.not_(p.mod(p.funcall(p.blin_ref("len"), p.integer(2))))) ]
                                               if keys else [] )
@@ -10552,8 +10553,8 @@ def lambda_():
                                                                           _primitivise(expr),
                                                                           p.index(tn_ht, ksymtn)))
                                                              for ksymtn, expr in zip(nksy_k, keydefs)),
-                                                     *prim_body,
-                                                     headp = t) ]),
+                                                     p.progn(*prim_body),
+                                                     headp = t) ])),
                                         name = fn_tn,
                                         decorators = _xmap_to_vector(_primitivise, decorators)))
         def effects(*_):            return nil
