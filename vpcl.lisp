@@ -5,20 +5,24 @@
        (apply (function (quote ("cl" "_compiler_defun"))) ',name 'nil
               'nil))
      (eval-when (:load-toplevel :execute)
-       (apply (apply (function (quote ("cl" "_set_function_definition")))
-                     (apply (function (quote ("globals"))) 'nil) ',name '(lambda ,lambda-list ,@body)
-                     'nil)
-              (progn
-                (def ,name ,lambda-list
-                  (block ,name
-                    ,@body))
-                (function ,name))
-              'nil))))
+       (ir-args
+        (lambda ,lambda-list
+          (block ,name
+            ,@body))
+        ("name" . ,name)
+        ("decorators" (apply (function (quote ("cl" "_set_function_definition")))
+                             (apply (function (quote ("globals"))) 'nil)
+                             ',name '(lambda ,lambda-list ,@body)
+                             'nil)))
+       'nil)))
 
-(defun %test-defun ()
-  (format t "Hello from DEFUN TEST")
+(apply (function (quote ("cl" "_setup_tracing"))) 'nil)
+
+(defun %test-defun (&optional (basis 0) &key (x 1) y (z 3))
+  (format t "Hello from DEFUN TEST basis:%s  x:%s  y:%s  z:%s" basis x y z)
   (terpri))
 
+(%test-defun 42 :y 2 :x 3.14159)
 (%test-defun)
 
 (defmacro when (test &body body)
