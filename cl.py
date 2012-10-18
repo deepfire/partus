@@ -4002,7 +4002,9 @@ def nconc(*xs):
 def append(*xs):
         if not xs:
                 return nil
-        return _copy_list_with_lastcdr(xs[0], append(*xs[1:]))
+        return _copy_list_with_lastcdr(the(list_t, xs[0]), (xs[1] if len(xs) is 2 else
+                                                            nil   if len(xs) is 1 else
+                                                            append(*xs[1:])))
 
 # REVAPPEND
 # NRECONC
