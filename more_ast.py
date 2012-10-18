@@ -553,7 +553,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         ast.comprehension: pp_comprehension,
                         ast.DictComp:      pp_dictcomp,
                         }
-                def fail(x): not_implemented("pretty-printing AST node %s" % (type(x),))
+                def fail(x): not_implemented("pretty-printing AST node %s: %s" % (type(x), x))
                 try:
                         return map.get(type(x), fail)(x) if x else ""
                 except NotImplemented:
