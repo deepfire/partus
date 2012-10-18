@@ -8663,7 +8663,7 @@ class _metasex_matcher(_matcher):
                         return _r(m.test(form is pat[1][0], bound, name, lambda: m.prod(form, orifst),
                                          form, pat))
         def typep(m, bound, name, form, pat, orifst):
-                with _match_level([form, pat]):
+                with _match_level([form, pat[1][0]]):
                         return _r(m.test(typep(form, pat[1][0]), bound, name, lambda: m.prod(form, orifst),
                                          form, pat))
 
