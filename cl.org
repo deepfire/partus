@@ -8626,15 +8626,17 @@ class _metasex_matcher(_matcher):
                 with _match_level_immediate([exp, pat, result], name = "ATOM"):
                         return result
         def process_formpat_arguments(m, form, pat):
-                arg_handlers = { _for_matchers_xform:     (lambda arg: m in _vectorise_linear(arg[1]),
+                arg_handlers = { _for_matchers_xform:     (lambda arg: find(m, arg[1]),
                                                            lambda arg: arg[0](form)),
-                                 _for_not_matchers_xform: (lambda arg: m not in _vectorise_linear(arg[1]),
+                                 _for_not_matchers_xform: (lambda arg: not find(m, arg[1]),
                                                            lambda arg: arg[0](form)),
                                  }
                 if consp(pat):
                         args = pat[1]
                         # _debug_printf("args of %s: %s", _pp_consly(pat), _pp_consly(args))
-                        for argname, argval in _vectorise_linear(args):
+                        ptr = args
+                        while ptr:
+                                argname, argval = ptr[0]
                                 if argname not in arg_handlers:
                                         error("Invalid FORM argument: %s, pat: %s", argname, pat)
                                 arg_applicable_p, arg_handler = arg_handlers[argname]
@@ -8642,6 +8644,7 @@ class _metasex_matcher(_matcher):
                                         ret = arg_handler(argval)
                                         # _debug_printf("\n\nMATCHED/xformed: %s", ret)
                                         return True, ret
+                                ptr = ptr[1]
                 return None, None
         def cons(m, bound, name, form, pat, orifst, ignore_args = None):
                 with _match_level([form, pat[1]]):
