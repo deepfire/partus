@@ -10513,7 +10513,7 @@ def lambda_():
                 _compiler_trace_known_choice(lambda_, lambda_list, "FULL-COMPLEXITY-HEAD-ON")
                 need_rest = rest or keys ## &key is processed through parsing of *rest
                 gsy_o, gs_r = ([ _gensym_tn("OPT-" + symbol_name(x) + "-") for x in optional ],
-                               _gensym_tn("REST-" + symbol_name(rest) + "-") if need_rest else None)
+                               ( _gensym_tn("REST-" + (symbol_name(rest) if rest else "#TN#") + "-")) if need_rest else None)
                 ns_o, ns_k = _var_tns(optional), _var_tns(keys)
                 tn_ht = p.genname("KWHASH")
                 nksy_k = [ p.name(_unit_symbol_pyname(_keyword(symbol_name(x)))) for x in keys ]
@@ -10522,13 +10522,16 @@ def lambda_():
                 with progv(frame if name else
                            dict()):
                         return _lowered(p.lambda_(
-                                        _lower_lambda_list("LAMBDA", *(fixed, gsy_o, gs_r if need_rest else None,
-                                                                       [], [], [])),
+                                        _lower_lambda_list("LAMBDA", *(fixed, gsy_o, gs_r if need_rest else None, [],
+                                                                       [None] * len(gsy_o), [])),
                                         # We're primed with LET*, but what about nonlocal..
                                         # ..we need to split them and dispatch the pieces..
                                         p.progn(
                                         *(nonlocal_decl
-                                          + ( [ p.assert_(p.not_(p.mod(p.funcall(p.blin_ref("len"), p.integer(2))))) ]
+                                          + ( [ p.assert_(p.not_(p.mod(p.funcall(p.blin_ref("len"), gs_r.tn),
+                                                                       p.integer(2))),
+                                                          p.string("In %s: odd number of arguments in &KEY position."
+                                                                   % (name or "(LAMBDA)"))) ]
                                               if keys else [] )
                                           + [ p.let_(tuple((_var_tn(name),
                                                             p.if_(p.eq(gs.tn, p.name("None")),
@@ -10549,10 +10552,10 @@ def lambda_():
                                                                                      p.slice(gs_r.tn, p.integer(1), nil,
                                                                                              p.integer(2))))),)
                                                         if keys else ())
-                                                     + tuple((name, p.if_(p.eq(p.index(tn_ht, ksymtn), p.name("None")),
-                                                                          _primitivise(expr),
-                                                                          p.index(tn_ht, ksymtn)))
-                                                             for ksymtn, expr in zip(nksy_k, keydefs)),
+                                                     + tuple((ktn, p.if_(p.not_in(ksymtn, tn_ht),
+                                                                         _primitivise(def_expr),
+                                                                         p.index(tn_ht, ksymtn)))
+                                                             for ktn, ksymtn, def_expr in zip(ns_k, nksy_k, keydefs)),
                                                      p.progn(*prim_body),
                                                      headp = t) ])),
                                         name = fn_tn,
@@ -10587,7 +10590,7 @@ def apply():
                 if rest is nil or rest == list_(quote, nil):
                         return _lowered(p.funcall(_primitivise(func), *(_primitivise(x) for x in fixed)))
                 else:
-                        return _lowered(p.apply(_primitivise(func), *((_primitivise(x) for x in fixed)
+                        return _lowered(p.apply(_primitivise(func), *(list(_primitivise(x) for x in fixed)
                                                                       + [ p.funcall(p.impl_ref("_vectorise_linear"),
                                                                                     _primitivise(rest)) ])))
         def effects(func, arg, *args):
@@ -10905,25 +10908,26 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
         run_time_results = []
         def make_processor(skip_subforms, doc_and_decls):
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-IGNORES-DECLARATIONS
-                def processor(compile_time_too, process, eval, *forms):
+                def processor(compile_time_too, process, eval, *forms, toplevel = None):
                         "Dispatch top-level (by deconstruction) FORMS through REC."
                         relevant = forms[skip_subforms:]
                         body = _parse_body(relevant)[0]
                         for f in body:
                                 rec(compile_time_too, process, eval, f)
                 return processor
-        def process_eval_when(compile_time_too, process, eval, _, situations, *body):
-                new_ctt, new_process, new_eval = _analyse_eval_when_situations(compile_time_too,
-                                                                               *_parse_eval_when_situations(situations))
+        def process_eval_when(compile_time_too, process, eval, _, situations, *body, toplevel = None):
+                parsed_situations = _parse_eval_when_situations(situations)
+                new_ctt, new_process, new_eval = _analyse_eval_when_situations(compile_time_too, *parsed_situations)
                 for f in body:
                         rec(new_ctt, process and new_process, new_eval, f)
-        def default_processor(compile_time_too, process, eval, *form):
+        def default_processor(compile_time_too, process, eval, *form, toplevel = None):
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-ARGUMENT-HANDLING
                 ## This is where LEXENV isn't true, as it's always empty.
                 ## ..but re-walking it.. who would care?  CLtL2 environments?
                 ## Additional note: this is %PROCESS, split in half, due to cases.
+                form = _consify_linear(form)
                 if process or eval:
-                        stmts, *unit_data = _with_symbol_unit_magic(lambda: _lower(_consify_linear(form), lexenv = lexenv),
+                        stmts, *unit_data = _with_symbol_unit_magic(lambda: _lower(form, lexenv = lexenv),
                                                                     id = "PROCESS-TOPLEVEL-")
                 if process:
                         if toplevel and symbol_value(_compiler_trace_toplevels_):
@@ -10953,7 +10957,8 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-HANDLING
                 if not consp(form):
                         return
-                actions.get(form[0], default_processor)(compile_time_too, process, eval, *_vectorise_linear(form))
+                actions.get(form[0], default_processor)(compile_time_too, process, eval, *_vectorise_linear(form),
+                                                        toplevel = t)
         rec(nil, t, nil, macroexpanded)
         return run_time_results
 
