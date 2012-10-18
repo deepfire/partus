@@ -1,6 +1,7 @@
 import cl
 from cl import *
 from cl import _gensymname as gensymname
+from cl import progv, symbol_value, _sex_deeper as sex_deeper
 from cl import _ensure_symbol_pyname as ensure_symbol_pyname
 from cl import _sex_space as sex_space, _defaulted as defaulted
 
@@ -97,9 +98,15 @@ def print_primitive(x):
                 "(%s)" % " ".join(print_primitive(ix) for ix in x)     if     isinstance(x, tuple)    else
                 " [ %s ] " % " ".join(print_primitive(ix) for ix in x) if     isinstance(x, list)     else
                 str(x)                                                 if not isinstance(x, prim)     else
-                ("(%s%s%s)" % (type(x).__name__.upper(),
-                               " " if x.args else "",
-                               " ".join(print_primitive(ix) for ix in x.args))))
+                ("(%s%s%s)" % (lambda name: (name.upper(),
+                                             " " if x.args else "",
+                                             ("".join(sex_deeper(2, lambda: print_primitive(x))
+                                                      for x in x.args)
+                                              if len(x.args) < 2 else
+                                              ("\n" + cl._sex_space(2)
+                                               ).join(sex_deeper(2, lambda: print_primitive(x))
+                                                      for x in x.args)))
+                               )(type(x).__name__)))
 
 class prim(metaclass = primclass):
         def __init__(self, *args, **keys):
