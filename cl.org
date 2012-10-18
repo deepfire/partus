@@ -5101,7 +5101,7 @@ def read_char(stream = None, eof_error_p = t, eof_value = nil, recursivep = nil)
 
 def unread_char(x, stream = _sys.stdin):
         "XXX: conformance"
-        # I've found out I don't really undestand how UNREAD-CHAR is supposed to work..
+        # I've found out I don't really understand how UNREAD-CHAR is supposed to work..
         posn = file_position(stream)
         if posn == 0:
                 error("Nothing to unread.")
