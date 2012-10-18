@@ -9328,9 +9328,8 @@ def _ir_body_prologuep(body):
 *** Lambda list lowering
 
 #+begin_src python
-def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None, default_expr = None):
+def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None):
         ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
-        default_expr = _defaulted(default_expr, (_name, "None"))
         if not listp(lambda_list):
                 error("In %s: lambda list must be a proper list, was: %s.", context, _pp_consly(lambda_list))
         lambda_list = _vectorise_linear(lambda_list)
@@ -9368,7 +9367,8 @@ def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None, default
         _keys = lambda_list[keypos + 1:] if keypos else ()
         keys, keydefs = (list(_ensure_car(x)
                               for x in _keys),
-                         list((default_expr if not consp(x) else second(x))
+                         list((second(x) if consp(x) else
+                               nil)
                               for x in _keys))
         rest_or_body = (lambda_list[restpos + 1] if restposp else
                         lambda_list[bodypos + 1] if bodyposp else
@@ -9376,7 +9376,8 @@ def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None, default
         optional = lambda_list[optpos + 1:bodypos or restpos or keypos or None] if optposp else []
         optional, optdefs = (list(_ensure_car(x)
                                   for x in optional),
-                             list((default_expr if not consp(x) else second(x))
+                             list((second(x) if consp(x) else
+                                   nil)
                                   for x in optional))
         fixed = lambda_list[0:_defaulted(optpos, (restpos    if restposp    else
                                                   bodypos    if bodyposp    else
@@ -9402,10 +9403,12 @@ def _lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_d
         def to_names(xs): return [ p.name(_unit_variable_pyname(x)) for x in xs ]
         return (to_names(fixed),
                 to_names(optional),
-                [ _primitivise(x) for x in _defaulted(opt_defaults, _repeat(_consify((ref, (quote, ("None",)))))) ],
+                [ _primitivise(x) if x is not None else p.name("None")
+                  for x in opt_defaults ],
                 p.name(_unit_variable_pyname(rest)) if rest else None,
                 to_names(keys),
-                [ _primitivise(x) for x in _defaulted(key_defaults, _repeat(_consify((ref, (quote, ("None",)))))) ],
+                [ _primitivise(x) if x is not None else p.name("None")
+                  for x in key_defaults ],
                 None)
 #+end_src
 
