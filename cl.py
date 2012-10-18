@@ -9956,11 +9956,13 @@ def _process_top_level(form, lexenv = nil) -> [_ast.stmt]:
         ## Compiler macro expansion, unless disabled by a NOTINLINE declaration, SAME MODE
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
-                kind, maybe_name = ((form[0], form[1][0]) if listp(form) and length(form) > 1 else
-                                    (form[0], "")         if listp(form) and form             else
+                complex_named_p = (listp(form) and length(form) > 1
+                                   and (atom(form[1][0]) or form[1][0][0] is setf))
+                kind, maybe_name = ((form[0], form[1][0]) if complex_named_p      else
+                                    (form[0], "")         if listp(form) and form else
                                     (form, ""))
                 _debug_printf("; compiling (%s%s%s%s)",
-                              kind, " " if length(form) > 1 else "", maybe_name, " ..." if length(form) > 2 else "")
+                              kind, " " if complex_named_p else "", maybe_name, " ..." if length(form) > 2 else "")
         if symbol_value(_compiler_trace_forms_):
                 _debug_printf(";;;%s compiling:\n%s%s",
                               _sex_space(-3, ";"), _sex_space(), _pp(form))
