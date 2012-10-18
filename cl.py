@@ -6959,9 +6959,10 @@ def _parse_body(body, doc_string_allowed = t):
 _eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
 _eval_when_keywords = set(_eval_when_ordered_keywords)
 def _parse_eval_when_situations(situ_form):
-        if not (listp(situ_form) and not (set(_vectorise_linear(situ_form)) - _eval_when_keywords)):
+        situ_linear = _vectorise_linear(situ_form)
+        if not (listp(situ_form) and not (set(situ_linear) - _eval_when_keywords)):
                 error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
-        return [x in situ_form for x in _eval_when_ordered_keywords]
+        return [x in situ_linear for x in _eval_when_ordered_keywords]
 
 def _analyse_eval_when_situations(compile_time_too, ct, lt, e):
         "Implement the EVAL-WHEN chart of section #5 of CLHS 3.2.3.1."
