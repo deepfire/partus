@@ -581,6 +581,11 @@ def prim_attr_chain(xs, writep = nil):
                       xs[1:],
                       xs[0])
 
+@defprim(intern("RETURN")[0],
+         (expr_spill,))
+class return_(stmt):
+        def help(x):
+                return [ ast.Return(help_expr(x)) ], help_nil()
 @defprim(intern("GLOBAL")[0],
          ([name],))
 class global_(stmt):
