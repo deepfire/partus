@@ -3935,7 +3935,7 @@ def cdr(x):         return x[1] if x else nil
 def _copy_list_with_lastcdr(x, cdr):
         if not x:
                 return cdr
-        ret = ptr = [x[0], cdr]
+        ret = ptr = [the(list_t, x)[0], cdr]
         while True:
                 x = x[1]
                 if not x:
