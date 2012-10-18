@@ -5354,6 +5354,20 @@ def _ast_list(xs,  writep = nil):
 def _ast_tuple(xs, writep = nil):
         return _ast.Tuple(elts = the((pylist_t, _ast.AST), xs), ctx = _ast_rw(writep))
 
+__ast_efless_types__                       = { _ast.Num, _ast.Str, _ast.Name, _ast.Bytes }
+__ast_potentially_efless_recursive_types__ = { _ast.Tuple:  lambda x: x.elts,
+                                               _ast.List:   lambda x: x.elts,
+                                               _ast.Set:    lambda x: x.elts,
+                                               _ast.Dict:   lambda x: x.keys + x.values,
+                                               }
+def _ast_efless_p(x):
+        "This is fairly conservative."
+        ty = type(x)
+        return (ty in __ast_efless_types__
+                or (ty in __ast_potentially_efless_recursive_types__
+                    and all(_ast_efless_p(x)
+                            for x in __ast_potentially_efless_recursive_types__[ty](x))))
+
 ################################# recurse? AST-ifier
 __astifier_map__ = { str:       (nil, _ast_string),
                      int:       (nil, _ast_num),
