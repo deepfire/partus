@@ -4463,9 +4463,9 @@ def _expand_quasiquotation(form):
         """Expand quasiquotation abbreviations in FORM (in a simple, yet suboptimal way)."""
         def malform(x): error("Invalid %s form: %s.", x[0], x)
         def process_form(x):
-                return (x                                         if atom(x)            else
-                        (process_qq(x[1][0]) if length(x) is 2 else
-                         malform(x))                              if x[0] is quasiquote else
+                return ((malform(x) if len(x) != 2 and x[0] is quasiquote else
+                         process_qq(x[1]))        if isinstance(x, tuple) else
+                        x                         if atom(x)              else
                         mapcar(process_form, x))
         def process_qq(x):
                 if atom(x):
@@ -4474,19 +4474,27 @@ def _expand_quasiquotation(form):
                         acc = [__append]
                         ptr = x
                         while ptr:
+                                ## Check for a qq marker at the end of an improper list:
+                                if isinstance(ptr, tuple):
+                                        xi = ptr
+                                        if len(xi) != 2 or xi[0] not in (quasiquote, comma, splice):
+                                                error("Invalid reader output, bad tuple intermarker: %s", _pp_consly(form))
+                                        if xi[0] is splice:
+                                                error(",@ after dot in %s", _pp_consly(form))
+                                        acc.append(process_qq(xi[1]) if xi[0] is quasiquote else
+                                                   xi[1])            #           comma
+                                        break
                                 xi = ptr[0]
-                                if atom(xi):
-                                        acc.append(list_(__list, list_(quote, xi)))
-                                elif xi[0] in (comma, splice):
-                                        length(xi) is 2 or malform(xi)
-                                        acc.append(list_(__list, xi[1][0]) if xi[0] is comma else
-                                                   xi[1][0]) # second
+                                if isinstance(xi, tuple):
+                                        if len(xi) != 2 or xi[0] not in (quasiquote, comma, splice):
+                                                error("Invalid reader output, bad tuple intermarker: %s", _pp_consly(form))
+                                        acc.append(list_(process_qq(xi[1])) if xi[0] is quasiquote else
+                                                   list_(__list, xi[1])     if xi[0] is comma      else
+                                                   xi[1])                   #           splice
                                 else:
-                                        if xi[0] is quasiquote:
-                                                length(xi) is 2 or malform(xi)
-                                                nxi = process_qq(xi[1][0])
-                                                xi = nxi
-                                        acc.append(list_(__list, process_qq(xi)))
+                                        acc.append(list_(__list,
+                                                         (list_(quote, xi) if atom(xi) else
+                                                          process_qq(xi))))
                                 ptr = ptr[1]
                         ## Simplify an obvious case of APPEND having only LIST subforms.
                         if all((consp(x) and x[0] is __list)
@@ -4624,17 +4632,10 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
 def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         ## Has not even a remote chance of conforming.
         def read_char_maybe_eof(): return read_char(stream, nil, nil)
-        def read_inner():
+        def read_inner(allow_consing_dot = nil):
                 skip_whitespace()
                 char = read_char(stream)
-                # char = read_char_maybe_eof()
-                # if char is nil:
-                #         if not eof_error_p:
-                #                 __return_from(_cold_read, eof_value)
-                #         else:
-                #                 read_char(stream)
                 unread_char(char, stream)
-                # _here("> \"%s\", by \"%s\"" % (string[pos:], char))
                 if   char == chr(40):  obj = read_list() # Org is a bit too picky
                 elif char == "\"":     obj = read_string()
                 elif char == "'":
@@ -4642,21 +4643,21 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                         obj = list_(quote, read_inner())
                 elif char == "`":
                         read_char(stream)
-                        obj = list_(quasiquote, read_list())
+                        obj = (quasiquote, read_list())
                 elif char == ",":
                         ## This is a simplified take, but it'll do for bootstrapping purposes.
-                        read_char(stream);
+                        read_char(stream)
                         char = read_char(stream)
                         if char == "@":
-                                obj = list_(splice, read_inner())
+                                obj = (splice, read_inner())
                         else:
                                 unread_char(char, stream)
-                                obj = list_(comma, read_inner())
+                                obj = (comma, read_inner())
                 else:
                         # handle_short_read_if(pos > end)
                         obj = read_number_or_symbol()
-                        if obj == _find_symbol(".", __cl)[0]:
-                                error("Consing dot not implemented")
+                        if obj == _find_symbol(".", __cl)[0] and not allow_consing_dot:
+                                error("Unexpected consing dot in stream %s, position %%s.", stream)
                         # _here("< %s" % (obj,))
                 return obj
         def skip_until_eol():
@@ -4674,6 +4675,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                                 return
         def read_list():
                 ret = []
+                improper = nil
                 c = read_char(stream) # it's a #\(
                 while t:
                         skip_whitespace()
@@ -4682,12 +4684,18 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                                 break
                         else:
                                 unread_char(char, stream)
-                                obj = read_inner()
+                                obj = read_inner(allow_consing_dot = t)
                                 if not _listp(obj) and obj is _find_symbol(".", __cl)[0]:
-                                        error("Consing dot not implemented")
+                                        improper = read_inner()
+                                        skip_whitespace()
+                                        char = read_char(stream)
+                                        if char != ")":
+                                                error("Unexpected character %s, where a closing paren was expected.",
+                                                      repr(char))
+                                        break
                                 ret.append(obj)
                 # _here("< %s" % (ret,))
-                return _consify_linear(tuple(ret)) ## Beacon DEBUG-RELATED-SLOWDOWN
+                return _consify_linear(tuple(ret), last_cdr = improper) ## Beacon DEBUG-RELATED-SLOWDOWN
         def read_string():
                 ret = ""
                 read_char(stream) # seek the opening double-quote
@@ -4727,7 +4735,7 @@ def _cold_read(stream = _sys.stdin, eof_error_p = t, eof_value = nil, preserve_w
                                 break
                         else:
                                 token += char
-                # _here("< %s" % token)
+                # _here("< %s" % repr(token))
                 return token
         ret = handler_case(read_inner,
                            (end_of_file_t,
