@@ -9544,7 +9544,7 @@ class _compiler_lambda():
                 _check_no_locally_rebound_constants(total)
                 self.name, self.lambda_list = the(symbol_t, name), the(list_t, lambda_list)
                 (self.fixed, self.optional, self.rest, self.keys), (self.optdefs, self.keydefs) = args, defaults
-                self.total_bound = self.fixed + self.optional + self.keys + [self.rest] if self.rest else []
+                self.total_bound = total
                 self.nonlocal_refs, self.nonlocal_setqs = set(), set()
 
 @defknown((lambda_, " ", ([(_notlead, " "), _form],),
