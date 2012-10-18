@@ -3327,7 +3327,7 @@ def _set_function_definition(globals, x, lambda_expression = None, check_redefin
                                                            or not forigname.endswith("_")) else
                                                   -1]] = function.name = x
                         globals[_ensure_function_pyname(x)] = function
-                return x
+                return function
         return do_set_function_definition
 
 def _set_macro_definition(globals, x, lambda_expression):
