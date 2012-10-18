@@ -8041,11 +8041,12 @@ def _pp_sex(sex, strict = t, initial_depth = None):
         _metasex_pp.per_use_init()
         ## Unregistered Issue RELAXED-METASEX-PRETTY-PRINTER-MODE-NEEDED
         initial_depth = _defaulted_to_var(initial_depth, _pp_base_depth_)
+        pat = _form_metasex(sex, pp = t)
         with progv({ _pp_depth_:         initial_depth,
                      _pp_base_depth_:    initial_depth,
                      _metasex_pp_:       t }): ## Guide the nested %FORM-METASEX invocations.
                 with _matcher_pp_stack():
-                        _, r, f = _match(_metasex_pp, sex, _form_metasex(sex, pp = t))
+                        _, r, f = _match(_metasex_pp, sex, pat)
         if f is not None:
                 error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s",
                       _matcher_pp(sex), _matcher_pp(pat), _matcher_pp(f), _matcher_pp(r))
