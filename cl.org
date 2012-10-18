@@ -7794,7 +7794,7 @@ class _fn():
                      args_types = None, values_types = None,
                      effects = None, affected = None):
                 check_type(arglist, list_t)
-                args_types = tuple(t for _ in arglist)
+                args_types = [t] * length(arglist)
                 check_type(name, symbol_t)
                 if name in _fns:
                         error("Asked to overwrite FN record %s.", name)
