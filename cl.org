@@ -2239,8 +2239,8 @@ def _print_frame(f, stream = None, **keys):
 
 def _print_frames(fs, stream = None, frame_ids = None):
         for i, f in enumerate(fs):
-                format(_defaulted_to_var(stream, _debug_io_), "%2d: %s\n" %
-                       (i, _pp_frame(f, lineno = True, frame_id = frame_ids)))
+                format(_defaulted_to_var(stream, _debug_io_), "%2d: %s\n",
+                       i, _pp_frame(f, lineno = True, frame_id = frame_ids))
 
 def _backtrace(x = -1, stream = None, frame = None, frame_ids = None, offset = 0):
         _print_frames(_frames_calling(_defaulted(frame, _this_frame()))[1 + offset:x],
