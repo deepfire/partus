@@ -10280,18 +10280,6 @@ def fdefinition(name):
 # @defun(intern("ONEMORE")[0])
 # def onemore(x): return x + 1
 
-## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
-# _pp_sex((defmacro, defun, ("name", lambda_list, _body, "body"),
-#           (quasiquote,
-#             (progn,
-#               (eval_when, (_load_toplevel, _execute),
-#                 (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (comma, "name"), (quote, nil)),
-#                         (lambda_, (comma, lambda_list), (splice, "body")),
-#                         (quote, nil))))))
-#         # (1, 1, (1, 1, 1, 1),
-#         #     (function, (quote, ("cl", "_set_function_definition"))))
-#         )
-
 # @lisp
 # def DEFUN(name, lambda_list, *body):
 #         (defmacro, defun, (name, lambda_list, _body, body),
@@ -10494,9 +10482,6 @@ _setup_tracing()
 
 # LOOPTEST(0)
 
-# import cProfile as _cProfile, pstats as _pstats
-# _cProfile.runctx("fasl_filename = traced()", globals(), locals(), sort = "cumulative")
-
 def fx():
         _debug_printf("  fname: %s", _caller_frame(11).f_code.co_name)
         _debug_printf(" locals: %s", _caller_frame(11).f_locals)
@@ -10506,9 +10491,45 @@ def fx():
 
 # _compiler_trap_function(intern("DEFUN")[0])
 
+_intern_and_bind_names_in_module_specifically(
+        ("_a", "A"),
+        ("_b", "B"),
+        ("_c", "C"),
+        ("_d", "D"),
+        ("_e", "E"),
+        ("_f", "F"),
+        ("_g", "G"),
+        ("_h", "H"),
+        ("_i", "I"),
+        )
+__enable_matcher_tracing__ = True
 if not _getenv("CL_NO_LISP"):
-        load(compile_file("vpcl.lisp"))
-        load(compile_file("reader.lisp"))
+        import cProfile as _cProfile, pstats as _pstats
+        def compile_vpcl():
+                return compile_file("vpcl.lisp")
+        def compile_reader():
+                return compile_file("reader.lisp")
+        ## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
+        def slow_match():
+                return _pp_sex(# _consify((defmacro, defun, ("name", car, _body, "body"),
+                               #            (quasiquote,
+                               #             (progn,
+                               #               (eval_when, (_load_toplevel, _execute),
+                               #                           (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (comma, "name"), (quote, nil)),
+                               #                                   (lambda_, (comma, car), (splice, "body")),
+                               #                                   (quote, nil)))))))
+                               _consify((_a, _b, (_c, _d, _e, _f),
+                                          (lambda_, (_h, car), (splice, "body"))))
+                        )
+        _cProfile.runctx("result = slow_match()", globals(), locals(),
+                         sort = "time"
+                         # sort = "cumulative"
+                         )
+        _debug_printf("result:\n%s", result)
+        # load(compile_file("vpcl.lisp"))
+        # load(compile_file("reader.lisp"))
+        # load(result)
+        exit(1)
 
 # load(compile_file("reader.lisp"))
 
