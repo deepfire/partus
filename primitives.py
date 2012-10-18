@@ -928,8 +928,8 @@ class funcall(expr):
 class apply(expr):
         ## NOT LINKED UP -- deferred for usage by higher levels.
         def help(func, arg, *args):
-                fixed_args, restarg = (([arg] + args[:-1], args[-1]) if args else
-                                       ([],                arg))
+                fixed_args, restarg = (((arg,) + args[:-1], args[-1]) if args else
+                                       ([],                 arg))
                 return ast.Call(help_expr(func), help_exprs(fixed_args), [], help_expr(restarg), None)
 
 @defprim(intern("UNWIND-PROTECT")[0],
