@@ -2821,8 +2821,6 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 #  MULTIPLE-VALUE-CALL
 #  MULTIPLE-VALUE-PROG1
 
-_intern_and_bind_names_in_module("DEFMACRO")
-
 # Namespace separation.
 
 _compiler_safe_namespace_separation = t
@@ -6427,7 +6425,6 @@ def _compiler_defvar(name, value):
         if not _find_global_variable(name):
                 _compiler_defparameter(name, value)
 
-_intern_and_bind_names_in_module("SETF")
 def _compiler_defun(name: symbol_t, lambda_expression: cons_t, check_redefinition = t) -> bool:
         """Manipulate the compiler's idea of a function's definition.
            Return a boolean, which denotes whether the situation is an identity redefinition."""
@@ -7600,9 +7597,12 @@ def _primitivise_constant(x):
         return (prim if successp else
                 error("Cannot primitivise value %s.  Is it a literal?", _pp_consly(x)))
 
+_intern_and_bind_names_in_module_specifically(("__apply", "APPLY"),
+                                              ("__funcall", "FUNCALL"))
+
 def _ir_funcall(func, *args):
         l, l_ = list_, list__
-        return l(apply, l(function, (l(quote, l(func)) if isinstance(func, str) else
+        return l(__apply, l(function, (l(quote, l(func)) if isinstance(func, str) else
                                      func)),
                  *(args + (l(quote, nil),)))
 
@@ -8096,7 +8096,7 @@ def _matcher_result_printer(x):
                 _matcher_pp(x)                                            if consp(x)             else
                 str(x))
 
-_intern_and_bind_names_in_module("LET", "FIRST", "SECOND", "CAR", "CDR", "&BODY")
+_intern_and_bind_names_in_module("LET", "&BODY")
 def _run_tests_metasex():
         printer = _matcher_result_printer
         def do_run_test(input, matcher = _metasex_pp):
@@ -8115,26 +8115,26 @@ def _run_tests_metasex():
 
         ###
         assert _runtest(just_match,
-                        (_consify_star(let, ((first, ()),
-                                             (second, (__car,))),
+                        (_consify_star(let, ((__first, ()),
+                                             (__second, (__car,))),
                                         _body),
                          (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                                   1, {"body":[(_notlead, "\n"), _form]})),
-                        ({ 'bindings': _consify_star((first, ()),
-                                                     (second, (__car,))),
+                        ({ 'bindings': _consify_star((__first, ()),
+                                                     (__second, (__car,))),
                            'body':     _consify_star(_body) },
                          t,
                          None),
                         printer = printer)
 
         assert _runtest(pp,
-                        (_consify_star(let, ((first, ()),
-                                              (second, (__car,))),
+                        (_consify_star(let, ((__first, ()),
+                                              (__second, (__car,))),
                                         _body),
                          (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                             1, {"body":[(_notlead, "\n"), _form]})),
-                        ({ 'bindings': _consify_star((first, ()),
-                                                     (second, (__car,))),
+                        ({ 'bindings': _consify_star((__first, ()),
+                                                     (__second, (__car,))),
                            'body':     _consify_star(_body,)},
                          """(LET ((FIRST NIL)
       (SECOND (CAR)))
@@ -8143,8 +8143,8 @@ def _run_tests_metasex():
                         printer = printer)
 
         # assert _runtest(mal_pp,
-        #                 (_consify_star(let, ((first),
-        #                                      (second, (__car,), ())),
+        #                 (_consify_star(let, ((__first),
+        #                                      (__second, (__car,), ())),
         #                                 _body),
         #                  (let, " ", ([(_notlead, "\n"), (_name, " ", _form)],),
         #                    1, [(_notlead, "\n"), _form])),
@@ -8210,9 +8210,9 @@ def _run_tests_metasex():
                         printer = printer)
 
         assert _runtest(simple_maybe,
-                        (list_(pi, car, cdr),
+                        (list_(pi, __car, __cdr),
                          ({"pi":(_maybe, _name)}, {"car":_name}, (_maybe, {"cdr":_name}))),
-                        ({ 'pi': list_(pi), 'car': car, 'cdr': cdr, },
+                        ({ 'pi': list_(pi), 'car': __car, 'cdr': __cdr, },
                          "(PICARCDR)",
                          None),
                         printer = printer)
@@ -8229,8 +8229,6 @@ if _getenv("CL_RUN_TESTS") != "nil":
         _run_tests_metasex()
 
 # Macroexpansion
-
-_intern_and_bind_names_in_module("APPLY", "FUNCALL")
 
 def _do_macroexpand_1(form, env = nil, compilerp = nil):
         """This handles:
@@ -8258,7 +8256,7 @@ def _do_macroexpand_1(form, env = nil, compilerp = nil):
                         # _debug_printf("APPLYIFIED\n%s\n->\n%s", _pp_consly(form), _pp_consly(xformed))
                         return lambda *_: (find_compiler_macroexpander(xformed) or identity)(xformed)
                 else:
-                        return (find_compiler_macroexpander(form) if known.name in (apply, funcall) else
+                        return (find_compiler_macroexpander(form) if known.name in (__apply, __funcall) else
                                 nil)
         expander, args = (((form and isinstance(form[0], symbol_t) and
                             (macro_function(form[0], env) or
@@ -8387,6 +8385,8 @@ def macroexpand_all(sex, lexenv = nil, compilerp = t):
         return r
 
 # DEFMACRO
+
+_intern_and_bind_names_in_module("DEFMACRO")
 
 _ensure_function_pyname(defmacro) ## This is only needed due to the special definition of DEFMACRO.
 @_set_macro_definition(globals(), defmacro, nil)
@@ -9180,7 +9180,7 @@ def throw():
 #         - THROW, plus bytecode patching, for jumps outward of a lexically contained function
 #           definition
 
-_intern_and_bind_names_in_module("NXT-LABEL")
+_intern_and_bind_names_in_module("%NXT-LABEL")
 
 ## Unregistered Issue COMPLIANCE-TAGBODY-TAGS-EXEMPT-FROM-MACROEXPANSION
 @defknown((intern("TAGBODY")[0], ["\n", (_or, (_name,), (_bound, _form))],))
@@ -9225,10 +9225,10 @@ def tagbody():
                                    _consify_linear(l(name, go_tag) for name in fun_names.values())),
                            l(catch, return_tag,
                              l(labels, funs,
-                               l(let, l(l(nxt_label, l(function, funs[0][0]))),
+                               l(let, l(l(_nxt_label, l(function, funs[0][0]))),
                                  l(protoloop,
-                                   l(setq, nxt_label,
-                                           l(catch, go_tag, l(apply, nxt_label, l(quote, nil))))))))))
+                                   l(setq, _nxt_label,
+                                           l(catch, go_tag, l(apply, _nxt_label, l(quote, nil))))))))))
                 return _rewritten(form,
                                   { _lexenv_: _make_lexenv(name_gotagframe =
                                                            { tag: _gotag_binding(tag, fun_names[tag])
@@ -9641,7 +9641,7 @@ def lambda_():
 #         :CL:       [ ]
 #         :END:
 
-@defknown((apply, " ", _form, " ", _form, [" ", _form]))
+@defknown((__apply, " ", _form, " ", _form, [" ", _form]))
 def apply():
         def nvalues(func, _, *__):            return _ir_function_form_nvalues(func)
         def nth_value(n, orig, func, _, *__): return _ir_function_form_nth_value_form(n, func, orig)
@@ -9669,8 +9669,6 @@ def apply():
 
 # Tests
 
-_intern_and_bind_names_in_module("COND")
-
 def _run_tests_known():
         def applyification(input):
                 _macroexpander.per_use_init()
@@ -9678,9 +9676,9 @@ def _run_tests_known():
                                             input, nil,  ## The pattern will be discarded out of hand, anyway.
                                             (None, None))
         assert _runtest(applyification,
-                        list_(cond),
+                        list_(__car),
                         ({},
-                         _consify_star(apply, (function, cond), (quote, nil)),
+                         _consify_star(apply, (function, __car), (quote, nil)),
                          None))
 
 if _getenv("CL_RUN_TESTS") != "nil":
