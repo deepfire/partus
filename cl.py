@@ -7636,8 +7636,7 @@ def _preprocess_metasex(pat):
                 def prep_binding(b):
                         k, v = tuple(b.items())[0]
                         return { k: _consify(rec(v)) }
-                return ((_count_scope,
-                         (_some,) + tuple(rec(x) for x in pat)) if isinstance(pat, list)                   else
+                return ((_some,) + tuple(rec(x) for x in pat)   if isinstance(pat, list)                   else
                         prep_binding(pat)                       if isinstance(pat, dict)                   else
                         (_form,)                                if pat is _form                            else
                         (_newline, 0)                           if pat == "\n"                             else
