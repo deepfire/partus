@@ -9671,7 +9671,7 @@ def let():
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
                 bindings = (((b,    None) if isinstance(b, symbol_t) else
-                             (b[0], b[1])) for b in bindings)
+                             (b[0], b[1][0])) for b in _vectorise_linear(bindings))
                 return { variable: { _variable_binding(name, _var_tn_no_unit(name), variable, None)
                                      for name, _ in bindings } }
         def prologuep(bindings, *body):
@@ -9717,7 +9717,7 @@ def flet():
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
                 return { function: { _function_binding(name, _fun_tn_no_unit(name), function, None)
-                                     for name, _, *__ in bindings } }
+                                     for name, _ in _vectorise_linear(bindings) } }
         def prologuep(bindings, *body):
                 return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body):
@@ -9763,7 +9763,7 @@ def labels():
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
                 return { function: { _function_binding(name, _fun_tn_no_unit(name), function, None)
-                                     for name, _, *__ in bindings } }
+                                     for name, _ in _vectorise_linear(bindings) } }
         def prologuep(bindings, *body):
                 return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body):
@@ -9900,8 +9900,8 @@ def macrolet():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
-                return { macro: { _function_binding(name, _fun_tn_no_unit(name), macro, list_(lambda_list, body))
-                                  for name, lambda_list, *body in _vectorise_linear(bindings) } }
+                return { macro: { _function_binding(name, _fun_tn_no_unit(name), macro, list_(rest[0], rest[1]))
+                                  for name, rest in _vectorise_linear(bindings) } }
         def prologuep(bindings, *body):          return _ir_body_prologuep(body)
         def lower(bindings, *body):
                 ## By the time we get to the lowering stage, all macros have already been expanded.
@@ -9928,8 +9928,8 @@ def symbol_macrolet():
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
-                return { symbol_macro: { _variable_binding(name, _var_tn_no_unit(name), symbol_macro, form)
-                                         for name, form in _vectorise_linear(bindings) } }
+                return { symbol_macro: { _variable_binding(name, _var_tn_no_unit(name), symbol_macro, rest[0])
+                                         for name, rest in _vectorise_linear(bindings) } }
         def prologuep(bindings, *body):          return _ir_body_prologuep(body)
         def lower(bindings, *body):
                 normalised = _vectorise_linear(bindings)
@@ -10306,8 +10306,8 @@ def progv_():
         def nth_value(n, orig, names, values, *body): return (_ir_nth_valueify_last_subform(n, orig)
                                                               if body                     else
                                                               list_(progn,
-                                                                    list_(__list, names),
-                                                                    list_(__list, values),
+                                                                    cons(__list, names),
+                                                                    cons(__list, values),
                                                                     nil)
                                                               if (_ir_effects(names)
                                                                   or _ir_effects(values)) else
