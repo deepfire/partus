@@ -7685,7 +7685,7 @@ def _sex_deeper(n, body):
                 return body()
 
 def _pp(x, **args):
-        return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mockup_sex)(x, **args)
+        return (_pp_sex if symbol_value(_compiler_trace_pretty_full_) else _mock)(x, **args)
 
 ## Compiler messages:
 ## - entry        _lower:rec()                             ;* lowering
