@@ -4027,7 +4027,7 @@ def _consify_linear(xs, last_cdr = nil):
                       reversed(tuple(xs)),
                       last_cdr)
 
-def _pp_consly(x, dispatch = dict()):
+def _pp_consly(x, dispatch = dict(), str_printer = repr):
         if consp(x):
                 acc = []
                 ptr = x
@@ -4038,8 +4038,11 @@ def _pp_consly(x, dispatch = dict()):
                         acc.append(_pp_consly(ptr[0], dispatch = dispatch))
                         ptr = ptr[1]
                 return "(" + " ".join(acc) + ")"
-        return (repr              if isinstance(x, str)  else
+        return (str_printer       if isinstance(x, str)  else
                 dispatch[type(x)] if type(x) in dispatch else str)(x)
+
+def _pp_consly_pp_str(x, dispatch = dict()):
+        return _pp_consly(x, dispatch, str)
 
 def _xmap_to_vector(f, *xss):
         not xss and error("Invalid number of arguments: %d", 1)
