@@ -7447,7 +7447,7 @@ class _matcher():
                 firstp = aux is None
                 ## 2. Memoize the tuple being iteratively matched upon.
                 ## Unregistered Issue TRY-SIMPLIFY-OUT-AUX
-                aux = append(seg_pat, list_(pat[0])) if aux is None else aux
+                origaux, aux = aux, append(seg_pat, list_(pat[0])) if aux is None else aux
                 ## 3. (Re-)establish and check the boundary.
                 exlen = length(exp)
                 end = (end                    if end is not None                          else
@@ -7491,7 +7491,7 @@ class _matcher():
                                 return _r(m.succ(brf_0[0], brf_0[1]))
                         _match_level_concede("SEGMENT", seg_pat, cut, seg_exp, rest_exp, brf_0[1], brf_0[2])
                 ## 6. Alternate length attempts.
-                brf_1 = m.segment(bound, name, exp, pat, orifst, None, limit, end + 1)
+                brf_1 = m.segment(bound, name, exp, pat, orifst, origaux, limit, end + 1)
                 if brf_1[2] is None:
                         return m.succ(brf_1[0], brf_1[1])
                 return m.fail(brf_0[0], *((brf_0[1], brf_0[2]) if True else
