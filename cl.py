@@ -6579,11 +6579,15 @@ def _matcher_deeper(args, name):
         _dynamic_scope_push({ _matcher_depth_: symbol_value(_matcher_depth_) + 1,
                               _matcher_pp_stack_: level })
 
+def _matcher_print_one_arg(x):
+        return ((x[0] + ": " + _matcher_pp(x[1])) if isinstance(x, tuple) and len(x) is 2 and isinstance(x[0], str) else
+                _matcher_pp(x))
+
 def _matcher_deeper_immediate(args, name):
         depth = symbol_value(_matcher_depth_) + 1
         level = ["%s%s    %s" %
                  (" " * depth, name if name else _caller_name().upper(),
-                  ("  -  ".join(_matcher_pp(x) for x in args)) if args else "")]
+                  ("  ".join(_matcher_print_one_arg(x) for x in args)) if args else "")]
         symbol_value(_matcher_pp_stack_).append(level)
         _dynamic_scope_push({ _matcher_depth_: depth,
                               _matcher_pp_stack_: level })
@@ -6593,12 +6597,12 @@ def _r(retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex", "sim
                 depth = symbol_value(_matcher_depth_)
                 level = symbol_value(_matcher_pp_stack_)
                 name, *args = level[0]
-                level[0] = ("%s%s    <==%s  %s  %s==>    %s" %
+                level[0] = ("%s%s    <==%s  %s==>    %s" %
                             (" " * depth, name if name else _caller_name().upper(),
-                             retval[0],
+                             # retval[0],
                              _matcher_pp(retval[1]),
                              _matcher_pp(retval[2]),
-                             ("  -  ".join(_matcher_pp(x) for x in args)) if args else ""))
+                             ("  ".join(_matcher_print_one_arg(x) for x in args)) if args else ""))
         return retval
 
 def _match_level_concede(desc, *args):
@@ -6607,7 +6611,7 @@ def _match_level_concede(desc, *args):
         depth = symbol_value(_matcher_depth_)
         level = symbol_value(_matcher_pp_stack_)
         level[0] = ("%s%s:FAIL   %s" %
-                    (" " * depth, desc, ("  -  ".join(_matcher_pp(x) for x in args)) if args else ""))
+                    (" " * depth, desc, ("  ".join(_matcher_print_one_arg(x) for x in args)) if args else ""))
 
 def _make_ml(_, x = [], name = None, **args):
         o = object.__new__(_, **args)
