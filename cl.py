@@ -8137,29 +8137,29 @@ def _run_tests_metasex():
 
         ###
         assert _runtest(just_match,
-                        (_consify_star(let, ((__first, ()),
-                                             (__second, (__car,))),
+                        (_consify_star(let, ((__car, ()),
+                                             (__cdr, (__car,))),
                                         _body),
                          (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                                   1, {"body":[(_notlead, "\n"), _form]})),
-                        ({ 'bindings': _consify_star((__first, ()),
-                                                     (__second, (__car,))),
+                        ({ 'bindings': _consify_star((__car, ()),
+                                                     (__cdr, (__car,))),
                            'body':     _consify_star(_body) },
                          t,
                          None),
                         printer = printer)
 
         assert _runtest(pp,
-                        (_consify_star(let, ((__first, ()),
-                                              (__second, (__car,))),
+                        (_consify_star(let, ((__car, ()),
+                                             (__cdr, (__car,))),
                                         _body),
                          (let, " ", ({"bindings":[(_notlead, "\n"), (_name, " ", _form)]},),
                             1, {"body":[(_notlead, "\n"), _form]})),
-                        ({ 'bindings': _consify_star((__first, ()),
-                                                     (__second, (__car,))),
+                        ({ 'bindings': _consify_star((__car, ()),
+                                                     (__cdr, (__car,))),
                            'body':     _consify_star(_body,)},
-                         """(LET ((FIRST NIL)
-      (SECOND (CAR)))
+                         """(LET ((CAR NIL)
+      (CDR (CAR)))
   &BODY)""",
                          None),
                         printer = printer)
