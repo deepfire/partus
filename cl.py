@@ -10522,8 +10522,9 @@ _intern_and_bind_names_in_module_specifically(
         ("_g", "G"),
         ("_h", "H"),
         ("_i", "I"),
+        ("_j", "J"),
         )
-__enable_matcher_tracing__ = True
+# __enable_matcher_tracing__ = True
 if not _getenv("CL_NO_LISP"):
         import cProfile as _cProfile, pstats as _pstats
         def compile_vpcl():
@@ -10531,26 +10532,26 @@ if not _getenv("CL_NO_LISP"):
         def compile_reader():
                 return compile_file("reader.lisp")
         ## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
-        def slow_match():
-                return _pp_sex(# _consify((defmacro, defun, ("name", car, _body, "body"),
-                               #            (quasiquote,
-                               #             (progn,
-                               #               (eval_when, (_load_toplevel, _execute),
-                               #                           (apply, (apply, (function, (quote, ("cl", "_set_function_definition"))), (comma, "name"), (quote, nil)),
-                               #                                   (lambda_, (comma, car), (splice, "body")),
-                               #                                   (quote, nil)))))))
-                               _consify((_a, _b, (_c, _d, _e, _f),
-                                          (lambda_, (_h, car), (splice, "body"))))
-                        )
-        _cProfile.runctx("result = slow_match()", globals(), locals(),
+        # def slow_match():
+        #         ## 0:15, 1:53, 2:221, 3:1115
+        #         ## 0:11, 1:24, 2:49,  3:98
+        #         ## 0:10, 1:16, 2:22, 3:28
+        #         exp = list_(lambda_, list_(set(),))
+        #         with _matcher_pp_stack():
+        #                 ret = _match_sex(exp, list_(_form), matcher = _metasex)
+        #                 _debug_printf(";;;\n;;; match calls: %d\n;;; expr: %s\n;;;", _metasex.match_calls, _pp_consly(exp))
+        #                 return ret
+        #         return _pp_sex(exp)
+        load(compile_file("vpcl.lisp"))
+        _cProfile.runctx("result = compile_reader()", globals(), locals(),
                          sort = "time"
                          # sort = "cumulative"
                          )
-        _debug_printf("result:\n%s", result)
-        # load(compile_file("vpcl.lisp"))
+        # _debug_printf("result:\n%s", result)
         # load(compile_file("reader.lisp"))
-        # load(result)
+        load(result)
         exit(1)
+        # load(compile_file("reader.lisp"))
 
 # load(compile_file("reader.lisp"))
 
