@@ -6684,11 +6684,6 @@ class _matcher():
         def fail(bound, exp, pat): return bound, exp, pat
         @staticmethod
         def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
-        @staticmethod
-        def post_fail(x, pat):
-                # if x[2] is not None:
-                #         _debug_printf("replacing fail %s ---> %s", x[2], pat)
-                return x if x[2] is None else (x[0], x[1], pat)
         ###
         def test(m, test, bound, name, resf:"() -> result", exp, fail_pat,
                  if_exists:{error, replace} = error, comment = None):
@@ -6864,7 +6859,8 @@ class _matcher():
                         return _r(m.segment(bound, name, exp, [[_some, pat[0][1]], pat[1]], orifst, None, 1))
         def or_(m, bound, name, exp, pat, orifst, aux, limit):
                 alternatives = pat[0][1]
-                def fail(): return m.fail(bound, exp, pat[0])
+                def fail():                 return m.fail(bound, exp, pat[0])
+                def post_fail(x, exp, pat): return x if x[2] is None else (x[0], exp, pat)
                 def rec(current, other_options):
                         with _match_level([[current, pat[1]], exp], name = "OR"):
                                 brf_0 = _r(m.match(bound, name, exp, [current, pat[1]], orifst, None, -1))
@@ -6876,8 +6872,8 @@ class _matcher():
                                 return m.succ(brf_1[0], brf_1[1])
                         return m.fail(brf_0[0], exp, pat)
                 return (fail() if not alternatives else
-                        m.post_fail(rec(alternatives[0], alternatives[1]),
-                                    pat[0]))
+                        post_fail(rec(alternatives[0], alternatives[1]),
+                                  exp, pat))
         ## About the vzy33c0's idea:
         ## type-driven variable naming is not good enough, because:
         ## 0. mostly is already done
