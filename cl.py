@@ -4519,9 +4519,9 @@ def _run_tests_quasiquotation():
         def quasiquotation_nested(x): return _expand_quasiquotation(x)
         assert(_runtest(quasiquotation_simple,
                         ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
-                        list_(quasiquote, list_(1, list_(comma, 2), 3, list_(splice, 4), 5,
-                                          list_(list_(comma, 6), list_(splice, 7)),
-                                          list_(splice, 8), list_(splice, 9))),
+                        (quasiquote, list_(1, (comma, 2), 3, (splice, 4), 5,
+                                     list_((comma, 6), (splice, 7)),
+                                           (splice, 8), (splice, 9))),
                         ## (append (list (quote 1)) (list 2) (list (quote 3)) 4 (list (quote 5))
                         ##         (list (append (list 6) 7)) 8 9)
                         list_(__append, list_(__list, list_(quote, 1)), list_(__list, 2),
@@ -4532,10 +4532,10 @@ def _run_tests_quasiquotation():
         
         assert(_runtest(quasiquotation_nested,
                         ## `(a ,b ,@c `(d ,,e ,@f ,@,g)) -- numbers don't do, as CONSTANTP is used for simplification.
-                        list_(quasiquote,
-                              list_(1, list_(comma, 2), list_(splice, 3),
-                                    list_(quasiquote, list_(4, list_(comma, list_(comma, 5)),
-                                          list_(splice, 6), list_(splice, list_(comma, 7)))))),
+                        (quasiquote,
+                         list_(1, (comma, 2), (splice, 3),
+                               (quasiquote, list_(4, (comma, (comma, 5)),
+                                                  (splice, 6), (splice, (comma, 7)))))),
                         list_(__append,
                               list_(__list, list_(quote, 1)), list_(__list, 2), 3,
                               ## The first pass ought to be:
