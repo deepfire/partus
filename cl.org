@@ -9191,7 +9191,7 @@ def macroexpand_all(sex, lexenv = nil, compilerp = t):
                                                        (None, None),
                                                        compilerp = t)
         if f is not None:
-                error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", _pp_consly(sex), _matcher_pp(f), repr(r))
+                error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", _pp_consly(sex), _matcher_pp(f), _pp_consly(r))
         return r
 #+end_src
 
