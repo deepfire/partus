@@ -6806,6 +6806,7 @@ class _matcher():
                 ## 3. (Re-)establish and check the boundary.
                 exlen = length(exp)
                 end = (end                    if end is not None                          else
+                       exlen                  if not rest_pat                             else
                        posn(rest_pat[0], exp) if rest_pat and constant_pat_p(rest_pat[0]) else
                        0)
                 if ((end and end > exlen) or ## All legitimate splits failed.
