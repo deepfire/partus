@@ -7229,6 +7229,12 @@ def _matcher_deeper_immediate(args, name):
         _dynamic_scope_push({ _matcher_depth_: depth,
                               _matcher_pp_stack_: level })
 
+def _mrtrace(name, format, *args):
+        if __enable_matcher_tracing__:
+                symbol_value(_matcher_pp_stack_).append(
+                        [(" " * (symbol_value(_matcher_depth_) + 1))
+                         + name + "    " + (format % args)])
+
 def _r(retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex", "simplex"]), id_frames = False):
         if __enable_matcher_tracing__:
                 depth = symbol_value(_matcher_depth_)
