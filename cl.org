@@ -7463,9 +7463,8 @@ class _matcher():
                         #               error("INTERNAL ERROR"))
                         return m.fail(bound, exp, pat)
                 ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
-                cut = end if rest_pat else exlen
-                seg_exp, rest_exp = (subseq(exp, 0, cut),
-                                     exp if cut is None else subseq(exp, cut))
+                seg_exp, rest_exp = (subseq(exp, 0, end),
+                                     subseq(exp, end))
                 with _match_level([end, seg_exp, cut, rest_exp, pat, exp]):
                         ## 5. Try match at the chosen split -- the rest part first, then the segment part.
                         brf_0 = m.crec([exp, pat],
