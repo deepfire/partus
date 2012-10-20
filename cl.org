@@ -8620,7 +8620,7 @@ class _metasex_matcher(_matcher):
                 m.register_complex_matcher(_nottail,     m.complex_identity)
                 m.register_complex_matcher(_count_scope, m.complex_identity)
         @staticmethod
-        def prod(x, originalp):      return ""
+        def prod(x, originalp):      return t
         @staticmethod
         def comh(f0, fR, originalp): return _combine_t_or_None(f0, fR, originalp)
         @staticmethod
