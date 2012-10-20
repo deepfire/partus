@@ -6691,13 +6691,14 @@ class _matcher():
         @staticmethod
         def post(x, mutator):      return (x[0], mutator(x[1]), None) if x[2] is None else x
         ###
-        def test(m, test, bound, name, resf:"() -> result", exp, fail_pat,
+        def test(m, test, bound, name, exp, resf:"() -> result", fail_pat,
                  if_exists:{error, replace} = error, comment = None):
                 with _match_level([test] + ([comment] if comment else [])):
                         # _debug_printf("test: %s", exp)
                         # Unregistered Issue XXX-TEST-UNSURE-WHAT-IS-TO-BE-BOUND-RESF()-OR-EXP
-                        return _r(m.succ(m.bind(exp, bound, name, if_exists = if_exists), resf()) if test else
-                                  m.fail(bound, resf(), fail_pat))
+                        res = resf()
+                        return _r(m.succ(m.bind(exp, bound, name, if_exists = if_exists), res) if test else
+                                  m.fail(bound, res, fail_pat))
         def equo(m, name, exp, x):
                 "Apply result binding, if any."
                 b, r, f = x
@@ -6832,7 +6833,7 @@ class _matcher():
                         brf_0 = m.crec([exp, pat],
                                        lambda:
                                                ((lambda seg_bound, seg_r, seg_fail_pat, comment:
-                                                         m.test(seg_fail_pat is None, seg_bound, name, (lambda: seg_r), seg_exp, seg_fail_pat,
+                                                         m.test(seg_fail_pat is None, seg_bound, name, seg_exp, (lambda: seg_r), seg_fail_pat,
                                                                 if_exists = replace, comment = comment))
                                                 (*(## Test for success -- segment piece exhausted.
                                                    m.succ(m.bind(nil, bound, name), m.prod(nil, orifst[0]))
@@ -6907,7 +6908,7 @@ class _matcher():
                  return \
                      _r(m.test((m.atom(exp, pat) if atomp else
                                 exp is nil),
-                               bound, name, lambda: m.prod(exp, orifst[0]), exp, pat)         if atomp or null        else
+                               bound, name, exp, lambda: m.prod(exp, orifst[0]), pat)         if atomp or null        else
                         m.simplex(bound, name, exp,  pat, (consp(exp),
                                                            orifst[1]))                        if m.simplex_pat_p(pat) else
                         m.complex(bound, name, list_(exp), list_(pat), orifst, None, limit)   if m.complex_pat_p(pat) else
@@ -7903,12 +7904,12 @@ class _metasex_matcher(_matcher):
                         return _r(m.match(bound, name, form, form_pat, (consp(form), orifst[1]), None, -1))
         def symbol(m, bound, name, form, pat, orifst):
                 with _match_level([form, pat]):
-                        return _r(m.test(form is pat[1][0], bound, name, lambda: m.prod(form, orifst),
-                                         form, pat))
+                        return _r(m.test(form is pat[1][0], bound, name, form,
+                                         lambda: m.prod(form, orifst), pat))
         def typep(m, bound, name, form, pat, orifst):
                 with _match_level([form, pat[1][0]]):
-                        return _r(m.test(typep(form, pat[1][0]), bound, name, lambda: m.prod(form, orifst),
-                                         form, pat))
+                        return _r(m.test(typep(form, pat[1][0]), bound, name, form,
+                                         lambda: m.prod(form, orifst), pat))
 
 class _metasex_matcher_pp(_metasex_matcher):
         def __init__(m):
