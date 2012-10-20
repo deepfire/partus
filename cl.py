@@ -6826,7 +6826,8 @@ class _matcher():
                 ## 4. Compute the relevant part of the expression -- success is when this part reduces to ().
                 seg_exp, rest_exp = (subseq(exp, 0, end),
                                      subseq(exp, end))
-                with _match_level([end, seg_exp, cut, rest_exp, pat, exp]):
+                trace_args = [("orifst", orifst), seg_exp, end, rest_exp, ("pat", pat), ("exp", exp), ("aux", origaux), ("first", firstp)]
+                with _match_level(trace_args):
                         ## 5. Try match at the chosen split -- the rest part first, then the segment part.
                         brf_0 = m.crec([exp, pat],
                                        lambda:
@@ -6835,10 +6836,10 @@ class _matcher():
                                                                 if_exists = replace, comment = comment))
                                                 (*(## Test for success -- segment piece exhausted.
                                                    m.succ(m.bind(nil, bound, name), m.prod(nil, orifst[0]))
-                                                   + ("segment exhausted",)           if seg_exp is nil else
+                                                   + ("+: segment piece exhausted",)     if seg_exp is nil else
                                                    ## Test specific for bounded matching.
                                                    m.fail(bound, exp, pat)
-                                                   + ("segment match limit reached",) if limit == 0     else
+                                                   + ("-: segment match limit reached",) if limit == 0     else
                                                    ## Try biting one more iteration off seg_exp:
                                                    m.match(bound, name,  seg_exp,     aux,  (False,
                                                                                              firstp), aux, limit - 1)
@@ -6849,11 +6850,13 @@ class _matcher():
                                        originalp = firstp and orifst[0] and seg_exp is not nil)
                         if brf_0[2] is None:
                                 return _r(m.succ(brf_0[0], brf_0[1]))
-                        _match_level_concede("SEGMENT", seg_pat, cut, seg_exp, rest_exp, brf_0[1], brf_0[2])
+                        _match_level_concede("SEGMENT", *(trace_args
+                                                          + [("brf_0[1]", brf_0[1]), ("brf_0[2]", brf_0[2])]))
                 ## 6. Alternate length attempts.
                 brf_1 = m.segment(bound, name, exp, pat, orifst, origaux, limit, end + 1)
                 if brf_1[2] is None:
                         return m.succ(brf_1[0], brf_1[1])
+                # _mrtrace("SEGFAIL", "brf_0: %s | %s   brf_1: %s | %s", brf_0[1], brf_0[2], brf_1[1], brf_1[2])
                 return m.fail(brf_0[0], *((brf_0[1], brf_0[2]) if True else
                                           (brf_1[1], brf_1[2])))
         def maybe(m, bound, name, exp, pat, orifst, aux, limit):
@@ -6900,7 +6903,7 @@ class _matcher():
                 atomp, null = atom(pat), pat is nil
                 def pp_binding(x):
                         return repr(list(x.keys())[0]) + "::" + _pp_consly(list(x.values())[0])
-                with _match_level([exp, pat]):
+                with _match_level([exp, ("pat", pat), ("first", orifst[1])]):
                  return \
                      _r(m.test((m.atom(exp, pat) if atomp else
                                 exp is nil),
@@ -7948,6 +7951,8 @@ class _metasex_matcher_pp(_metasex_matcher):
                 return         m.match(bound, name, exp, [maybe_pat, pat[1]], orifst, aux, limit)
         def notlead(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1][0]
+                _mrtrace("NOTLEAD", "lead: %s, %sing %s",
+                         orifst[1], "ignor" if orifst[1] else "process", _pp_consly(maybe_pat))
                 if orifst[1]:
                         return m.match(bound, name, exp, pat[1],              orifst, aux, limit)
                 ############## act as identity
@@ -8104,7 +8109,7 @@ def _mock(sex, initial_depth = None, max_level = None):
 # Testing
 
 def _matcher_result_printer(x):
-        return ((("%s\n%s\n%s" % (x[0], _pp_consly(x[1]), _pp_consly(x[2])))
+        return ((("%s\n%s\n%s" % (x[0], _pp_consly_pp_str(x[1]), _pp_consly(x[2])))
                  if len(x) is 3 else
                  ("%s\n%s" % (_pp_consly(x[0]), _pp_consly(x[1]))))
                                                                           if isinstance(x, tuple) else
@@ -8233,6 +8238,8 @@ def _run_tests_metasex():
                          None),
                         printer = printer)
 
+        # global __enable_matcher_tracing__
+        # __enable_matcher_tracing__ = True
         assert _runtest(proper_fail,
                         (list_(cons('name', 666)),
                          ([((_typep, str), (_typep, t))],)),
@@ -8397,7 +8404,7 @@ def macroexpand_all(sex, lexenv = nil, compilerp = t):
                                                        (None, None),
                                                        compilerp = t)
         if f is not None:
-                error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", sex, f, repr(r))
+                error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", _pp_consly(sex), _matcher_pp(f), repr(r))
         return r
 
 # DEFMACRO
