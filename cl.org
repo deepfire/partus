@@ -4975,6 +4975,10 @@ def _expand_quasiquotation(form):
                         ptr = x
                         while ptr:
                                 ## Check for a qq marker at the end of an improper list:
+                                def do_one(x):
+                                        return list_(__list,
+                                                     (list_(quote, x) if atom(x) else
+                                                      process_qq(x)))
                                 if isinstance(ptr, tuple):
                                         xi = ptr
                                         if len(xi) != 2 or xi[0] not in (quasiquote, comma, splice):
@@ -4988,13 +4992,11 @@ def _expand_quasiquotation(form):
                                 if isinstance(xi, tuple):
                                         if len(xi) != 2 or xi[0] not in (quasiquote, comma, splice):
                                                 error("Invalid reader output, bad tuple intermarker: %s", _pp_consly(form))
-                                        acc.append(list_(process_qq(xi[1])) if xi[0] is quasiquote else
-                                                   list_(__list, xi[1])     if xi[0] is comma      else
-                                                   xi[1])                   #           splice
+                                        acc.append(do_one(process_qq(xi[1])) if xi[0] is quasiquote else
+                                                   list_(__list, xi[1])      if xi[0] is comma      else
+                                                   xi[1])                    #           splice
                                 else:
-                                        acc.append(list_(__list,
-                                                         (list_(quote, xi) if atom(xi) else
-                                                          process_qq(xi))))
+                                        acc.append(do_one(xi))
                                 ptr = ptr[1]
                         ## Simplify an obvious case of APPEND having only LIST subforms.
                         if all((consp(x) and x[0] is __list)
