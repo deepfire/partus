@@ -7403,6 +7403,7 @@ class _matcher():
                 m.register_complex_matcher(_or, m.or_)
         def per_use_init(m):
                 m.initialise_cache()
+                m.match_calls = 0
         def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
         def simplex_matcher_not_implemented(m, bound, name, exp, pat, orifst):
@@ -7519,6 +7520,7 @@ class _matcher():
         ## 1. type narrows down the case analysis chain (of which there is a lot)
         ## 2. expressions also need typing..
         def match(m, bound, name, exp, pat, orifst, aux, limit):
+                m.match_calls += 1
                 def maybe_get0Rname(pat):
                         ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
                         (name, pat0), patR = _maybe_destructure_binding(pat[0]), pat[1]
