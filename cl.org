@@ -4027,15 +4027,17 @@ def _consify_linear(xs, last_cdr = nil):
                       reversed(tuple(xs)),
                       last_cdr)
 
-def _pp_consly(x, dispatch = dict(), str_printer = repr):
+def _pp_consly(x, dispatch = dict(), str_printer = repr, limit = 4):
         if consp(x):
+                if limit is 0:
+                        return "#"
                 acc = []
                 ptr = x
                 while ptr:
                         if not consp(ptr):
                                 acc.append(". " + str(ptr))
                                 break
-                        acc.append(_pp_consly(ptr[0], dispatch = dispatch))
+                        acc.append(_pp_consly(ptr[0], dispatch = dispatch, limit = limit - 1))
                         ptr = ptr[1]
                 return "(" + " ".join(acc) + ")"
         return (str_printer       if isinstance(x, str)  else
