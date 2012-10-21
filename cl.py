@@ -10533,6 +10533,8 @@ if not _getenv("CL_NO_LISP"):
         def compile_vpcl():
                 return compile_file("vpcl.lisp")
         def compile_reader():
+                # global __enable_matcher_tracing__
+                # __enable_matcher_tracing__ = True
                 return compile_file("reader.lisp")
         ## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
         # def slow_match():
