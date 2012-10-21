@@ -9214,7 +9214,7 @@ def throw():
 _intern_and_bind_names_in_module("%NXT-LABEL")
 
 ## Unregistered Issue COMPLIANCE-TAGBODY-TAGS-EXEMPT-FROM-MACROEXPANSION
-@defknown((intern("TAGBODY")[0], ["\n", (_or, (_name,), (_bound, _form))],))
+@defknown((intern("TAGBODY")[0], ["\n", (_bound, _form)],))
 def tagbody():
         def nvalues(*tags_and_forms):            return 1
         def nth_value(_, orig, *tags_and_forms): return (nil if not any(_ir_effects(f) for f in tags_and_forms
@@ -9276,7 +9276,7 @@ def tagbody():
 #         :CL:       [X]
 #         :END:
 
-@defknown((intern("GO")[0], " ", _name))
+@defknown((intern("GO")[0], " ", (_typep, symbol_t)))
 def go():
         def nvalues(_):            return 0
         def nth_value(n, orig, _): return None
