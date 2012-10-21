@@ -6706,18 +6706,16 @@ class _matcher():
                 b, r, f = x
                 return ((m.bind(exp, b, name), r, f) if f is None else
                         x) # propagate failure as-is
-        def crec(m, expat, l0, lR, combine, originalp = False, name0 = None, nameR = "CDR"):
+        def crec(m, expat, l0, lR, combine, originalp = False):
                 ## Unregistered Issue PYTHON-LACK-OF-RETURN-FROM
                 b0, bR, fx0, fxR, fp0, fpR  = None, None, None, None, None, None
                 def try_0():
                         nonlocal b0, fx0, fp0
-                        with _match_level_immediate(name = name0) if name0 else _withless():
-                                b0, fx0, fp0 = l0()
+                        b0, fx0, fp0 = l0()
                         if fp0 is None: return fx0
                 def try_R():
                         nonlocal bR, fxR, fpR
-                        with _match_level_immediate(name = nameR) if nameR else _withless():
-                                bR, fxR, fpR = lR(b0)
+                        bR, fxR, fpR = lR(b0)
                         if fpR is None: return fxR
                 result = combine(try_0, try_R, originalp)
                 return (m.succ(bR, result)      if fp0 is None and fpR is None else
@@ -6848,7 +6846,8 @@ class _matcher():
                                                                                              firstp), aux, limit - 1)
                                                    + ("try match car",)))),
                                        lambda seg_bound:
-                                               m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1),
+                                               m.match(seg_bound, None, rest_exp, rest_pat,  (False, False), None, -1,
+                                                       name = "CDR-SEGMATCH"),
                                        m.comh,
                                        originalp = firstp and orifst[0] and seg_exp is not nil)
                         if brf_0[2] is None:
@@ -6892,13 +6891,13 @@ class _matcher():
         ## 0. mostly is already done
         ## 1. type narrows down the case analysis chain (of which there is a lot)
         ## 2. expressions also need typing..
-        def match(m, bound, name, exp, pat, orifst, aux, limit):
+        def match(m, bound, bname, exp, pat, orifst, aux, limit, name = "MATCH"):
                 m.match_calls += 1
                 def maybe_get0Rname(pat):
                         ## Unregistered Issue PYTHON-DESTRUCTURING-WORSE-THAN-USELESS-DUE-TO-NEEDLESS-COERCION
-                        (name, pat0), patR = _maybe_destructure_binding(pat[0]), pat[1]
-                        return (name, pat0, name and m.simplex_pat_p(pat0), patR,
-                                ([pat0, patR] if name is not None else
+                        (bname, pat0), patR = _maybe_destructure_binding(pat[0]), pat[1]
+                        return (bname, pat0, bname and m.simplex_pat_p(pat0), patR,
+                                ([pat0, patR] if bname is not None else
                                  pat)) ## Attempt to avoid consing..
                 ## I just caught myself feeling so comfortable thinking about life matters,
                 ## while staring at a screenful of code.  In "real" life I'd be pressed by
@@ -6906,25 +6905,26 @@ class _matcher():
                 atomp, null = atom(pat), pat is nil
                 def pp_binding(x):
                         return repr(list(x.keys())[0]) + "::" + _pp_consly(list(x.values())[0])
-                with _match_level([exp, ("pat", pat), ("first", orifst[1])]):
+                with _match_level([exp, ("pat", pat), ("first", orifst[1])], name = name):
                  return \
                      _r(m.test((m.atom(exp, pat) if atomp else
                                 exp is nil),
-                               bound, name, exp, lambda: m.prod(exp, orifst[0]), pat)         if atomp or null        else
-                        m.simplex(bound, name, exp,  pat, (consp(exp),
+                               bound, bname, exp, lambda: m.prod(exp, orifst[0]), pat)        if atomp or null        else
+                        m.simplex(bound, bname, exp,  pat, (consp(exp),
                                                            orifst[1]))                        if m.simplex_pat_p(pat) else
-                        m.complex(bound, name, list_(exp), list_(pat), orifst, None, limit)   if m.complex_pat_p(pat) else
+                        m.complex(bound, bname, list_(exp), list_(pat), orifst, None, limit)  if m.complex_pat_p(pat) else
                         (lambda pat0name, pat0, pat0simplexp, patR, clean_pat:
-                                 (m.equo(name, exp,
+                                 (m.equo(bname, exp,
                                          m.complex(bound, pat0name, exp, clean_pat, orifst, aux, limit))
                                                                    if m.complex_pat_p(pat0) else
                                   m.fail(bound, exp, pat)          if not consp(exp)        else
-                                  m.equo(name, exp,
+                                  m.equo(bname, exp,
                                          m.crec([exp, pat],
                                                 lambda:        m.match(bound, pat0name, exp[0], pat0, (listp(exp[0]),
                                                                                                        orifst[1]),
                                                                        None, -1),
-                                                (lambda b0und: m.match(b0und, None,     exp[1], patR, (False, orifst[1]), aux, limit)),
+                                                (lambda b0und: m.match(b0und, None,     exp[1], patR, (False, orifst[1]), aux, limit,
+                                                                       name = "CDR-MATCH")),
                                                 m.comr,
                                                 originalp = orifst[0]))))
                         (*maybe_get0Rname(pat)))
@@ -7893,9 +7893,10 @@ class _metasex_matcher(_matcher):
                 with _match_level([form, pat[1]]):
                         return _r(m.crec([form, pat],
                                          lambda:    m.match(bound, None, form[0], pat[1][0],    (orifst[0], True),  None, -1),
-                                         lambda b0: m.match(b0,    None, form[1], pat[1][1][0], (orifst[0], False), None, -1),
+                                         lambda b0: m.match(b0,    None, form[1], pat[1][1][0], (orifst[0], False), None, -1,
+                                                            name = "CDR-CONSMATCH"),
                                          m.comc,
-                                         originalp = orifst[0], name0 = None, nameR = None))
+                                         originalp = orifst[0]))
         def form(m, bound, name, form, pat, orifst, ignore_args = None):
                 with _match_level([form, pat]):
                         ## This is actually a filter.
