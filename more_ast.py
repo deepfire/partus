@@ -13,7 +13,7 @@ import types
 
 import cl
 
-from cl         import t, nil, typep, null, integerp, floatp, sequencep, functionp, stringp,\
+from cl         import t, nil, typep, null, integerp, floatp, functionp, stringp,\
                        car, identity, with_output_to_string, error, reduce, \
                        symbol_value, progv
 from cl         import _ast_rw as ast_rw, __ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
@@ -214,8 +214,6 @@ def pp_ast(o, stream = sys.stdout):
         def pp_prefix(spec):
             for i in spec:
                 lmesg((' |  ' if i else '    '))
-        def sequencep(x):
-            return getattr(type(x), "__len__", None) is not None
         pp_prefix(pspec)
         if name:
             lmesg('<' + name + '>: ')
@@ -225,15 +223,16 @@ def pp_ast(o, stream = sys.stdout):
             lmesg("'" + x + "'\n")
         elif isinstance(x, (bytes, int, float, bool)):
             lmesg(str(x) + '\n')
-        elif sequencep(x) and len(x) == 0:
+        elif isinstance(x, list) and len(x) == 0:
             lmesg('[]\n')
         else:
             child_slot_names = type(x)._fields
-            child_slots = [(k, getattr(x, k)) for k in child_slot_names]
+            child_slots = [ (k, getattr(x, k))
+                            for k in child_slot_names ]
             lmesg(type(x).__name__ + '  ')
-            for (k, v) in child_slots:
-                if isinstance(v, str):
-                    lmesg("<%s>: '%s', "%(k, v))
+            for slot, val in child_slots:
+                if isinstance(val, str):
+                    lmesg("<%s>: '%s', " % (slot, val))
             lmesg('\n')
             child_list_slots = list(reversed(sorted([(k, v) for (k, v) in child_slots if isinstance(v, list)],
                                                     key = lambda x: x[0])))
@@ -282,7 +281,7 @@ def assign_meaningful_locations(node, lineno = 1):
                                            error("Invalid direct advancement specifier: %s.", x.__repr__())))]
         def rec(lineno: int, xspec: (ast.AST, types.FunctionType)) -> int:
                 if not isinstance(xspec, tuple):
-                        error("Advancement specifier not a tuple: %s", xspec)
+                        error("Advancement specifier not a tuple: %s", xspec if not isinstance(xspec, ast.AST) else pp_ast_as_code(xspec))
                 x, advance = xspec
                 isinstance(advance, types.FunctionType) or error("Invariant failed in AST location walker: advance is: %s.", advance)
                 def attrs(*attrs): return reduce(operator.add, (([x] if not isinstance(x, list) else x)
@@ -340,9 +339,9 @@ cl._intern_and_bind_names_in_module("*AST-PP-DEPTH*",
 cl._string_set("*AST-PP-DEPTH*", 0, force_toplevel = t)
 def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_written_names = None):
         fmtctl = "%%%dd " % ndigits
-        def indent(ast_or_lineno):
+        def indent(ast_or_lineno, offset = 0):
                 lineno = (ast_or_lineno.lineno if hasattr(ast_or_lineno, "lineno") else 0)
-                return ((fmtctl % lineno) if line_numbers else
+                return ((fmtctl % (lineno + offset)) if line_numbers else
                         "") + tab * symbol_value(_ast_pp_depth_)
         def iterate(xs):
                 return [ rec(x) for x in xs ]
@@ -450,12 +449,12 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                 def pp_assign(x):
                         return indent(x) + "%s = %s" % (", ".join(iterate(x.targets)),
                                                         rec(x.value))
-                def make_trivial_pper(name, slot = "value"):
+                def make_trivial_pper(name, slots = ["value"]):
                         ## Assert Break Continue Pass Raise Return
                         return lambda y: (indent(x) + name +
-                                          ((" " + rec(getattr(y, slot)))
-                                           if hasattr(y, slot) and getattr(y, slot) else
-                                           ""))
+                                          ",".join((" " + rec(getattr(y, slot)))
+                                                   for slot in slots
+                                                   if hasattr(y, slot) and getattr(y, slot)))
                 def make_comp_pper(lbr, rbr):
                         return lambda comp: (lbr + " " +
                                              rec(comp.elt) + " " + " ".join(rec(x) for x in comp.generators)
@@ -479,51 +478,82 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                                 indent(x) + "def " + x.name + "(" + rec(x.args) + "):" +
                                 (("-> %s" % rec(x.returns)) if x.returns is not None else "") + "\n" +
                                 pp_subprogn(x.body))
+                def pp_try_except(x):
+                        return (indent(x) + "try:\n" +
+                                pp_subprogn(x.body) + "\n" +
+                                "\n".join((indent(subh.body[0], -1) + "except" + ((" %s as %s" % (rec(subh.type), subh.name))
+                                                                                  if subh.type else
+                                                                                  "") + ":\n" +
+                                           pp_subprogn(subh.body))
+                                          for subh in x.handlers) +
+                                ((indent(x.orelse[0], -1) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
+                def pp_try_finally(x):
+                        return (indent(x) + "try:\n" +
+                                pp_subprogn(x.body) + "\n" +
+                                indent(x.finalbody[0], 1) + "finally:\n" +
+                                pp_subprogn(x.finalbody))
                 def pp_for(x):
                         return (indent(x) + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n" +
                                 pp_subprogn(x.body) +
-                                ((indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
+                                ((indent(x.orelse[0], -1) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
                 def pp_with(x):
                         return (indent(x) + "with " + rec(x.context_expr) + (" as %s" % rec(x.optional_vars) if x.optional_vars else "") + ":\n" +
                                 pp_subprogn(x.body))
                 def pp_while(x):
                         return (indent(x) + "while " + rec(x.test) + ":\n" +
                                 pp_subprogn(x.body) +
-                                ((indent(x.orelse[0]) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
+                                ((indent(x.orelse[0], -1) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
                 def pp_if(x):
-                        def ifrec(x, firstp):
+                        def irec(x, firstp):
                                 chainp = len(x.orelse) is 1 and typep(x.orelse[0], ast.If)
                                 return (indent(x) + ("" if firstp else "el") + "if " + rec(x.test) + ":\n" +
                                         pp_subprogn(x.body) +
                                         ("" if not x.orelse else
-                                         (ifrec(x.orelse[0], False) if chainp else
-                                          (indent(x.orelse[0]) + "else:\n" +
-                                           pp_subprogn(x.orelse)))))
-                        return ifrec(x, True)
+                                          ("\n" + (irec(x.orelse[0], False) if chainp else
+                                                   (indent(x.orelse[0], -1) + "else:\n" +
+                                                    pp_subprogn(x.orelse))))))
+                        return irec(x, True)
                 map = { list:            lambda x: ", ".join(rec(ix) for ix in x),
                         str:             lambda x: x,
-                        ast.arguments:   pp_args,
                         ast.Module:      pp_module,
-                        ast.FunctionDef: pp_functiondef,
-                        ast.Lambda:      pp_lambda,
                         ast.For:         pp_for,
                         ast.With:        pp_with,
                         ast.While:       pp_while,
                         ast.If:          pp_if,
+                        ast.TryExcept:   pp_try_except,
+                        ast.TryFinally:  pp_try_finally,
+                        ast.FunctionDef: pp_functiondef,
+                        ast.arguments:   pp_args,
+
+                        ast.Assert:      make_trivial_pper("assert", slots = ["test", "msg"]),
+                        ast.Break:       make_trivial_pper("break"),
+                        ast.Continue:    make_trivial_pper("continue"),
+                        ast.Pass:        make_trivial_pper("pass"),
+                        ast.Raise:       make_trivial_pper("raise", slots = ["exc", "cause"]),
+                        ast.Return:      make_trivial_pper("return"),
+                        ast.Global:      make_trivial_pper("global", slots = ["names"]),
+                        ast.Nonlocal:    make_trivial_pper("nonlocal", slots = ["names"]),
+                        ast.Import:      pp_import,
+                        ast.Assign:      pp_assign,
+                        ast.AugAssign:   pp_augassign,
+
+                        ast.Lambda:      pp_lambda,
+
+                        ast.ListComp:      make_comp_pper("[", "]"),
+                        ast.SetComp:       make_comp_pper("{", "}"),
+                        ast.GeneratorExp:  make_comp_pper("(", ")"),
+                        ast.DictComp:      pp_dictcomp,
+                        ast.comprehension: pp_comprehension,
+
                         ast.Expr:        pp_Expr,
                         ast.Call:        pp_call,
                         ast.Attribute:   pp_attribute,
-                        ast.Name:        pp_name,
-                        ast.Starred:     lambda x: "*" + rec(x.value),
-                        ast.arg:         pp_arg,
-                        ast.alias:       pp_alias,
-                        ast.keyword:     pp_keyword,
-                        ast.Assign:      pp_assign,
-                        ast.AugAssign:   pp_augassign,
                         ast.Subscript:   pp_subscript,
                         ast.IfExp:       pp_ifexp,
                         ast.Index:       pp_index,
                         ast.Slice:       pp_slice,
+                        ast.Name:        pp_name,
+                        ast.Starred:     lambda x: "*" + rec(x.value),
 
                         ast.List:        pp_iterable,
                         ast.Tuple:       pp_iterable,
@@ -532,26 +562,14 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         ast.Str:         pp_string,
                         ast.Num:         pp_num,
 
-                        ast.Assert:      make_trivial_pper("assert"),
-                        ast.Break:       make_trivial_pper("break"),
-                        ast.Continue:    make_trivial_pper("continue"),
-                        ast.Pass:        make_trivial_pper("pass"),
-                        ast.Raise:       make_trivial_pper("raise"),
-                        ast.Return:      make_trivial_pper("return"),
-                        ast.Global:      make_trivial_pper("global", slot = "names"),
-                        ast.Nonlocal:    make_trivial_pper("nonlocal", slot = "names"),
-                        ast.Import:      pp_import,
-
                         ast.BoolOp:      pp_boolop,
                         ast.BinOp:       pp_binop,
                         ast.UnaryOp:     pp_unop,
                         ast.Compare:     pp_compare,
 
-                        ast.ListComp:      make_comp_pper("[", "]"),
-                        ast.SetComp:       make_comp_pper("{", "}"),
-                        ast.GeneratorExp:  make_comp_pper("(", ")"),
-                        ast.comprehension: pp_comprehension,
-                        ast.DictComp:      pp_dictcomp,
+                        ast.arg:         pp_arg,
+                        ast.alias:       pp_alias,
+                        ast.keyword:     pp_keyword,
                         }
                 def fail(x): not_implemented("pretty-printing AST node %s: %s" % (type(x), x))
                 try:
