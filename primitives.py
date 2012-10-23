@@ -244,9 +244,6 @@ def help_progn(xs) -> ([stmt], expr):
         p_acc.extend(p)
         return p_acc, v
 
-def helps(*xs) -> ([stmt], expr):
-        return help_progn(xs)
-
 def help_args(fixed, opts, optvals, args, keys, keyvals, restkey):
         assert(len(opts) == len(optvals) and
                len(keys) == len(keyvals))
@@ -952,7 +949,7 @@ class unwind_protect(body):
                 if body:
                         tn = genname("UWP-VALUE-")
                         return [ ast.TryFinally(help(assign(tn, protected_form))[0],
-                                                help_progs(body)
+                                                help_prog([body])
                                                 ) ], help_expr(tn)
                 else:
                         return help(protected_form)
@@ -962,7 +959,7 @@ class unwind_protect(body):
 class loop(body):
         def help(body):
                 return [ ast.While(help_expr(name("True")),
-                                   help_prog(body),
+                                   help_prog([body]),
                                    []) ], help_nil()
 
 @defprim(intern("ASSERT")[0], (expr_spill, expr_spill))
