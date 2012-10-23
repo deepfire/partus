@@ -310,9 +310,9 @@ class primitive_mismatch(error_t):
                 assert(prim and pspec and spec)
                 self.mesg, self.prim, self.pspec, self.spec, self.form = mesg, prim, pspec, spec, form
         def __str__(self):
-                return "While matching primitive %s against its argspec %s, mismatch of %s with spec %s: %s." % \
+                return "While matching primitive %s against its argspec %s, mismatch of %s (of type %s) with spec %s: %s." % \
                     (self.prim, self.pspec,
-                     print_primitive(self.form),
+                     print_primitive(self.form), type(self.form).__name__,
                      self.spec,
                      self.mesg)
 
