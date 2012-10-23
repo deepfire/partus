@@ -656,8 +656,8 @@ class literal_hash_table_expr(expr):
 ###
 @defprim(intern("LAMBDA")[0],
          ((([name],),
-          ([name],), ([prim],), name,
-          ([name],), ([prim],), name),
+          ([name],), ([prim],), (maybe, name),
+          ([name],), ([prim],), (maybe, name)),
           prim))
 class lambda_(indet):
         "NOTE: default value form evaluation is not delayed."
@@ -687,8 +687,8 @@ class defun(body):
 
 @defprim(intern("LAMBDA-EXPR")[0],
          ((([name],),
-           ([name],), ([expr_spill],), name,   ## It's not a bug -- it's a tool -- use with care!
-           ([name],), ([expr_spill],), name),
+           ([name],), ([expr_spill],), (maybe, name), ## It's not a bug -- it's a tool -- use with care!
+           ([name],), ([expr_spill],), (maybe, name)),
           expr))
 class lambda_expr(expr):
         def help(pyargs, expr): return ast.Lambda(help_args(*pyargs), help_expr(expr))
@@ -809,8 +809,8 @@ flet = intern("FLET")[0]
 
 @defprim(flet,
          (([(name, (([name],),
-                    ([name],), ([expr],), name,
-                    ([name],), ([expr],), name),
+                    ([name],), ([expr],), (maybe, name),
+                    ([name],), ([expr],), (maybe, name)),
              prim)],),
           prim))
 class flet(indet):
@@ -822,8 +822,8 @@ class flet(indet):
 
 @defprim(intern("FLET-EXPR")[0],
          (([(name, (([name],),
-                    ([name],), ([expr],), name,
-                    ([name],), ([expr],), name),
+                    ([name],), ([expr],), (maybe, name),
+                    ([name],), ([expr],), (maybe, name)),
              expr)],),
           expr))
 class flet_expr(expr):
@@ -837,8 +837,8 @@ class flet_expr(expr):
 
 @defprim(intern("FLET-STMT")[0],
          (([(name, (([name],),
-                    ([name],), ([prim],), name,
-                    ([name],), ([prim],), name),
+                    ([name],), ([prim],), (maybe, name),
+                    ([name],), ([prim],), (maybe, name)),
              prim)],),
           prim))
 class flet_stmt(body):
@@ -856,8 +856,8 @@ class flet_stmt(body):
 
 @defprim(intern("LABELS")[0],
          (([(name, (([name],),
-                    ([name],), ([expr],), name,  ## EXPR-SPILL?
-                    ([name],), ([expr],), name),
+                    ([name],), ([expr],), (maybe, name), ## EXPR-SPILL?
+                    ([name],), ([expr],), (maybe, name)),
              prim)],),
           prim))
 class labels(body):
