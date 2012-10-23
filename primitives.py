@@ -266,10 +266,10 @@ def prim_nil():
 def help_nil():
         return help(prim_nil())[1]
 
-def          fixed_ll(fixed):                    return (fixed, [],  [],     None, [], [], None)
-def      fixed_opt_ll(fixed, opt, optval):       return (fixed, opt, optval, None, [], [], None)
-def     fixed_rest_ll(fixed, rest):              return (fixed, [],  [],     rest, [], [], None)
-def fixed_opt_rest_ll(fixed, opt, optval, rest): return (fixed, opt, optval, rest, [], [], None)
+def          fixed_ll(fixed):                    return (list(fixed), [],  [],     None, [], [], None)
+def      fixed_opt_ll(fixed, opt, optval):       return (list(fixed), list(opt), list(optval), None, [], [], None)
+def     fixed_rest_ll(fixed, rest):              return (list(fixed), [],  [],     rest, [], [], None)
+def fixed_opt_rest_ll(fixed, opt, optval, rest): return (list(fixed), list(opt), list(optval), rest, [], [], None)
 
 ###
 ### Spill theory
@@ -323,17 +323,17 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                                  prim = primitive, pspec = primitive.form_specifier,
                                                  spec = type, form = arg)
         ###
-        def tuple_spills(spec, args, force_spill = nil):
+        def tuple_spills(spec, args, force_spill = nil, strict_segment = t):
                 # if isinstance(primitive, defun):
                 #         cl._debug_printf("DEFUN args: %s", primitive.args)
                 specialp = spec and spec[0] in [maybe]
                 if specialp:
                         if spec[0] is maybe:
                                 if args is None:
-                                        return None, []
+                                        return [], None
                                 return process(spec[1], args, force_spill = force_spill)
-                check_prim_type(args, (or_t, tuple, list))
                 segmentp = spec and isinstance(spec[-1], list)
+                check_prim_type(args, list if segmentp and strict_segment else (or_t, tuple, list))
                 nspec, nargs = len(spec), len(args)
                 if not (segmentp and nargs >= (nspec - 1)
                         or nspec is nargs):
@@ -426,7 +426,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                 tn)
                 return processors.get(type(spec), type_check)(spec, arg, force_spill = force_spill)
         # unspilled = str(primitive)
-        spills, primitive.args  = tuple_spills(primitive.form_specifier, primitive.args)
+        spills, primitive.args  = tuple_spills(primitive.form_specifier, primitive.args, strict_segment = nil)
         if spills:
                 spilled = progn(*spills + [primitive])
         #         cl._debug_printf("\nspilled:\n%s\n     ------>\n%s\n", unspilled, spilled)
