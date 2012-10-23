@@ -845,12 +845,12 @@ class flet_stmt(body):
         def help(bindings, body):
                 names, lams, bodies = zip(*bindings)
                 tn = genname("FLET-THUNK-")
-                return (help(defun(tn, fixed_ll([]),
-                                   *([ defun(name, lam, [],
-                                             # this suffers from NAME being available for BODY
-                                             body)
-                                       for name, lam, body in bindings ]
-                                     + [ body ])))[0],
+                return (help(defun(tn, fixed_ll([]), [],
+                                   progn(*([ defun(name, lam, [],
+                                                   # this suffers from NAME being available for BODY
+                                                   body)
+                                             for name, lam, body in bindings ]
+                                           + [ body ]))))[0],
                         help_expr(funcall(tn)))
         flet = identity_method()
 
@@ -863,11 +863,11 @@ class flet_stmt(body):
 class labels(body):
         def help(bindings, body):
                 tn = genname("LABELS-THUNK-")
-                return (help(defun(tn, fixed_ll([]),
-                                   *([ defun(name, lam, [],
-                                             body)
-                                       for name, lam, body in bindings ]
-                                     + [ body ])))[0],
+                return (help(defun(tn, fixed_ll([]), [],
+                                   progn(*([ defun(name, lam, [],
+                                                   body)
+                                             for name, lam, body in bindings ]
+                                           + [ body ]))))[0],
                         help_expr(funcall(tn)))
 
 ###
@@ -913,11 +913,11 @@ class if_expr(expr):
          (expr_spill, prim, prim))
 class if_stmt(body):
         def help(*tca):
-                tv, (cp, cv), (ap, av) = [ help(x) for x in tca ]
+                (_, tv), (cp, cv), (ap, av) = [ help(x) for x in tca ]
                 tn = genname("IFVAL-")
                 return [ ast.If(tv,
-                                cp + help(assign(tn, cv))[0],
-                                ap + help(assign(tn, av))[0]
+                                cp + [ ast.Assign([ help_expr(tn) ], cv)],
+                                ap + [ ast.Assign([ help_expr(tn) ], av)]
                                 ) ], help_expr(tn)
         if_ = identity_method()
 
@@ -971,7 +971,8 @@ class assert_(stmt):
 @defprim(intern("RESIGNAL")[0], ())
 class resignal(stmt):
         def help():
-                return [ ast.Raise() ], help_nil()
+                return [ ast.Raise(exc = None,
+                                   cause = None) ], help_nil() ## Python behavior mismatches doc: exc/cause documented as expr?.
 
 @defprim(intern("CATCH")[0],
          (expr_spill,
@@ -982,11 +983,11 @@ class catch(body):
                 val_tn, ex_tn = genname("BODY-VALUE-"), genname("EX")
                 return [ ast.TryExcept(
                                 help(assign(val_tn, body))[0],
-                                [ ast.ExceptHandler(impl_ref("__catcher_throw__"),
+                                [ ast.ExceptHandler(help_expr(impl_ref("__catcher_throw__")),
                                                     ex_tn.value(),
-                                                    help(if_(is_(attr(ex_tn, string("ball")),
-                                                                 help_expr(tag)),
-                                                             progn(funcall(ref_impl("__catch_maybe_reenable_pytracer"),
+                                                    help(if_(eq(attr(ex_tn, string("ball")),
+                                                                tag),
+                                                             progn(funcall(impl_ref("__catch_maybe_reenable_pytracer"),
                                                                            ex_tn),
                                                                    assign(val_tn,
                                                                           attr(ex_tn, string("value")))),
@@ -998,8 +999,7 @@ class catch(body):
          (expr_spill, expr_spill))
 class throw(expr):
         def help(tag, value):
-                return help_expr(funcall(impl_ref("__throw"),
-                                         help_expr(tag), help_expr(value)))
+                return help_expr(funcall(impl_ref("__throw"), tag, value))
 
 ###
 ### References
@@ -1013,8 +1013,8 @@ class special_ref(efless):
 @defprim(intern("SPECIAL-SETQ")[0],
          (name, expr_spill))
 class special_setq(expr):
-        def help(name, value):
-                return help(funcall(impl_ref("_do_set"), name, value, name("None")))
+        def help(nom, value):
+                return help(funcall(impl_ref("_do_set"), nom, value, name("None")))
 
 @defprim(intern("IMPL-REF")[0],
          (str,))
