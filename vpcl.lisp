@@ -16,7 +16,8 @@
                              'nil)))
        'nil)))
 
-(apply (function (quote ("cl" "_setup_tracing"))) 'nil)
+;; (eval-when (:compile-toplevel)
+;;   (apply (function (quote ("cl" "_dbgsetup"))) 'nil))
 
 (defun %test-defun (&optional (basis 0) &key (x 1) y (z 3))
   (format t "Hello from DEFUN TEST basis:%s  x:%s  y:%s  z:%s" basis x y z)
@@ -31,10 +32,19 @@
        nil))
 
 (defmacro setf (target value)
-  `(setq target value))
+  (if (symbolp target)
+      `(setq target value)
+      (error "SETF: not implemented: non-symbol target.")))
 
 (defmacro push (x xs)
-  (error "PUSH: not implemented."))
+  (if (symbolp xs)
+      `(setq ,xs (cons ,x ,xs))
+      (error "PUSH: not implemented: non-symbol target.")))
 
 (defmacro pop (xs)
-  (error "POP: not implemented."))
+  (let ((oldxs (gensym)))
+    (if (symbolp xs)
+        `(let ((,oldxs ,xs))
+           (setq ,xs (cdr ,oldxs))
+           (car ,oldxs))
+        (error "POP: not implemented: non-symbol target."))))
