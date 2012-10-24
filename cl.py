@@ -3670,8 +3670,8 @@ def subseq(xs, start, end = nil):
         else:
                 _not_implemented("Non-cons case of SUBSEQ.")
 
-_key_, _start, _end, _from_end, _test, _test_not = [ _keyword(x) for x in
-                                                     ["KEY", "START", "END", "FROM-END", "TEST", "TEST-NOT" ] ]
+_key_, _start, _end, _from_end, _test, _test_not, _count = [ _keyword(x) for x in
+                                                             ["KEY", "START", "END", "FROM-END", "TEST", "TEST-NOT", "COUNT" ] ]
 
 # MAP
 # MAP-INTO
@@ -3857,40 +3857,69 @@ subsequence-2 bounded by start2 and end2. """
 # CONCATENATE
 # MERGE
 
+def _remove_if(pred, xs, keys):
+        key, start, end, from_end, count = [ keys.get(k, df) for k, df
+                                             in [ (_key_,     identity),
+                                                  (_start,    0),
+                                                  (_end,      nil),
+                                                  (_from_end, nil),
+                                                  (_count,    nil) ] ]
+        endp = end is not nil
+        if endp and end < start:
+                _error_bad_indices(start, end, length(xs))
+        if count is not nil:
+                _not_implemented(":COUNT")
+        the_test = pred if not key else lambda x: pred(key(x))
+        if listp(xs):
+                def continuation(tail):
+                        i, rptr = start, tail
+                        acc = wptr = [nil, nil]
+                        while True:
+                                if i == end:
+                                        wptr[1] = rptr
+                                        return rptr if i == start else acc
+                                elif not rptr:
+                                        if end is not nil:
+                                                _error_bad_indices(start, end, i - 1)
+                                        if acc == wptr:
+                                                acc = nil
+                                        else:
+                                                oldwptr[1] = nil
+                                        return acc
+                                if not the_test(rptr[0]):
+                                        wptr[0] = rptr[0]
+                                        oldwptr = wptr
+                                        wptr[1] = wptr = [nil, nil]
+                                i, rptr = i + 1, rptr[1]
+                ret, remaining = _copy_list_head_operating_on_cdr(continuation, start, xs)
+                if remaining:
+                        _error_bad_indices(start, end, start - remaining)
+                return ret
+        else:
+                _not_implemented("FIND-IF: non-list case")
+
 @defun
 def remove(elt, xs, *rest):
         keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not, _count])
-        key, start, end, from_end, test, test_not, count = [ keys.get(k, df) for k, df
-                                                             in [ (_key_,     identity),
-                                                                  (_start,    0),
-                                                                  (_end,      nil),
-                                                                  (_from_end, nil),
-                                                                  (_test,     nil),
-                                                                  (_test_not, nil),
-                                                                  (_count,    nil) ] ]
-        _not_implemented()
+        key, test, test_not = [ keys.get(k, df) for k, df
+                                in [ (_key_,     identity),
+                                     (_test,     eql),
+                                     (_test_not, nil) ] ]
+        if _key_     in keys: del keys[_key_]
+        if _test     in keys: del keys[_test]
+        if _test_not in keys: del keys[_test_not]
+        return _remove_if(_compute_predicate(key, elt, test = test, test_not = test_not),
+                          xs, keys)
 
 @defun
-def remove_if(f, xs, *rest):
+def remove_if(p, xs, *rest):
         keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _count])
-        key, start, end, from_end, count = [ keys.get(k, df) for k, df
-                                             in [ (_key_,     identity),
-                                                  (_start,    0),
-                                                  (_end,      nil),
-                                                  (_from_end, nil),
-                                                  (_count,    nil) ] ]
-        _not_implemented()
+        return _remove_if(p, xs, keys)
 
 @defun
-def remove_if_not(f, xs, *rest):
+def remove_if_not(p, xs, *rest):
         keys = _extract_keywords(rest, [_key_, _start, _end, _from_end, _count])
-        key, start, end, from_end, count = [ keys.get(k, df) for k, df
-                                             in [ (_key_,     identity),
-                                                  (_start,    0),
-                                                  (_end,      nil),
-                                                  (_from_end, nil),
-                                                  (_count,    nil) ] ]
-        _not_implemented()
+        return _remove_if(lambda x: not p(x), xs, keys)
 
 # REMOVE-DUPLICATES
 # DELETE-DUPLICATES
