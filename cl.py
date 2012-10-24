@@ -6162,7 +6162,7 @@ def _ast_Call(func:      _ast.expr,
                                     [func, args, keywords, starargs, kwargs])
 #      | Num(object n) -- a number as a PyObject.
 @defast
-def _ast_Num(n: integer_t): pass
+def _ast_Num(n: (or_t, integer_t, float_t)): pass
 #      | Str(string s) -- need to specify raw, unicode, etc?
 @defast
 def _ast_Str(s: string_t): pass
