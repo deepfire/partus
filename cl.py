@@ -8564,11 +8564,18 @@ def _ir_body_prologuep(body):
 _intern_and_bind_names_in_module(
         "&WHOLE", "&OPTIONAL", "&REST", "&BODY", "&KEY", "&ALLOW-OTHER-KEYS", "&AUX", "&ENVIRONMENT")
 
-def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None):
+def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None, macrop = nil):
         ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
         if not listp(lambda_list):
                 error("In %s: lambda list must be a proper list, was: %s.", context, _pp_consly(lambda_list))
-        lambda_list = _vectorise_linear(lambda_list)
+        lastcdr = last(lambda_list)
+        improper = lastcdr and lastcdr[1] is not nil
+        if not macrop:
+                if improper:
+                        error("Dotted lambda list provided where one is not allowed: %s", _pp_consly(lambda_list))
+                lambda_list = _vectorise_linear(lambda_list)
+        else:
+                lambda_list = _vectorise_linear
         def valid_parameter_specifier_p(x): return isinstance(x, symbol_t) and symbol_package(x) is not __keyword
         # test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (isinstance(x, tuple) and len(x) == 2 and
         #                                                                        valid_parameter_specifier_p(x[0])),
@@ -8576,16 +8583,18 @@ def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None):
         #                          if allow_defaults else
         #                          (valid_parameter_specifier_p, "In %s: lambda list must consist of non-keyword symbols: %s.  Default values are forbidden in this context."))
         ### 0. locate lambda list keywords
-        lambda_words = [_optional, _rest, _body, _key]
-        optpos,  restpos,  bodypos,  keypos  = posns = [ (lambda_list.index(x) if x in lambda_list else
-                                                          None) for x in lambda_words ]
+        lambda_words = [_whole, _optional, _rest, _body, _key, _allow_other_keys, _aux, _environment]
+        wholepos, optpos,  restpos,  bodypos,  keypos, aokpos, auxpos, envpos = posns = \
+            [ (lambda_list.index(x) if x in lambda_list else None)
+              for x in lambda_words ]
         ### 1. ensure proper order of provided lambda list keywords
-        optposp, restposp, bodyposp, keyposp = [ x is not None for x in posns ]
+        wholeposp, optposp, restposp, bodyposp, keyposp, aokposp, auxposp, envposp = [ x is not None for x in posns ]
         def test_lambda_list_word_order():
                 toptpos     = optpos or 0
                 trestpos    = restpos or toptpos
                 tbodypos    = bodypos or toptpos
                 tkeypos     = keypos or trestpos
+                tauxpos     = keypos or trestpos
                 if restposp and bodyposp:
                         error("In %s: &BODY and &REST cannot coexist in a single lambda list.")
                 if not toptpos <= trestpos <= tkeypos:
