@@ -5408,7 +5408,7 @@ def __cl_condition_handler__(condspec, frame):
                                 _debug_printf("While printing condition, another condition was raised: %s", repr(sub_cond))
                                 # _backtrace(frame = _exception_frame())
                                 repr_str = "#<error printing condition>"
-                        _here("In thread '%s': unhandled condition of type %s: %s%s",
+                        _here("In thread '%s': unhandled condition of type %s:\n\n%s%s",
                               _threading.current_thread().name, type_of(cond), repr_str,
                               "\n; Disabling CL condition system.",
                               callers = 15, frame = signalling_frame)
