@@ -4011,9 +4011,9 @@ def _consify_linear(xs, last_cdr = nil):
                       reversed(tuple(xs)),
                       last_cdr)
 
-def _pp_consly(x, dispatch = dict(), str_printer = repr, limit = 4):
+def _pp_consly(x, dispatch = dict(), str_printer = repr, max_depth = 4):
         if consp(x):
-                if limit is 0:
+                if max_depth is 0:
                         return "#"
                 acc = []
                 ptr = x
@@ -4021,7 +4021,7 @@ def _pp_consly(x, dispatch = dict(), str_printer = repr, limit = 4):
                         if not consp(ptr):
                                 acc.append(". " + str(ptr))
                                 break
-                        acc.append(_pp_consly(ptr[0], dispatch = dispatch, limit = limit - 1))
+                        acc.append(_pp_consly(ptr[0], dispatch = dispatch, max_depth = max_depth - 1))
                         ptr = ptr[1]
                 return "(" + " ".join(acc) + ")"
         return (str_printer       if isinstance(x, str)  else
