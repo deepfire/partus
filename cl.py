@@ -3745,6 +3745,8 @@ def _find_if(pred, xs, keys):
                                            (_end,      nil),
                                            (_from_end, nil) ] ]
         endp = end is not nil
+        if endp and end < start:
+                _error_bad_indices(start, end, length(xs))
         if from_end:
                 _not_implemented(":FROM-END")
         the_test = pred if not key else lambda x: pred(key(x))
@@ -3790,6 +3792,8 @@ def _position_if(pred, xs, keys):
                                            (_end,      nil),
                                            (_from_end, nil) ] ]
         endp = end is not nil
+        if endp and end < start:
+                _error_bad_indices(start, end, length(xs))
         if from_end:
                 _not_implemented(":FROM-END")
         the_test = pred if not key else lambda x: pred(key(x))
