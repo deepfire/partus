@@ -4543,7 +4543,19 @@ def append(*xs):
 
 # REVAPPEND
 # NRECONC
-# BUTLAST
+
+@defun
+def butlast(xs):
+        if not consp(xs) or not consp(xs[1]):
+                return nil
+        ret = wptr = [xs[0], nil]
+        while True:
+                xs = xs[1]
+                if not consp(xs[1]):
+                        return ret
+                wptr[1] = [xs[0], nil]
+                wptr = wptr[1]
+
 # NBUTLAST
 
 @defun
