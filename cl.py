@@ -3594,11 +3594,47 @@ def _compute_predicate(key, elt, test = eql, test_not = nil):
 # FILL
 # MAKE-SEQUENCE
 
+def _error_bad_indices(start, end, actual):
+        error("The bounding indices %d and %s are bad for a sequence of length %d",
+              start, end, actual)
+
+def _copy_list_with_lastcdr(x, cdr):
+        if not x:
+                return cdr
+        ret = ptr = [the(list_t, x)[0], cdr]
+        while True:
+                x = x[1]
+                if not x:
+                        return ret
+                ptr[1] = ptr = [x[0], cdr]
+
+def _copy_list_head_with_lastcdr(xs, n, cdr):
+        if not xs:
+                return cdr, n is 0
+        ret = ptr = [the(list_t, xs)[0], cdr]
+        while True:
+                n -= 1
+                xs, done = xs[1], n is 0
+                if not xs or done:
+                        return ret, done
+                ptr[1] = ptr = [xs[0], cdr]
+
+def _copy_list_head_operating_on_cdr(f, n, xs):
+        if not xs or n is 0:
+                return nil if n else f(xs), n
+        ret = ptr = [the(list_t, xs)[0], nil]
+        while True:
+                n -= 1
+                oldxs = xs
+                xs = xs[1]
+                if not xs or not n:
+                        if not n:
+                                oldxs[1] = f(xs)
+                        return ret, n
+                ptr[1] = ptr = [xs[0], nil]
+
 @defun
 def subseq(xs, start, end = nil):
-        def error_bad_indices(start, end, actual):
-                error("The bounding indices %d and %s are bad for a sequence of length %d",
-                      start, end, actual)
         if not (isinstance(start, int) and start > -1):
                 error("Invalid sequence index: %s", start)
         if listp(xs):
@@ -3606,13 +3642,13 @@ def subseq(xs, start, end = nil):
                 if end is not nil:
                         while i != start:
                                 if xs is nil:
-                                        error_bad_indices(start, end, i)
+                                        _error_bad_indices(start, end, i)
                                 xs = xs[1]
                                 i += 1
                         if end is start:
                                 return nil
                         if xs is nil:
-                                error_bad_indices(start, end, i)
+                                _error_bad_indices(start, end, i)
                         ret = ptr = [xs[0], nil]
                         while True:
                                 i += 1
@@ -3620,14 +3656,14 @@ def subseq(xs, start, end = nil):
                                         return ret
                                 xs = xs[1]
                                 if xs is nil:
-                                        error_bad_indices(start, end, i)
+                                        _error_bad_indices(start, end, i)
                                 ptr[1] = [xs[0], nil]
                                 ptr = ptr[1]
                 else:
                         ptr = xs
                         while i != start:
                                 if ptr is nil:
-                                        error_bad_indices(start, end, i)
+                                        _error_bad_indices(start, end, i)
                                 ptr = ptr[1]
                                 i += 1
                         return ptr
@@ -3916,16 +3952,6 @@ def cdr(x):         return x[1] if x else nil
 # NSUBST-IF
 # NSUBST-IF-NOT
 # TREE-EQUAL
-
-def _copy_list_with_lastcdr(x, cdr):
-        if not x:
-                return cdr
-        ret = ptr = [the(list_t, x)[0], cdr]
-        while True:
-                x = x[1]
-                if not x:
-                        return ret
-                ptr[1] = ptr = [x[0], cdr]
 
 @defun
 def copy_list(xs):
