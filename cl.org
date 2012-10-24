@@ -8356,7 +8356,7 @@ _intern_and_bind_names_in_module_specifically(("__apply", "APPLY"),
 def _ir_funcall(func, *args):
         l, l_ = list_, list__
         return l(__apply, l(function, (l(quote, l(func)) if isinstance(func, str) else
-                                     func)),
+                                       func)),
                  *(args + (l(quote, nil),)))
 
 def _ir_cl_module_name(name):
@@ -10932,6 +10932,8 @@ def _with_symbol_unit_magic(body, standalone = nil, id = "UNIT-"):
 
 def _assemble(ast: [_ast.stmt], form: cons_t, filename = "") -> "code":
         import more_ast
+        if symbol_value(_compiler_validate_ast_):
+                [ _ast_validate(a) for a in ast ]
         more_ast.assign_meaningful_locations(ast)
         if symbol_value(_compiler_trace_module_ast_):
                 _report(ast = ast, form_id = id(form), desc = "%ASSEMBLE")
