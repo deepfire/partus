@@ -8865,7 +8865,9 @@ def if_():
         def prologuep(*tca):
                 return any(_ir_prologue_p(x) for x in tca)
         def lower(test, consequent, antecedent):
-                return _lowered(p.if_(test, consequent, antecedent))
+                return _lowered(p.if_(_primitivise(test),
+                                      _primitivise(consequent),
+                                      _primitivise(antecedent)))
         def effects(*tca):  return any(_ir_effects(f)  for f in tca)
         def affected(*tca): return any(_ir_affected(f) for f in tca)
 
@@ -8900,9 +8902,9 @@ def let():
                 # Unregistered Issue NORMALISING-PREMACRO-REQUIRED-FOR-KNOWN-PREPROCESSING
                 normalised = _vectorise_linear(bindings)
                 _check_no_locally_rebound_constants(x[0] for x in normalised)
-                tns, frame = _variable_frame_bindings(symbol_value(_compiler_lambda_), zip(*normalised))
-                return _lowered(p.let(((tn, _primitivise(form))
-                                       for tn, (_, form) in zip(tns, normalised)),
+                tns, frame = _variable_frame_bindings(symbol_value(_compiler_lambda_), list(zip(*normalised))[0])
+                return _lowered(p.let(list((tn, _primitivise(form))
+                                           for tn, (_, (form, __)) in zip(tns, normalised)),
                                       p.progn(*(_with_lexenv_frame(frame,
                                                                    lambda: _primitivise(x))
                                                 for x in body))))
@@ -8938,16 +8940,17 @@ def flet():
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
                 if not listp(bindings) or some(lambda x: (length(x) < 2
                                                           or not isinstance(x[0], symbol_t)
-                                                          or not listp(x[1][0]))):
+                                                          or not listp(x[1][0])),
+                                               bindings):
                         error("FLET: malformed bindings: %s.", bindings)
-                normalised = _xmap_to_vector(lambda x: [x[0], x[1][0], _vectorise_linear(x[1][1])],
+                normalised = _xmap_to_vector(lambda x: [x[0], x[1][0], x[1][1]],
                                              bindings)
                 clambdas = [ _compiler_lambda(name, lambda_list)
-                             for name, lambda_list, *_ in normalised ]
+                             for name, lambda_list, _ in normalised ]
                 tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), [ (c.name, c) for c in clambdas ])
-                return _lowered(p.flet(((tn, _lower_lambda_list(lam)
-                                         ) + tuple(_primitivise(x)  for x in body)
-                                        for tn, (name, lam, *body) in zip(tns, normalised)),
+                return _lowered(p.flet([[tn, _lower_lambda_list("FLET", *clambda.lower_args),
+                                         p.progn(*_xmap_to_vector(_primitivise, body))]
+                                        for tn, clambda, (_, __, body) in zip(tns, clambdas, normalised)],
                                        p.progn(*(_with_lexenv_frame(frame,
                                                                     lambda: _primitivise(x))
                                                  for x in body))))
@@ -8982,17 +8985,18 @@ def labels():
                 # Unregistered Issue LAMBDA-LIST-TYPE-NEEDED
                 if not listp(bindings) or some(lambda x: (length(x) < 2
                                                           or not isinstance(x[0], symbol_t)
-                                                          or not listp(x[1][0]))):
+                                                          or not listp(x[1][0])),
+                                               bindings):
                         error("LABELS: malformed bindings: %s.", bindings)
-                normalised = _xmap_to_vector(lambda x: [x[0], x[1][0], _vectorise_linear(x[1][1])],
+                normalised = _xmap_to_vector(lambda x: [x[0], x[1][0], x[1][1]],
                                              bindings)
                 clambdas = [ _compiler_lambda(name, lambda_list)
-                             for name, lambda_list, *_ in normalised ]
+                             for name, lambda_list, _ in normalised ]
                 tns, frame = _function_frame_bindings(symbol_value(_compiler_lambda_), [ (c.name, c) for c in clambdas ])
                 with progv({ _lexenv_: frame }):
-                        return _lowered(p.labels(((tn, _lower_lambda_list(lam))
-                                                  + tuple(_primitivise(x)  for x in body)
-                                                  for tn, (name, lam, *body) in zip(tns, normalised)),
+                        return _lowered(p.labels([[tn, _lower_lambda_list("LABELS", *clambda.lower_args),
+                                                   p.progn(*_xmap_to_vector(_primitivise, body))]
+                                                  for tn, clambda, (_, __, body) in zip(tns, clambdas, normalised)],
                                                  p.progn(*(_primitivise(x)
                                                            for x in body))))
         def effects(bindings, *body):
@@ -9280,7 +9284,7 @@ def tagbody():
                 (init_tag,
                  go_tag,
                  return_tag) = (gensym(x + "-TAG-") for x in ["INIT", "GO", "RETURN"])
-                body         = cons(init_tag, tags_and_forms)
+                body         = cons(init_tag, _consify_linear(tags_and_forms))
                 tags         = remove_if_not(symbolp, body)
                 fun_names    = { tag: gensym("TAG-%s-" % symbol_name(tag)) for tag in _vectorise_linear(tags) }
                 def lam_(seq):
@@ -9290,7 +9294,7 @@ def tagbody():
                         nextl = _find_if(atom, body, dict())
                         nlposn = _position_if(atom, body, dict())
                         return list_(list__(fun_names[label], nil,
-                                            nconc(subseq(body, nlposn),
+                                            nconc(subseq(body, 0, nlposn),
                                                   list_(_ir_funcall(fun_names[nextl]) if nlposn else
                                                         list_(throw, return_tag, nil)))))
                 funs        = mapcon(lam_, body)
@@ -9303,8 +9307,8 @@ def tagbody():
                 #                             `(throw ,return-tag nil)))))))
                 #         `(,init-tag ,@body))
                 l, l_ = list_, list__
-                form = l(let, l(l(go_tag, l(apply, l(function, list_), l(quote, nil), l(quote, nil)))),
-                         l(let, l_(l(return_tag, l(apply, l(function, list_), l(quote, nil), l(quote, nil))),
+                form = l(let, l(l(go_tag, l(apply, l(function, __list), l(quote, nil), l(quote, nil)))),
+                         l(let, l_(l(return_tag, l(apply, l(function, __list), l(quote, nil), l(quote, nil))),
                                    _consify_linear(l(name, go_tag) for name in fun_names.values())),
                            l(catch, return_tag,
                              l(labels, funs,
@@ -9663,7 +9667,7 @@ def lambda_():
                         ## &key require run-time arg parsing
                         ## so, the simple case is this..
                         _compiler_trace_known_choice(lambda_, lambda_list, "NO-REST-KEYS-FIXED-LAMBDA/NON-DEFERRED-OPTIONALS")
-                        return _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *(args + defaults)),
+                        return _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *clambda.lower_args),
                                                   p.progn(*(nonlocal_decl +
                                                             prim_body))))
                 ## So, full complexity, head-on?
@@ -9690,29 +9694,29 @@ def lambda_():
                                                           p.string("In %s: odd number of arguments in &KEY position."
                                                                    % (name or "(LAMBDA)"))) ]
                                               if keys else [] )
-                                          + [ p.let_(tuple((_var_tn(name),
-                                                            p.if_(p.eq(gs.tn, p.name("None")),
-                                                                  _primitivise(def_expr),
-                                                                  gs.tn))
-                                                           for name, gs, def_expr in zip(optional, gsy_o, optdefs))
-                                                     + (( p.import_(p.name("pdb"), p.name("cl")),
-                                                          p.funcall(p.impl_ref("_without_condition_system"),
-                                                                    p.attribute(p.name("pdb"), "set_trace")) )
-                                                        if name and _compiler_function_trapped_p(name) else ())
-                                                     + (((_var_tn(rest), p.funcall(p.impl_ref("_consify_linear"),
-                                                                                   gs_r.tn)),)
-                                                        if rest else ())
-                                                     + (((tn_ht, p.funcall(p.blin_ref("dict"),
+                                          + [ p.let_([(_var_tn(name),
+                                                       p.if_(p.eq(gs.tn, p.name("None")),
+                                                             _primitivise(def_expr),
+                                                             gs.tn))
+                                                      for name, gs, def_expr in zip(optional, gsy_o, optdefs)]
+                                                     + ([p.import_(p.name("pdb"), p.name("cl")),
+                                                         p.funcall(p.impl_ref("_without_condition_system"),
+                                                                   p.attribute(p.name("pdb"), "set_trace")) ]
+                                                        if name and _compiler_function_trapped_p(name) else [])
+                                                     + ([(_var_tn(rest), p.funcall(p.impl_ref("_consify_linear"),
+                                                                                   gs_r.tn))]
+                                                        if rest else [])
+                                                     + ([(tn_ht, p.funcall(p.blin_ref("dict"),
                                                                            p.funcall(p.blin_ref("zip"),
                                                                                      p.slice(the(symbol_t, gs_r).tn, p.integer(0), nil,
                                                                                              p.integer(2)),
                                                                                      p.slice(gs_r.tn, p.integer(1), nil,
-                                                                                             p.integer(2))))),)
-                                                        if keys else ())
-                                                     + tuple((ktn, p.if_(p.not_in(ksymtn, tn_ht),
-                                                                         _primitivise(def_expr),
-                                                                         p.index(tn_ht, ksymtn)))
-                                                             for ktn, ksymtn, def_expr in zip(ns_k, nksy_k, keydefs)),
+                                                                                             p.integer(2)))))]
+                                                        if keys else [])
+                                                     + [(ktn, p.if_(p.not_in(ksymtn, tn_ht),
+                                                                    _primitivise(def_expr),
+                                                                    p.index(tn_ht, ksymtn)))
+                                                        for ktn, ksymtn, def_expr in zip(ns_k, nksy_k, keydefs)],
                                                      p.progn(*prim_body),
                                                      headp = t) ])),
                                         name = fn_tn,
