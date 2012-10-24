@@ -6226,7 +6226,7 @@ __ast_walkable_field_types__ = set([_ast.stmt, (pylist_t, _ast.expr), (maybe_t, 
 __ast_infos__         = make_hash_table()
 def  _find_ast_info(type):     return __ast_infos__[_coerce_to_ast_type(type)]
 def __find_ast_info(type):     return __ast_infos__[type]
-def _ast_info_check_args_type(info, args, atreep = t):
+def _ast_info_check_args_type(info, args, atreep = nil):
         if len(args) < info.nfixed:
                 error("AST type '%s' requires %s %d arguments, but only %d were provided: %s.",
                       info.type.__name__, "exactly" if len(info.fields) == info.nfixed else "at least", info.nfixed,
@@ -6265,6 +6265,22 @@ def _ast_info_check_args_type(info, args, atreep = t):
 
 def _ast_ensure_stmt(x):
         return x if isinstance(x, _ast.stmt) else _ast.Expr(the(_ast.AST, x))
+
+def _ast_validate(ast):
+        def rec(x, context):
+                if isinstance(x, (str, int, float, _NoneType)):
+                        return
+                if not isinstance(x, _ast.AST):
+                        error("%s %s is invalid: not an AST, where an AST was expected.", context, x)
+                args = [ (field, getattr(x, field))
+                         for field in x._fields
+                         if hasattr(x, field) ]
+                _ast_info_check_args_type(__find_ast_info(type(x)), [ fval for _, fval in args ])
+                for field, ixs in args:
+                        for ix in ixs if isinstance(ixs, list) else [ixs]:
+                                rec(ix, "ast.%s.%s" % (type(x).__name__, field))
+        rec(ast, "root AST")
+        return ast
 #+end_src
 
 ******* AST/Atree bound/free calculation
