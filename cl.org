@@ -9170,7 +9170,8 @@ def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignor
                           _dict_select_keys(_ir_binds(expanded_form), function)) if known else
                          (dict(), dict(), dict()))
         ## 3. Pass the binding extension information down.
-        with (progv({_macroexpander_form_binds_: _make_lexenv(parent = env,
+        with (progv({_macroexpander_form_binds_: _make_lexenv(symbol_value(_compiler_lambda_),
+                                                              parent = env,
                                                               kind_varframe = symbol_frame,
                                                               kind_funcframe = _dictappend(mfunc_frame, ffunc_frame))})
               if symbol_frame or mfunc_frame or ffunc_frame else
@@ -10049,7 +10050,8 @@ def block():
                 if has_return_from:
                         _compiler_trace_known_choice(quote, name, "HAS-RETURN-FROM")
                         return _rewritten(catch_target,
-                                          { _lexenv_: _make_lexenv(name_blockframe = { name: _block_binding(name, nonce) }) })
+                                          { _lexenv_: _make_lexenv(symbol_value(_compiler_lambda_),
+                                                                   name_blockframe = { name: _block_binding(name, nonce) }) })
                 else:
                         _compiler_trace_known_choice(quote, name, "NO-RETURN-FROM")
                         return _rewritten(cons(progn, _consify_linear(body)))
@@ -10208,7 +10210,8 @@ def tagbody():
                                    l(setq, _nxt_label,
                                            l(catch, go_tag, l(apply, _nxt_label, l(quote, nil))))))))))
                 return _rewritten(form,
-                                  { _lexenv_: _make_lexenv(name_gotagframe =
+                                  { _lexenv_: _make_lexenv(symbol_value(_compiler_lambda_),
+                                                           name_gotagframe =
                                                            { tag: _gotag_binding(tag, fun_names[tag])
                                                              for tag in _vectorise_linear(tags[1]) }) })
         def effects(*tags_and_forms):            return some(_ir_effects, remove_if(symbolp, tags_and_forms))
