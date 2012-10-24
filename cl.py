@@ -808,15 +808,6 @@ def _init_package_system_0():
         global __packages__
         global __keyword
         global t, T, make_symbol, make_package
-        __core_symbol_names__ = [
-                "QUOTE",
-                "ABORT", ("CONTINUE", "continue_"), ("BREAK", "break_"),
-                "&OPTIONAL", "&REST", "&KEY", "&BODY", "&ALLOW-OTHER-KEYS", "&WHOLE",
-                "&RESTKEY", # pythonism
-                ]
-        __more_symbol_names__ = [
-                "SOME", "EVERY", "LOCALLY", "MACROLET", "SYMBOL_MACROLET"
-                ]
         __packages__ = make_hash_table()
         T = t              = _intern("T", __cl)[0]     # Nothing much works without this.
         nil.__contains__   = lambda _: False
@@ -825,13 +816,6 @@ def _init_package_system_0():
         nil.__iter__       = lambda _: None
         nil.__reversed__   = lambda _: None
         __global_scope__.update({ "T": t, "NIL": nil })
-        export([t, nil] + [_intern(n[0] if isinstance(n, tuple) else n, __cl)[0]
-                           for n in __core_symbol_names__ + __more_symbol_names__],
-               __cl)
-        for spec in __core_symbol_names__ + __more_symbol_names__:
-                lisp_name, python_name = (spec, _frost.lisp_symbol_name_python_name(spec)) if isinstance(spec, str) else spec
-                _frost.setf_global(_find_symbol_or_fail(lisp_name, __cl), python_name, globals())
-                # Unregistered Issue PACKAGE-SYSTEM-INIT-SHOULD-USE-GLOBAL-SETTER-INSTEAD-OF-CUSTOM-HACKERY
         # secondary
         package_t("COMMON-LISP-USER", use = [__cl], boot = True)
         __global_scope__["*PACKAGE*"] = __cl # COLD-SETQ
@@ -8512,6 +8496,9 @@ def _ir_body_prologuep(body):
         return len(body) > 1 or len(body) == 1 and _ir_prologue_p(body[0])
 
 # Lambda list lowering
+
+_intern_and_bind_names_in_module(
+        "&WHOLE", "&OPTIONAL", "&REST", "&BODY", "&KEY", "&ALLOW-OTHER-KEYS", "&AUX", "&ENVIRONMENT")
 
 def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None):
         ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
