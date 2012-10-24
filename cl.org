@@ -4030,21 +4030,19 @@ def _pp_consly(x, dispatch = dict(), str_printer = repr, max_depth = 4):
 def _pp_consly_pp_str(x, dispatch = dict()):
         return _pp_consly(x, dispatch, str)
 
-def _xmap_to_vector(f, *xss):
-        not xss and error("Invalid number of arguments: %d", 1)
-        if len(xss) is 1:
-                acc, xs = [], xss[0]
+def _xmap_to_vector(f, xs, *xss):
+        if not xss:
+                acc = []
                 while xs:
                         acc.append(f(xs[0]))
                         xs = xs[1]
                 return acc
         else:
-                not_implemented("%XMAP-TO-VECTOR: multiple-list case")
+                _not_implemented("%XMAP-TO-VECTOR: multiple-list case")
 
-def _xmap_to_conses(f, *xss):
-        not xss and error("Invalid number of arguments: %d", 1)
-        if len(xss) is 1:
-                xs, lim = xss[0], len(xss[0])
+def _xmap_to_conses(f, xs, *xss):
+        if not xss:
+                lim = len(xs)
                 if not xs:
                         return nil
                 acc = ptr = [f(xs[0]), nil]
@@ -4054,7 +4052,7 @@ def _xmap_to_conses(f, *xss):
                         i += 1
                 return acc
         else:
-                not_implemented("%XMAP-TO-CONSES: multiple-list case")
+                _not_implemented("%XMAP-TO-CONSES: multiple-list case")
 #+end_src
 
 *** Sequences
@@ -4545,9 +4543,8 @@ def mapc(f, *xs):
          _not_implemented()
 
 @defun
-def mapcar(f, *xss):
-        if len(xss) == 1:
-                xs = xss[0]
+def mapcar(f, xs, *xss):
+        if not xss:
                 if not xs:
                         return nil
                 car, cdr = xs[0], xs[1]
@@ -4567,9 +4564,8 @@ def mapcan(f, *xs):
 # MAPLIST
 
 @defun
-def mapcon(f, *xss):
-        if len(xss) == 1:
-                xs = xss[0]
+def mapcon(f, xs, *xss):
+        if not xss:
                 acc = nil
                 while xs and not acc:
                         acc = f(xs)
@@ -4659,47 +4655,47 @@ def setf_getf(value, xs, key):
 
 @defun
 def every(fn, xs, *xss):
-        if len(xss) == 1:
+        if not xss:
                 while xs:
                         if not fn(xs[0]):
                                  return nil
                         xs = xs[1]
                 return t
         else:
-                not_implemented("EVERY: multiple-list case")
+                _not_implemented("EVERY: multiple-list case")
 
 @defun
 def some(fn, xs, *xss):
-        if len(xss) == 1:
+        if not xss:
                 while xs:
                         if fn(xs[0]):
                                  return t
                         xs = xs[1]
                 return nil
         else:
-                not_implemented("SOME: multiple-list case")
+                _not_implemented("SOME: multiple-list case")
 
 @defun
 def notevery(fn, xs, *xss):
-        if len(xss) == 1:
+        if not xss:
                 while xs:
                         if not fn(xs[0]):
                                  return t
                         xs = xs[1]
                 return nil
         else:
-                not_implemented("NOTEVERY: multiple-list case")
+                _not_implemented("NOTEVERY: multiple-list case")
 
 @defun
 def notany(fn, xs, *xss):
-        if len(xss) == 1:
+        if not xss:
                 while xs:
                         if fn(xs[0]):
                                  return nil
                         xs = xs[1]
                 return t
         else:
-                not_implemented("NOTANY: multiple-list case")
+                _not_implemented("NOTANY: multiple-list case")
 
 # Function VALUES-LIST
 
