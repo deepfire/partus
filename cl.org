@@ -8306,13 +8306,13 @@ def _gensym_tn(x = "G"):
         return sym
 
 def _variable_frame_bindings(clambda, names, forms = _repeat(None)):
-        tns   = [ p.name(_unit_variable_pyname(sym))  for sym in names ]
+        tns   = [ p.name(_unit_variable_pyname(the(symbol_t, sym)))  for sym in names ]
         frame = _make_lexenv_varframe(clambda, tns, names, forms)
         return tns, frame
 
 def _function_frame_bindings(clambda, bindings):
         names = list(zip(*bindings))[0]
-        tns   = [ p.name(_unit_function_pyname(sym))  for sym in names ]
+        tns   = [ p.name(_unit_function_pyname(the(symbol_t, sym)))  for sym in names ]
         frame = _make_lexenv_funcframe(clambda, tns, bindings)
         return tns, frame
 
