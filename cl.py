@@ -9617,14 +9617,14 @@ def protoloop():
 class _compiler_lambda():
         __slots__ = ("name", "lambda_list",
                      "fixed", "optional", "rest", "keys", "optdefs", "keydefs",
-                     "total_bound",
+                     "total_bound", "lower_args",
                      "nonlocal_refs", "nonlocal_setqs")
         def __init__(self, name, lambda_list):
                 total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 _check_no_locally_rebound_constants(total)
                 self.name, self.lambda_list = the(symbol_t, name), the(list_t, lambda_list)
                 (self.fixed, self.optional, self.rest, self.keys), (self.optdefs, self.keydefs) = args, defaults
-                self.total_bound = total
+                self.total_bound, self.lower_args = total, args + defaults
                 self.nonlocal_refs, self.nonlocal_setqs = set(), set()
 
 @defknown((lambda_, " ", ([(_notlead, " "), (_or, _name, (_name, _form))],),
