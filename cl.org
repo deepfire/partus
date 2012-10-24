@@ -7740,13 +7740,34 @@ _string_set("*COMPILER-TRACE-KNOWN-PRIMITIVES*",   nil)
 
 _string_set("*COMPILER-TRACE-PRETTY-FULL*",        nil)
 
-_string_set("*COMPILER-DEBUG-P*",                  nil)
+_string_set("*COMPILER-VALIDATE-AST*",             nil)
 _string_set("*COMPILER-TRAPPED-FUNCTIONS*",        set()) ## Emit a debug entry for those functions.
 
-__known_trace_args__ = {"forms", "macroexpanded", "knowns", "primitives", "ast", "module_ast", "bytecode",
-                        "toplevels",
-                        "subknowns", "inner_knowns", "known_choices", "known_rewrites", "known_primitives",
-                        "pretty_full"}
+_compiler_debugless_traceless_frame = { _compiler_trace_forms_:             nil,
+                                        _compiler_trace_macroexpanded_:     nil,
+                                        _compiler_trace_knowns_:            nil,
+                                        _compiler_trace_primitives_:        nil,
+                                        _compiler_trace_ast_:               nil,
+                                        _compiler_trace_module_ast_:        nil,
+                                        _compiler_trace_bytecode_:          nil,
+
+                                        _compiler_trace_toplevels_:         nil,
+                                        _compiler_trace_compile_time_eval_: nil,
+
+                                        _compiler_trace_subknowns_:         nil,
+                                        _compiler_trace_inner_knowns_:      nil,
+                                        _compiler_trace_known_choices_:     nil,
+                                        _compiler_trace_known_rewrites_:    nil,
+                                        _compiler_trace_known_primitives_:  nil,
+
+                                        _compiler_trace_pretty_full_:       nil,
+                                        _compiler_validate_ast_:            nil,
+                                        _compiler_trapped_functions_:       set() }
+
+__known_trace_args__ = { "forms", "macroexpanded", "knowns", "primitives", "ast", "module_ast", "bytecode",
+                         "toplevels",
+                         "subknowns", "inner_knowns", "known_choices", "known_rewrites", "known_primitives",
+                         "pretty_full" }
 
 def _compiler_explain_tracing():
         def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
@@ -7754,8 +7775,9 @@ def _compiler_explain_tracing():
         for var in __known_trace_args__:
                 _debug_printf(";;    %s: %s", control_var_name(var), symbol_value(find_symbol(control_var_name(var))[0]))
 
-def _compiler_config_tracing(**keys):
-        def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
+def _compiler_dbgconf(**keys):
+        def control_var_name(x): return "*%s%s*" % (("COMPILER-TRACE-" if x in __known_trace_args__ else ""),
+                                                    x.replace("_", "-").upper())
         for namespec, value in keys.items():
                 _string_set(control_var_name(namespec), value)
 
@@ -7786,33 +7808,9 @@ def _compiler_trap_function(name):
 def _compiler_function_trapped_p(name):
         return name in symbol_value(_compiler_trapped_functions_)
 
-def _debug_compiler(value = t):
-        _string_set("*COMPILER-DEBUG-P*", value, force_toplevel = t)
-def _debugging_compiler():
-        return _symbol_value(_compiler_debug_p_)
-def _maybe_disable_debugging(self):
-        self.was_debugging = _debugging_compiler()
-        _debug_compiler(nil)
-def _maybe_reenable_debugging(self, *_):
-        _debug_compiler(self.was_debugging)
-_no_compiler_debugging = _defwith("_no_compiler_debugging", _maybe_disable_debugging, _maybe_reenable_debugging)
-
-_compiler_debug        = _defwith("_compiler_debug",
-                                  lambda *_: _dynamic_scope_push({ _compiler_debug_p_: t }),
-                                  lambda *_: _dynamic_scope_pop())
-
-def _compiler_debug_printf(control, *args):
-        if _debugging_compiler():
-                justification = _sex_space()
-                def fix_string(x): return x.replace("\n", "\n" + justification) if isinstance(x, str) else x
-                _debug_printf(justification + fix_string(control), *tuple(fix_string(a) for a in args))
-
 def _compiler_trace_known_choice(ir_name, id, choice):
         if symbol_value(_compiler_trace_known_choices_):
                 _debug_printf("%s-- %s %s: %s", _sex_space(), ir_name, _ir_minify(id), choice)
-
-if probe_file("/home/deepfire/.partus-debug-compiler"):
-        _debug_compiler()
 #+end_src
 
 *** Compilation environment
@@ -8061,24 +8059,7 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
         def symbol_prologue():
                 def wrap(x):
                         return _defaulted(x, _consify_star(ref, (quote, ("None",))))
-                with progv({ _compiler_trace_forms_:             nil,
-                             _compiler_trace_macroexpanded_:     nil,
-                             _compiler_trace_knowns_:            nil,
-                             _compiler_trace_primitives_:        nil,
-                             _compiler_trace_ast_:               nil,
-                             _compiler_trace_module_ast_:        nil,
-                             _compiler_trace_bytecode_:          nil,
-
-                             _compiler_trace_toplevels_:         nil,
-                             _compiler_trace_compile_time_eval_: nil,
-
-                             _compiler_trace_subknowns_:         nil,
-                             _compiler_trace_inner_knowns_:      nil,
-                             _compiler_trace_known_choices_:     nil,
-                             _compiler_trace_known_rewrites_:    nil,
-                             _compiler_trace_known_primitives_:  nil,
-
-                             _compiler_trace_pretty_full_:    nil }):
+                with progv(_compiler_debugless_traceless_frame):
                  symbols = sorted(funs | syms, key = str)
                  prologue = list_(progn,
                                   _ir_cl_module_call(
@@ -8090,7 +8071,7 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                                   _ir_cl_module_call(
                                  "_fop_make_symbols_available",
                                  _ir_funcall("globals"),
-                                 _ir_funcall(__vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else (ref, (quote, ("None",)))
+                                 _ir_funcall(__vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else _consify_star(ref, (quote, ("None",)))
                                                               for sym in symbols )),
                                  _ir_funcall(__vector, *tuple(symbol_name(sym)          for sym in symbols )),
                                  _ir_funcall(__vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
@@ -8101,9 +8082,8 @@ def _compilation_unit_prologue(funs, syms, gfuns, gvars):
                  return _lower(prologue,
                                ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
                                lexenv = _make_null_lexenv(nil))
-        with _no_compiler_debugging(): #_withless():#
-                return (import_prologue() +
-                        symbol_prologue())
+        return (import_prologue() +
+                symbol_prologue())
 #+end_src
 
 ***** Scopes
@@ -10753,16 +10733,16 @@ def _primitivise(form, lexenv = nil) -> p.prim:
         # - symbols not terribly clear
         # - proper quote processing
         def compiler_maybe_note_subknown(x):
-                if (symbol_value(_compiler_trace_subknowns_) and _debugging_compiler() and
+                if (symbol_value(_compiler_trace_subknowns_) and
                     not isinstance(x, (symbol_t, bool))                            and
                     not (consp(x) and x[0] in [ref, function, quote])):
                         _debug_printf(";;;%s lowering:\n%s%s", _sex_space(-3, ";"), _sex_space(), _pp(x))
         def compiler_maybe_note_inner(known_name, xs):
-                if symbol_value(_compiler_trace_inner_knowns_) and _debugging_compiler() and known_name is not symbol:
+                if symbol_value(_compiler_trace_inner_knowns_) and known_name is not symbol:
                         _debug_printf("%s>>> %s\n%s%s", _sex_space(), name,
                                       _sex_space(), ("\n" + _sex_space()).join(_pp(f) for f in xs))
         def compiler_maybe_note_rewrite(known_name, known_subforms, result_form):
-                if symbol_value(_compiler_trace_known_rewrites_) and _debugging_compiler() and known_name not in (symbol, ref):
+                if symbol_value(_compiler_trace_known_rewrites_) and known_name not in (symbol, ref):
                         _debug_printf("%s======================================================\n%s\n"
                                       "%s--------------------- rewrote ------------------------>\n%s\n"
                                       # "%s--------------------- rewrote ------------------------>",
@@ -10771,7 +10751,7 @@ def _primitivise(form, lexenv = nil) -> p.prim:
                                       _sex_space(), _sex_space() + _pp(result_form),
                                       _sex_space())
         def compiler_maybe_note_known_primitives(form, prim):
-                if (symbol_value(_compiler_trace_known_primitives_) and _debugging_compiler() and
+                if (symbol_value(_compiler_trace_known_primitives_) and
                     ## Too trivial to take notice
                     not typep(form, (or_t, symbol_t, string_t, integer_t, (cons_t, (member_t, quote, function, ref), t)))):
                         ssp = _sex_space()
@@ -11304,7 +11284,6 @@ def fdefinition(name):
         return symbol_function(the(symbol_t, name))
 
 # @LISP tests
-# _debug_compiler()
 
 # @defun(intern("ONEMORE")[0])
 # def onemore(x): return x + 1
@@ -11481,26 +11460,26 @@ def _configure_recursion_limit(new_limit):
 
 _configure_recursion_limit(262144)
 
-def _setup_tracing():
-        _compiler_config_tracing(# forms = t,
-                                 # macroexpanded = t,
-                                 # knowns = t,
-                                 # primitives = t,
-                                 # ast = t,
-                                 # module_ast = t,
-                                 # bytecode = t,
+def _dbgsetup(**keys):
+        _compiler_dbgconf(# forms = t,
+                          # macroexpanded = t,
+                          # knowns = t,
+                          # primitives = t,
+                          # ast = t,
+                          # module_ast = t,
+                          # bytecode = t,
 
-                                 # toplevels = t,
-                                 # compile_time_eval = t,
+                          # toplevels = t,
+                          # compile_time_eval = t,
 
-                                 # subknowns = t,
-                                 # inner_knowns = t,
-                                 # known_choices = t,
-                                 # known_rewrites = t,
-                                 # known_primitives = t,
-                                 pretty_full = t
-                                 )
-_setup_tracing()
+                          # subknowns = t,
+                          # inner_knowns = t,
+                          # known_choices = t,
+                          # known_rewrites = t,
+                          # known_primitives = t,
+                          pretty_full = t,
+                          **keys)
+_dbgsetup()
 
 # _compiler_trap_function(intern("DEFPACKAGE")[0])
 
@@ -11559,6 +11538,9 @@ if not _getenv("CL_NO_LISP"):
         #                 return ret
         #         return _pp_sex(exp)
         load(compile_file("vpcl.lisp"))
+        _dbgsetup(# compiler_validate_ast = t,
+                  forms = t,
+                  macroexpanded = t)
         _cProfile.runctx("result = compile_reader()", globals(), locals(),
                          sort = "time"
                          # sort = "cumulative"
