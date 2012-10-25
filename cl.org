@@ -27,19 +27,34 @@
 
 
 * Org hints
+*** ORG-ISEARCH-HEADINGS
+*** ORG-SRCBLOCK-GUIDED-KEYBINDING-SCOPING
+*** ORG-ISEARCH-ONLY-WORKS-AFTER-FOLD-CYCLING
+*** ORG-TANGLE-TORTURES-DISC
+*** ORG-EMPTY-SRC-BLOCK-ERROR-TANGLE
+*** CODE-LIGHTWEIGHT-CONCERN-TRACKING-AND-TAGGING
+*** ORG-CLOSE-CURRENT-AND-RECENTER-ON-OPEN-NODE-ABOVE-OR-BELOW
 *** IMPL node tagging
 *** IMPL node tag table display
+* Documentation
+*** IR method descriptions
+
+    - NVALUES ::
+      a non-negative integer;
+      in case of ambiguity:
+      - max of two numbers, or
+      - T, in case of complete lack of information on some branch
+    - NTH-VALUE ::
+      - IR of the value form, preserving unrelated side effects
+    - BINDS ::
+      - frame of the established scope;  this is augmented by the %BOUND marks within the MetaSEX
+    - LOWER ::
+      - Atree, if processing is complete
+      - IR, if the rest is described by a different lowering
+    - EFFECTS, AFFECTED ::
+      - a boolean, T in doubt
+
 * Issues
-*** Meta
-
-    - Issue ORG-ISEARCH-HEADINGS
-    - Issue ORG-SRCBLOCK-GUIDED-KEYBINDING-SCOPING
-    - Issue ORG-ISEARCH-ONLY-WORKS-AFTER-FOLD-CYCLING
-    - Issue ORG-TANGLE-TORTURES-DISC
-    - Issue ORG-EMPTY-SRC-BLOCK-ERROR-TANGLE
-    - Issue CODE-LIGHTWEIGHT-CONCERN-TRACKING-AND-TAGGING
-    - Issue ORG-CLOSE-CURRENT-AND-RECENTER-ON-OPEN-NODE-ABOVE-OR-BELOW
-
 *** Runtime model
 
     What kinds of run-time support issues do we have?
@@ -56,21 +71,8 @@
         - values: _values_frame_project, _values_frame
     - IR for python calls (APPLY, (typep (or string (tuple string))), ...)
 
-*** Multiple values are acutely needed
+*** Multiple values
 *** Data structure setup for a one-time matcher run
-*** Splitting off sequencing: separation of K-forms
-
-    There are many knowns which combine their specialty with sequencing, which is an
-    orthogonal issue and therefore a burden:
-
-    - EVAL-WHEN, DEFMACRO, DEFUN, LET, FLET, LABELS, LET*, LAMBDA, UNWIND-PROTECT
-
-    We should switch to processing their K-forms, which would only accept a single form, not
-    a body.
-
-    This would significantly affect multiple values processing, so it looks like an immediate
-    issue.
-
 *** Multiple values: analysis
 ***** Early thoughts
 
@@ -120,20 +122,23 @@
     Instead of being pessimistic in assumptions, act as if doing WPO, while tracking
     dependents.
 
-*** EVAL-WHEN (:COMPILE-TOPLEVEL) is useful
-*** Form paths?
+*** (OPTIMIZE DEBUG)
+***** Form tracking
+******* Form paths
 *** GENSYMNAME safety? (esp. in the fasl context)
-*** APPLY of knowns
+***** UUID-ing?
 *** Function form effect affliction question
 *** All these temporary names in binding constructs and whatnot definitely look like a hint, but hint at what..
 ***** exprnessp + direct-or-let-and-retry is a definite pattern
 ******* APPLY
-*** IR normalisation
-
-    - IF - antecedent branch
-    - LET - non-tuple bindings
-    - RETURN-FROM - return value
-
+*** Extended information-preserving transformations
+***** Known macros
+      - Eliminate known rewrites
+      - Known normalisation
+        - IF - antecedent branch
+        - LET - non-tuple bindings
+        - RETURN-FROM - return value
+      - Information preservation?
 *** Compliance
 ***** Deviations from CL lambda list
 
@@ -164,30 +169,20 @@
 
 ***** Binding constructs (LET, LAMBDA, etc.) ignore declarations
 ******* IR-BINDS ignores declarations
-***** TODO no implicit PROGN
 ***** implicit funcalls are absent
 ***** IF requires the antecedent
-*** IR method descriptions
-
-    - NVALUES ::
-      a non-negative integer;
-      in case of ambiguity:
-      - max of two numbers, or
-      - T, in case of complete lack of information on some branch
-    - NTH-VALUE ::
-      - IR of the value form, preserving unrelated side effects
-    - BINDS ::
-      - frame of the established scope;  this is augmented by the %BOUND marks within the MetaSEX
-    - LOWER ::
-      - Atree, if processing is complete
-      - IR, if the rest is described by a different lowering
-    - EFFECTS, AFFECTED ::
-      - a boolean, T in doubt
-
 *** Loops
 ***** DEFMACRO
 
       DEFMACRO is best expressed as a macro, expanding to a DEF or LAMBDA knowns.
+
+      Solution: hand-code DEFMACRO.
+
+***** DONE LAMBDA
+
+      General-case LAMBDA, with default value forms and &AUX is best expressed as a simpler lambda + LET*.
+
+      Solution: 1. two-stage primitivisation, or 2. known macros.
 
 *** SBCL weirdnesses
 ***** Clearly compile-time-detected program errors are deferred until code run-time
@@ -220,25 +215,10 @@ Compile-time error:
 ***** IR-level interop
 ******* GIMPLE
 ***** TAL x86 emission
-*** NORMALISING-PREMACRO-REQUIRED-FOR-KNOWN-PREPROCESSING
 *** DUPLICATION known MetaSEX specifies boundaries of acceptability, but lowerers also typecheck
-*** CONFLICT K-core vs. MetaSEX services
+*** CONFLICT K-core vs. MetaSEX services :: solution: convert knowns to a lower-level IR
 *** CONFLICT SEX IR vs. the need to store information
 *** DEAD-CODE IR-PROLOGUEP
-*** OBSOLETE Lexenv processing
-
-    Weren't we supposed to use the matcher to destructure forms?
-
-    ..but metasex is only available for knowns, which requires all macros to be expanded..
-    ..but the macroexpansion process itself needs IR-BINDS..
-
-    we can't do that before all macroexpansion is complete.. and we need the IR-BINDS for the
-    macroexpander to process lexenv changes due to macrolet/symbol-macrolet..
-
-    If/when we make IR-BINDS use metasex, a cold version of IR-BINDS will be due?
-
-    Right now, though, metasex implications are of no issue.
-
 *** DONE Walking: (generic) thoughts
 
     In general case, is as meaningful, as close to knowns the IR tree is.
