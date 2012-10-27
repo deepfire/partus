@@ -7728,27 +7728,13 @@ def _strip_metasex_pp(x):
 
 # DEFKNOWN
 
-_known = _poor_man_defstruct("known",
-                             "name",
-                             "metasex",
-                             "metasex_pp",
-                             "nvalues", "nth_value",
-                             "binds",
-                             "prologuep",
-                             "lower",
-                             "effects", "affected",
-                             "lower_params")
-
 def _compute_default_known_metasex(name):
         "Return a default MetaSEX form for a known with NAME."
         return (name, " ", _form)
 
-def defknown(metasex_or_fn, name = None):
+def defknown(metasex_or_class, name = None):
         """Define a form 'known' to the compiler.
 The NAME is bound, in separate namespaces, to:
-   - a LOWER method, which returns either a modified SEX, or a target tuple IR;
-   - a BINDS method, which returns a namespace-categorised enumeration of bindings
-     established by the form around its body, if any;
    - a MetaSEX form, which, when unspecified, defaults to (<KNOWN-NAME> " " %FORM),
      and serves the following purposes:
      - a pretty-printer specifier
@@ -7756,70 +7742,34 @@ The NAME is bound, in separate namespaces, to:
      - destructuring
      - walking
 """
-        def do_defknown(fn, sym, pyname, metasex):
-                fn.__name__ = "_lower_" + pyname
+        def do_defknown(cls, sym, pyname, metasex):
+                lower = cls.lower
+                lower.__name__ = "_lower_" + pyname
                 _frost.setf_global(sym, pyname, globals = globals())
-                args_ast, body_asts = _function_ast(fn)
-                body, documentation, declarations = _defbody_parse_ast(set(), body_asts)
-                def meth(name, body, *args):
-                        return (name, lambda *_: _py.compile(body % args, "", "exec",
-                                                             flags = _ast.PyCF_ONLY_AST).body[0])
-                [prologuep,
-                 lower,
-                 binds,
-                 nvalues, nth_value,
-                 effects, affected,
-                ] = _defbody_methods("DEFKNOWN " + str(sym), body, lambda method_name: pyname + "_" + method_name,
-                                     ["prologuep",
-                                      "lower",
-                                      meth("binds",
-                                           """def %s_binds(*_):
-                                                      return dict()""", pyname),
-                                      meth("nvalues",
-                                           """def %s_nvalues(*_):
-                                                      error('Known %s unsupported in values context.')""", pyname, sym),
-                                      meth("nth_value",
-                                           """def %s_nth_value(*_):
-                                                      error('Known %s unsupported in values context.')""", pyname, sym),
-                                      meth("effects",
-                                           """def %s_effects(*_):
-                                                      error('Effect analysis unsupported for known %s.')""", pyname, sym),
-                                      meth("affected",
-                                           """def %s_affected(*_):
-                                                      error('Effect analysis unsupported for known %s.')""", pyname, sym)])
                 lower_key_args = _function_lambda_list(lower)[3]
                 ## Complete, record the deeds.
                 metasex = _preprocess_metasex(metasex)
-                sym.known = _known(name = sym,
-                                   metasex = _strip_metasex_pp(metasex),
-                                   metasex_pp = metasex,
-                                   binds = binds,
-                                   nvalues = nvalues, nth_value = nth_value,
-                                   prologuep = prologuep,
-                                   lower = lower,
-                                   effects = effects, affected = affected,
-                                   lower_params = _mapset(lambda x: x[0], lower_key_args))
-                return sym # pass through
-        def _defknown(fn, name = name, metasex = metasex_or_fn):
-                _, sym, pyname = _interpret_toplevel_value(fn, functionp)
+                cls.name         = sym
+                cls.metasex      = _strip_metasex_pp(metasex)
+                cls.metasex_pp   = metasex
+                cls.lower_params = _mapset(lambda x: x[0], lower_key_args)
+                sym.known = cls
+                return sym # pass through -- let the symbol be bound to the name
+        def _defknown(cls, name = name, metasex = metasex_or_class):
+                _, sym, pyname = _interpret_toplevel_value(cls, lambda x: isinstance(x, type))
                 name    = _defaulted(name, sym, symbol_t)
                 metasex = _defaulted(metasex, _compute_default_known_metasex(name))
-                return do_defknown(fn, name, pyname, metasex)
-        return (_defknown(metasex_or_fn, metasex = None) if functionp(metasex_or_fn) else
-                _defknown                                if isinstance(metasex_or_fn, tuple)   else
+                return do_defknown(cls, name, pyname, metasex)
+        return (_defknown(metasex_or_class, metasex = None) if isinstance(metasex_or_class, type)    else
+                _defknown                                   if isinstance(metasex_or_class, tuple)   else
                 error("In DEFKNOWN: argument must be either a function or a pretty-printer code tuple, was: %s.",
-                      repr(metasex_or_fn)))
+                      repr(metasex_or_class)))
 def _find_known(x):
         return _symbol_known(the(symbol_t, x))
 
 # METASEX-MATCHER, METASEX-MATCHER-PP and METASEX-MATCHER-NONSTRICT-PP
 
 #         MetaSEX presents us with an excellent lesson.  Let's try to understand.
-
-def _form_known(form):
-        ## METASEX-MATCHER guts it, due to case analysis
-        complex_form_p = consp(form) and isinstance(form[0], symbol_t)
-        return complex_form_p and _find_known(form[0])
 
 _string_set("*METASEX-PP*", nil)
 
@@ -8480,10 +8430,15 @@ def DEFMACRO(name, lambda_list, *body):
                                                         ))),
                    ["name", name]))
 
+# KNOWN IR
+
+class known():
+        def binds(*_, **__):       return dict()
+
 # Out-of-band IR argument passing: %IR-ARGS, %IR
 
 @defknown((ir_args, "\n", _form, ["\n", (_cons, (_typep, str), _form)],))
-def ir_args():
+class ir_args(known):
         def prologuep(known, *_):  return _ir_prologue_p(known)
         def lower(*_):             error("Invariant failed: %s is not meant to be lowered.", ir_args)
         def effects(*ir,  **args): return _ir_effects(ir)
@@ -8507,6 +8462,11 @@ def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
 
 # IR methods
+
+def _form_known(form):
+        ## METASEX-MATCHER guts it, due to case analysis
+        complex_form_p = consp(form) and isinstance(form[0], symbol_t)
+        return complex_form_p and _find_known(form[0])
 
 def _ir_nvalues(form):
         return (lambda known: (known.nvalues(*_vectorise_linear(form[1]))            if known else
@@ -8731,7 +8691,7 @@ def _primitivise_pyref(x):
 #         :END:
 
 @defknown((intern("SETQ")[0], " ", (_typep, symbol_t), " ", _form))
-def setq():
+class setq(known):
         def nvalues(_, __):                                               return 1
         def nth_value(n, orig, _, value):                                 return orig if n is 0 else list_(progn, orig, nil)
         def binds(name, value, *_):
@@ -8770,7 +8730,7 @@ def setq():
 #         :END:
 
 @defknown((intern("QUOTE")[0], " ", (_form, (_for_matchers_xform, identity, _macroexpander))))
-def quote():
+class quote(known):
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
         def prologuep(_):          return nil
@@ -8803,7 +8763,7 @@ def _do_multiple_value_call(fn, values_frames):
         return fn(*reduce(lambda acc, f: acc + f[1:], values_frames, []))
 
 @defknown
-def multiple_value_call():
+class multiple_value_call(known):
         ## We might start considering the argument forms for the values queries,
         ## once we get into the partial evaluation affairs..
         def nvalues(func, *_):
@@ -8835,7 +8795,7 @@ def multiple_value_call():
 
 @defknown((intern("PROGN")[0],
             1, [(_notlead, "\n"), _form]))
-def progn():
+class progn(known):
         def nvalues(*body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def prologuep(*body):          return _ir_body_prologuep(body)
@@ -8857,7 +8817,7 @@ def progn():
 @defknown((intern("IF")[0], " ", _form,
              3, _form,
              (_maybe, "\n", _form)))
-def if_():
+class if_(known):
         def nvalues(test, consequent, antecedent):
                 nconseq, nante = _ir_nvalues(consequent), _ir_nvalues(antecedent)
                 return (nconseq             if nconseq == nante                      else
@@ -8891,7 +8851,7 @@ def if_():
 
 @defknown((intern("LET")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
             1, [(_notlead, "\n"), (_bound, _form)]))
-def let():
+class let(known):
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
@@ -8935,7 +8895,7 @@ def let():
 @defknown((intern("FLET")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), _form],),
                                                          1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), (_bound, _form)]))
-def flet():
+class flet(known):
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
@@ -8980,7 +8940,7 @@ def flet():
 @defknown((intern("LABELS")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), (_bound, _form)],),
                                                           1, [(_notlead, "\n"), (_bound, _form)])],),
            1, [(_notlead, "\n"), (_bound, _form)]))
-def labels():
+class labels(known):
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
@@ -9027,7 +8987,7 @@ def labels():
 _intern_and_bind_names_in_module("SETF")
 
 @defknown
-def function():
+class function(known):
         ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
@@ -9088,7 +9048,7 @@ behavior."""
 
 @defknown((intern("UNWIND-PROTECT")[0], " ", _form,
             1, [(_notlead, "\n"), _form]))
-def unwind_protect():
+class unwind_protect(known):
         def nvalues(form, *unwind_body):            return _ir_nvalues(form)
         def nth_value(n, orig, form, *unwind_body): return list__(unwind_protect, _ir_nth_value(n, form),
                                                                   _consify_linear(unwind_body))
@@ -9113,7 +9073,7 @@ def unwind_protect():
 @defknown((intern("MACROLET")[0], " ", ([(_notlead, "\n"), (_name, " ", ([(_notlead, " "), _form],),
                                                              1, [(_notlead, "\n"), _form])],),
             1, [(_notlead, "\n"), (_bound, _form)]))
-def macrolet():
+class macrolet(known):
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
@@ -9139,7 +9099,7 @@ def macrolet():
 
 @defknown((intern("SYMBOL-MACROLET")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
             1, [(_notlead, "\n"), (_bound, _form)]))
-def symbol_macrolet():
+class symbol_macrolet(known):
         def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(bindings, *body):
@@ -9167,7 +9127,7 @@ def symbol_macrolet():
 
 @defknown((intern("BLOCK")[0], " ", _name,
            [1, (_bound, _form)],))
-def block():
+class block(known):
         def nvalues(name, *body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, name, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(name, *body):
@@ -9203,7 +9163,7 @@ def block():
 #         :END:
 
 @defknown((intern("RETURN-FROM")[0], " ", _name, (_maybe, " ", _form)))
-def return_from():
+class return_from(known):
         def nvalues(_, value):            return _ir_nvalues(value)
         def nth_value(n, orig, _, value): return _ir_nth_value(n, value)
         def prologuep(_, value):          return _ir_prologue_p(value)
@@ -9226,7 +9186,7 @@ def return_from():
 
 @defknown((intern("CATCH")[0], " ", _form,
            1, [(_notlead, "\n"), (_bound, _form)]))
-def catch():
+class catch(known):
         ## Critical Issue CATCH-MULTIPLE-VALUES-NOT-IMPLEMENTED
         def nvalues(_, *body):              return 1 if not body else _not_implemented()
         def nth_value(n, orig, tag, *body): return (_not_implemented()      if body             else
@@ -9250,7 +9210,7 @@ def catch():
 #         :END:
 
 @defknown((intern("THROW")[0], " ", _form, (_maybe, " ", _form)))
-def throw():
+class throw(known):
         def nvalues(_, value):            return _ir_nvalues(value)
         def nth_value(n, orig, _, value): return (list_(progn, tag, _ir_nth_value(value)) if _ir_effects(tag) else
                                                   _ir_nth_value(value))
@@ -9280,7 +9240,7 @@ _intern_and_bind_names_in_module("%NXT-LABEL")
 
 ## Unregistered Issue COMPLIANCE-TAGBODY-TAGS-EXEMPT-FROM-MACROEXPANSION
 @defknown((intern("TAGBODY")[0], ["\n", (_bound, _form)],))
-def tagbody():
+class tagbody(known):
         def nvalues(*tags_and_forms):            return 1
         def nth_value(_, orig, *tags_and_forms): return (nil if not any(_ir_effects(f) for f in tags_and_forms
                                                                         if isinstance(f, symbol_t)) else
@@ -9343,7 +9303,7 @@ def tagbody():
 #         :END:
 
 @defknown((intern("GO")[0], " ", (_typep, symbol_t)))
-def go():
+class go(known):
         def nvalues(_):            return 0
         def nth_value(n, orig, _): return None
         def prologuep(_):          return nil
@@ -9370,7 +9330,7 @@ def go():
                                                 _load_toplevel,
                                                 _execute)],),
             1, [(_notlead, "\n"), _form]))
-def eval_when():
+class eval_when(known):
         """eval-when (situation*) form* => result*
 
 Arguments and Values:
@@ -9429,7 +9389,7 @@ when EVAL-WHEN appears as a top level form."""
 #         :END:
 
 @defknown((intern("THE")[0], " ", _form, " ", _form))
-def the_():
+class the_(known):
         def nvalues(type, form):            _not_implemented()
         def nth_value(n, orig, type, form): _not_implemented()
         def prologuep(type, form):          return _ir_prologue_p(form)
@@ -9447,33 +9407,13 @@ def the_():
 #         :END:
 
 @defknown((intern("LOAD-TIME-VALUE")[0], " ", _form, (_maybe, " ", (_typep, (member_t, t, nil)))))
-def load_time_value():
+class load_time_value(known):
         def nvalues(form, read_only_p):            _not_implemented()
         def nth_value(n, orig, form, read_only_p): _not_implemented()
         def prologuep(form, read_only_p):          return _ir_prologue_p(form)
         def lower(form, read_only_p):              _not_implemented()
         def effects(form, read_only_p):            _not_implemented()
         def affected(form, read_only_p):           _not_implemented()
-
-# LET*
-#         :PROPERTIES:
-#         :K:        [ ]
-#         :VALUES:   [ ]
-#         :EFFECTS:  [ ]
-#         :IMPL:     [ ]
-#         :CL:       [X]
-#         :END:
-
-@defknown((intern("LET*")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],), ## XXX: wrong SEX!
-            1, [(_notlead, "\n"), (_bound, _form)]),
-          name = intern("LET*")[0])
-def let_():
-        def nvalues(bindings, *decls_n_body):            _not_implemented()
-        def nth_value(n, orig, bindings, *decls_n_body): _not_implemented()
-        def prologuep(bindings, *decls_n_body):          return not not bindings or _ir_body_prologuep(decls_n_body)
-        def lower(bindings, *decls_n_body):              _not_implemented()
-        def effects(bindings, *decls_n_body):            _not_implemented()
-        def affected(bindings, *decls_n_body):           _not_implemented()
 
 # PROGV
 #         :PROPERTIES:
@@ -9485,7 +9425,7 @@ def let_():
 #         :END:
 
 @defknown((intern("PROGV")[0], " ", _form, " ", _form, ([(_notlead, "\n"), (_bound, _form)],)))
-def progv_():
+class progv_(known):
         def nvalues(_, __, *body):                    return 1 if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, names, values, *body): return (_ir_nth_valueify_last_subform(n, orig)
                                                               if body                     else
@@ -9513,7 +9453,7 @@ def progv_():
 #         :END:
 
 @defknown((intern("LOCALLY")[0], (["\n", (_bound, _form)],)))
-def locally():
+class locally(known):
         def nvalues(*decls_n_body):            _not_implemented()
         def nth_value(n, orig, *decls_n_body): _not_implemented()
         def prologuep(*decls_n_body):          return _ir_body_prologuep(decls_n_body)
@@ -9531,7 +9471,7 @@ def locally():
 #         :END:
 
 @defknown((intern("MULTIPLE-VALUE-PROG1")[0], " ", _form, (["\n", _form],)))
-def multiple_value_prog1():
+class multiple_value_prog1(known):
         def nvalues(first_form, *forms):            return _ir_nvalues(first_form)
         def nth_value(n, orig, first_form, *forms):
                 return (_ir_nth_value(n, first_form) if not any(_ir_effects(f) for f in forms) else
@@ -9553,7 +9493,7 @@ def multiple_value_prog1():
 #         :END:
 
 @defknown
-def ref():
+class ref(known):
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
         def prologuep(_):          return nil
@@ -9584,7 +9524,7 @@ def ref():
 #         :END:
 
 @defknown((intern("NTH-VALUE")[0], " ", _form, " ", _form))
-def nth_value():
+class nth_value(known):
         def nvalues(_, __):    return 1
         def nth_value(n, orig, form_n, form):
                 return (list_(nth_value, n, orig) if not (integerp(n) and integerp(form_n)) else ## Give up.  Too early?
@@ -9607,7 +9547,7 @@ def nth_value():
 #         :END:
 
 @defknown((intern("PROTOLOOP")[0], ["\n", _form]))
-def protoloop():
+class protoloop(known):
         "This was implemented exclusively for the sake of TAGBODY."
         ## Critical Issue PROTOLOOP-MULTIPLE-VALUES-NOT-IMPLEMENTED
         def nvalues(*_):            return _not_implemented()
@@ -9642,7 +9582,7 @@ class _compiler_lambda():
 
 @defknown((lambda_, " ", ([(_notlead, " "), (_or, _name, (_name, _form))],),
             1, [(_notlead, "\n"), (_bound, _form)]))
-def lambda_():
+class lambda_(known):
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
         def binds(lambda_list, *body, name = nil, decorators = nil, evaluate_defaults_early = nil):
@@ -9743,7 +9683,7 @@ def lambda_():
 #         :END:
 
 @defknown((__apply, " ", _form, " ", _form, [" ", _form]))
-def apply():
+class apply(known):
         def nvalues(func, _, *__):            return _ir_function_form_nvalues(func)
         def nth_value(n, orig, func, _, *__): return _ir_function_form_nth_value_form(n, func, orig)
         def prologuep(func, arg, *args):      return any(_ir_prologue_p(x) for x in (func, arg) + args)
