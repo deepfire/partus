@@ -113,6 +113,8 @@ class prim(metaclass = primclass):
                 self.args, self.keys = args, keys
         def __str__(self):
                 return print_primitive(self)
+        def __repr__(self):
+                return print_primitive(self)
         @classmethod
         def find_method(cls, tags):
                 "Find *the* single method matching all tags."
@@ -661,6 +663,7 @@ class literal_hash_table_expr(expr):
           prim))
 class lambda_(indet):
         "NOTE: default value form evaluation is not delayed."
+        "Must track nonlocality."
         a_expr = defstrategy(test = (lambda pyargs, body, name = nil, decorators = []:
                                              exprp(body) and not (name or decorators)),
                              keys = expr)

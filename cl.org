@@ -8031,39 +8031,6 @@ Examples:
                         finally:
                                 summarize_compilation_unit(not succeeded_p)
                                 # _debug_printf("############################################  ..left %s", id)
-
-def _compilation_unit_prologue(funs, syms, gfuns, gvars):
-        """Emit a prologue for a standalone unit referring to SYMBOLS."""
-        def import_prologue():
-                return p.help(p.import_(p.name("cl")))[0]
-        def symbol_prologue():
-                def wrap(x):
-                        return _defaulted(x, _consify_star(ref, (quote, ("None",))))
-                with progv(_compiler_debugless_traceless_frame):
-                 symbols = sorted(funs | syms, key = str)
-                 prologue = list_(progn,
-                                  _ir_cl_module_call(
-                                 "_fop_make_symbol_available",
-                                 _ir_funcall("globals"),
-                                 "COMMON-LISP", "VECTOR", _ensure_function_pyname(__vector),
-                                 list_(ref, list_(quote, list_("None"))),
-                                 True, False),
-                                  _ir_cl_module_call(
-                                 "_fop_make_symbols_available",
-                                 _ir_funcall("globals"),
-                                 _ir_funcall(__vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else _consify_star(ref, (quote, ("None",)))
-                                                              for sym in symbols )),
-                                 _ir_funcall(__vector, *tuple(symbol_name(sym)          for sym in symbols )),
-                                 _ir_funcall(__vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
-                                 _ir_funcall(__vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                                 _ir_funcall(__vector, *tuple(sym in gfuns              for sym in symbols )),
-                                 _ir_funcall(__vector, *tuple(sym in gvars              for sym in symbols ))))
-                 # _debug_printf("prologue:\n%s", _pp_consly(prologue))
-                 return _lower(prologue,
-                               ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
-                               lexenv = _make_null_lexenv(nil))
-        return (import_prologue() +
-                symbol_prologue())
 #+end_src
 
 ***** Scopes
@@ -8215,7 +8182,8 @@ def _make_lexenv_funcframe(clambda, tns, bindings):
         - function :: %fn objects
         - block :: catch tag nonce
 
-*** Target environment setup machinery
+*** Target environment
+***** Setup machinery
 
 #+BEGIN_SRC python
 ## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
@@ -8256,6 +8224,26 @@ def _fop_make_symbols_available(globals, package_names, symbol_names,
                                 gfunps[2:], gvarps[2:]):
                 _fop_make_symbol_available(globals, *fop_msa_args)
 #+END_SRC
+
+***** Call support
+
+#+begin_src python
+def _parse_keyword_args(rest):
+        acc = dict()
+        for k, v in zip(rest[0::2], rest[1::2]):
+                if k not in acc:
+                        acc[k] = v
+        return acc
+
+__allow_other_keys = intern("ALLOW-OTHER-KEYS", __keyword)[0]
+
+def _validate_keyword_args(allowed_set, keymap):
+        if __allow_other_keys in keymap and keymap[__allow_other_keys] is not nil:
+                return
+        wrong_keys = keymap.keys() - allowed_set
+        if wrong_keys:
+                error("Unknown &KEY arguments: %s", ", ".join(wrong_keys))
+#+end_src
 
 *** Primitive IR
 
@@ -8339,11 +8327,8 @@ def _ir_funcall(func, *args):
                                        func)),
                  *(args + (l(quote, nil),)))
 
-def _ir_cl_module_name(name):
-        return list_("cl", name)
-
-def _ir_cl_module_call(name, *ir_args):
-        return _ir_funcall(list_(quote, _ir_cl_module_name(name)), *ir_args)
+def _ir_cl_call(name, *ir_args):
+        return _ir_funcall(list_(quote, list_("cl", name)), *ir_args)
 
 def _ir_lambda_to_def(name, lambda_expression):
         return _ir_args(lambda_, the(symbol_t, name), *_vectorise_linear(lambda_expression[1]),
@@ -8427,7 +8412,8 @@ The NAME is bound, in separate namespaces, to:
                 sym.known = cls
                 return sym # pass through -- let the symbol be bound to the name
         def _defknown(cls, name = name, metasex = metasex_or_class):
-                _, sym, pyname = _interpret_toplevel_value(cls, lambda x: isinstance(x, type))
+                pyname = cls.__name__
+                sym = metasex[0] if metasex else intern(_frost.python_name_lisp_symbol_name(pyname))[0]
                 name    = _defaulted(name, sym, symbol_t)
                 metasex = _defaulted(metasex, _compute_default_known_metasex(name))
                 return do_defknown(cls, name, pyname, metasex)
@@ -9192,10 +9178,10 @@ def DEFMACRO(name, lambda_list, *body):
                  # (function, (def_, name, lambda_list) + body),
                  l(ir_args,
                    l_(lambda_, lambda_list, _consify_linear(body)),
-                   l("decorators", _ir_cl_module_call("_set_macro_definition", _ir_funcall("globals"),
-                                                      l(quote, name),
-                                                      l(quote, nil # l_(name, lambda_list, _consify_linear(body))
-                                                        ))),
+                   l("decorators", _ir_cl_call("_set_macro_definition", _ir_funcall("globals"),
+                                               l(quote, name),
+                                               l(quote, nil # l_(name, lambda_list, _consify_linear(body))
+                                                 ))),
                    ["name", name]))
 
 #+end_src
@@ -9224,7 +9210,7 @@ class known():
 
 #+begin_src python +n
 @defknown((ir_args, "\n", _form, ["\n", (_cons, (_typep, str), _form)],))
-def ir_args():
+class ir_args(known):
         def prologuep(known, *_):  return _ir_prologue_p(known)
         def lower(*_):             error("Invariant failed: %s is not meant to be lowered.", ir_args)
         def effects(*ir,  **args): return _ir_effects(ir)
@@ -9242,7 +9228,7 @@ def _ir(*ir, **keys):
         if invalid_params:
                 error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
                       known.name, known.lower_params, invalid_params)
-        return list__(ir_args, ir, _consify_linear([ [k, v] for k, v in keys.items() ]))
+        return list__(ir_args, _consify_linear(ir), _consify_linear([ [k, v] for k, v in keys.items() ]))
 
 def _ir_args_when(when, ir, **parameters):
         return _ir(*ir, **parameters) if when else ir
@@ -9302,7 +9288,9 @@ def _ir_prologue_p(form):
                                                              _form_known(form))
 def _ir_binds(form):
         # As of early October 2012, used only by macroexpander.
-        return (lambda known: (known.binds(*_vectorise_linear(form[1])               if known else
+        return (lambda known: # _debug_printf("known %s, dir: %s", known, _without_condition_system(
+                              #   lambda: list(sorted(known.__dict__.keys())))) or
+                (known.binds(*_vectorise_linear(form[1])                             if known else
                                dict())))                    (_form_known(form))
 def _ir_effects(form):
         return (lambda known: (known.effects(*_vectorise_linear(form[1]))            if known else
@@ -9349,83 +9337,99 @@ def _ir_body_prologuep(body):
 _intern_and_bind_names_in_module(
         "&WHOLE", "&OPTIONAL", "&REST", "&BODY", "&KEY", "&ALLOW-OTHER-KEYS", "&AUX", "&ENVIRONMENT")
 
-def _ir_prepare_lambda_list(lambda_list, context, allow_defaults = None, macrop = nil):
+def _ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macrop = nil):
         ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
-        if not listp(lambda_list):
+        if not listp(orig_lambda_list):
                 error("In %s: lambda list must be a proper list, was: %s.", context, _pp_consly(lambda_list))
-        lastcdr = last(lambda_list)
+        lastcdr = last(orig_lambda_list)
         improper = lastcdr and lastcdr[1] is not nil
-        if not macrop:
-                if improper:
-                        error("Dotted lambda list provided where one is not allowed: %s", _pp_consly(lambda_list))
-                lambda_list = _vectorise_linear(lambda_list)
-        else:
-                lambda_list = _vectorise_linear
-        def valid_parameter_specifier_p(x): return isinstance(x, symbol_t) and symbol_package(x) is not __keyword
-        # test, failure_message = ((lambda x: valid_parameter_specifier_p(x) or (isinstance(x, tuple) and len(x) == 2 and
-        #                                                                        valid_parameter_specifier_p(x[0])),
-        #                          "In %s: lambda lists can only contain non-keyword symbols and two-element lists, with said argument specifiers as first elements: %s.")
-        #                          if allow_defaults else
-        #                          (valid_parameter_specifier_p, "In %s: lambda list must consist of non-keyword symbols: %s.  Default values are forbidden in this context."))
+        ## Normalise:
+        lambda_list = ((_vectorise_linear(butlast(orig_lambda_list)) + [lastcdr[0], _rest, lastcdr[1]]) if improper else
+                       _vectorise_linear(orig_lambda_list))
+        if not macrop and improper:
+                error("Dotted lambda list provided where one is not allowed: %s", _pp_consly(lambda_list))
         ### 0. locate lambda list keywords
         lambda_words = [_whole, _optional, _rest, _body, _key, _allow_other_keys, _aux, _environment]
         wholepos, optpos,  restpos,  bodypos,  keypos, aokpos, auxpos, envpos = posns = \
             [ (lambda_list.index(x) if x in lambda_list else None)
               for x in lambda_words ]
-        ### 1. ensure proper order of provided lambda list keywords
         wholeposp, optposp, restposp, bodyposp, keyposp, aokposp, auxposp, envposp = [ x is not None for x in posns ]
-        def test_lambda_list_word_order():
-                toptpos     = optpos or 0
-                trestpos    = restpos or toptpos
-                tbodypos    = bodypos or toptpos
-                tkeypos     = keypos or trestpos
-                tauxpos     = keypos or trestpos
-                if restposp and bodyposp:
-                        error("In %s: &BODY and &REST cannot coexist in a single lambda list.")
-                if not toptpos <= trestpos <= tkeypos:
-                        error("In %s: %s, %s, %s and %s must appear in that order in the lambda list, when specified.",
-                              context, *lambda_words)
-        test_lambda_list_word_order()
+        fixedpos  = 0 if not wholeposp else 2
+        nauxpos = len(lambda_list)
+        rbposp = restposp or bodyposp
+        rbpos = (restpos if restposp else
+                 bodypos if bodyposp else
+                 None)
+        ### 1. ensure proper order of provided lambda list keywords
+        twholepos   = wholepos or 0
+        toptpos     = optpos or twholepos
+        trbpos      = rbpos or toptpos
+        tkeypos     = keypos or trbpos
+        taokpos     = aokpos or tkeypos
+        tauxpos     = auxpos or taokpos
+        naokpos     = _defaulted(auxpos, nauxpos)
+        nkeypos     = _defaulted(aokpos, naokpos)
+        nrbpos      = _defaulted(keypos, nkeypos)
+        noptpos     = _defaulted(rbpos, nrbpos)
+        nwholepos   = _defaulted(optpos, noptpos)
+        nfixpos     = nwholepos
+        if wholeposp and not macrop:
+                error("In %s: ordinary lambda list does not allow the &WHOLE keyword.", context)
+        if restposp and bodyposp:
+                error("In %s: &BODY and &REST cannot coexist in a single lambda list.", context)
+        if not twholepos <= toptpos <= trbpos <= tkeypos <= taokpos <= tauxpos:
+                error("In %s: %s, %s, %s, %s, %s, %s and %s must appear in the lambda list in that precise order, whenever specified.",
+                      context, *lambda_words[:-1])
+        if (wholeposp and nwholepos - wholepos < 2 or
+            rbposp    and nrbpos - rbpos != 2      or
+            aokposp   and naokpos - aokpos != 0):
+                error("In %s: found garbage instead of a lambda list: %s", context, _pp_consly(orig_lambda_list))
+#                 _debug_printf(
+# """(wholeposp %s and wholepos %s - nwholepos %s %s < 2 or
+#  rbposp %s   and rbpos %s - nrbpos %s %s != 2      or
+#  aokposp %s  and aokpos %s - naokpos %s %s != 0)""",
+# wholeposp, wholepos, nwholepos, wholeposp and wholepos - nwholepos,
+# rbposp, rbpos, nrbpos, wholeposp and rbpos - nrbpos,
+# aokposp, aokpos, naokpos, wholeposp and aokpos - naokpos)
         # _locals_printf(locals(),
         #                "optpos",  "restpos",  "keypos",
         #                "optposp", "restposp", "keyposp",
         #                "toptpos", "trestpos", "tkeypos")
-        ### 2. ensure correct amount of names for provided lambda list keywords
-        if (restposp or bodyposp) and (keyposp and (keypos - restpos != 1)):
-                error("In %s: found garbage instead of a lambda list: %s", context, lambda_list)
-        ### 3. compute argument specifier sets, as determined by provided lambda list keywords
-        _keys = lambda_list[keypos + 1:] if keypos else ()
-        keys, keydefs = (list(_ensure_car(x)
-                              for x in _keys),
-                         list((second(x) if consp(x) else
-                               nil)
-                              for x in _keys))
-        rest_or_body = (lambda_list[restpos + 1] if restposp else
-                        lambda_list[bodypos + 1] if bodyposp else
-                        None)
-        optional = lambda_list[optpos + 1:bodypos or restpos or keypos or None] if optposp else []
-        optional, optdefs = (list(_ensure_car(x)
-                                  for x in optional),
-                             list((second(x) if consp(x) else
-                                   nil)
-                                  for x in optional))
-        fixed = lambda_list[0:_defaulted(optpos, (restpos    if restposp    else
-                                                  bodypos    if bodyposp    else
-                                                  keypos     if keyposp     else None))]
+        ### 2. compute argument specifier sets, as determined by provided lambda list keywords
+        def parse_maybe_defaulted(xs):
+                return ([ _ensure_car(x)
+                          for x in xs ],
+                        [ (second(x) if consp(x) else nil)
+                          for x in xs ])
+        whole  = lambda_list[wholepos + 1] if wholeposp else None
+        fixed = lambda_list[fixedpos:nfixpos]
+        optional, optdefs = parse_maybe_defaulted(lambda_list[optpos + 1:noptpos] if optposp else [])
+        rest_or_body  = lambda_list[rbpos + 1] if rbposp else None
+        keys, keydefs = parse_maybe_defaulted(lambda_list[keypos + 1:nkeypos] if keyposp else [])
         if not all(isinstance(x, symbol_t) for x in fixed):
                 viola = [ x for x in fixed if not symbolp(x) ][0] ## find-if
                 error("In %s: fixed arguments must be symbols, but %s (of type %s) wasn't one.",
                       context, viola, type(viola).__name__)
-        total = fixed + optional + ([rest_or_body] if rest_or_body else []) + keys
-        ### 4. validate syntax of the provided individual argument specifiers
-        if not all(valid_parameter_specifier_p(x) for x in total):
-                error(failure_message, context, lambda_list)
-        ### 5. check for duplicate lambda list specifiers
+        aux, auxforms = parse_maybe_defaulted(lambda_list[auxpos + 1:] if auxposp else [])
+        total = (([whole] if wholeposp else [])
+                 + fixed
+                 + optional
+                 + ([rest_or_body] if rbposp else [])
+                 + keys
+                 + aux)
+        ### 3. validate syntax of the provided individual argument specifiers
+        bad_paramspecs = [ x for x in total
+                           if not isinstance(x, symbol_t) or symbol_package(x) is __keyword ]
+        if bad_paramspecs:
+                error("In %s, lambda list %s: bad parameter specifiers: %s",
+                      context, _pp_consly(orig_lambda_list), ", ".join(str(x) for x in bad_paramspecs))
+        ### 4. check for duplicate lambda list specifiers
         if len(total) != len(set(total)):
-                error("In %s: duplicate parameter names in lambda list: %s.", context, lambda_list)
+                error("In %s: duplicate parameter names in lambda list: %s.", context, orig_lambda_list)
         return (total,
-                (fixed, optional, rest_or_body, keys),
-                (optdefs, keydefs))
+                (whole, fixed, optional, rest_or_body, keys, aux),
+                (optdefs, keydefs, auxforms),
+                aokposp is not None)
 
 def _lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_defaults):
         assert len(optional) == len(opt_defaults)
@@ -9452,7 +9456,7 @@ def _rewritep(x):                     return isinstance(x, tuple) and isinstance
 
 def _pyref_p(x):
         return (consp(x) and x[0] is quote and consp(x[1])
-                     and consp(x[1][0]) and isinstance(x[1][0][0], str))
+                and consp(x[1][0]) and isinstance(x[1][0][0], str))
 
 def _primitivise_pyref(x):
         return _lowered(p.prim_attr_chain([ p.name(x[1][0][0]) ]
@@ -9488,8 +9492,8 @@ def _primitivise_pyref(x):
 ### BLOCK                -> =(PROGN)       |                          NO-RETURN-FROM
 ###                         =(CATCH,QUOTE)                            HAS-RETURN-FROM
 ### RETURN-FROM          -> =(THROW,QUOTE)
-### CATCH                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
-### THROW                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### CATCH                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_call()
+### THROW                -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_call()
 ### TAGBODY              -> --not-implemented--
 ### GO                   -> --not-implemented--
 ### EVAL-WHEN            -> ∅     |                                   EXECUTE
@@ -9501,7 +9505,7 @@ def _primitivise_pyref(x):
 ### LOCALLY              -> --not-implemented--
 ### MULTIPLE-VALUE-PROG1 -> --not-implemented--
 ### REF                  -> ∅
-### NTH-VALUE            -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_module_call()
+### NTH-VALUE            -> =(APPLY,QUOTE)                                                      ## Via _ir_cl_call()
 ### DEF                  -> BLOCK,QUOTE
 ### LAMBDA               -> PROGN                      |              EXPR-BODY/DEFAULTS-NO-OPTIONAL-NO-KEYS
 ###                         PROGN                      |              EXPR-BODY/DEFAULTS-EARLY-EVALUATED-OPTIONAL-OR-KEYS
@@ -9712,7 +9716,7 @@ class let(known):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (listp(bindings) and
                         every(lambda x: isinstance(x, symbol_t) or consp(x), bindings)):
-                        error("LET: malformed bindings: %s.", bindings)
+                        error("Malformed LET bindings: %s.", bindings)
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
                 # Normalisation is vain -- EFFECTS, AFFECTED and BINDS all need it..
                 # Unregistered Issue NORMALISING-PREMACRO-REQUIRED-FOR-KNOWN-PREPROCESSING
@@ -9729,6 +9733,54 @@ class let(known):
                 return any(_ir_effects(f) for f in tuple(x[1] for x in bindings) + body)
         def affected(bindings, *body):
                 return any(_ir_affected(f) for f in tuple(x[1] for x in bindings) + body)
+#+end_src
+
+******* LET*
+        :PROPERTIES:
+        :K:        [ ]
+        :VALUES:   [X]
+        :EFFECTS:  [X]
+        :IMPL:     [X]
+        :CL:       [X]
+        :END:
+
+#+begin_src python
+@defknown((intern("LET*")[0], " ", ([(_notlead, "\n"), (_name, " ", _form)],),
+            1, [(_notlead, "\n"), (_bound, _form)]))
+class let_(known):
+        def nvalues(bindings, *body):            return 1   if not body else _ir_nvalues(body[-1])
+        def nth_value(n, orig, bindings, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
+        def binds(bindings, *body):
+                bindings = (((b,    None) if isinstance(b, symbol_t) else
+                             (b[0], b[1][0])) for b in _vectorise_linear(bindings))
+                return { variable: { _variable_binding(name, _var_tn_no_unit(name), variable, None)
+                                     for name, _ in bindings } }
+        def prologuep(bindings, *body):
+                return not not bindings or _ir_body_prologuep(body)
+        def lower(bindings, *body, headp = None):
+                # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
+                if not (listp(bindings) and
+                        every(lambda x: isinstance(x, symbol_t) or consp(x), bindings)):
+                        error("Malformed LET* bindings: %s.", bindings)
+                # Unregistered Issue PRIMITIVE-DECLARATIONS
+                # Normalisation is vain -- EFFECTS, AFFECTED and BINDS all need it..
+                # Unregistered Issue NORMALISING-PREMACRO-REQUIRED-FOR-KNOWN-PREPROCESSING
+                normalised = _vectorise_linear(bindings)
+                _check_no_locally_rebound_constants(x[0] for x in normalised)
+                tns, frame = _variable_frame_bindings(symbol_value(_compiler_lambda_),
+                                                      list(zip(*normalised))[0] if normalised else [])
+                return _lowered(p.let_(list((tn, _primitivise(form))
+                                            for tn, (_, (form, __)) in zip(tns, normalised)),
+                                       p.progn(*(_with_lexenv_frame(frame,
+                                                                    lambda: _primitivise(x))
+                                                 for x in body)),
+                                       headp = headp))
+        def effects(bindings, *body):
+                ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
+                return any(_ir_effects(f) for f in tuple(x[1] for x in bindings) + body)
+        def affected(bindings, *body):
+                return any(_ir_affected(f) for f in tuple(x[1] for x in bindings) + body)
+
 #+end_src
 
 ******* FLET
@@ -10461,6 +10513,27 @@ class protoloop(known):
         def affected(*body):        return any(_ir_affected(x) for x in body)
 #+end_src
 
+******* PRIM
+        :PROPERTIES:
+        :IMPL:     [X]
+        :K:        [ ]
+        :VALUES:   [X]
+        :EFFECTS:  [X]
+        :CL:       [ ]
+        :END:
+
+#+begin_src python
+@defknown((intern("PRIM")[0], " ", (_typep, t), [(_notlead, " "), _form]))
+class prim(known):
+        def nvalues(*_):            return 1
+        def nth_value(n, orig, *_): return orig if n is 0 else nil
+        def prologuep(*_):          return "Maybe.."
+        def lower(prim, *args):     return prim(*(_primitivise(x) for x in args))
+        def effects(*_):            return t
+        def affected(*_):           return t
+
+#+end_src
+
 ******* LAMBDA
         :PROPERTIES:
         :K:        [ ]
@@ -10473,15 +10546,20 @@ class protoloop(known):
 #+begin_src python
 class _compiler_lambda():
         __slots__ = ("name", "lambda_list",
-                     "fixed", "optional", "rest", "keys", "optdefs", "keydefs",
-                     "total_bound", "lower_args",
+                     "args", "whole", "fixed", "optional", "rest", "keys", "aux",
+                     "forms", "optdefs", "keydefs", "auxforms",
+                     "total", "total_types", "value_types",
+                     "allow_other_keys",
                      "nonlocal_refs", "nonlocal_setqs")
         def __init__(self, name, lambda_list):
-                total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
+                total, args, forms, allow_other_keys = _ir_parse_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 _check_no_locally_rebound_constants(total)
                 self.name, self.lambda_list = the(symbol_t, name), the(list_t, lambda_list)
-                (self.fixed, self.optional, self.rest, self.keys), (self.optdefs, self.keydefs) = args, defaults
-                self.total_bound, self.lower_args = total, args + defaults
+                (self.whole, self.fixed, self.optional, self.rest, self.keys, self.aux), \
+                    (self.optdefs, self.keydefs, self.auxforms), \
+                    self.allow_other_keys = args, forms, allow_other_keys
+                self.total, self.args, self.forms = total, args, forms
+                self.total_types, self.value_types = [t] * len(total), t
                 self.nonlocal_refs, self.nonlocal_setqs = set(), set()
 
 @defknown((lambda_, " ", ([(_notlead, " "), (_or, _name, (_name, _form))],),
@@ -10490,92 +10568,111 @@ class lambda_(known):
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
         def binds(lambda_list, *body, name = nil, decorators = nil, evaluate_defaults_early = nil):
-                total, _, __ = _ir_prepare_lambda_list(lambda_list, "LAMBDA")
+                total, _, __, ___ = _ir_parse_lambda_list(lambda_list, "LAMBDA")
                 return { variable: { _variable_binding(name, _var_tn_no_unit(variable), variable, None)
                                      for name in total } }
         def prologuep(lambda_list, *body):
-                total, args, defaults = _ir_prepare_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
+                total, args, defaults, _ = _ir_parse_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 return len(body) < 2 and any( _ir_body_prologuep(x) for x in body + tuple(defaults[0]) + tuple(defaults[1]))
         def lower(lambda_list, *body, name = nil, decorators = nil, evaluate_defaults_early = nil):
-                # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
-                # Unregistered Issue COMPLIANCE-REAL-DEFAULT-VALUES
-                # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-                # Unregistered Issue EMPLOY-THUNKING-TO-REMAIN-AN-EXPRESSION
+                # Unregistered Issue COMPLIANCE-MACRO-LAMBDA-LIST-DESTRUCTURING-AND-ENV
                 clambda = _compiler_lambda(name, lambda_list)
-                args, defaults = (fixed, optional, rest, keys), (optdefs, keydefs) = \
-                    (clambda.fixed, clambda.optional, clambda.rest, clambda.keys), (clambda.optdefs, clambda.keydefs)
-                total = clambda.total_bound
-                constant_defaults_p = all(constantp(x) for x in optdefs + keydefs)
-                must_defer = not (constant_defaults_p or evaluate_defaults_early)
-                tns, lexenv = _variable_frame_bindings(clambda, total)
+                (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
+                    args, forms = clambda.args, clambda.forms
+                ## Optimisations
+                # constant_forms_p = all(constantp(x) for x in optdefs + keydefs + auxforms)
+                #
+                ## Is this simple case valid anymore?
+                # must_defer = not (constant_defaults_p or evaluate_defaults_early)
+                # if not (name or decorators or rest or keys or (must_defer and optional)):
+                #         ## &rest requires listification, at very least
+                #         ## &key and &optional require run-time defaulting
+                #         ## &key require run-time arg parsing
+                #         ## so, the simple case is this..
+                #         _compiler_trace_known_choice(lambda_, lambda_list, "NO-REST-KEYS-FIXED-LAMBDA/NON-DEFERRED-OPTIONALS")
+                #         return _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *clambda.lower_args),
+                #                                   p.progn(*(nonlocal_decl +
+                #                                             prim_body))))
+                # [fn_tn], frame  = (_function_frame_bindings(clambda, [(name, clambda)]) if name else
+                #                    ([nil], nil))
+                ## So, full complexity, head-on?
+                # _compiler_trace_known_choice(lambda_, lambda_list, "FULL-COMPLEXITY-HEAD-ON")
+                opt_gsyms        = [ _gensym_tn("OPT-" + symbol_name(x) + "-")
+                                     for x in optional ]
+                need_rest        = rest or keys ## &key is processed through parsing of *rest
+                rest_gsym        = ((_gensym_tn("REST-" + (symbol_name(rest) if rest else
+                                                           "#TN#") + "-")) if need_rest else
+                                    None)
+                must_check_keys  = keys and not clambda.allow_other_keys
+                keyset_gsym      = gensym("KEYSET-") if must_check_keys else nil
+                key_map_gsym     = gensym("KWHASH") if keys else nil
+                ksyms            = [ _keyword(symbol_name(x)) for x in keys ]
+                unbound_keywords = set()
+                # + ([ p.assert_(p.not_(p.mod(p.funcall(p.blin_ref("len"), rest_gsym.tn),
+                #                             p.integer(2))),
+                #                p.string("In %s: odd number of arguments in &KEY position."
+                #                         % (name or "(LAMBDA)"))) ]
+                #    if keys else [])
+                # + ([ p.import_(p.name("pdb"), p.name("cl")),
+                #      p.funcall(p.impl_ref("_without_condition_system"),
+                #                p.attribute(p.name("pdb"), "set_trace")) ]
+                #    if name and _compiler_function_trapped_p(name) else [])
+                ## 1. _validate_keyword_args, _parse_keyword_args
+                ### This is the biggest victim of IR representation mixing (cons vs. linear-tuple),
+                ### all in the name of enrolling python lambda lists on board.
+                l, l_, a = list_, list__, append
+                xbody = _ir(let_, a(_consify_linear(l(name, l(if_, l(prim, p.eq, gs, l(ref, l(quote, l("None")))),
+                                                              def_expr,
+                                                              gs))
+                                                    for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
+                                    (l(l(rest, _ir_cl_call("_consify_linear", rest_gsym)))
+                                     if rest else nil),
+                                    (l_(l(key_map_gsym, _ir_cl_call("_parse_keyword_args", rest_gsym)),
+                                        _consify_linear(l(name, l(if_, l(prim, p.not_in, ksym, key_map_gsym),
+                                                                  def_expr,
+                                                                  l(prim, p.index, key_map_gsym, ksym)))
+                                                        for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
+                                     
+                                     if keys else nil),
+                                    (l(l(keyset_gsym, _ir_funcall("set", _ir_cl_call("_vectorise_linear",
+                                                                                     a(_ir_funcall(l(function, __list)),
+                                                                                       keys)))),
+                                       l(gensym("DUMMY-"), _ir_cl_call("_validate_keyword_args", keyset_gsym, key_map_gsym)))
+                                     if must_check_keys else nil),
+                                    _consify_linear(l(name, form)
+                                                    for name, form in zip(aux, auxforms))),
+                            *body,
+                            headp = t)
+                ## Lexenv:
+                fnname_tn      = p.name(_unit_function_pyname(name))
+                immediate_args = ([whole] if whole else []) + fixed
+                lexenv = _make_lexenv(
+                        clambda,
+                        kind_funcframe = { function: { _function_binding(name, fnname_tn, function,
+                                                                         _fn(name, clambda.lambda_list)) } } if name else None,
+                        kind_varframe  = { variable: { _variable_binding(x, p.name(_unit_variable_pyname(x)), variable, nil)
+                                                       for x in (immediate_args
+                                                                 + opt_gsyms
+                                                                 + ([rest_gsym] if need_rest else [])) }})
                 with progv({ _lexenv_: lexenv,
                              _compiler_lambda_: clambda }):
-                        prim_body = [ _primitivise(x) for x in body ]
+                        prim_body = _primitivise(xbody)
+                ## Nonlocal references were just collected, capitalise on that:
                 nonlocal_decl = ([ p.nonlocal_([ p.name(_unit_variable_pyname(x))
                                                  for x in sorted(clambda.nonlocal_setqs, key = symbol_name) ]) ]
                                  if clambda.nonlocal_setqs else [])
-                if not (name or decorators or rest or keys or (must_defer and optional)):
-                        ## &rest requires listification, at very least
-                        ## &key and &optional require run-time defaulting
-                        ## &key require run-time arg parsing
-                        ## so, the simple case is this..
-                        _compiler_trace_known_choice(lambda_, lambda_list, "NO-REST-KEYS-FIXED-LAMBDA/NON-DEFERRED-OPTIONALS")
-                        return _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *clambda.lower_args),
-                                                  p.progn(*(nonlocal_decl +
-                                                            prim_body))))
-                ## So, full complexity, head-on?
-                _compiler_trace_known_choice(lambda_, lambda_list, "FULL-COMPLEXITY-HEAD-ON")
-                need_rest = rest or keys ## &key is processed through parsing of *rest
-                gsy_o, gs_r = ([ _gensym_tn("OPT-" + symbol_name(x) + "-") for x in optional ],
-                               ( _gensym_tn("REST-" + (symbol_name(rest) if rest else "#TN#") + "-")) if need_rest else None)
-                ns_o, ns_k = _var_tns(optional), _var_tns(keys)
-                tn_ht = p.genname("KWHASH")
-                nksy_k = [ p.name(_unit_symbol_pyname(_keyword(symbol_name(x)))) for x in keys ]
-                [fn_tn], frame = (_function_frame_bindings(clambda, [(name, clambda)]) if name else
-                                  ([nil], nil))
-                with progv(frame if name else
-                           dict()):
-                        return _lowered(p.lambda_(
-                                        _lower_lambda_list("LAMBDA", *(fixed, gsy_o, gs_r if need_rest else None, [],
-                                                                       [None] * len(gsy_o), [])),
-                                        # We're primed with LET*, but what about nonlocal..
-                                        # ..we need to split them and dispatch the pieces..
-                                        p.progn(
-                                        *(nonlocal_decl
-                                          + ( [ p.assert_(p.not_(p.mod(p.funcall(p.blin_ref("len"), gs_r.tn),
-                                                                       p.integer(2))),
-                                                          p.string("In %s: odd number of arguments in &KEY position."
-                                                                   % (name or "(LAMBDA)"))) ]
-                                              if keys else [] )
-                                          + [ p.let_([(_var_tn(name),
-                                                       p.if_(p.eq(gs.tn, p.name("None")),
-                                                             _primitivise(def_expr),
-                                                             gs.tn))
-                                                      for name, gs, def_expr in zip(optional, gsy_o, optdefs)]
-                                                     + ([p.import_(p.name("pdb"), p.name("cl")),
-                                                         p.funcall(p.impl_ref("_without_condition_system"),
-                                                                   p.attribute(p.name("pdb"), "set_trace")) ]
-                                                        if name and _compiler_function_trapped_p(name) else [])
-                                                     + ([(_var_tn(rest), p.funcall(p.impl_ref("_consify_linear"),
-                                                                                   gs_r.tn))]
-                                                        if rest else [])
-                                                     + ([(tn_ht, p.funcall(p.blin_ref("dict"),
-                                                                           p.funcall(p.blin_ref("zip"),
-                                                                                     p.slice(the(symbol_t, gs_r).tn, p.integer(0), nil,
-                                                                                             p.integer(2)),
-                                                                                     p.slice(gs_r.tn, p.integer(1), nil,
-                                                                                             p.integer(2)))))]
-                                                        if keys else [])
-                                                     + [(ktn, p.if_(p.not_in(ksymtn, tn_ht),
-                                                                    _primitivise(def_expr),
-                                                                    p.index(tn_ht, ksymtn)))
-                                                        for ktn, ksymtn, def_expr in zip(ns_k, nksy_k, keydefs)],
-                                                     p.progn(*prim_body),
-                                                     headp = t) ])),
-                                        name = fn_tn,
-                                        decorators = _xmap_to_vector(_primitivise, decorators)))
+                return _lowered(p.lambda_(_lower_lambda_list("LAMBDA", *(([whole] if whole else []) +
+                                                                         fixed,
+                                                                         opt_gsyms,
+                                                                         rest_gsym if need_rest else None,
+                                                                         [], [None] * len(opt_gsyms), [])),
+                                          p.progn(*nonlocal_decl
+                                                   + [prim_body]),
+                                          name = fnname_tn,
+                                          decorators = _xmap_to_vector(_primitivise, decorators)))
         def effects(*_):            return nil
         def affected(*_):           return nil
+
 #+end_src
 
 ******* APPLY
@@ -10853,6 +10950,39 @@ def _compile(form, lexenv = nil):
 ## @defknown -> _lower
 #
 
+def _compilation_unit_prologue(funs, syms, gfuns, gvars):
+        """Emit a prologue for a standalone unit referring to SYMBOLS."""
+        def import_prologue():
+                return p.help(p.import_(p.name("cl")))[0]
+        def symbol_prologue():
+                def wrap(x):
+                        return _defaulted(x, _consify_star(ref, (quote, ("None",))))
+                with progv(_compiler_debugless_traceless_frame):
+                 symbols = sorted(funs | syms, key = str)
+                 prologue = list_(progn,
+                                  _ir_cl_call(
+                                 "_fop_make_symbol_available",
+                                 _ir_funcall("globals"),
+                                 "COMMON-LISP", "VECTOR", _ensure_function_pyname(__vector),
+                                 list_(ref, list_(quote, list_("None"))),
+                                 True, False),
+                                  _ir_cl_call(
+                                 "_fop_make_symbols_available",
+                                 _ir_funcall("globals"),
+                                 _ir_funcall(__vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else _consify_star(ref, (quote, ("None",)))
+                                                              for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(symbol_name(sym)          for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(sym in gfuns              for sym in symbols )),
+                                 _ir_funcall(__vector, *tuple(sym in gvars              for sym in symbols ))))
+                 # _debug_printf("prologue:\n%s", _pp_consly(prologue))
+                 return _lower(prologue,
+                               ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
+                               lexenv = _make_null_lexenv(nil))
+        return (import_prologue() +
+                symbol_prologue())
+
 def _with_symbol_unit_magic(body, standalone = nil, id = "UNIT-"):
         "Ensure symbol availability, for the code emitted by BODY, by prepending it with name initialisers."
         def in_compilation_unit():
@@ -11052,11 +11182,11 @@ def lisp(function):
 def _compile_lambda_as_named_toplevel(name, lambda_expression, lexenv, globalp = None, macrop = None):
         "There really is no other way.  Trust me.  Please."
         form = _ir_args_when(globalp, _ir_lambda_to_def(name, lambda_expression),
-                             decorators = list_(_ir_cl_module_call("_set_macro_definition",
-                                                                   _ir_funcall("globals"), name, lambda_expression)
+                             decorators = list_(_ir_cl_call("_set_macro_definition",
+                                                            _ir_funcall("globals"), name, lambda_expression)
                                                 if macrop else
-                                                _ir_cl_module_call("_set_function_definition",
-                                                                   _ir_funcall("globals"), name, lambda_expression)))
+                                                _ir_cl_call("_set_function_definition",
+                                                            _ir_funcall("globals"), name, lambda_expression)))
         bytecode = _process_as_loadable(_linearise_processor(_compile), form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
         function, bad_gls, good_gls = _load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!

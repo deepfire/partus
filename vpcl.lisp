@@ -16,14 +16,15 @@
                              'nil)))
        'nil)))
 
-;; (eval-when (:compile-toplevel)
-;;   (apply (function (quote ("cl" "_dbgsetup"))) 'nil))
+(eval-when (:compile-toplevel)
+  (apply (function (quote ("cl" "_dbgsetup"))) 'nil))
 
-(defun %test-defun (&optional (basis 0) &key (x 1) y (z 3))
-  (format t "Hello from DEFUN TEST basis:%s  x:%s  y:%s  z:%s" basis x y z)
+(defun %test-defun (&optional (basis 0) &key (x 1) y (z 3) &aux
+                    (fmtargs (list basis x y z)))
+  (apply (function format) t "Hello from DEFUN TEST basis:%s  x:%s  y:%s  z:%s" fmtargs)
   (terpri))
 
-(%test-defun 42 :y 2 :x 3.14159)
+(%test-defun 42 :y 2 :x 3.14159 :ignore "ignored")
 (%test-defun)
 
 (defmacro when (test &body body)
