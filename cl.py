@@ -8423,7 +8423,6 @@ class known():
 
 @defknown((ir_args, "\n", _form, ["\n", (_cons, (_typep, str), _form)],))
 class ir_args(known):
-        def prologuep(known, *_):  return _ir_prologue_p(known)
         def lower(*_):             error("Invariant failed: %s is not meant to be lowered.", ir_args)
         def effects(*ir,  **args): return _ir_effects(ir)
         def affected(*ir, **args): return _ir_affected(ir)
@@ -8458,11 +8457,6 @@ def _ir_nvalues(form):
 def _ir_nth_value(n, form):
         return (lambda known: (known.nth_value(n, form, *_vectorise_linear(form[1])) if known else
                                list_(nth_value, n, form)))  (_form_known(form))
-def _ir_prologue_p(form):
-        return (lambda known: (known.prologuep(*_vectorise_linear(form[1])           if known else
-                               nil                                 if isinstance(form, symbol_t) or constantp(form) else
-                               error("Prologue queries only defined on known forms, not %s.", repr(form)))))(
-                                                             _form_known(form))
 def _ir_binds(form):
         # As of early October 2012, used only by macroexpander.
         return (lambda known: # _debug_printf("known %s, dir: %s", known, _without_condition_system(
@@ -8498,12 +8492,6 @@ def _ir_function_form_nth_value_form(n, func, orig_form):
 
 def _ir_nth_valueify_last_subform(n, form):
         return append(butlast(form), list_(list_(nth_value, n, lastcar(form))))
-
-# Prologue queries (legacy)
-
-def _ir_body_prologuep(body):
-        ## Unregistered Issue BODY-PROLOGUEP-PESSIMISTIC-WRT-DISCARDED-PURE-FORMS
-        return len(body) > 1 or len(body) == 1 and _ir_prologue_p(body[0])
 
 # Lambda list lowering
 
@@ -8701,7 +8689,6 @@ class setq(known):
                 return dict()
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
-        def prologuep(*_): return t
         def lower(name, value, *_):
                 assert(not _)
                 lexical_binding, lexenv = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
@@ -8735,7 +8722,6 @@ class setq(known):
 class quote(known):
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def prologuep(_):          return nil
         def lower(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if isinstance(x, symbol_t) and not constantp(x):
@@ -8772,8 +8758,6 @@ class multiple_value_call(known):
                 return _ir_function_form_nvalues(func)
         def nth_value(n, orig, func, *_):
                 return _ir_function_form_nth_value_form(n, func, orig)
-        def prologuep(fn, *arg_forms):
-                return _ir_prologue_p(fn) or not not arg_forms
         def lower(fn, *arg_forms):
                 ## We have no choice, but to lower immediately, and by hand.
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
@@ -8800,7 +8784,6 @@ class multiple_value_call(known):
 class progn(known):
         def nvalues(*body):            return 1   if not body else _ir_nvalues(body[-1])
         def nth_value(n, orig, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
-        def prologuep(*body):          return _ir_body_prologuep(body)
         def lower(*body):
                 return _lowered(p.progn(*(_primitivise(x) for x in body)) if body else
                                 _primitivise(nil))
@@ -8833,8 +8816,6 @@ class if_(known):
                 return (list_(nth_value, n, orig) if _ir_effects(consequent) or _ir_effects(antecedent) else
                         vconseq                   if (vconseq == vante) and not _ir_effects(test)       else
                         list_(if_, test, vconseq, vante))
-        def prologuep(*tca):
-                return any(_ir_prologue_p(x) for x in tca)
         def lower(test, consequent, antecedent):
                 return _lowered(p.if_(_primitivise(test),
                                       _primitivise(consequent),
@@ -8861,8 +8842,6 @@ class let(known):
                              (b[0], b[1][0])) for b in _vectorise_linear(bindings))
                 return { variable: { _variable_binding(name, _var_tn_no_unit(name), variable, None)
                                      for name, _ in bindings } }
-        def prologuep(bindings, *body):
-                return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (listp(bindings) and
@@ -8904,8 +8883,6 @@ class let_(known):
                              (b[0], b[1][0])) for b in _vectorise_linear(bindings))
                 return { variable: { _variable_binding(name, _var_tn_no_unit(name), variable, None)
                                      for name, _ in bindings } }
-        def prologuep(bindings, *body):
-                return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body, headp = None):
                 # Unregistered Issue UNIFY-PRETTY-PRINTING-AND-WELL-FORMED-NESS-CHECK
                 if not (listp(bindings) and
@@ -8948,8 +8925,6 @@ class flet(known):
         def binds(bindings, *body):
                 return { function: { _function_binding(name, _fun_tn_no_unit(name), function, None)
                                      for name, _ in _vectorise_linear(bindings) } }
-        def prologuep(bindings, *body):
-                return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -8993,8 +8968,6 @@ class labels(known):
         def binds(bindings, *body):
                 return { function: { _function_binding(name, _fun_tn_no_unit(name), function, None)
                                      for name, _ in _vectorise_linear(bindings) } }
-        def prologuep(bindings, *body):
-                return not not bindings or _ir_body_prologuep(body)
         def lower(bindings, *body):
                 # Unregistered Issue COMPLIANCE-LAMBDA-LIST-DIFFERENCE
                 # Unregistered Issue ORTHOGONALISE-TYPING-OF-THE-SEQUENCE-KIND-AND-STRUCTURE
@@ -9038,7 +9011,6 @@ class function(known):
         ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def prologuep(_):          return nil
         def lower(name):
                 ## (QUOTE ("str"))
                 if _pyref_p(name):
@@ -9099,7 +9071,6 @@ class unwind_protect(known):
         def nvalues(form, *unwind_body):            return _ir_nvalues(form)
         def nth_value(n, orig, form, *unwind_body): return list__(unwind_protect, _ir_nth_value(n, form),
                                                                   _consify_linear(unwind_body))
-        def prologuep(*_):                          return t
         def lower(form, *unwind_body):
                 return _lowered(p.unwind_protect(_primitivise(form),
                                                  p.progn(*(_primitivise(x) for x in unwind_body))))
@@ -9126,7 +9097,6 @@ class macrolet(known):
         def binds(bindings, *body):
                 return { macro: { _function_binding(name, _fun_tn_no_unit(name), macro, list_(rest[0], rest[1]))
                                   for name, rest in _vectorise_linear(bindings) } }
-        def prologuep(bindings, *body):          return _ir_body_prologuep(body)
         def lower(bindings, *body):
                 ## By the time we get to the lowering stage, all macros have already been expanded.
                 return _rewritten(cons(progn, _consify_linear(body)))
@@ -9152,7 +9122,6 @@ class symbol_macrolet(known):
         def binds(bindings, *body):
                 return { symbol_macro: { _variable_binding(name, _var_tn_no_unit(name), symbol_macro, rest[0])
                                          for name, rest in _vectorise_linear(bindings) } }
-        def prologuep(bindings, *body):          return _ir_body_prologuep(body)
         def lower(bindings, *body):
                 normalised = _vectorise_linear(bindings)
                 _check_no_locally_rebound_constants([ x[0] for x in normalised ], "symbol macro")
@@ -9179,7 +9148,6 @@ class block(known):
         def nth_value(n, orig, name, *body): return nil if not body else _ir_nth_valueify_last_subform(n, orig)
         def binds(name, *body):
                 return { block: { _block_binding(name, t) } }
-        def prologuep(name, *body):          return _ir_body_prologuep(body)
         def lower(name, *body):
                 nonce = gensym("BLOCK-" + symbol_name(name) + "-")
                 catch_target = list__(catch, list_(quote, nonce), _consify_linear(body))
@@ -9213,7 +9181,6 @@ class block(known):
 class return_from(known):
         def nvalues(_, value):            return _ir_nvalues(value)
         def nth_value(n, orig, _, value): return _ir_nth_value(n, value)
-        def prologuep(_, value):          return _ir_prologue_p(value)
         def lower(name, value):
                 binding, lexenv = symbol_value(_lexenv_).lookup_block(the(symbol_t, name))
                 if not binding:
@@ -9240,7 +9207,6 @@ class catch(known):
                                                     list_(progn, tag, nil)  if _ir_effects(tag) else
                                                     nil)
         ## Unregistered Issue DOUBT-WHETHER-LAMBDA-CAN-LOWER-PROLOGUESSLY-DUE-TO-C-L-A-N-T
-        def prologuep(tag, *body_):         return _ir_prologue_p(tag) or _ir_body_prologuep(body)
         def lower(tag, *body):
                 return _lowered(p.catch(_primitivise(tag),
                                         p.progn(*(_primitivise(x) for x in body))))
@@ -9261,7 +9227,6 @@ class throw(known):
         def nvalues(_, value):            return _ir_nvalues(value)
         def nth_value(n, orig, _, value): return (list_(progn, tag, _ir_nth_value(value)) if _ir_effects(tag) else
                                                   _ir_nth_value(value))
-        def prologuep(tag, value):        return _ir_prologue_p(tag) or _ir_prologue_p(value)
         def lower(tag, value):
                 return _lowered(p.throw(_primitivise(tag), _primitivise(value)))
         def effects(tag, value):          return _ir_effects(tag) or _ir_effects(value)
@@ -9295,7 +9260,6 @@ class tagbody(known):
         ## Unregistered Issue TAGBODY-BINDS-METHOD-IMPRECISE-AND-CANNOT-BE-SO-MADE-EASILY
         def binds(*tags_and_forms):              return { tag: t for tag in tags_and_forms
                                                           if isinstance(tag, symbol_t) }
-        def prologuep(*tags_and_forms):          return not not tags_and_forms
         def lower(*tags_and_forms):
                 (init_tag,
                  go_tag,
@@ -9353,7 +9317,6 @@ class tagbody(known):
 class go(known):
         def nvalues(_):            return 0
         def nth_value(n, orig, _): return None
-        def prologuep(_):          return nil
         def lower(name):
                 binding, lexenv = symbol_value(_lexenv_).lookup_gotag(the(symbol_t, name))
                 if not binding:
@@ -9413,9 +9376,6 @@ EVAL-WHEN normally appears as a top level form, but it is meaningful
 for it to appear as a non-top-level form.  However, the compile-time
 side effects described in Section 3.2 (Compilation) only take place
 when EVAL-WHEN appears as a top level form."""
-        def prologuep(when, *body):
-                _, __, exec = _parse_eval_when_situations(when)
-                return _ir_body_prologuep(body) if exec else nil
         def lower(when, *body):
                 ### Unregistered Issue DEPRECATED-SYMBOLS-CONSIDERED-INVALID
                 ctop, ltop, exec = _parse_eval_when_situations(when)
@@ -9439,7 +9399,6 @@ when EVAL-WHEN appears as a top level form."""
 class the_(known):
         def nvalues(type, form):            _not_implemented()
         def nth_value(n, orig, type, form): _not_implemented()
-        def prologuep(type, form):          return _ir_prologue_p(form)
         def lower(type, form):              _not_implemented()
         def effects(type, form):            return _ir_effects(form)
         def affected(type, form):           return _ir_affected(form)
@@ -9457,7 +9416,6 @@ class the_(known):
 class load_time_value(known):
         def nvalues(form, read_only_p):            _not_implemented()
         def nth_value(n, orig, form, read_only_p): _not_implemented()
-        def prologuep(form, read_only_p):          return _ir_prologue_p(form)
         def lower(form, read_only_p):              _not_implemented()
         def effects(form, read_only_p):            _not_implemented()
         def affected(form, read_only_p):           _not_implemented()
@@ -9483,7 +9441,6 @@ class progv_(known):
                                                               if (_ir_effects(names)
                                                                   or _ir_effects(values)) else
                                                               nil)
-        def prologuep(names, values, *body):          return not not names or _ir_body_prologuep(body)
         def lower(vars, vals, *body):
                 return _lowered(p.progv((_primitivise(x) for x in vars), (_primitivise(x) for x in vals),
                                         p.progn(*(_primitivise(x) for x in body))))
@@ -9503,7 +9460,6 @@ class progv_(known):
 class locally(known):
         def nvalues(*decls_n_body):            _not_implemented()
         def nth_value(n, orig, *decls_n_body): _not_implemented()
-        def prologuep(*decls_n_body):          return _ir_body_prologuep(decls_n_body)
         def lower(*decls_n_body):              _not_implemented()
         def effects(*decls_n_body):            _not_implemented()
         def affected(*decls_n_body):           _not_implemented()
@@ -9525,7 +9481,6 @@ class multiple_value_prog1(known):
                         (lambda sym: list__(let, list_(list_(sym, _ir_nth_value(n, first_form))),
                                             _consify_pyseq(forms, list_(sym))))
                         (gensym("MV-PROG1-VALUE-")))
-        def prologuep(first_form, *forms):          return not not forms or _ir_prologue_p(first_form)
         def lower(first_form, *forms):              _not_implemented()
         def effects(first_form, *forms):            return _ir_effects(first_form) or any(_ir_effects(f) for f in forms)
         def affected(first_form, *forms):           return _ir_affected(first_form) or any(_ir_affected(f) for f in forms)
@@ -9543,7 +9498,6 @@ class multiple_value_prog1(known):
 class ref(known):
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def prologuep(_):          return nil
         def lower(name):
                 if _pyref_p(name):
                         return _primitivise_pyref(name)
@@ -9578,7 +9532,6 @@ class nth_value(known):
                         nil                       if n != form_n and not _ir_effects(form)  else
                         list_(progn, form, nil)   if n != form_n                            else
                         _ir_nth_value(n, form)) ## We don't risque unbounded recursion here, so let's further analysis..
-        def prologuep(n, form): return _ir_prologue_p(n) or _ir_prologue_p(form)
         def lower(n, form):
                 return _lowered(p.funcall(p.impl_ref("_values_frame_project"), _primitivise(n), _primitivise(form)))
         def effects(n, form):   return _ir_effects(n) or _ir_effects(form)
@@ -9599,7 +9552,6 @@ class protoloop(known):
         ## Critical Issue PROTOLOOP-MULTIPLE-VALUES-NOT-IMPLEMENTED
         def nvalues(*_):            return _not_implemented()
         def nth_value(n, *_):       return _not_implemented()
-        def prologuep(*_):          return t
         def lower(*body):
                 return _lowered(p.loop(p.progn(*(_primitivise(x) for x in body))))
         def effects(*body):         return any(_ir_effects(x)  for x in body)
@@ -9618,7 +9570,6 @@ class protoloop(known):
 class prim(known):
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def prologuep(*_):          return "Maybe.."
         def lower(prim, *args):     return prim(*(_primitivise(x) for x in args))
         def effects(*_):            return t
         def affected(*_):           return t
@@ -9659,9 +9610,6 @@ class lambda_(known):
                 total, _, __, ___ = _ir_parse_lambda_list(lambda_list, "LAMBDA")
                 return { variable: { _variable_binding(name, _var_tn_no_unit(variable), variable, None)
                                      for name in total } }
-        def prologuep(lambda_list, *body):
-                total, args, defaults, _ = _ir_parse_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
-                return len(body) < 2 and any( _ir_body_prologuep(x) for x in body + tuple(defaults[0]) + tuple(defaults[1]))
         def lower(lambda_list, *body, name = nil, decorators = nil, evaluate_defaults_early = nil):
                 # Unregistered Issue COMPLIANCE-MACRO-LAMBDA-LIST-DESTRUCTURING-AND-ENV
                 clambda = _compiler_lambda(name, lambda_list)
@@ -9774,7 +9722,6 @@ class lambda_(known):
 class apply(known):
         def nvalues(func, _, *__):            return _ir_function_form_nvalues(func)
         def nth_value(n, orig, func, _, *__): return _ir_function_form_nth_value_form(n, func, orig)
-        def prologuep(func, arg, *args):      return any(_ir_prologue_p(x) for x in (func, arg) + args)
         def lower(func, arg, *args):
                 ## Unregistered Issue IMPROVEMENT-APPLY-COULD-VALIDATE-CALLS-OF-KNOWNS
                 fixed, rest = (((),                 arg)       if not args                  else
