@@ -6658,11 +6658,13 @@ class _matcher():
                                                 m.comr,
                                                 originalp = orifst[0]))))
                         (*maybe_get0Rname(pat)))
+        def default(m, exp, pat, name = None, orifst = (True, False)):
+                return m.match(dict(), name, exp, pat, orifst, None, -1)
 
 def _match(matcher, exp, pat):
         matcher.per_use_init()
         name, prepped = _maybe_destructure_binding(pat)
-        return matcher.match(dict(), name, exp, prepped, (True, False), None, -1)
+        return matcher.default(exp, prepped, name = name)
 
 # Preprocessing
 
@@ -6756,6 +6758,13 @@ def _combine_cons(f0, fR, originalp):
                 fRr = fR()
                 if fRr is not None:
                         return [f0r, fRr]
+
+def _combine_append(f0, fR, originalp):
+        f0r = f0()
+        if f0r is not None:
+                fRr = fR()
+                if fRr is not None:
+                        return append(f0r, fRr)
 
 _intern_and_bind_names_in_module_specifically(
         ("_cons",        "%CONS"),
@@ -6970,7 +6979,7 @@ class _metasex_mapper(_metasex_matcher):
         @staticmethod
         def prod(x, _):      return x
         @staticmethod
-        def comh(f0, fR, _): return _combine_cons(f0, fR, nil)
+        def comh(f0, fR, _): return _combine_append(f0, fR, nil)
         @staticmethod
         def comr(f0, fR, _): return _combine_cons(f0, fR, nil)
         @staticmethod
@@ -6982,17 +6991,20 @@ class _metasex_mapper(_metasex_matcher):
                 handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
                 if handled:
                         return m.succ(bound, ret)
-                b, r, f = _metasex_matcher.form(m, bound, name, form, pat, orifst, ignore_args = ignore_args)
-                if f:
-                        return b, r, f
-                return b, symbol_value(_mapper_fn_)(r), f
+                xformed_form, frame = symbol_value(_mapper_fn_)(form)
+                with progv(frame) if frame else _withless():
+                         return _metasex_matcher.form(m, bound, name, xformed_form, pat, orifst, ignore_args = ignore_args)
 
 _mapper = _metasex_mapper()
 
-def _map_sex(fn, sex):
-        _mapper.per_use_init()
-        with progv({ _mapper_fn_: fn }):
-                return _match(_mapper, sex, _form_metasex(sex))
+def _map_sex(fn, sex, matcher = _mapper):
+        fnret = fn(sex)
+        if not (isinstance(fnret, tuple) and len(fnret) is 2):
+                error("In %%MAP-SEX: the return value of the map function must be a tuple of length 2, was: %s", repr(fnret))
+        xformed_sex, frame = fnret
+        frame.update({ _mapper_fn_: fn })
+        with progv(frame):
+                return _match(matcher, xformed_sex, list_(_form))
 
 # Pretty-printing
 
@@ -7321,6 +7333,8 @@ _eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
 _eval_when_keywords = set(_eval_when_ordered_keywords)
 def _parse_eval_when_situations(situ_form):
         situ_linear = _vectorise_linear(situ_form)
+        all(isinstance(x, symbol_t) for x in situ_linear) or error("In EVAL-WHEN: invalid situation form: %s",
+                                                                   _pp_consly(situ_form))
         if not (listp(situ_form) and not (set(situ_linear) - _eval_when_keywords)):
                 error("In EVAL-WHEN: the first form must be a list of following keywords: %s.", _eval_when_ordered_keywords)
         return [x in situ_linear for x in _eval_when_ordered_keywords]
@@ -7932,19 +7946,13 @@ def macroexpand(form, env = nil, compilerp = nil):
 _string_set("*MACROEXPANDER-ENV*", nil)       ## This is for regular macro expansion.
 _string_set("*MACROEXPANDER-FORM-BINDS*", nil)
 
-def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignore_args = None):
-        "Used as a simplex matcher in _macroexpander_matcher."
-        # _debug_printf("%%MXER-INNER: -->\n%s", exp)
-        ## 0. Honor any possible form handling directives:
-        handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
-        if handled:
-                return m.succ(bound, ret)
-        ## 1. Expose the knowns and implicit funcalls:
+def _macroexpander_xform(form, compilerp = t):
         env = _symbol_value(_macroexpander_env_)
         expanded_form, expandedp = macroexpand(form, env, compilerp = compilerp)
-        ## 2. Compute bindings contributed by this outer form.
+        ## Compute bindings contributed by this outer form:
         # if expandedp:
-        #         _debug_printf("\nexpanded\n%s\n->\n%s",
+        #         _debug_printf("\n%s\n%s\n->\n%s",
+        #                       "expanded" if expandedp else "intact",
         #                       _pp_consly(form),
         #                       _pp_consly(expanded_form))
         known = _find_known(expanded_form[0]) if (consp(expanded_form) and
@@ -7955,17 +7963,13 @@ def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignor
                           _dict_select_keys(_ir_binds(expanded_form), macro),
                           _dict_select_keys(_ir_binds(expanded_form), function)) if known else
                          (dict(), dict(), dict()))
-        ## 3. Pass the binding extension information down.
-        with (progv({_macroexpander_form_binds_: _make_lexenv(symbol_value(_compiler_lambda_),
-                                                              parent = env,
-                                                              kind_varframe = symbol_frame,
-                                                              kind_funcframe = _dictappend(mfunc_frame, ffunc_frame))})
-              if symbol_frame or mfunc_frame or ffunc_frame else
-              _withless()):
-                b, r, f = _metasex_matcher.form(m, bound, name, expanded_form, pat, orifst, ignore_args = ignore_args)
-                # if not f:
-                #         _debug_printf("%%MXER-INNER: <--\n%s", r)
-                return b, r, f
+        return expanded_form, ({ _macroexpander_form_binds_: 
+                                 _make_lexenv(symbol_value(_compiler_lambda_),
+                                                           parent = env,
+                                                           kind_varframe = symbol_frame,
+                                                           kind_funcframe = _dictappend(mfunc_frame, ffunc_frame)) }
+                               if symbol_frame or mfunc_frame or ffunc_frame else
+                               dict())
 ##
 ####
 #####
@@ -7988,11 +7992,10 @@ def _macroexpander_inner(m, bound, name, form, pat, orifst, compilerp = t, ignor
 #####
 ####
 ##
-class _macroexpander_matcher(_metasex_matcher):
+class _macroexpander_matcher(_metasex_mapper):
         def __init__(m):
                 ## Unregistered Issue MACROEXPANDER-COMPILERP-STATE-PASSING-TANGLED
-                _metasex_matcher.__init__(m)
-                m.register_simplex_matcher(_form,  lambda *args: _macroexpander_inner(m, *args, compilerp = t))
+                _metasex_mapper.__init__(m)
                 m.register_simplex_matcher(_bound, m.activate_binding_extension)
         def activate_binding_extension(m, bound, name, exp, pat, orifst):
                 ## The dynamic scope expansion is unavoidable, because we have to
@@ -8001,20 +8004,7 @@ class _macroexpander_matcher(_metasex_matcher):
                                                   _symbol_value(_macroexpander_env_)),
                             ## marker scope ends here:
                             _macroexpander_form_binds_: nil}):
-                        return _macroexpander_inner(m, bound, name, exp, pat, orifst, compilerp = t, ignore_args = t)
-        @staticmethod
-        def prod(x, originalp): return x
-        @staticmethod
-        def comh(f0, fR, originalp):
-                f0r = f0()
-                if f0r is not None:
-                        fRr = fR()
-                        if fRr is not None:
-                                return append(f0r, fRr)
-        @staticmethod
-        def comr(f0, fR, originalp): return _combine_cons(f0, fR, originalp)
-        @staticmethod
-        def comc(f0, fR, originalp): return _combine_cons(f0, fR, originalp)
+                        return m.default(exp, pat[1][0], name = name, orifst = orifst)
 
 _macroexpander = _macroexpander_matcher()
 
@@ -8022,11 +8012,8 @@ def macroexpand_all(sex, lexenv = nil, compilerp = t):
         _macroexpander.per_use_init()
         with progv({ _macroexpander_env_: _coerce_to_lexenv(lexenv) }):
                 with _matcher_pp_stack():
-                        _, r, f = _macroexpander_inner(_macroexpander, dict(), None,
-                                                       sex,
-                                                       nil,  ## The pattern will be discarded out of hand, anyway.
-                                                       (None, None),
-                                                       compilerp = t)
+                        _, r, f = _map_sex(_macroexpander_xform, sex,
+                                           matcher = _macroexpander)
         if f is not None:
                 error("\n=== failed sex: %s\n=== failsubpat: %s\n=== subex: %s", _pp_consly(sex), _matcher_pp(f), _pp_consly(r))
         return r
@@ -9032,6 +9019,7 @@ class block(known):
                         nonlocal has_return_from
                         if consp(sex) and sex[0] is return_from:
                                 has_return_from = t
+                        return nil, {}
                 _map_sex(update_has_return_from, catch_target)
                 if has_return_from:
                         _compiler_trace_known_choice(quote, name, "HAS-RETURN-FROM")
@@ -9623,15 +9611,11 @@ class apply(known):
 
 def _run_tests_known():
         def applyification(input):
-                _macroexpander.per_use_init()
-                return _macroexpander_inner(_macroexpander, dict(), None,
-                                            input, nil,  ## The pattern will be discarded out of hand, anyway.
-                                            (None, None))
+                with progv({ _lexenv_: _make_null_lexenv(nil) }):
+                        return macroexpand_all(input)
         assert _runtest(applyification,
                         list_(__car),
-                        ({},
-                         _consify_star(apply, (function, __car), (quote, nil)),
-                         None))
+                        _consify_star(apply, (function, __car), (quote, nil)))
 
 if _getenv("CL_RUN_TESTS") != "nil":
         _run_tests_known()
