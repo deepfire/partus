@@ -8156,11 +8156,19 @@ def _primitivisable_p(x):
 
 def _try_primitivise_constant(x):
         "It's more efficient to try doing it, than to do a complete check and then to 'try' again."
+        def _try_primitivise_list(xs):
+                ret = []
+                for x in xs:
+                        res, successp = _try_primitivise_constant(x)
+                        if not successp:
+                                return None, None
+                        ret.append(res)
+                return ret, t
         (rec, primitiviser), primitivisablep = gethash(type_of(x), __primitiviser_map__,
                                                        ((nil, nil), nil))
         if not primitivisablep:
                 return None, None
-        if rec: ## Dead code.
+        if rec:
                 prim, successp = _try_primitivise_list(x)
                 return (primitiviser(prim), t) if successp else (None, None)
         return primitiviser(prim if rec else x), t
