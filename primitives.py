@@ -1055,11 +1055,11 @@ class cons(expr):
 
 @defprim(intern("CAR")[0], (expr_spill,))
 class car(expr):
-        def help(cons): return _ast.Subscript(help_expr(cons), ast.Index(0), ast.Load())
+        def help(cons): return ast.Subscript(help_expr(cons), ast.Index(0), ast.Load())
 
 @defprim(intern("CDR")[0], (expr_spill,))
 class cdr(expr):
-        def help(cons): return _ast.Subscript(help_expr(cons), ast.Index(1), ast.Load())
+        def help(cons): return ast.Subscript(help_expr(cons), ast.Index(1), ast.Load())
 
 @defprim(intern("RPLACA")[0], (expr_spill, expr_spill))
 class rplaca(expr):
@@ -1101,11 +1101,11 @@ def help_binop_seq(args, type, one):
 ## AND OR
 @defprim(intern("AND")[0], ([expr_spill],))
 class and_(potconst):
-        def help(xs): return help_boolop(ast.And, xs)
+        def help(*xs): return help_boolop(ast.And, xs)
 
 @defprim(intern("OR")[0], ([expr_spill],))
 class or_(potconst):
-        def help(xs): return help_boolop(ast.Or, xs)
+        def help(*xs): return help_boolop(ast.Or, xs)
 
 ## + - * / MOD POW << >> LOGIOR LOGXOR LOGAND FLOOR
 @defprim(intern("+")[0], ([expr_spill],))
