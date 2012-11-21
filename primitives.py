@@ -327,7 +327,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                                  prim = primitive, pspec = primitive.form_specifier,
                                                  spec = type, form = arg)
         ###
-        def tuple_spills(spec, args, force_spill = nil, strict_segment = t):
+        def tuple_spills(spec, args, force_spill = nil, strict_segment = nil):
                 # if isinstance(primitive, defun):
                 #         cl._debug_printf("DEFUN args: %s", primitive.args)
                 specialp = spec and spec[0] in [maybe]
