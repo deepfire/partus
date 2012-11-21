@@ -923,7 +923,7 @@ class if_(indet):
          (expr_spill, expr, expr))
 class if_expr(expr):
         def help(*tca):
-                return ast.IfExp(*(help_expr(x) for x in tca)) # Test, Consequent, Antecedent.
+                return ast.IfExp(*[help_expr(x) for x in tca]) # Test, Consequent, Antecedent.
         if_ = identity_method()
 
 @defprim(intern("IF-STMT")[0],
