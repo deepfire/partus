@@ -100,11 +100,11 @@ def print_primitive(x):
                 str(x)                                                 if not isinstance(x, prim)     else
                 ("(%s%s%s)" % (lambda name: (name.upper(),
                                              " " if x.args else "",
-                                             ("".join(sex_deeper(2, lambda: print_primitive(x))
+                                             ("".join(sex_deeper(len(name) + 2, lambda: print_primitive(x))
                                                       for x in x.args)
                                               if len(x.args) < 2 else
-                                              ("\n" + cl._sex_space(2)
-                                               ).join(sex_deeper(2, lambda: print_primitive(x))
+                                              ("\n" + cl._sex_space(len(name) + 2)
+                                               ).join(sex_deeper(len(name) + 2, lambda: print_primitive(x))
                                                       for x in x.args)))
                                )(type(x).__name__)))
 
