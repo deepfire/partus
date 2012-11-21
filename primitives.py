@@ -265,8 +265,10 @@ def help_ctx(writep):
 def prim_nil():
         return name(cl._unit_symbol_pyname(nil))
 
+__statement_value_None__ = nil
+
 def help_nil():
-        return help(prim_nil())[1]
+        return help(name("None") if __statement_value_None__ else prim_nil())[1]
 
 def          fixed_ll(fixed):                    return (list(fixed), [],  [],     None, [], [], None)
 def      fixed_opt_ll(fixed, opt, optval):       return (list(fixed), list(opt), list(optval), None, [], [], None)
