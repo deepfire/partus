@@ -1074,6 +1074,18 @@ class rplacd(expr):
                                    value, tn = genname("CDR-")))
 
 ###
+### Iterators
+###
+@defprim(intern("GENERATOR")[0],
+         (expr, [(name, expr, [expr])]))
+class generator(expr):
+        def help(result, *comps):
+                return ast.GeneratorExp(help_expr(result),
+                                        [ ast.comprehension(help_expr(target), help_expr(iter),
+                                                            [ help_expr(if_) for if_ in ifs ])
+                                          for target, iter, *ifs in comps ])
+
+###
 ### Operations
 ###
 def help_boolop(op, xs):     return ast.BoolOp(op(), [ help_expr(x) for x in xs ])
