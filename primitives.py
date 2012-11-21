@@ -586,6 +586,18 @@ class pylist(expr):
         def help(*xs):
                 return ast.List([ help_expr(x) for x in xs ], help_ctx(nil))
 
+@defprim(intern("PYTUPLE")[0],
+         ([expr_spill],))
+class pytuple(expr):
+        def help(*xs):
+                return ast.Tuple([ help_expr(x) for x in xs ], help_ctx(nil))
+
+@defprim(intern("PYSET")[0],
+         ([expr_spill],))
+class pyset(expr):
+        def help(*xs):
+                return ast.Set([ help_expr(x) for x in xs ])
+
 def prim_attr_chain(xs, writep = nil):
         return reduce((lambda acc, attr: const_attr(acc, attr, writep = writep)),
                       xs[1:],
