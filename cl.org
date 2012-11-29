@@ -15,7 +15,7 @@
 #+STYLE: <link rel="stylesheet" type="text/css" href="style.css" />
 #+XSLT:
 #+STARTUP: odd hidestars
-#+TODO:  IMPL CONFLICT DUPLICATION DEAD-CODE ATTIC | DONE OBSOLETE
+#+TODO:  IMPL CONFLICT DUPLICATION DEAD-CODE ATTIC | OBSOLETE IRRELEVANT DONE
 #+PROPERTY: tangle cl.py
 #+PROPERTY: no-expand
 #+PROPERTY: session *VPCL*
@@ -47,141 +47,117 @@
     - NTH-VALUE ::
       - IR of the value form, preserving unrelated side effects
     - BINDS ::
-      - frame of the established scope;  this is augmented by the %BOUND marks within the MetaSEX
+      - frame of the established scope;  this is augmented by the %BOUND marks within the metasex
     - LOWER ::
       - IR, if the rest is described by a different lowering
     - EFFECTS, AFFECTED ::
       - a boolean, T in doubt
 
 * Issues
-*** Runtime model
+*** Open ends
+***** Lexenv creation
+******* Parent semantics: null/current lexenv, NIL and NULL specifiers
+******* Content conformance: %MAKE-LEXENV-FUNCFRAME, LABELS
+***** LAMBDA's NAME argument globality wrt. FLET/LABELS
+***** Lambda's REWRITE: lexenv maintenance not done for variable bindings
+***** The whole binder args story is not terribly convincing
+***** FLET binder args
+***** clambda parent/child model
+***** clambda <-> lexenv relationship
+*** Possibilities
+***** If only we could manage a proper walking/evaluation order in LOWER, we would be able to factor lexenv maintenance.
+*** Tentativities
+***** Multiple values -- as a rewrite stage
+***** Liveness analysis and correspondent rewrites -- as the last rewrite
+***** GENSYMNAME safety? (esp. in the fasl context) -- UUID-ing
+***** WPO and dependent tracking
+*** Models
+***** Runtime
 
-    What kinds of run-time support issues do we have?
+      What kinds of run-time support issues do we have?
 
-    - FFI
-      - python itself
-      - C
-    - symbol accessibility
+      - FFI
+        - python itself
+        - C
+      - symbol accessibility
 
-    What can we specify, at this point:
+      What can we specify, at this point:
 
-    - standard set of imported modules
-      - _vpcl, for:
-        - values: _values_frame_project, _values_frame
-    - IR for python calls (APPLY, (typep (or string (tuple string))), ...)
+      - standard set of imported modules
+        - _vpcl, for:
+          - values: _values_frame_project, _values_frame
+      - IR for python calls (APPLY, (typep (or string (tuple string))), ...)
 
-*** Symbol model
+***** Symbols
 
-    - symbols denoting constants (keywords, t, nil, pi, etc.): fully printed symbol names
-      - will be protected from trivial attempts of being assigned to
-      - (SETF SYMBOL-VALUE) ought to be dealt with by different means
-    - names in the value namespace: fully printed symbol names
-      - lexical scope handled by Python's lexical scope
-    - other symbols as constants (i.e. quoted symbols): global symbol -> gensym map, based off symbol name
-      - symbols as symbols are, technically, a different namespace, so separation
-    - bound names in the function namespace: global symbol -> gensym map, based off symbol name
-      - an obvious way to do namespace separation
+      - symbols denoting constants (keywords, t, nil, pi, etc.): fully printed symbol names
+        - will be protected from trivial attempts of being assigned to
+        - (SETF SYMBOL-VALUE) ought to be dealt with by different means
+      - names in the value namespace: fully printed symbol names
+        - lexical scope handled by Python's lexical scope
+      - other symbols as constants (i.e. quoted symbols): global symbol -> gensym map, based off symbol name
+        - symbols as symbols are, technically, a different namespace, so separation
+      - bound names in the function namespace: global symbol -> gensym map, based off symbol name
+        - an obvious way to do namespace separation
 
-*** Multiple values
-*** Data structure setup for a one-time matcher run
-*** Multiple values: analysis
-***** Early thoughts
+***** Multiple values
+******* Early thoughts
 
-      The big question is whether we need known-specific processing of multiple-value
-      contexts. (See "Walking".)
+        The big question is whether we need known-specific processing of multiple-value
+        contexts. (See "Walking".)
 
-      There are following roles wrt. values processing:
+        There are following roles wrt. values processing:
 
-      - determined roles
-        - producer
-          - known multiple-values producer form: VALUES-LIST and VALUES
-          - a funcall of a multiple-values -typed function
-        - consumer -- somebody who doesn't just pass the values along
-          - known multiple-values consumer form: MULTIPLE-VALUE-{BIND,CALL,LIST}, NTH-VALUE
-          - funcalls
-          - forms with evaluation in non-tail positions
-            - IF, test position
-            - LET/*, WITH-SLOTS
-            - SETQ
-            - VALUES
-            - PROGN, including implicits, like EVAL-WHEN, LET/*, FLET, LABELS, LAMBDA and
-              top-level DEF-forms
-            - SPLICE
-            - default value forms within lambda lists
-          - PROG1, PROG2, the counterexamples to all
-        - identity
-          - all tail positions, but PROG1 and PROG2
-          - RETURN, RETURN-FROM
-      - indeterminate roles -- potentials
-        - potential producer
-          - a funcall of a non-specifically-typed function
-        - potential consumer
-          - just a form
+        - determined roles
+          - producer
+            - known multiple-values producer form: VALUES-LIST and VALUES
+            - a funcall of a multiple-values -typed function
+          - consumer -- somebody who doesn't just pass the values along
+            - known multiple-values consumer form: MULTIPLE-VALUE-{BIND,CALL,LIST}, NTH-VALUE
+            - funcalls
+            - forms with evaluation in non-tail positions
+              - IF, test position
+              - LET/*, WITH-SLOTS
+              - SETQ
+              - VALUES
+              - PROGN, including implicits, like EVAL-WHEN, LET/*, FLET, LABELS, LAMBDA and
+                top-level DEF-forms
+              - SPLICE
+              - default value forms within lambda lists
+            - PROG1, PROG2, the counterexamples to all
+          - identity
+            - all tail positions, but PROG1 and PROG2
+            - RETURN, RETURN-FROM
+        - indeterminate roles -- potentials
+          - potential producer
+            - a funcall of a non-specifically-typed function
+          - potential consumer
+            - just a form
 
-***** Primitives
+******* Primitives
 
-      Partially based on above, let's describe the primitive operations:
+        Partially based on above, let's describe the primitive operations:
 
-      - PASS :: aka most tail positions
-        - identity, but we're responsible for relaying unpacked-ness, if that's the case
-      - GET-VALUE :: aka (NTH-VALUE 0 ...)
-        - unpack the first value from value frame, in the generic case
-        - identity, in cases something special is known
-
-*** Dependents
-
-    Instead of being pessimistic in assumptions, act as if doing WPO, while tracking
-    dependents.
+        - PASS :: aka most tail positions
+          - identity, but we're responsible for relaying unpacked-ness, if that's the case
+        - GET-VALUE :: aka (NTH-VALUE 0 ...)
+          - unpack the first value from value frame, in the generic case
+          - identity, in cases something special is known
 
 *** (OPTIMIZE DEBUG)
 ***** Form tracking
 ******* Form paths
-*** GENSYMNAME safety? (esp. in the fasl context)
-***** UUID-ing?
-*** Function form effect affliction question
-*** All these temporary names in binding constructs and whatnot definitely look like a hint, but hint at what..
-***** exprnessp + direct-or-let-and-retry is a definite pattern
-******* APPLY
-*** Extended information-preserving transformations
-***** Known macros
-      - Eliminate known rewrites
-      - Known normalisation
-        - IF - antecedent branch
-        - LET - non-tuple bindings
-        - RETURN-FROM - return value
-      - Information preservation?
+*** Incomprehensible - Sense: lost
+***** All these temporary names in binding constructs and whatnot definitely look like a hint, but hint at what..
+******* exprnessp + direct-or-let-and-retry is a definite pattern
+********* APPLY
 *** Compliance
-***** Deviations from CL lambda list
-
-      aka COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST
-
-      - the name bound by &REST contains all positionally-provided arguments in the excess
-        of those specified in the parameter list and up to the first keyword-provided
-        argument
-      - the name bound by &REST does not contain all (or even just any) arguments past the
-        last optionally-specified positional
-      - within provided arguments, a keyword-provided argument for an optionally-specified
-        parameter, can be positioned after the first keyword-provided argument for a
-        keyword-specified parameter
-      - no &ALLOW-OTHER-KEYS (its function is subsumed by &RESTKEY)
-      - existence of a separate &RESTKEY
-      - the parameters do not establish scope for subsequent default and &AUX value forms
-
-        aka COMPLIANCE-DEFUN-DEFMACRO-LAMBDA-LAMBDA-LIST-INTRA-VALUE-FORMS-BINDING-SCOPE
-
-        - we should push processing of this out, to macros, simplifying knowns
-      - ..there are more
-
-******* Conclusion
-
-        We need our own argument list processing to be compliant.
-
-        How unexpectable.
-
-***** Binding constructs (LET, LAMBDA, etc.) ignore declarations
+***** lambda lists: &WHOLE and &ENVIRONMENT
+***** lambda lists: PROVIDED-P
+***** lambda lists: Keyword argument renaming
+***** LAMBDA is not a macro
+***** Declarations
 ******* IR-BINDS ignores declarations
-***** implicit funcalls are absent
-***** IF requires the antecedent
 *** Loops
 ***** DEFMACRO
 
@@ -189,13 +165,13 @@
 
       Solution: hand-code DEFMACRO.
 
-***** DONE LAMBDA
+***** LAMBDA
 
       General-case LAMBDA, with default value forms and &AUX is best expressed as a simpler lambda + LET*.
 
       Solution: 1. two-stage primitivisation, or 2. known macros.
 
-*** IR-level optimisations
+*** Optimisations
 ***** LET, etc
 
       Potential optimisations:
@@ -214,7 +190,7 @@
       ## But possibly, just possibly, I've missed another requirement, so playing it safe for now.
       ##
       ## This optimisation is, currently, tactically broken, but for another reason: order of evaluation.
-      # names = _mapset(ensure_car, bindings)
+      # names = _mapset(_ensure_car, bindings)
       # if _tail_position_p() and not ((_mapsetn(_atre__free, body) - set(names)) or
       #                                 (_compiling_def().xtnls & set(names))):
       #         with _no_tail_position():
@@ -226,6 +202,10 @@
       #         body_pro, body_val = _lower((progn,) + body)
       #         return (bind_pro + body_pro,
       #                 body_val)
+
+***** LET, FLET, LABELS
+
+      - warn on/drop dead code, when bound names are not used
 
 *** SBCL weirdnesses
 ***** Clearly compile-time-detected program errors are deferred until code run-time
@@ -257,7 +237,12 @@ Compile-time error:
 *** Deep future
 ***** IR-level interop
 ******* GIMPLE
-***** TAL x86 emission
+***** Backends
+******* CPython bytecode
+********* the existing runtime ties us to that
+******* TAL x86
+******* QEMU TCG
+******* LLVM
 *** ATTIC AST free variable calculation thoughts
 
    - except for special cases, it (the set of FV) is
@@ -331,8 +316,8 @@ Compile-time error:
      - With:                only (trivial) complication is potential None-ness of optional_vars
      - TryExcept/ExceptHandler:    much the same situation as with *Comp|GeneratiorExp/comprehension,
                            and much the same solution
-*** DUPLICATION known MetaSEX specifies boundaries of acceptability, but lowerers also typecheck
-*** CONFLICT K-core vs. MetaSEX services :: solution: convert knowns to a lower-level IR
+*** DUPLICATION known metasex specifies boundaries of acceptability, but lowerers also typecheck
+*** CONFLICT K-core vs. metasex services :: solution: convert knowns to a lower-level IR
 *** CONFLICT SEX IR vs. the need to store information
 *** DONE Walking: (generic) thoughts
 
@@ -359,10 +344,19 @@ Compile-time error:
     This allows us to do analysis on subforms without paying the cost of full compilation.
 
 *** DONE Unification of pretty-printing, well-formed-ness checking and walking
-* Boot
-*** Frost boot
 
-***** Builtins management
+    - pretty-printing: complete
+    - well-formedness checking: partial
+      - the lambda list word ordering is somewhat expressible, but, OCH..
+    - walking
+      - rewriting: pre-order
+      - lexenv-aware walking: mostly
+
+* Boring
+*** Boot
+***** Frost boot
+
+******* Builtins management
 
 #+begin_src python +n
 def _python_builtins_dictionary():
@@ -442,7 +436,7 @@ def _distance_oneself_from_python():
 ## o  _python
 #+end_src
 
-***** Imports
+******* Imports
 
 #+begin_src python +n
 ###
@@ -477,7 +471,7 @@ import neutrality  as _neutrality
 import frost       as _frost
 #+end_src
 
-***** Unspecific Wave 0
+******* Default values for optional/key arguments
 
 #+begin_src python +n
 def _defaulted(x, value, type = None):
@@ -500,7 +494,7 @@ def _defaulted_keys(**keys):
                     for key, (value, default) in keys.items())
 #+end_src
 
-***** Boot messaging
+******* Boot messaging
 
 #+begin_src python +n
 def _fprintf(stream, format_control, *format_args):
@@ -513,7 +507,7 @@ def _debug_printf(format_control, *format_args):
         _fprintf(_sys.stderr, format_control + "\n", *format_args)
 #+end_src
 
-***** First-class namespaces
+******* First-class namespaces
 
 #+begin_src python +n
 class _namespace(_collections.UserDict):
@@ -542,7 +536,7 @@ _namespace_type_and_constructor = _namespace
 _namespace = _namespace_type_and_constructor("")
 #+end_src
 
-***** Meta-boot
+******* Meta-boot
 
 #+begin_src python +n
 ## 1. trivial enumeration for later DEFUN/DEFCLASS
@@ -609,7 +603,7 @@ _storyteller = _storyteller()
 story = _storyteller.advance
 #+end_src
 
-***** Cold types
+******* Cold types
 
 #+begin_src python +n
 _cold_class_type       = type
@@ -639,8 +633,8 @@ the        = _cold_the
 check_type = _cold_check_type
 #+end_src
 
-*** Cold boot
-***** As-of-yet -homeless type predicates..
+***** Cold boot
+******* As-of-yet -homeless type predicates..
 
 #+begin_src python +n
 @boot_defun
@@ -660,7 +654,7 @@ def type_of(x):
         return type(x)
 #+end_src
 
-***** Unspecific Wave 1
+******* Unspecific Wave 1
 
 #+begin_src python +n
 @boot_defun
@@ -687,7 +681,7 @@ def _map_into_hash(f, xs,
         return acc
 #+end_src
 
-***** Boot dynamic scope
+******* Boot dynamic scope
 
 #+begin_src python +n
 __global_scope__ = make_hash_table() ## To be replaced later, by VARDB.
@@ -782,7 +776,7 @@ def boundp(symbol):
         return _find_dynamic_frame(the(symbol_t, symbol)) and t
 #+end_src
 
-***** Boot conditions: WARN, ERROR
+******* Boot conditions: WARN, ERROR
 
 #+begin_src python +n
 def _conditionp(x):
@@ -831,9 +825,9 @@ def _boot_check_type(pred, x):
         return x if pred(x) else error("A violent faecal odour hung in the air..")
 #+end_src
 
-*** Symbols
-***** Package system
-******* Package system conditions
+***** Symbols
+******* Package system
+********* Package system conditions
 
 #+begin_src python +n
 def _package_not_found_error(x):
@@ -850,7 +844,7 @@ def _symbols_not_accessible_error(package, syms):
               package_name(package), ", ".join((pp_sym_or_string(x) for x in syms)))
 #+end_src
 
-******* Package system classes
+********* Package system classes
 
 #+begin_src python +n
 _namespace.grow("PACKAGES")
@@ -1077,7 +1071,7 @@ NIL = nil = _cold_make_nil()
 def null(x): return x is nil or x == ()
 #+end_src
 
-******* Package system core
+********* Package system core
 
 #+begin_src python +n
 def _intern_in_package(x, p):
@@ -1186,7 +1180,7 @@ def import_(symbols, package = None, populate_module = True):
         return t
 #+end_src
 
-******* Package system init
+********* Package system init
 
 #+begin_src python +n
 def _protosymbolicate(x, name, slot):
@@ -1232,7 +1226,7 @@ _unboot_set("symbol")
 # _unboot_set("print") # This can turn 4.8s of debug printing into 30+s
 #+end_src
 
-***** GENSYM
+******* GENSYM
 
 #+begin_src python +n
 __gensym_counter__ = 0
@@ -1249,7 +1243,7 @@ def gensym(x = "G"):
         return make_symbol(_gensymname(x))
 #+end_src
 
-*** Dynamic scope
+***** Dynamic scope
 
 #+begin_src python +n
 class _env_cluster(object):
@@ -1295,8 +1289,8 @@ with progv(foovar = 3.14,
 
 #+end_src
 
-*** Non-local transfers of control
-***** CATCH, THROW, BLOCK, RETURN-FROM
+***** Non-local transfers of control
+******* CATCH, THROW, BLOCK, RETURN-FROM
 
 #+begin_src python +n
 # WARNING: non-specific try/except clauses and BaseException handlers break this!
@@ -1357,7 +1351,7 @@ def __return_from(nonce, value):
         __throw(nonce, value)
 #+end_src
 
-***** Condition system: SIGNAL
+******* Condition system: SIGNAL
 
 #+begin_src python +n
 ## standard globals:
@@ -1396,7 +1390,7 @@ def _run_hook(variable, condition):
                         old_hook(condition, old_hook)
 #+end_src
 
-***** Stab at INVOKE-DEBUGGER
+******* Stab at INVOKE-DEBUGGER
 
 #+begin_src python +n
 def _flush_standard_output_streams():
@@ -1455,8 +1449,8 @@ def invoke_debugger(condition):
         return _funcall_with_debug_io_syntax(_invoke_debugger, condition)
 #+end_src
 
-*** Type system
-***** Type predicates
+***** Type system
+******* Type predicates
 
 #+begin_src python +n
 def integerp(o):      return isinstance(o, int)
@@ -1469,7 +1463,7 @@ def _boolp(o):        return isinstance(o, bool)
 def sequencep(x):     return getattr(type(x), "__len__", None) is not None
 #+end_src
 
-***** Types mappable to python
+******* Types mappable to python
 
 #+begin_src python
 def _define_python_type_map(symbol_or_name, type_):
@@ -1513,7 +1507,7 @@ _define_python_type_map("PYSET",       set)
 _define_python_type_map("PYFROZENSET", frozenset)
 #+end_src
 
-***** Complex type specifier machinery: %TYPE-MISMATCH, @DEFTYPE, TYPEP
+******* Complex type specifier machinery: %TYPE-MISMATCH, @DEFTYPE, TYPEP
 
 #+begin_src python +n
 def _type_specifier_complex_p(x):
@@ -1594,7 +1588,7 @@ def _not_of_type(x):
         return lambda y: not typep(y, x)
 #+end_src
 
-***** Complex type definitions
+******* Complex type definitions
 
 #+begin_src python
 @_deftype
@@ -1736,7 +1730,7 @@ def _eql_type_specifier_p(x): return isinstance(x, tuple) and len(x) is 2 and x[
 _unboot_set("typep")
 #+end_src
 
-***** Type relationships, rudimentary
+******* Type relationships, rudimentary
 
 #+begin_src python
 def subtypep(sub, super):
@@ -1755,7 +1749,7 @@ def subtypep(sub, super):
                 sub is super or super is t)
 #+end_src
 
-*** Toplevel definitions: @DEFUN and @DEFCLASS
+***** Toplevel definitions: @DEFUN and @DEFCLASS
 
 #+begin_src python +n
 doit = False
@@ -1792,12 +1786,12 @@ for cls in __boot_defclassed__: _frost.setf_global(defclass(cls), cls.__name__, 
 doit = True
 #+end_src
 
-*** Early assorti
+***** Early assorti
 
-      We now have symbols, packages, types, semi-proper DEFUN/DEFCLASS and the top-level part of
-      dynamic scope.
+        We now have symbols, packages, types, semi-proper DEFUN/DEFCLASS and the top-level part of
+        dynamic scope.
 
-***** Delayed class definitions
+******* Delayed class definitions
 
 #+begin_src python +n
 @defclass
@@ -1842,7 +1836,7 @@ class simple_package_error_t(simple_error_t, package_error_t):
         pass
 #+end_src
 
-***** Rudimentary multiple values
+******* Rudimentary multiple values
 
     The implemented version of NTH-VALUES is a soft one, which doesn't fail on values not
     participating in the M-V frame protocol.
@@ -1866,7 +1860,7 @@ def _values_frame_project(n, values_form):
                 (nil if n else values_form))
 #+end_src
 
-***** Early object system
+******* Early object system
 
 #+begin_src python +n
 @defun
@@ -1884,7 +1878,7 @@ def _make_missing_method(cls, name):
 
 #+end_src
 
-***** PRINT-UNREADABLE-OBJECT, sort of
+******* PRINT-UNREADABLE-OBJECT, sort of
 
 #+begin_src python +n
 def print_unreadable_object(object, stream, body, identity = None, type = None):
@@ -1898,7 +1892,7 @@ def print_unreadable_object(object, stream, body, identity = None, type = None):
 
 #+end_src
 
-***** Readtable and WITH-STANDARD-IO-SYNTAX
+******* Readtable and WITH-STANDARD-IO-SYNTAX
 
 #+begin_src python +n
 @defclass
@@ -2013,25 +2007,25 @@ def _set_settable_standard_globals():
 _set_settable_standard_globals()
 #+end_src
 
-***** Type naming policy, unfinished (stale?)
+******* Type naming policy, unfinished (stale?)
 
-      Two aspects are at play: the type aspect and the function aspect.
+        Two aspects are at play: the type aspect and the function aspect.
 
-      In Python the type name has only one value associated with it, and
-      this value works both as a type specifier, and as its constructor
-      function -- everything in single value namespace.
+        In Python the type name has only one value associated with it, and
+        this value works both as a type specifier, and as its constructor
+        function -- everything in single value namespace.
 
-      In CL this isn't so, and the symbol can have a function associated
-      with it, at the same time it can be interepreted as a type
-      specifier on its own, and still it might have no value attached to
-      it (this is, in fact, the common case).
+        In CL this isn't so, and the symbol can have a function associated
+        with it, at the same time it can be interepreted as a type
+        specifier on its own, and still it might have no value attached to
+        it (this is, in fact, the common case).
 
-      To be able to correctly reflect that picture, we need to introduce
-      an artificial split into the single python namespace.  So:
+        To be able to correctly reflect that picture, we need to introduce
+        an artificial split into the single python namespace.  So:
 
-       - ...
+         - ...
 
-***** Derived names:  %NoneType, REDUCE, SORT, %CURRY, STRINGP, %CLASSP, %NONEP etc.
+******* Derived names:  %NoneType, REDUCE, SORT, %CURRY, STRINGP, %CLASSP, %NONEP etc.
 
 #+begin_src python +n
 _NoneType         = type(None)
@@ -2050,7 +2044,7 @@ def _setp(o):       return isinstance(o, (set, frozenset))
 def _nonep(o):      return o is None
 #+end_src
 
-***** Constants
+******* Constants
 
 #+begin_src python +n
 most_positive_fixnum = 67108864
@@ -2109,7 +2103,7 @@ def _cold_constantp(form):
 constantp = _cold_constantp
 #+end_src
 
-***** Basic string/char functions and %CASE-XFORM
+******* Basic string/char functions and %CASE-XFORM
 
 #+begin_src python +n
 @defun
@@ -2138,7 +2132,7 @@ def _case_xform(type_, s):
         return _case_attribute_map[type_.name](s)
 #+end_src
 
-***** Possibly dangling cold boot code
+******* Possibly dangling cold boot code
 
     I wonder if this boot state infrastructure is a good idea:
     - it tangles the flow of things (?)
@@ -2166,8 +2160,8 @@ def _cold_probe_file(pathname):
 probe_file = _cold_probe_file
 #+end_src
 
-***** Some python system stuff
-******* Python module compilation
+******* Some python system stuff
+********* Python module compilation
 
 #+begin_src python +n
 def _load_code_object_as_module(name, co, filename = "", builtins = None, globals = None, locals = None, register = True):
@@ -2213,7 +2207,7 @@ def _ast_compiled_name(name, *body, function = nil, **keys):
         return locals[function or name]
 #+end_src
 
-******* Python frames
+********* Python frames
 
 #+begin_src python +n
 def _all_threads_frames():
@@ -2292,7 +2286,7 @@ def _fun_bytecode(f):    return f.co_code
 def _fun_constants(f):   return f.co_consts
 #+end_src
 
-******* Frame pretty-printing
+********* Frame pretty-printing
 
 #+begin_src python +n
 def _frame_fun_name(f):          return f.f_code.co_name
@@ -2350,7 +2344,7 @@ def _escape_percent(x):
         return x.replace("%", "%%")
 #+end_src
 
-******* Higher-level debug trace functions
+********* Higher-level debug trace functions
 
 #+begin_src python +n
 # lf = open("/home/deepfire/lf", "w")
@@ -2397,7 +2391,7 @@ def _locals_printf(locals, *local_names):
                  *((locals[x] if isinstance(x, str) else "\n") for x in local_names))
 #+end_src
 
-******* Raw data of frame research
+********* Raw data of frame research
 
 ## Unregistered Issue PAREDIT-MUST-BE-TAUGHT-ABOUT-COMMENTS-WITHIN-BABEL-BLOCKS
 
@@ -2588,15 +2582,15 @@ def _example_frame():
 # self.lastcmd = p.lastcmd
 #+end_src
 
-***** Non-CL extensions
-******* Alexandria
+******* Non-CL extensions
+********* Alexandria
 
 #+begin_src python +n
 def _alist_hash_table(xs):
         return { x[0]: x[1] for x in _vectorise_linear(xs) }
 #+end_src
 
-******* %CACHE
+********* %CACHE
 
 #+begin_src python +n
 class _cache(_collections.UserDict):
@@ -2629,7 +2623,7 @@ def _read_case_xformed(x):
         return _case_xform(_symbol_value(_read_case_), x)
 #+end_src
 
-******* Pergamum 0
+********* Pergamum 0
 
 #+begin_src python +n
 def _if_let(x, consequent, antecedent = lambda: None):
@@ -2733,7 +2727,7 @@ def _defscope(name, varname, **initargs):
         return _defwith(name, push_frame, pop_frame, lookup = _lookup, **initargs)
 #+end_src
 
-******* Lesser non-CL tools
+********* Lesser non-CL tools
 
 #+begin_src python +n
 class _withless():
@@ -2754,7 +2748,7 @@ class _servile():
 
 def _gen(n = 1, x = "G", gen = gensym):
         if zerop(n):
-                error("_GEN: we are very very much against this, please stop doing it!")
+                error("_GEN: we are very very much against this, please stop!")
         return tuple(gen(x)
                for i in range(n))
 def _gensyms(**initargs):     return _gen(gen = gensym,      **initargs)
@@ -2762,9 +2756,9 @@ def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
 #+end_src
 
-******* Testing
+********* Testing
 
-        Used by quasiquotation, MetaSEX and others.
+        Used by quasiquotation, metasex and others.
 
 #+begin_src python
 _results_ = []
@@ -2781,8 +2775,8 @@ def _runtest(fn, input, expected, printer = str):
         return successp and result
 #+end_src
 
-***** Generic
-******* Basic functions
+******* Generic
+********* Basic functions
 
 #+begin_src python +n
 @defun
@@ -2841,7 +2835,7 @@ def _nxorf(x, y):
         return (x and y) or not (x or y)
 #+end_src
 
-******* Predicates
+********* Predicates
 
 #+begin_src python +n
 @defun
@@ -2856,7 +2850,7 @@ def plusp(x):         return x > 0
 def minusp(x):        return x < 0
 #+end_src
 
-******* Functions
+********* Functions
 
 #+begin_src python +n
 @defun
@@ -2869,7 +2863,7 @@ def constantly (x):
 
 #+end_src
 
-******* Sequences
+********* Sequences
 
 #+begin_src python +n
 @defun
@@ -2900,7 +2894,7 @@ adjacent elements of XS."""
         return acc
 #+end_src
 
-******* String functions
+********* String functions
 
 #+begin_src python +n
 @defun
@@ -2927,7 +2921,7 @@ def string_trim(cs, s):
         return s.strip("".join(cs))
 #+end_src
 
-******* Sets
+********* Sets
 
 #+begin_src python +n
 @defun
@@ -2939,7 +2933,7 @@ def intersection(x, y):
         return x & y
 #+end_src
 
-******* Dicts
+********* Dicts
 
 #+begin_src python +n
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
@@ -2986,8 +2980,8 @@ def _symbol_type_predicate(symbol):
         return symbol.type_predicate if hasattr(the(symbol_t, symbol), "type_predicate") else nil
 #+end_src
 
-* Pre-compiler
-*** Complex arguments
+*** Pre-compiler
+***** Complex arguments
 
 #+begin_src python
 def _extract_keywords(xs, keys_allowed = t):
@@ -3003,7 +2997,7 @@ def _extract_keywords(xs, keys_allowed = t):
         return dict(zip(names, xs[1::2]))
 #+end_src
 
-*** Lisp packages/symbols vs. python modules/names
+***** Lisp packages/symbols vs. python modules/names
 
 #+begin_src python +n
 def _lisp_symbol_python_name(sym):
@@ -3041,8 +3035,8 @@ def _lisp_symbol_ast(sym, current_package):
                            _ast_string(symname)))
 #+end_src
 
-*** Namespaces
-***** Factology
+***** Namespaces
+******* Factology
 
 #+begin_src common-lisp :tangle no
  * (defmacro yay (x) `(a))
@@ -3088,7 +3082,7 @@ def _lisp_symbol_ast(sym, current_package):
  T
 #+end_src
 
-***** Functions
+******* Functions
 
 #+begin_src python +n
 def _variable_kind(name):
@@ -3362,7 +3356,7 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 #  MULTIPLE-VALUE-PROG1
 #+end_src
 
-*** Namespace separation.
+***** Namespace separation.
 
 #+begin_src python +n
 _compiler_safe_namespace_separation = t
@@ -3419,15 +3413,15 @@ def _set_macro_definition(globals, x, lambda_expression):
         return do_set_macro_definition
 #+end_src
 
-*** Essential system-level functions
+***** Essential system-level functions
 
 #+begin_src python
 def _getenv(var):
         return _without_condition_system(lambda: _os.getenv(var))
 #+end_src
 
-*** Early condition system
-***** Condition system disabling
+***** Early condition system
+******* Condition system disabling
 
 #+begin_src python +n
 def _without_condition_system(body, reason = ""):
@@ -3441,7 +3435,7 @@ def _without_condition_system(body, reason = ""):
                 return body()
 #+end_src
 
-***** Condition system init
+******* Condition system init
 
 #+begin_src python +n
 def _init_condition_system():
@@ -3459,15 +3453,15 @@ if not _getenv("CL_NO_CONDITION_SYSTEM"):
         _init_condition_system()
 #+end_src
 
-*** Streams
-***** Rudimentary character type
+***** Streams
+******* Rudimentary character type
 
 #+begin_src python +n
 @defclass
 class base_char_t(): pass
 #+end_src
 
-***** Early-earlified streaming
+******* Early-earlified streaming
 
 #+begin_src python +n
 @defun
@@ -3551,7 +3545,7 @@ def _file_stream_name(x):
         return _values_frame_project(0, parse_namestring(x.name))
 #+end_src
 
-***** Stream types and functions
+******* Stream types and functions
 
 #+begin_src python +n
 def open_stream_p(x):
@@ -3632,7 +3626,7 @@ def _coerce_to_stream(x):
                 error("%s cannot be coerced to a stream.", x))
 #+end_src
 
-***** Stream output functions and FORMAT
+******* Stream output functions and FORMAT
 
 #+begin_src python +n
 def write_char(c, stream = t):
@@ -3695,7 +3689,7 @@ For details on how the CONTROL-STRING is interpreted, see Section 22.3
                 return string
 #+end_src
 
-***** Earlified streaming
+******* Earlified streaming
 
 #+begin_src python +n
 @defun
@@ -3750,7 +3744,7 @@ def _file_as_string(filename):
                 return _stream_as_string(f)
 #+end_src
 
-*** Pathnames
+***** Pathnames
 
     Relevant sections:
 
@@ -3934,7 +3928,7 @@ def _init_pathnames():
 _init_pathnames()
 #+end_src
 
-***** Sub-standard pathname functions
+******* Sub-standard pathname functions
 
 #+begin_src python +n
 def _cold_merge_pathnames(pathname, default_pathname = None, default_version = None):
@@ -4068,7 +4062,7 @@ together."""
         return _os.path.join(x, y)
 #+end_src
 
-*** Cons <-> vector xform
+***** Cons <-> vector xform
 
 #+begin_src python
 def _vectorise(x):
@@ -4150,7 +4144,7 @@ def _xmap_to_conses(f, xs, *xss):
                 _not_implemented("%XMAP-TO-CONSES: multiple-list case")
 #+end_src
 
-*** Sequences
+***** Sequences
 
 #+begin_src python
 def _compute_predicate(key, elt, test = eql, test_not = nil):
@@ -4509,7 +4503,7 @@ def remove_if_not(p, xs, *rest):
 # DELETE-DUPLICATES
 #+end_src
 
-*** Conses
+***** Conses
 
 #+begin_src python
 _initial_element = _keyword("INITIAL-ELEMENT")
@@ -4784,7 +4778,7 @@ def setf_getf(value, xs, key):
 # NUNION
 #+end_src
 
-*** Data function part of 5.3
+***** Data function part of 5.3
 
 #+begin_src python
 # Function APPLY
@@ -4868,14 +4862,14 @@ def notany(fn, xs, *xss):
 # Function GET-SETF-EXPANSION
 #+end_src
 
-*** Arrays
+***** Arrays
 
 #+begin_src python
 @defun
 def vector(*xs):    return [len(xs), t] + list(xs)
 #+end_src
 
-*** Cold printer
+***** Cold printer
 
 #+begin_src python +n
 def _print_string(x, escape = None, readably = None):
@@ -5053,7 +5047,7 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
         return object
 #+end_src
 
-*** Quasiquotation
+***** Quasiquotation
 
 #+begin_src python
 ## From CLHS 2.4.6:
@@ -5200,7 +5194,7 @@ if _getenv("CL_RUN_TESTS") != "nil":
                 _run_tests_quasiquotation()
 #+end_src
 
-*** Cold reader
+***** Cold reader
 
 #+begin_src python +n
 _string_set("*READ-CASE*", _keyword("upcase"))
@@ -5409,7 +5403,7 @@ def _cold_read_from_string(string, eof_error_p = t, eof_value = nil,
 read_from_string = _cold_read_from_string
 #+end_src
 
-*** Condition system
+***** Condition system
 
 #+begin_src python +n
 def _conditionp(x):
@@ -5570,7 +5564,7 @@ def ignore_errors(body):
                              lambda _: None))
 #+end_src
 
-*** Built-in condition types
+***** Built-in condition types
 
 #+begin_src python
 @defclass
@@ -5636,7 +5630,7 @@ def _warn_not_implemented(x = None):
               _caller_name())
 #+end_src
 
-*** Restarts
+***** Restarts
 
 #+begin_src python +n
 @defclass
@@ -5876,8 +5870,8 @@ executes the following:
         return invoke_restart(restart, *restart.interactive_function())
 #+end_src
 
-* AST
-*** DEFBODY
+*** AST
+***** DEFBODY
 
     This is used by @defast and @defknown.
 
@@ -5980,7 +5974,7 @@ def _defbody_make_required_method_error(desc):
         return lambda method_name: error("In %s: missing method %s.", desc, str(method_name).upper())
 #+end_src
 
-*** Toolkit
+***** Toolkit
 
 #+begin_src python +n
 def _astp(x):        return isinstance(x, _ast.AST)
@@ -6184,7 +6178,7 @@ def _ast_defun_fixed(name, names, *body):
 
 #+end_src
 
-*** Interning: %READ-AST, %READ-PYTHON-TOPLEVEL-AS-LISP
+***** Interning: %READ-AST, %READ-PYTHON-TOPLEVEL-AS-LISP
 
 #+begin_src python +n
 def _literal_ast_sex(ast_):
@@ -6233,7 +6227,7 @@ def _read_python_toplevel_as_lisp(fn, allowed_toplevels = { "DEFUN", "DEFMACRO" 
         return name, form
 #+end_src
 
-*** Rich AST definition machinery
+***** Rich AST definition machinery
 
 #+begin_src python +n
 _ast_info = _poor_man_defstruct("_ast_info",
@@ -6277,7 +6271,7 @@ def _ast_validate(ast):
         return ast
 #+end_src
 
-*** AST bound/free calculation
+***** AST bound/free calculation
 
 #+begin_src python +n
 _intern_and_bind_names_in_module("*BOUND-FREE-RECURSOR*")
@@ -6301,7 +6295,7 @@ def _ast_bound_free(astxs):
                                    astxs))
 #+end_src
 
-*** @DEFAST
+***** DEFAST
 
 #+begin_src python +n
 def defast(fn):
@@ -6396,7 +6390,7 @@ def defast(fn):
 _register_astifier_for_type(symbol_t, nil, (lambda sym: _ast_funcall("_find_symbol_or_fail", [symbol_name(sym)])))
 #+end_src
 
-*** Definitions
+***** Definitions
 
 #+begin_src python +n
 # mod = Module(stmt* body)
@@ -7295,7 +7289,7 @@ def _match(matcher, exp, pat):
 
 #+end_src
 
-*** MetaSEX
+*** Metasex
 ***** Specification
 
       - set specifier :: any of the following, within approprite context:

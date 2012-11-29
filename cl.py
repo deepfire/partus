@@ -110,7 +110,7 @@ import collections as _collections
 import neutrality  as _neutrality
 import frost       as _frost
 
-# Unspecific Wave 0
+# Default values for optional/key arguments
 
 def _defaulted(x, value, type = None):
         if x is not None and type is not None:
@@ -2271,7 +2271,7 @@ class _servile():
 
 def _gen(n = 1, x = "G", gen = gensym):
         if zerop(n):
-                error("_GEN: we are very very much against this, please stop doing it!")
+                error("_GEN: we are very very much against this, please stop!")
         return tuple(gen(x)
                for i in range(n))
 def _gensyms(**initargs):     return _gen(gen = gensym,      **initargs)
@@ -2279,7 +2279,7 @@ def _gensymnames(**initargs): return _gen(gen = _gensymname, **initargs)
 
 # Testing
 
-#         Used by quasiquotation, MetaSEX and others.
+#         Used by quasiquotation, metasex and others.
 
 _results_ = []
 def _runtest(fn, input, expected, printer = str):
@@ -5686,7 +5686,7 @@ def _ast_bound_free(astxs):
                 return ast_rec(the((or_t, _ast.AST, (pylist_t, _ast.AST)),
                                    astxs))
 
-# @DEFAST
+# DEFAST
 
 def defast(fn):
         ### generic tools
