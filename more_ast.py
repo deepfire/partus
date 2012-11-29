@@ -15,7 +15,7 @@ import cl
 
 from cl         import t, nil, typep, null, integerp, floatp, functionp, stringp,\
                        car, identity, with_output_to_string, error, reduce, \
-                       symbol_value, progv
+                       symbol_value, _progv
 from cl         import _ast_rw as ast_rw, __ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
 from cl         import _ast_funcall as ast_funcall, _ast_maybe_normalise_string as ast_maybe_normalise_string
 from cl         import _ast_Expr as ast_Expr, _ast_list as ast_list, _ast_tuple as ast_tuple, _ast_set as ast_set
@@ -467,7 +467,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         return "for %s in %s%s" % (rec(x.target), rec(x.iter), "".join(" if %s" % rec(x) for x in x.ifs))
                 ## Multilines
                 def pp_subprogn(body):
-                        with progv({_ast_pp_depth_: symbol_value(_ast_pp_depth_) + 1}):
+                        with _progv({_ast_pp_depth_: symbol_value(_ast_pp_depth_) + 1}):
                                 return "\n".join(iterate(body))
                 def pp_module(x):
                         return "\n".join(iterate(x.body))
