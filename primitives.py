@@ -1,7 +1,7 @@
 import cl
 from cl import *
 from cl import _gensymname as gensymname
-from cl import progv, symbol_value, _sex_deeper as sex_deeper
+from cl import _progv, symbol_value, _sex_deeper as sex_deeper
 from cl import _ensure_symbol_pyname as ensure_symbol_pyname
 from cl import _sex_space as sex_space, _defaulted as defaulted
 
@@ -204,7 +204,7 @@ _compiler_trace_primitives_ = cl._compiler_trace_primitives_
 def help(x) -> ([stmt], expr):
         if not isinstance(x, prim):
                 error("A non-primitive leaked to the HELP phase: %s", x)
-        with cl.progv({ cl._pp_base_depth_: cl._pp_base_depth() + 3 }):
+        with _progv({ cl._pp_base_depth_: cl._pp_base_depth() + 3 }):
                 r = x.help(*x.args, **x.keys)
         p, v = (([], r) if isinstance(r, ast.expr)                         else
                 ## list(r) if isinstance(r, tuple) else
