@@ -1098,7 +1098,7 @@ def export(symbols, package = None):
 @boot_defun
 def import_(symbols, package = None, populate_module = True):
         p = _coerce_to_package(package)
-        symbols = _ensure_list(symbols)
+        symbols = _vectorise_linear(_ensure_list(symbols))
         module = _find_module(_frost.lisp_symbol_name_python_name(package_name(p)),
                               if_does_not_exist = "continue")
         for s in symbols:
