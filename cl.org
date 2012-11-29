@@ -1643,6 +1643,11 @@ def pyfixlist(x, type):
 def pytuple(x, type):
         return ((x, type, False) if not (isinstance(x, tuple) and len(x) == len(type) - 1) else
                 _some_fast_2(_type_mismatch, x, type[1:]))
+
+@_deftype
+def pyanytuple(x, type):
+        return ((x, type, False) if not (isinstance(x, tuple)) else
+                nil)
 # Unregistered Issue TEACHABLE-TYPE-CHECKING-PRACTICE-AND-TOOL-CONSTRUCTION
 
 @_deftype
