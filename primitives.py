@@ -748,7 +748,28 @@ setq = intern("SETQ")[0]
          (([(name, prim)],),
          prim))
 class let_(indet):
-        a_head        = defstrategy(test  = lambda _, *__, headp = nil, uncaught_tail = nil: headp or uncaught_tail,
+        ## Case for uncaught tail:
+        ##
+        ## Lisp:
+        ## (let ((foo 0))
+        ##   (handler-case
+        ##       (let* ((foo 1))
+        ##         (error "Foo."))
+        ##     (error ()
+        ##       foo)))
+        ##
+        ## Naive SETQ-BASED LET* implementation:
+        ## foo = 0
+        ## try:
+        ##         foo = 1
+        ##         return error("Foo.")
+        ## except Exception as _:
+        ##         return foo
+        ##
+        ## Note that the call to ERROR is in a HEAD position,
+        ## unless we introduce the HEADness-breaking property,
+        ## which, then, would be attributed to the likes of LOOP and HANDLER-BIND.
+        a_head        = defstrategy(test  = lambda _, *__, head = nil, uncaught_tail = nil: head or uncaught_tail,
                                     keys  = setq)
         b_reorderable = defstrategy(test  = lambda bindings, *_: bindings_free_eval_order_p(bindings),
                                     xform = redetermining_as(let))
@@ -764,7 +785,7 @@ class let_(indet):
           prim)) ## This one handles binding spills by virtue of using ASSIGN.
 class let__setq(body):
         "Can only be used as a tail, when it can be proved that no unwind will use mutated variables."
-        def help(bindings, body, headp = None):
+        def help(bindings, body, head = None):
                 sum = (tuple(assign(n, v) for n, v in bindings)
                        + (body,))
                 return help(progn(*sum))
@@ -807,71 +828,6 @@ class progv(body):
                                   None,
                                   help(assign(tn, body))[0])
                          ], help_expr(tn)
-
-flet = intern("FLET")[0]
-
-@defprim(flet,
-         (([(name, (([name],),
-                    ([name],), ([expr],), (maybe, name),
-                    ([name],), ([expr],), (maybe, name)),
-             prim)],),
-          prim))
-class flet(indet):
-        a_expr = defstrategy(test = lambda bindings, body: (exprp(body) and
-                                                            all(exprp(body)
-                                                                for name, lam, body in bindings)),
-                             keys = expr)
-        b_stmt = defstrategy(keys = body)
-
-@defprim(intern("FLET-EXPR")[0],
-         (([(name, (([name],),
-                    ([name],), ([expr],), (maybe, name),
-                    ([name],), ([expr],), (maybe, name)),
-             expr)],),
-          expr))
-class flet_expr(expr):
-        def help(bindings, expr):
-                ns, lls, bs = zip(*bindings)
-                return help(funcall(lambda_expr(fixed_ll(ns),
-                                                expr),
-                                    *[ lambda_expr(lam, expr)
-                                       for _, lam, expr in bindings ]))
-        flet = identity_method()
-
-@defprim(intern("FLET-STMT")[0],
-         (([(name, (([name],),
-                    ([name],), ([prim],), (maybe, name),
-                    ([name],), ([prim],), (maybe, name)),
-             prim)],),
-          prim))
-class flet_stmt(body):
-        def help(bindings, body):
-                names, lams, bodies = zip(*bindings)
-                tn = genname("FLET-THUNK-")
-                return (help(defun(tn, fixed_ll([]), [],
-                                   progn(*([ defun(name, lam, [],
-                                                   # this suffers from NAME being available for BODY
-                                                   body)
-                                             for name, lam, body in bindings ]
-                                           + [ body ]))))[0],
-                        help_expr(funcall(tn)))
-        flet = identity_method()
-
-@defprim(intern("LABELS")[0],
-         (([(name, (([name],),
-                    ([name],), ([expr],), (maybe, name), ## EXPR-SPILL?
-                    ([name],), ([expr],), (maybe, name)),
-             prim)],),
-          prim))
-class labels(body):
-        def help(bindings, body):
-                tn = genname("LABELS-THUNK-")
-                return (help(defun(tn, fixed_ll([]), [],
-                                   progn(*([ defun(name, lam, [],
-                                                   body)
-                                             for name, lam, body in bindings ]
-                                           + [ body ]))))[0],
-                        help_expr(funcall(tn)))
 
 ###
 ### Control
