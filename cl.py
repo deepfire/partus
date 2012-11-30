@@ -5207,107 +5207,6 @@ executes the following:
         restart = restart if _restartp(restart) else find_restart(restart)
         return invoke_restart(restart, *restart.interactive_function())
 
-# DEFBODY
-
-#     This is used by @defast and @defknown.
-
-def _defbody_parse_ast(names, asts, valid_declarations = make_hash_table()):
-        """Given a list of defined parameter NAMES, a list of statement ASTS and a
-table of VALID-DECLARATIONS, return the body, documentation and declarations if any."""
-        def _ast_call_to_name_p(name, x):
-                return (isinstance(x, _ast.Expr)            and
-                        isinstance(x.value, _ast.Call)      and
-                        isinstance(x.value.func, _ast.Name) and
-                        x.value.func.id == name)
-        def ensure_valid_declarations(decls):
-                # Unregistered Issue ENSURE-VALID-DECLARATION-SUGGESTS-FASTER-CONVERGENCE-TO-METASTRUCTURE
-                def fail():
-                        import more_ast
-                        err("invalid declaration form: %s", more_ast.pp_ast_as_code(decls))
-                def ensure_valid_declaration(decl):
-                        isinstance(decl, _ast.Tuple) and decl.elts and isinstance(decl.elts[0], _ast.Name) or fail()
-                        decl_name = decl.elts[0].id
-                        if decl_name not in valid_declarations:
-                                err("unknown declaration: %s", decl_name.upper())
-                        n_decl_args = valid_declarations[decl_name]
-                        if len(decl.elts) < 1 + n_decl_args + 1:
-                                err("invalid declaration %s: no parameter names specified", decl_name.upper())
-                        all(isinstance(x, _ast.Name) for x in decl.elts[1 + n_decl_args:]) or fail()
-                        decl_param_names = tuple(x.id for x in decl.elts[1 + n_decl_args:])
-                        unknown_param_names = set(decl_param_names) - set(names)
-                        if unknown_param_names:
-                                err("invalid declaration %s: invalid parameter names: %s",
-                                    decl_name.upper(), ", ".join(x.upper() for x in unknown_param_names))
-                        return (decl_name,
-                                tuple(extract_sexp(x) for x in decl.elts[1:1 + n_decl_args]),
-                                decl_param_names)
-                not (decls.keywords or decls.starargs or decls.kwargs) or fail()
-                return [ ensure_valid_declaration(x) for x in decls.args ]
-        def group_declarations(valid_declspecs, decls):
-                def _declaration_names(x): return set(x[1 + valid_declspecs[x[0]]:])
-                return { name: set(d[0:2] for d in decls
-                                   if name in d[2:])
-                         for name in _mapsetn(_declaration_names, decls) } # INDEXING..
-        content, _ = _prefix_suffix_if(_not_of_type(_ast.Pass), asts)
-        documentation, body = ((content[0].value.s, content[1:]) if (len(content) > 1 and
-                                                                     isinstance(content[0], _ast.Expr) and
-                                                                     isinstance(content[0].value, _ast.Str)) else
-                               (nil, content))
-        declarations, body = _prefix_suffix_if(_curry(_ast_call_to_name_p, "declare"), body)
-        return body, documentation, group_declarations(valid_declarations,
-                                                       reduce(lambda acc, dexcall:
-                                                                      acc + ensure_valid_declarations(dexcall.value),
-                                                              declarations, []))
-
-def _defbody_methods(desc, body_ast, method_name_fn, method_specs, arguments_ast = None):
-        method_specs = list((mspec if isinstance(mspec, tuple) else
-                            (mspec, _defbody_make_required_method_error(desc))) for mspec in method_specs)
-        def fail(x):
-                import more_ast
-                error("In %s: definition body may only contain definitions of %s methods, encountered: %s, an object of type %s", desc,
-                      (", ".join([x.upper() for x, _ in method_specs[:-1]]) +
-                       (" and " if len(method_specs) > 1 else "") +
-                       (method_specs[-1][0].upper() if method_specs else "")),
-                      x if isinstance(x, str) else more_ast.pp_ast_as_code(x), type_of(x))
-        def process(method_name, default_maker):
-                "Return a validated and normalised named method body 'return'-wise."
-                xs = [ x for x in body_ast if x.name is method_name ]
-                x = xs[0] if xs else nil
-                method_name = method_name_fn(method_name)
-                if x:
-                        x.name, x.args = method_name, _defaulted(arguments_ast, x.args)
-                        ## recursively analyse RETURN-ality
-                        def massage_tail(x, multiline):
-                                if multiline:
-                                        if hasattr(x.body[-1], "body"):
-                                                massage_tail(x.body[-1], True)
-                                        elif not isinstance(x.body[-1], _ast.Return):
-                                                error("In %s: multi-line methods must include an explicit terminating Return statement", desc)
-                                elif not(isinstance(x.body[0], _ast.Return)):
-                                        if hasattr(x.body[0], "value"):
-                                                x.body[0] = _ast.Return(x.body[0].value)
-                                        elif hasattr(x.body[0], "body"):
-                                                massage_tail(x.body[0], len(x.body[0].body) > 1)
-                                        else:
-                                                error("In %s: tail-positioned form %s has no redeeming qualities what so ever.",
-                                                      desc, type_of(x.body[0]))
-                        massage_tail(x, len(x.body) > 1)
-                return _ast_compiled_name(method_name, x or default_maker(method_name),
-                                          locals = locals(), globals = globals())
-        ##
-        body_ast = [ x for x in body_ast if not typep(x, _ast.Pass )] # Remove noise.
-        non_fdefns = [ x for x in body_ast if not typep(x, _ast.FunctionDef) ]
-        if non_fdefns:
-                fail(non_fdefns[0])
-        specified_method_names = { x.name:x for x in body_ast }
-        invalid_methods = set(specified_method_names) - _mapset(lambda x: x[0], method_specs)
-        if invalid_methods:
-                fail(invalid_methods.pop().upper())
-        return (process(*mspec) for mspec in method_specs)
-
-def _defbody_make_required_method_error(desc):
-        return lambda method_name: error("In %s: missing method %s.", desc, str(method_name).upper())
-
 # Toolkit
 
 def _astp(x):        return isinstance(x, _ast.AST)
@@ -5556,77 +5455,17 @@ def _read_python_toplevel_as_lisp(fn, allowed_toplevels = { "DEFUN", "DEFMACRO" 
                       repr(form[0]), __def_allowed_toplevels__)
         return name, form
 
-# Rich AST definition machinery
+# DEFAST
 
 _ast_info = _poor_man_defstruct("_ast_info",
                                 "type",
                                 "fields",     # each field is dict(name, type, walk, [default])
-                                "bound_free",
                                 "nfixed")
-__ast_walkable_field_types__ = set([_ast.stmt, (pylist_t, _ast.expr), (maybe_t, _ast.expr),
-                                    _ast.expr, (pylist_t, _ast.stmt)])
-__ast_infos__         = make_hash_table()
-def  _find_ast_info(type):     return __ast_infos__[_coerce_to_ast_type(type)]
-def __find_ast_info(type):     return __ast_infos__[type]
-def _ast_info_check_args_type(info, args):
-        if len(args) < info.nfixed:
-                error("AST type '%s' requires %s %d arguments, but only %d were provided: %s.",
-                      info.type.__name__, "exactly" if len(info.fields) == info.nfixed else "at least", info.nfixed,
-                      len(args), args)
-        for i, (field, arg) in enumerate(zip(info.fields.values(), args)):
-                if not typep(arg, field["type"]):
-                        error("Argument %d (field %s) of AST '%s' must correspond to type %s, but was an instance of %s, instead: %s.",
-                              i, repr(field["name"]), info.type.__name__, field["type"], type_of(arg), repr(arg))
-        return t
-
-def _ast_ensure_stmt(x):
-        return x if isinstance(x, _ast.stmt) else _ast.Expr(the(_ast.AST, x))
-
-def _ast_validate(ast):
-        def rec(x, context):
-                if isinstance(x, (str, int, float, _NoneType)):
-                        return
-                if not isinstance(x, _ast.AST):
-                        error("%s %s is invalid: not an AST, where an AST was expected.", context, x)
-                args = [ (field, getattr(x, field))
-                         for field in x._fields
-                         if hasattr(x, field) ]
-                _ast_info_check_args_type(__find_ast_info(type(x)), [ fval for _, fval in args ])
-                for field, ixs in args:
-                        for ix in ixs if isinstance(ixs, list) else [ixs]:
-                                rec(ix, "ast.%s.%s" % (type(x).__name__, field))
-        rec(ast, "root AST")
-        return ast
-
-# AST bound/free calculation
-
-_intern_and_bind_globals("*BOUND-FREE-RECURSOR*")
-
-def _bound_free_recursor():
-        return _symbol_value(_bound_free_recursor_)
-
-__ast_validate__ = nil
-
-def _ast_bound_free(astxs):
-        def ast_rec(astxs):
-                def bound_free(ast):
-                        info = __find_ast_info(type_of(ast))
-                        args = [ _slot_of(ast)(x) for x in type(ast)._fields ]
-                        if __ast_validate__:
-                                _ast_info_check_args_type(info, args)
-                        return info.bound_free(*args)
-                return _separate(3, bound_free, [ x for x in (astxs if isinstance(astxs, list) else [astxs])
-                                                  if x is not None ])
-        with _progv({_bound_free_recursor_: ast_rec}):
-                return ast_rec(the((or_t, _ast.AST, (pylist_t, _ast.AST)),
-                                   astxs))
-
-# DEFAST
+__ast_infos__                = dict()
+def _find_ast_info(type):     return __ast_infos__[type]
 
 def defast(fn):
         ### generic tools
-        def declaredp(grouped_decls, x, as_):
-                return x in grouped_decls and (as_,) in grouped_decls
         def lambda_list_names(lambda_list, remove_optional = t):
                 (fixed, optional, args, keyword, keys) = lambda_list
                 xform = (lambda x: x[0]) if remove_optional else identity
@@ -5664,51 +5503,24 @@ def defast(fn):
                                 error("In DEFAST %s: the provided name for the %d'th field (%s) does not match its actual name (%s), expected field names: %s",
                                       name, i, fname, ast_fname, ast_type._fields)
                 return ast_field_types
-        def arglist_field_infos(parameters, nfix, with_defaults, ast_field_types, grouped_decls):
+        def arglist_field_infos(parameters, nfix, with_defaults, ast_field_types):
                 fields = _without_condition_system(lambda: _collections.OrderedDict())
                 def process_ast_field_arglist_entry(name, type, default, fixed = t):
-                        walkp = (type in __ast_walkable_field_types__ or
-                                 declaredp(grouped_decls, p, "walk"))
-                        fields[p] = (dict(name = name, type = type, walk = walkp) if fixed else
-                                     dict(name = name, type = type, walk = walkp, default = default))
+                        fields[p] = (dict(name = name, type = type) if fixed else
+                                     dict(name = name, type = type, default = default))
                 for p, type, defaulted in zip(parameters[:nfix], ast_field_types[:nfix], with_defaults[:nfix]):
                         process_ast_field_arglist_entry(p, type, None,         fixed = t)
                 for p, type, defaulted in zip(parameters[nfix:], ast_field_types[nfix:], with_defaults[nfix:]):
                         process_ast_field_arglist_entry(p, type, defaulted[1], fixed = nil)
                 return fields
-        def make_default_bound_free(name, arguments_ast, fields):
-                # compile down to:
-                # return _separate(3, _ast_bound_free, [<fields>])
-                # ..where <fields> is [ f["name"] for f in fields if f["walk"] ]
-                return _ast.FunctionDef(
-                        name, arguments_ast,
-                        [_ast.Return(
-                         _ast_funcall("_separate",
-                                      [ 3,
-                                        _ast_funcall("_bound_free_recursor", []),
-                                        # _ast.Name("_ast_bound_free", _ast.Load()),
-                                        _ast.List([ _ast.Name(f["name"], _ast.Load())
-                                                    for f in fields.values()
-                                                    if f["walk"] ],
-                                                 _ast.Load()) ]))],
-                        [], None)
         lambda_list = (fixed, optional, args, keyword, keys) = _function_lambda_list(fn, astify_defaults = nil)
         ast_field_types = validate_defast_lambda_list(ast_type, lambda_list, fn.__annotations__)
         parameters, with_defaults = (lambda_list_names(lambda_list),
                                      lambda_list_names(lambda_list, remove_optional = nil))
         args_ast, body_ast = _function_ast(fn)
-        valid_declspecs = dict(walk  = 0)
-        body, documentation, declarations = _defbody_parse_ast(parameters, body_ast,
-                                                               valid_declarations = valid_declspecs)
-        fields = arglist_field_infos(parameters, len(fixed), with_defaults, ast_field_types, declarations)
-        [bound_free] = _defbody_methods("DEFAST " + name, body,
-                                        lambda method: "_ast_%s_%s" % (name, method),
-                                        [("bound_free", lambda name: make_default_bound_free(name, args_ast, fields))],
-                                        arguments_ast = args_ast)
-        # _debug_printf("bound_free for %s is %s", name, bound_free)
+        fields = arglist_field_infos(parameters, len(fixed), with_defaults, ast_field_types)
         __ast_infos__[ast_type] = _ast_info(type       = ast_type,
                                             fields     = fields,
-                                            bound_free = bound_free,
                                             nfixed     = len(fixed))
 
 ## AST + Symbols
@@ -5765,20 +5577,7 @@ def _ast_FunctionDef(name:            string_t,
                      args:            _ast.arguments,
                      body:           (pylist_t, _ast.stmt),
                      decorator_list: (pylist_t, _ast.expr) = list(),
-                     returns:        (maybe_t,  _ast.expr) = None):
-        def bound_free():
-                ((args_b, args_f, _),
-                 (body_b, body_f, body_x),
-                 (_,      deco_f, _),
-                 (_,      retn_f, _)) = [ _bound_free_recursor()(x)
-                                          for x in [args, body, decorator_list, returns] ]
-                body_bound = set([name]) | args_b | (body_b - body_x)
-                body_free = body_f - body_bound
-                body_xtnl_writes = body_b & body_x
-                free = args_f | body_free | deco_f | retn_f
-                return (body_xtnl_writes, # names declared global/nonlocal and assigned to
-                        free,
-                        set())        # these do not escape..
+                     returns:        (maybe_t,  _ast.expr) = None): ...
 #       | ClassDef(identifier name,
 # 		   expr* bases,
 # 		   keyword* keywords,
@@ -5793,23 +5592,7 @@ def _ast_ClassDef(name:            string_t,
                   starargs:       (maybe_t,  _ast.expr),
                   kwargs:         (maybe_t,  _ast.expr),
                   body:           (pylist_t, _ast.stmt),
-                  decorator_list: (pylist_t, _ast.expr)):
-        def bound_free():
-                ((base_b, base_f, _),
-                 (keyw_b, keyw_f, _),
-                 (star_b, star_f, _),
-                 (karg_b, karg_f, _),
-                 (body_b, body_f, body_x),
-                 (deco_b, deco_f, _)) = [ _bound_free_recursor()(x)
-                                          for x in [bases, keywords, starargs, kwargs, body, decorator_list] ]
-                # Unregistered Issue CLASS-BINDINGS-UNCLEAR
-                body_bound = body_b - body_x
-                body_free = body_f - body_bound
-                body_xtnl_writes = body_b & body_x
-                free = base_f | keyw_f | star_f | karg_f | body_free | deco_f
-                return (body_xtnl_writes, # names declared global/nonlocal and assigned to
-                        free,
-                        set())        # these do not escape..
+                  decorator_list: (pylist_t, _ast.expr)): ...
 #       | Return(expr? value)
 @defast
 def _ast_Return(value: (maybe_t, _ast.expr)): pass
@@ -5820,83 +5603,38 @@ def _ast_Delete(targets: (pylist_t, _ast.expr)): pass
 #       | Assign(expr* targets, expr value)
 @defast
 def _ast_Assign(targets: (pylist_t, _ast.expr),
-                value:    _ast.expr):
-        def bound_free():
-                ((targ_b, targ_f, _),
-                 (_,      valu_f, _)) = [ _bound_free_recursor()(x) for x in [targets, value] ]
-                return (targ_b,
-                        targ_f | valu_f,
-                        set())
+                value:    _ast.expr): ...
 #       | AugAssign(expr target, operator op, expr value)
 @defast
 def _ast_AugAssign(target: _ast.expr,
                    op:     _ast.operator,
-                   value:  _ast.expr):
-        def bound_free():
-                ((targ_b, targ_f, _),
-                 (_,      valu_f, _)) = [ _bound_free_recursor()(x) for x in [target, value] ]
-                return (targ_b,
-                        targ_f | valu_f,
-                        set())
-
-def _ast_body_bound_free(body, more_bound = set()):
-        body_b, body_f, body_x = _bound_free_recursor()(body)
-        bound = more_bound | (body_b - body_x)
-        return (bound,
-                body_f - bound,
-                body_b & body_x)
+                   value:  _ast.expr): ...
 
 #       | For(expr target, expr iter, stmt* body, stmt* orelse)
 @defast
 def _ast_For(target:  _ast.expr,
              iter:    _ast.expr,
              body:   (pylist_t, _ast.stmt),
-             orelse: (pylist_t, _ast.stmt)):
-        def bound_free():
-                ((targ_b, targ_f, _),
-                 (_,      iter_f, _)) = [ _bound_free_recursor()(x) for x in [target, iter] ]
-                # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-                (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
-                return (bound,
-                        targ_f | iter_f | free,
-                        xtnls)
+             orelse: (pylist_t, _ast.stmt)): ...
 
 #       | While(expr test, stmt* body, stmt* orelse)
 @defast
 def _ast_While(test:    _ast.expr,
                body:   (pylist_t, _ast.stmt),
-               orelse: (pylist_t, _ast.stmt)):
-        def bound_free():
-                ((_, test_f, _)) = _bound_free_recursor()(test)
-                # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-                (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
-                return (bound,
-                        free | test_f,
-                        xtnls)
+               orelse: (pylist_t, _ast.stmt)): ...
+
 #       | If(expr test, stmt* body, stmt* orelse)
 @defast
 def _ast_If(test:    _ast.expr,
             body:   (pylist_t, _ast.stmt),
-            orelse: (pylist_t, _ast.stmt)):
-        def bound_free():
-                ((_, test_f, _)) = _bound_free_recursor()(test)
-                # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-                (bound, free, xtnls) = _separate(3, _ast_body_bound_free, [body, orelse])
-                return (bound,
-                        free | test_f,
-                        xtnls)
+            orelse: (pylist_t, _ast.stmt)): ...
+
 #       | With(expr context_expr, expr? optional_vars, stmt* body)
 @defast
 def _ast_With(context_expr:   _ast.expr,
               optional_vars: (maybe_t, _ast.expr),
-              body:          (pylist_t, _ast.stmt)):
-        def bound_free():
-                ((_,      ctxt_f, _),
-                 (optl_b, optl_f, _)) = [ _bound_free_recursor()(x) for x in [context_expr, optional_vars] ]
-                body_bound, body_free, body_xtnls = _ast_body_bound_free(body, optl_b)
-                return (body_bound,
-                        ctxt_f | optl_f | body_free,
-                        body_xtnls)
+              body:          (pylist_t, _ast.stmt)): ...
+
 #       | Raise(expr? exc, expr? cause)
 @defast
 def _ast_Raise(exc:   (maybe_t, _ast.expr),
@@ -5905,15 +5643,13 @@ def _ast_Raise(exc:   (maybe_t, _ast.expr),
 @defast
 def _ast_TryExcept(body:     (pylist_t, _ast.stmt),
                    handlers: (pylist_t, _ast.excepthandler),
-                   orelse:   (pylist_t, _ast.stmt)):
-        # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-        def bound_free(): _separate(3, _ast_body_bound_free, [body, handlers, orelse])
+                   orelse:   (pylist_t, _ast.stmt)): ...
+
 #       | TryFinally(stmt* body, stmt* finalbody)
 @defast
 def _ast_TryFinally(body:      (pylist_t, _ast.stmt),
-                    finalbody: (pylist_t, _ast.stmt)):
-        # Unregistered Issue HOLE-ORELSE-CAN-USE-BODY-BINDINGS
-        def bound_free(): _separate(3, _ast_body_bound_free, [body, handlers, orelse])
+                    finalbody: (pylist_t, _ast.stmt)): ...
+
 #       | Assert(expr test, expr? msg)
 @defast
 def _ast_Assert(test: _ast.expr,
@@ -5926,19 +5662,16 @@ def _ast_Import(names: (pylist_t, _ast.alias)):
 @defast
 def _ast_ImportFrom(module: (maybe_t, string_t),
                     names:  (pylist_t, _ast.alias),
-                    level:  (maybe_t, integer_t)):
-        def bound_free():
-                return (_bound_free_recursor()(names)[0],
-                        set([module] if module else []),
-                        set())
+                    level:  (maybe_t, integer_t)): ...
+
 #       | Global(identifier* names)
 @defast
-def _ast_Global(names: (pylist_t, string_t)):
-        def bound_free(): (set(), set(), set(names))
+def _ast_Global(names: (pylist_t, string_t)): ...
+
 #       | Nonlocal(identifier* names)
 @defast
-def _ast_Nonlocal(names: (pylist_t, string_t)):
-        def bound_free(): (set(), set(), set(names))
+def _ast_Nonlocal(names: (pylist_t, string_t)): ...
+
 #       | Expr(expr value)
 @defast
 def _ast_Expr(value: _ast.expr): pass
@@ -5965,15 +5698,8 @@ def _ast_UnaryOp(op:      _ast.unaryop,
 #      | Lambda(arguments args, expr body)
 @defast
 def _ast_Lambda(args: _ast.arguments,
-                body: _ast.expr):
-        def bound_free():
-                ((args_b, args_f, _),
-                 (_,      body_f, _)) = [ _bound_free_recursor()(x) for x in [args, body] ]
-                body_free = body_f - args_b
-                free = args_f | body_free
-                return (set(),
-                        free,
-                        set())
+                body: _ast.expr): ...
+
 #      | IfExp(expr test, expr body, expr orelse)
 @defast
 def _ast_IfExp(test:   _ast.expr,
@@ -5988,41 +5714,26 @@ def _ast_Dict(keys:   (pylist_t, _ast.expr),
 def _ast_Set(elts: (pylist_t, _ast.expr)): pass
 #      | ListComp(expr elt, comprehension* generators)
 
-def _ast_gchain_bound_free(xs, acc_binds):
-        if xs:
-                g_binds, g_free, _ = _bound_free_recursor()(xs[0])
-                finbound, cfree = _ast_gchain_bound_free(xs[1:], acc_binds | g_binds)
-                return finbound, (g_free - acc_binds) | cfree
-        else:
-                return acc_binds, set()
-
-def _ast_comprehension_bound_free(exprs, generators):
-        gchain_bound, gchain_free = _ast_gchain_bound_free(generators, set())
-        _, exprs_f, _ = _separate(3, _bound_free_recursor(), exprs)
-        return (set(),
-                gchain_free | (exprs_f - gchain_bound),
-                set())
-
 @defast
 def _ast_ListComp(elt:         _ast.expr,
-                  generators: (pylist_t, _ast.comprehension)):
-        def bound_free(): _ast_comprehension_bound_free([elt], generators)
+                  generators: (pylist_t, _ast.comprehension)): ...
+
 #      | SetComp(expr elt, comprehension* generators)
 @defast
 def _ast_SetComp(elt:         _ast.expr,
-                 generators: (pylist_t, _ast.comprehension)):
-        def bound_free(): _ast_comprehension_bound_free([elt], generators)
+                 generators: (pylist_t, _ast.comprehension)): ...
+
 #      | DictComp(expr key, expr value, comprehension* generators)
 @defast
 def _ast_DictComp(key:        _ast.expr,
                   value:      _ast.expr,
-                  generators: (pylist_t, _ast.comprehension)):
-        def bound_free(): _ast_comprehension_bound_free([key, value], generators)
+                  generators: (pylist_t, _ast.comprehension)): ...
+
 #      | GeneratorExp(expr elt, comprehension* generators)
 @defast
 def _ast_GeneratorExp(elt:         _ast.expr,
-                      generators: (pylist_t, _ast.comprehension)):
-        def bound_free(): _ast_comprehension_bound_free([elt], generators)
+                      generators: (pylist_t, _ast.comprehension)): ...
+
 #      | Yield(expr? value)
 @defast
 def _ast_Yield(value: (maybe_t, _ast.expr) = None): pass
@@ -6037,9 +5748,8 @@ def _ast_Call(func:      _ast.expr,
               args:     (pylist_t, _ast.expr),
               keywords: (pylist_t, _ast.keyword),
               starargs: (maybe_t, _ast.expr) = None,
-              kwargs:   (maybe_t, _ast.expr) = None):
-        def bound_free(): _separate(3, _bound_free_recursor(),
-                                    [func, args, keywords, starargs, kwargs])
+              kwargs:   (maybe_t, _ast.expr) = None): ...
+
 #      | Num(object n) -- a number as a PyObject.
 @defast
 def _ast_Num(n: (or_t, integer_t, float_t)): pass
@@ -6070,9 +5780,8 @@ def _ast_Starred(value: _ast.expr,
 #      | Name(identifier id, expr_context ctx)
 @defast
 def _ast_Name(id:  string_t,
-              ctx: _ast.expr_context):
-        def bound_free(): ((set(), set([id])) if isinstance(ctx, (_ast.Load, _ast.AugLoad, _ast.Param)) else
-                           (set([id]), set()))
+              ctx: _ast.expr_context): ...
+
 #      | List(expr* elts, expr_context ctx)
 @defast
 def _ast_List(elts: (pylist_t, _ast.expr),
@@ -6168,25 +5877,14 @@ def _ast_NotIn(): pass
 @defast
 def _ast_comprehension(target: _ast.expr,
                        iter:   _ast.expr,
-                       ifs:   (pylist_t, _ast.expr)):
-        def bound_free():
-                ((_,      targ_f, _),
-                 (iter_b, iter_f, _),
-                 (_,      iffs_f, _)) = [ _bound_free_recursor()(x) for x in [target, iter, ifs] ]
-                return (iter_b,
-                        ((targ_f | iffs_f) - iter_b) | iter_f,
-                        set())
+                       ifs:   (pylist_t, _ast.expr)): ...
+
 # excepthandler = ExceptHandler(expr? type, identifier? name, stmt* body)
 @defast
 def _ast_ExceptHandler(type: (maybe_t, _ast.expr),
                        name: (maybe_t, string_t),
-                       body: (pylist_t, _ast.stmt)):
-        def bound_free():
-                (_,      type_f, _) = _bound_free_recursor()(type)
-                (bound, free, xtnls) = _ast_body_bound_free(body, set([name] if name is not None else []))
-                return (bound,
-                        type_f | free,
-                        xtnls)
+                       body: (pylist_t, _ast.stmt)): ...
+
 # arguments = (arg* args, identifier? vararg, expr? varargannotation,
 #              arg* kwonlyargs, identifier? kwarg,
 #              expr? kwargannotation, expr* defaults,
@@ -6200,36 +5898,53 @@ def _ast_arguments(args:             (pylist_t, _ast.arg),
                    kwarg:            (maybe_t, string_t),
                    kwargannotation:  (maybe_t, _ast.expr),
                    defaults:         (pylist_t, _ast.expr),
-                   kw_defaults:      (pylist_t, _ast.expr)):
-        def bound_free():
-                arg_bound, arg_free, _ = _separate(3, _bound_free_recursor(), [args, kwonlyargs])
-                arg_bound |= set(x for x in [vararg, kwarg]
-                                     if x is not None)
-                _, other_free, _ = _separate(3, _bound_free_recursor(), [varargannotation, kwargannotation, defaults, kw_defaults])
-                return (arg_bound,
-                        arg_free | other_free,
-                        set())
+                   kw_defaults:      (pylist_t, _ast.expr)): ...
+
 # arg = (identifier arg, expr? annotation)
 @defast
 def _ast_arg(arg:         string_t,
-             annotation: (maybe_t, _ast.expr) = None):
-        def bound_free(): (set([arg]),
-                           _bound_free_recursor()(annotation)[1],
-                           set())
+             annotation: (maybe_t, _ast.expr) = None): ...
+
 # keyword = (identifier arg, expr value)
 @defast
 def _ast_keyword(arg:   string_t,
-                 value: _ast.expr):
-        def bound_free(): (set([] if _nonep(asname) else [asname]),
-                           _bound_free_recursor()(value),
-                           set())
+                 value: _ast.expr): ...
+
 # alias = (identifier name, identifier? asname)
 @defast
 def _ast_alias(name:    string_t,
-               asname: (maybe_t, string_t) = None):
-        def bound_free(): (set([] if _nonep(asname) else [asname]),
-                           set(),
-                           set())
+               asname: (maybe_t, string_t) = None): ...
+
+# Validation: %AST-VALIDATE
+
+__ast_walkable_field_types__ = set([_ast.stmt, (pylist_t, _ast.expr), (maybe_t, _ast.expr),
+                                    _ast.expr, (pylist_t, _ast.stmt)])
+def _ast_info_check_args_type(info, args):
+        if len(args) < info.nfixed:
+                error("AST type '%s' requires %s %d arguments, but only %d were provided: %s.",
+                      info.type.__name__, "exactly" if len(info.fields) == info.nfixed else "at least", info.nfixed,
+                      len(args), args)
+        for i, (field, arg) in enumerate(zip(info.fields.values(), args)):
+                if not typep(arg, field["type"]):
+                        error("Argument %d (field %s) of AST '%s' must correspond to type %s, but was an instance of %s, instead: %s.",
+                              i, repr(field["name"]), info.type.__name__, field["type"], type_of(arg), repr(arg))
+        return t
+
+def _ast_validate(ast):
+        def rec(x, context):
+                if isinstance(x, (str, int, float, _NoneType)):
+                        return
+                if not isinstance(x, _ast.AST):
+                        error("%s %s is invalid: not an AST, where an AST was expected.", context, x)
+                args = [ (field, getattr(x, field))
+                         for field in x._fields
+                         if hasattr(x, field) ]
+                _ast_info_check_args_type(_find_ast_info(type(x)), [ fval for _, fval in args ])
+                for field, ixs in args:
+                        for ix in ixs if isinstance(ixs, list) else [ixs]:
+                                rec(ix, "ast.%s.%s" % (type(x).__name__, field))
+        rec(ast, "root AST")
+        return ast
 
 # Tracing
 
