@@ -5629,26 +5629,39 @@ def _ast_If(test:    _ast.expr,
             body:   (pylist_t, _ast.stmt),
             orelse: (pylist_t, _ast.stmt)): ...
 
-#       | With(expr context_expr, expr? optional_vars, stmt* body)
+# ..3.2 | With(expr context_expr, expr? optional_vars, stmt* body)
+# @defast
+# def _ast_With(context_expr:   _ast.expr,
+#               optional_vars: (maybe_t, _ast.expr),
+#               body:          (pylist_t, _ast.stmt)): ...
+
+# 3.3.. | With(withitem* items, stmt* body)
 @defast
-def _ast_With(context_expr:   _ast.expr,
-              optional_vars: (maybe_t, _ast.expr),
-              body:          (pylist_t, _ast.stmt)): ...
+def _ast_With(items: (pylist_t, _ast.withitem),
+              body:  (pylist_t, _ast.stmt)): ...
 
 #       | Raise(expr? exc, expr? cause)
 @defast
 def _ast_Raise(exc:   (maybe_t, _ast.expr),
                cause: (maybe_t, _ast.expr)): pass
-#       | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
-@defast
-def _ast_TryExcept(body:     (pylist_t, _ast.stmt),
-                   handlers: (pylist_t, _ast.excepthandler),
-                   orelse:   (pylist_t, _ast.stmt)): ...
 
-#       | TryFinally(stmt* body, stmt* finalbody)
+# ..3.2 | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
+# @defast
+# def _ast_TryExcept(body:     (pylist_t, _ast.stmt),
+#                    handlers: (pylist_t, _ast.excepthandler),
+#                    orelse:   (pylist_t, _ast.stmt)): ...
+
+# ..3.2 | TryFinally(stmt* body, stmt* finalbody)
+# @defast
+# def _ast_TryFinally(body:      (pylist_t, _ast.stmt),
+#                     finalbody: (pylist_t, _ast.stmt)): ...
+
+# 3.3.. | Try(stmt* body, excepthandler* handlers, stmt* orelse, stmt* finalbody)
 @defast
-def _ast_TryFinally(body:      (pylist_t, _ast.stmt),
-                    finalbody: (pylist_t, _ast.stmt)): ...
+def _ast_Try(body:      (pylist_t, _ast.stmt),
+             handlers:  (pylist_t, _ast.excepthandler),
+             orelse:    (pylist_t, _ast.stmt),
+             finalbody: (pylist_t, _ast.stmt)): ...
 
 #       | Assert(expr test, expr? msg)
 @defast
@@ -5737,6 +5750,11 @@ def _ast_GeneratorExp(elt:         _ast.expr,
 #      | Yield(expr? value)
 @defast
 def _ast_Yield(value: (maybe_t, _ast.expr) = None): pass
+
+# 3.3.. | YieldFrom(expr value)
+@defast
+def _ast_YieldFrom(value: _ast.expr): pass
+
 #      | Compare(expr left, cmpop* ops, expr* comparators)
 @defast
 def _ast_Compare(left:         _ast.expr,
@@ -5914,6 +5932,11 @@ def _ast_keyword(arg:   string_t,
 @defast
 def _ast_alias(name:    string_t,
                asname: (maybe_t, string_t) = None): ...
+
+# withitem = (expr context_expr, expr? optional_vars)
+@defast
+def _ast_withitem(context_expr:  _ast.expr,
+                  optional_vars: (maybe_t, _ast.expr)): ...
 
 # Validation: %AST-VALIDATE
 
