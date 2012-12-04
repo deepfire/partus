@@ -3143,7 +3143,7 @@ def setf_compiler_macro_function(new_function, symbol, environment = nil):
 
 def symbol_macro_expander(sym, environment = None):
         ## -> (-> expansion) | None
-        lexical = environment and the(lexenv, environment).lookup_var_kind(_symbol_macro, symbol)
+        lexical = environment and the(lexenv_t, environment).lookup_var_kind(_symbol_macro, symbol)
         expansion = (the(symbol_t, sym).symbol_macro_expansion if not lexical else
                      lexical.value)
         return (lambda: expansion) if expansion is not None else None
@@ -7867,13 +7867,18 @@ define_funcher(_lambda, (_binder, _lambda),
 
 ## Unregistered Issue LEXENV-WALKER-NOT-REENTRANT->MACROEXPANSION-DAMAGED-GOODS
 class lexenv_walker(metasex_mapper):
+        class binder():
+                def __init__(self, args): self.args, self.positionally = args, dict()
         def __init__(m):
                 metasex_mapper.__init__(m)
                 m.register_complex_matcher(_binder,        m.establish_binder)
                 m.register_simplex_matcher(_bind,          m.add_binding)
                 m.register_simplex_matcher(_bound,         m.setup_lexenv)
         def establish_binder(m, bound, name, exp, pat, orifst, aux, limit):
-                return pat[0][1][0].known.binder(exp, lambda form: m.match(bound, name, exp, pat[1], orifst, aux, limit))
+                def continuation(exp):
+                        with progv({ _walker_binder_: lexenv_walker.binder(0) }):
+                                return m.match(bound, name, exp, pat[1], orifst, aux, limit)
+                return pat[0][1][0].known.binder(exp, continuation)
         def add_binding(m, bound, name, exp, pat, orifst):
                 ## For the sake of proper pre-lexenv maintenance for the value subform of this binding form,
                 ## bust all the bindings accumulated from previous unsuccessful matches:
@@ -7886,8 +7891,8 @@ class lexenv_walker(metasex_mapper):
                 kind, bindingpat = pat[1][0], pat[1][1][0]
                 ## Recursively process the binding form for its subforms, having the clean pre-lexenv:
                 ret = m.default(exp, bindingpat, name = name, orifst = orifst)
-                if res[2] is not None: ## Propagate match failure.  Can we incrementalise the above bustage here?
-                        return res
+                if ret[2] is not None: ## Propagate match failure.  Can we incrementalise the above bustage here?
+                        return ret
                 ## Success -- extend the pre-lexenv with the binding.
                 name, what = (first(exp), second(exp)) if listp(exp) else (exp, nil)
                 binder.positionally[position] = (kind, name, what)
@@ -7911,7 +7916,7 @@ class lexenv_walker(metasex_mapper):
                          binder.args)
                 env = symbol_value(_walker_lexenv_)
                 with progv({ _walker_lexenv_: make_lexenv(env,
-                                                            **{ space: { ctor(name, kind, what )
+                                                            **{ space: { bctor(name, kind, what )
                                                                          for name, what in zip(names, whats) } }) }):
                         return further()
 
@@ -8186,16 +8191,16 @@ class fn():
                      effects = None, affected = None):
                 check_type(arglist, list_t)
                 args_types = [t] * length(arglist)
-                check_type(name, symbol_t)
-                if name in fns:
-                        error("Asked to overwrite FN record %s.", name)
+                if the(symbol_t, name): ## Not anonymous LAMBDA?
+                        if name in fns:
+                                error("Asked to overwrite FN record %s.", name)
+                        if globalp:
+                                fns[name] = self
                 attrify_args(self, locals(), "name",
                               "arglist", "args_types", "values_types",
                               "effects", "affected")
                 self.dependents, self.dependencies = (make_hash_table(default_constructor = set),
                                                       make_hash_table(default_constructor = set))
-                if globalp:
-                        fns[name] = self
         def add_dependent(self, reason, depee):
                 self.dependents[reason].add(depee)
                 depee.dependencies[reason].add(self)
@@ -8920,8 +8925,8 @@ def primitivise_pyref(x):
 @defknown((_ir_args, "\n", (_form,), ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pp)))],))
 class ir_args(known):
         def rewrite(cont, orig, form, *args):
-                return form[0].rewrite(cont, orig, *vectorise_linear(form[1]), **{ k: v for k, v in args })
-        def lower(*_):                     error("Invariant failed: %s is not meant to be lowered.", ir_args)
+                return form[0].known.rewrite(cont, form, *vectorise_linear(form[1]), **{ k: v for k, v in args })
+        def lower(*_):                     error("Invariant failed: IR-ARGS is not meant to be lowered.")
         def effects(*ir,  **args):         return ir_effects(ir)
         def affected(*ir, **args):         return ir_affected(ir)
 
@@ -9028,6 +9033,7 @@ class labels(known):
                 bindings = exp[1][0]
                 not listp(bindings) and fail(exp)
                 env = symbol_value(_walker_lexenv_)
+                ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
                 with progv({ _walker_lexenv_:
                               make_lexenv(env,
                                            name_funcframe = { name: function_binding(name, _function, fn(name, lam))
@@ -9149,6 +9155,7 @@ class tagbody(known):
                                         if isinstance(x, symbol_t) ]
                 binder.fnames = [ gensym("TAG-%s-" % symbol_name(tag)) for tag in binder.tags ]
                 env = symbol_value(_walker_lexenv_)
+                ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
                 with progv({ _walker_lexenv_: make_lexenv(env,
                                                             name_gotagframe = { name: fname
                                                                                 for name, fname in zip(binder.tags,
@@ -9394,7 +9401,7 @@ class let(known):
 ******* FUNCTION
 
 #+begin_src python
-intern_and_bind_symbols("SETF")
+intern_and_bind_symbols("SETF", "LOCALLY")
 
 @defknown((intern("FUNCTION")[0], " ", (_form,)))
 class function(known):
@@ -9639,14 +9646,15 @@ def lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_de
 class lambda_(known):
         def binder(exp, further, name = nil, decorators = nil):
                 length(exp) < 2 and error("Bad LAMBDA form: %s", pp_consly(exp))
-                lam = exp[1][0]
+                lam = exp[0]
                 not listp(lam) and error("Bad lambda list in LAMBDA form: %s", pp_consly(exp))
-                clambda = compiler_lambda(name, lambda_list)
+                clambda = compiler_lambda(name, lam)
                 env = symbol_value(_walker_lexenv_)
-                with progv(dict([ (_walker_binder_args_, nil),
-                                   (_walker_lexenv_,
-                                    make_lexenv(env, clambda = clambda,
-                                                      name_funcframe = { name: function_binding(name, _function, fn(name, lambda_list)) }))
+                with progv(dict([ (_walker_binder_, lexenv_walker.binder(0)),
+                                  (_walker_binder_args_, nil),
+                                  (_walker_lexenv_,
+                                   make_lexenv(env, clambda = clambda,
+                                               name_funcframe = { name: function_binding(name, _function, fn(name, lam)) }))
                                  ])):
                         return further(exp)
         def rewrite(cont, orig, lambda_list, *body, name = nil, decorators = nil):
@@ -10068,7 +10076,7 @@ def primitivise(form, lexenv = nil) -> p.prim:
                                 if not known:
                                         error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
                                 compiler_maybe_note_inner(known.name, form)
-                                return known.lower(*vectorise_linear(form[1]), **_alist_hash_table(args))
+                                return known.lower(*vectorise_linear(form[1]), **alist_hash_table(args))
                         elif (consp(x[0]) and x[0] and x[0][0] is _lambda):
                                 return rec(append(list__(_apply, x), list_(list_(quote, nil))))
                         elif isinstance(x[0], str): # basic function call
