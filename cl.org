@@ -3143,7 +3143,7 @@ def setf_compiler_macro_function(new_function, symbol, environment = nil):
 
 def symbol_macro_expander(sym, environment = None):
         ## -> (-> expansion) | None
-        lexical = environment and the(lexenv_t, environment).lookup_var_kind(_symbol_macro, symbol)
+        lexical = environment and the(lexenv_t, environment).lookup_var_kind(_symbol_macro, sym)
         expansion = (the(symbol_t, sym).symbol_macro_expansion if not lexical else
                      lexical.value)
         return (lambda: expansion) if expansion is not None else None
@@ -7916,7 +7916,7 @@ class lexenv_walker(metasex_mapper):
                          binder.args)
                 env = symbol_value(_walker_lexenv_)
                 with progv({ _walker_lexenv_: make_lexenv(env,
-                                                            **{ space: { bctor(name, kind, what )
+                                                            **{ space: { name: bctor(name, kind, what )
                                                                          for name, what in zip(names, whats) } }) }):
                         return further()
 
