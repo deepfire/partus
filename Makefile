@@ -1,5 +1,5 @@
 #PYTHON ?= python3
-PYTHON ?= python3.3
+PYTHON ?= python3
 TEST   ?= t
 REPORT ?= nil
 DEBUG  ?= nil
