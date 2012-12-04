@@ -6213,39 +6213,10 @@ def ast_If(test:    ast.expr,
             body:   (pylist_t, ast.stmt),
             orelse: (pylist_t, ast.stmt)): ...
 
-# ..3.2 | With(expr context_expr, expr? optional_vars, stmt* body)
-# @defast
-# def ast_With(context_expr:   ast.expr,
-#               optional_vars: (maybe_t, ast.expr),
-#               body:          (pylist_t, ast.stmt)): ...
-
-# 3.3.. | With(withitem* items, stmt* body)
-@defast
-def ast_With(items: (pylist_t, ast.withitem),
-              body:  (pylist_t, ast.stmt)): ...
-
 #       | Raise(expr? exc, expr? cause)
 @defast
 def ast_Raise(exc:   (maybe_t, ast.expr),
                cause: (maybe_t, ast.expr)): pass
-
-# ..3.2 | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
-# @defast
-# def ast_TryExcept(body:     (pylist_t, ast.stmt),
-#                    handlers: (pylist_t, ast.excepthandler),
-#                    orelse:   (pylist_t, ast.stmt)): ...
-
-# ..3.2 | TryFinally(stmt* body, stmt* finalbody)
-# @defast
-# def ast_TryFinally(body:      (pylist_t, ast.stmt),
-#                     finalbody: (pylist_t, ast.stmt)): ...
-
-# 3.3.. | Try(stmt* body, excepthandler* handlers, stmt* orelse, stmt* finalbody)
-@defast
-def ast_Try(body:      (pylist_t, ast.stmt),
-             handlers:  (pylist_t, ast.excepthandler),
-             orelse:    (pylist_t, ast.stmt),
-             finalbody: (pylist_t, ast.stmt)): ...
 
 #       | Assert(expr test, expr? msg)
 @defast
@@ -6334,10 +6305,6 @@ def ast_GeneratorExp(elt:         ast.expr,
 #      | Yield(expr? value)
 @defast
 def ast_Yield(value: (maybe_t, ast.expr) = None): pass
-
-# 3.3.. | YieldFrom(expr value)
-@defast
-def ast_YieldFrom(value: ast.expr): pass
 
 #      | Compare(expr left, cmpop* ops, expr* comparators)
 @defast
@@ -6517,10 +6484,10 @@ def ast_keyword(arg:   string_t,
 def ast_alias(name:    string_t,
                asname: (maybe_t, string_t) = None): ...
 
-# withitem = (expr context_expr, expr? optional_vars)
-@defast
-def ast_withitem(context_expr:  ast.expr,
-                  optional_vars: (maybe_t, ast.expr)): ...
+if neutrality.py3minor_atleast(3):
+        import ast_since33
+else:
+        import ast_until33
 #+end_src
 
 ***** Validation: %AST-VALIDATE
