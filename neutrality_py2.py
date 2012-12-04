@@ -3,7 +3,7 @@ import sys
 def stringp(o):
         return (type(o) is str) or (type(o) is unicode)
 
-def _write_string(string, stream):
+def do_write_string(string, stream):
         print >> stream, string
         return string
 
@@ -13,7 +13,7 @@ def file_content(path):
 
 def set_file_content(path, content):
         with open(path, "w") as f:
-                _write_string(content.encode('utf-8'), f)
+                do_write_string(content.encode('utf-8'), f)
 
 def to_unicode(x):
         return unicode(x, 'utf-8')

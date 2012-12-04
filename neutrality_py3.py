@@ -4,7 +4,7 @@ import sys
 def stringp(o):
         return type(o) is str
 
-def _write_string(string, stream):
+def do_write_string(string, stream):
         print(string, file = stream, end = '')
         return string
 
@@ -14,7 +14,7 @@ def file_content(path):
 
 def set_file_content(path, content):
         with open(path, "w", encoding = 'utf-8') as f:
-                _write_string(content, f)
+                do_write_string(content, f)
 
 def to_unicode(x):
         return x

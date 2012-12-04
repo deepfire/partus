@@ -14,16 +14,17 @@ import types
 import cl
 
 from cl         import t, nil, typep, null, integerp, floatp, functionp, stringp,\
-                       car, identity, with_output_to_string, error, reduce, \
-                       symbol_value, _progv
-from cl         import _ast_rw as ast_rw, __ast_alias as ast_alias, _ast_string as ast_string, _ast_name as ast_name, _ast_attribute as ast_attribute, _ast_index as ast_index
-from cl         import _ast_funcall as ast_funcall, _ast_maybe_normalise_string as ast_maybe_normalise_string
-from cl         import _ast_Expr as ast_Expr, _ast_list as ast_list, _ast_tuple as ast_tuple, _ast_set as ast_set
-from cl         import _ast_return as ast_return, _ast_assign as ast_assign, _ast_import as ast_import
-from cl         import _ast_module as ast_module
-from cl         import _not_implemented as not_implemented
+                       car, identity, with_output_to_string, error, \
+                       symbol_value, progv
+from cl         import ast_rw, _ast_alias as ast_alias, ast_string, ast_name, ast_attribute, ast_index
+from cl         import ast_funcall, ast_maybe_normalise_string
+from cl         import ast_Expr, ast_list, ast_tuple, ast_set
+from cl         import ast_return, ast_assign, ast_import
+from cl         import ast_module
+from cl         import not_implemented
 from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, fprintf
 from neutrality import py3p
+from functools  import reduce
 
 
 def extract_ast(source, filename='<virtualitty>'):
@@ -269,7 +270,6 @@ def _type_name(x):
         return type(x).__name__
 
 import operator
-cl._string_set("AML", "", force_toplevel = t)
 def assign_meaningful_locations(node, lineno = 1):
         # Here and thereafter, lineno means 'next free lineno'
         def advance0(lineno): return lineno
@@ -333,10 +333,7 @@ def assign_meaningful_locations(node, lineno = 1):
                 reduce(rec, normally(node), lineno) if isinstance(node, (list, tuple)) else
                 error("AST location assigner only accepts singular AST nodes and lists thereof."))
 
-cl._intern_and_bind_names_in_module("*AST-PP-DEPTH*",
-                                    globals = globals())
-
-cl._string_set("*AST-PP-DEPTH*", 0, force_toplevel = t)
+cl.string_set("*AST-PP-DEPTH*", 0, force_toplevel = t, globals = globals())
 def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_written_names = None):
         fmtctl = "%%%dd " % ndigits
         def indent(ast_or_lineno, offset = 0):
