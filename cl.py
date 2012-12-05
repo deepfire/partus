@@ -6934,7 +6934,7 @@ class lexenv_t():
                 return "#<LEXENV  %s  %s>" % ("empty" if not kinds else
                                               "  ".join(map(present_kind, kinds, namesets)),
                                               self.clambda)
-        def __init__(self, parent = nil, clambda = None,
+        def __init__(self, parent = nil, clambda = None, allocate_tns = nil,
                      name_varframe = None, name_funcframe = None, name_blockframe = None, name_gotagframe = None,
                      kind_varframe = None, kind_funcframe = None, kind_blockframe = None, kind_gotagframe = None,
                      full_varframe = None, full_funcframe = None, full_blockframe = None, full_gotagframe = None):
@@ -6976,6 +6976,8 @@ class lexenv_t():
                                         complete_frame(name_blockframe, kind_blockframe, full_blockframe)),
                       self.adjoin_scope(parent, "gotagscope",
                                         complete_frame(name_gotagframe, kind_gotagframe, full_gotagframe)))
+                if allocate_tns:
+                        self.allocate_tns()
         def adjoin_scope(self, parent_lexenv, sname, frame):
                 parent_lexenv = coerce_to_lexenv(parent_lexenv)
                 pscope = getattr(parent_lexenv, sname) if parent_lexenv else nil
@@ -7037,34 +7039,31 @@ class lexenv_t():
 
 def lexenvp(x):                return isinstance(x, lexenv_t)
 def make_null_lexenv(clambda): return lexenv_t(clambda = clambda, parent = _null)
-def make_lexenv(parent = nil, clambda = None, **initial_content):
+def make_lexenv(parent = nil, clambda = None, **initargs):
         """ :PARENT - NULL for a null lexenv, nil for the value of *LEXENV*.
             :{NAME,KIND,FULL}-{VAR,FUNC,BLOCK}FRAME - constituents."""
-        return lexenv_t(parent, clambda = clambda, **initial_content)
+        return lexenv_t(parent, clambda = clambda, **initargs)
 
 __the_null_lexenv__ = make_null_lexenv(nil)
 def the_null_lexenv():
         return __the_null_lexenv__
 
 def make_lexenv_varframe(names, parent = nil, clambda = None, forms = repeat(None), allocate_tns = nil):
-        env = make_lexenv(parent = parent, clambda = clambda,
+        return make_lexenv(parent = parent, clambda = clambda, allocate_tns = allocate_tns,
                            kind_varframe  = { _variable: { variable_binding(sym, _variable, form)
                                                            for sym, form in zip(names, forms) } })
-        allocate_tns and env.allocate_tns()
-        return env
 
 def make_lexenv_funcframe(bindings, parent = nil, clambda = None, allocate_tns = nil):
-        env = make_lexenv(parent = parent, clambda = clambda,
+        return make_lexenv(parent = parent, clambda = clambda, allocate_tns = allocate_tns,
                            kind_funcframe = { function: { function_binding(sym, _function, fn(sym, clam.lambda_list))
                                                           for sym, clam in bindings } })
-        allocate_tns and env.allocate_tns()
-        return env
 
 # Code
 
 string_set("*WALKER-LEXENV*", nil)        ## This is for regular macro expansion.
 string_set("*WALKER-CLAMBDA*", nil)       ## Should the original lexenv and clambda be merged into *WALKER-ARGS*?
-                                           ## Or should we, still better, add argument passing to the matcher?
+                                          ## Or should we, still better, add argument passing to the matcher?
+string_set("*WALKER-ALLOCATE-TNS*", nil)
 string_set("*WALKER-BINDER*", nil)
 string_set("*WALKER-BINDER-ARGS*", nil)
 
@@ -7121,19 +7120,20 @@ class lexenv_walker(metasex_mapper):
                                 ("name_blockframe", block_binding)    if kind is _block                     else
                                 ("name_gotagframe", gotag_binding)    if kind is _gotag                     else
                                 error("Invalid binding kind %s in binding of %s.", kind, names))
-                whats = (forms if isinstance(binder.args, int) else
-                         binder.args)
-                env = symbol_value(_walker_lexenv_)
-                with progv({ _walker_lexenv_: make_lexenv(env,
-                                                            **{ space: { name: bctor(name, kind, what )
-                                                                         for name, what in zip(names, whats) } }) }):
+                whats        = (forms if isinstance(binder.args, int) else
+                                binder.args)
+                with progv({ _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
+                                                          allocate_tns = symbol_value(_walker_allocate_tns_),
+                                                          **{ space: { name: bctor(name, kind, what )
+                                                                       for name, what in zip(names, whats) } }) }):
                         return further()
 
 lexenv_walker = lexenv_walker()
 
 def walk_with_lexenv(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
-                      sex, lexenv = nil) -> "Form":
+                      sex, lexenv = nil, allocate_tns = nil) -> "Form":
         with progv({ _walker_lexenv_: coerce_to_lexenv(lexenv),
+                     _walker_allocate_tns_: allocate_tns,
                      _metasex_kind_:  "metasex_bind" }):
                 return xform_ir(fn, sex, matcher = lexenv_walker)
 
@@ -8172,9 +8172,9 @@ class labels(known):
                 env = symbol_value(_walker_lexenv_)
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
                 with progv({ _walker_lexenv_:
-                              make_lexenv(env,
-                                           name_funcframe = { name: function_binding(name, _function, fn(name, lam))
-                                                              for name, (lam, _) in bindings }),
+                              make_lexenv(env, allocate_tns = symbol_value(_walker_allocate_tns_),
+                                          name_funcframe = { name: function_binding(name, _function, fn(name, lam))
+                                                             for name, (lam, _) in bindings }),
                               _walker_binder_args_: nil } if bindings else
                             { _walker_binder_args_: nil }):
                         return further(exp)
@@ -8281,12 +8281,12 @@ class tagbody(known):
                                   ] + [ x for x in vectorise_linear(exp[1])
                                         if isinstance(x, symbol_t) ]
                 binder.fnames = [ gensym("TAG-%s-" % symbol_name(tag)) for tag in binder.tags ]
-                env = symbol_value(_walker_lexenv_)
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
-                with progv({ _walker_lexenv_: make_lexenv(env,
-                                                            name_gotagframe = { name: fname
-                                                                                for name, fname in zip(binder.tags,
-                                                                                                       binder.fnames) }),
+                with progv({ _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
+                                                          allocate_tns = symbol_value(_walker_allocate_tns_),
+                                                          name_gotagframe = { name: fname
+                                                                              for name, fname in zip(binder.tags,
+                                                                                                     binder.fnames) }),
                               _walker_binder_args_: nil } if bindings else
                             { _walker_binder_args_: nil }):
                         return further(exp)
@@ -8759,11 +8759,11 @@ class lambda_(known):
                 lam = exp[0]
                 not listp(lam) and error("Bad lambda list in LAMBDA form: %s", pp_consly(exp))
                 clambda = compiler_lambda(name, lam)
-                env = symbol_value(_walker_lexenv_)
                 with progv(dict([ (_walker_binder_, lexenv_walker.binder(0)),
                                   (_walker_binder_args_, nil),
                                   (_walker_lexenv_,
-                                   make_lexenv(env, clambda = clambda,
+                                   make_lexenv(symbol_value(_walker_lexenv_), clambda = clambda,
+                                               allocate_tns = symbol_value(_walker_allocate_tns_),
                                                name_funcframe = { name: function_binding(name, _function, fn(name, lam)) }))
                                  ])):
                         return further(exp)
@@ -8832,7 +8832,7 @@ class lambda_(known):
                 nonlocal_decl = ([ p.nonlocal_([ variable_tn(x)
                                                  for x in sorted(clambda.nonlocal_setqs, key = symbol_name) ]) ]
                                  if clambda.nonlocal_setqs else [])
-                with progv({ _lexenv_: make_lexenv(symbol_value(_lexenv_), clambda = clambda,
+                with progv({ _lexenv_: make_lexenv(symbol_value(_lexenv_), clambda = clambda, allocate_tns = t,
                                                    name_varframe  = dict((b, variable_binding(b, _variable, None))
                                                                          for b in clambda.total),
                                                    name_funcframe = { name: function_binding(name, _function, fn(name, lambda_list)) }) }):
