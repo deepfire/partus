@@ -6925,8 +6925,15 @@ class lexenv_t():
         varscope, funcscope, blockscope, gotagscope = nil, nil, nil, nil
         varframe, funcframe, blockframe, gotagframe = nil, nil, nil, nil
         def __repr__(self):
-                return "#<lexenv vars: %s, funs: %s, blks: %s, gotags: %s>" % (self.varscope,   self.funcscope,
-                                                                               self.blockscope, self.gotagscope)
+                kinds    = [ (name, nil) for name in [ "var", "func", "block", "gotag" ]
+                             if getattr(self, name + "frame") ]
+                frames   = [ getattr(self, kind + "frame") for kind, _ in kinds ]
+                namesets = [ sorted(map(str, frame["name"].keys())) for frame in frames ]
+                def present_kind(kind, nameset):
+                        return "%s: %s" % (kind[0], ", ".join(nameset))
+                return "#<LEXENV  %s  %s>" % ("empty" if not kinds else
+                                              "  ".join(map(present_kind, kinds, namesets)),
+                                              self.clambda)
         def __init__(self, parent = nil, clambda = None,
                      name_varframe = None, name_funcframe = None, name_blockframe = None, name_gotagframe = None,
                      kind_varframe = None, kind_funcframe = None, kind_blockframe = None, kind_gotagframe = None,
@@ -8622,6 +8629,9 @@ class compiler_lambda():
                      "total", "total_types", "value_types",
                      "allow_other_keys",
                      "nonlocal_refs", "nonlocal_setqs")
+        def __repr__(self):
+                return "#<CLAMBDA %s {%x}>" % (pp_consly(self.lambda_list),
+                                               id(self))
         def __init__(self, name, lambda_list):
                 total, args, forms, allow_other_keys = ir_parse_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 check_no_locally_rebound_constants(total)
@@ -9055,25 +9065,26 @@ if getenv("CL_RUN_TESTS") != "nil":
 # Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
 
 def report(macroexpanded = None, known = None, primitive = None, ast = None, bytecode = None,
-            desc = "", form_id = None):
-        desc = "%s - " % desc if desc is not None else ""
-        fid = ("  %x" % form_id) if form_id else ""
+            desc = "", form_id = None, lexenv = None):
+        lexenv  = "%s\n"  % coerce_to_lexenv(lexenv) if  lexenv is not None else ""
+        desc    = "%s - " % desc                     if    desc is not None else ""
+        form_id = "  %x"  % form_id                  if form_id is not None else ""
         if macroexpanded is not None:
-                dprintf(";;; %smacroexpanded ............%s\n%s\n",
-                              desc, fid, pp(macroexpanded))
+                dprintf(";;; %smacroexpanded ............%s\n%s%s\n",
+                              desc, form_id, lexenv, pp(macroexpanded))
         if known is not None:
-                dprintf(";;; %sknowns ..............%s\n%s\n",
-                              desc, fid, pp(known))
+                dprintf(";;; %sknowns ..............%s\n%s%s\n",
+                              desc, form_id, lexenv, pp(known))
         if primitive is not None:
-                dprintf(";;; %sprimitives ==========%s\n%s\n",
-                              desc, fid, primitive)
+                dprintf(";;; %sprimitives ==========%s\n%s%s\n",
+                              desc, form_id, lexenv, primitive)
         if ast:
                 import more_ast
                 dprintf(";;; %spython ------------->%s\n%s\n",
-                              desc, fid, "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
-                                                   for x in ast))
+                              desc, form_id, "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
+                                                       for x in ast))
         if bytecode:
-                dprintf(";;; %sbytecode ************%s\n", desc, fid)
+                dprintf(";;; %sbytecode ************%s\n", desc, form_id)
                 import dis
                 def rec(x):
                         dis.dis(x)
@@ -9093,7 +9104,7 @@ def primitivise(form, lexenv = nil) -> p.prim:
                 if (symbol_value(_compiler_trace_subknowns_) and
                     not isinstance(x, (symbol_t, bool))                            and
                     not (consp(x) and x[0] in [ref, function, quote])):
-                        dprintf(";;;%s lowering:\n%s%s", sex_space(-3, ";"), sex_space(), pp(x))
+                        report(known = x, desc = "PRIMITIVISE", lexenv = coerce_to_lexenv(symbol_value(_lexenv_)))
         def compiler_maybe_note_inner(known_name, xs):
                 if symbol_value(_compiler_trace_inner_knowns_) and known_name is not symbol:
                         dprintf("%s>>> %s\n%s%s", sex_space(), name,
@@ -9212,11 +9223,11 @@ def lower(form, lexenv = nil):
         ## Macroexpanded SEX -> MacIR
         expanded = rewrite_all(form, lexenv = lexenv)    ## No other high-level entry point to %REWRITE-ALL
         if symbol_value(_compiler_trace_rewrites_):
-                report(known =  expanded, form_id = id(form), desc = "%LOWER")
+                report(known =  expanded, form_id = id(form), desc = "%LOWER", lexenv = lexenv)
         ## HIR -> LIR
         prim = primitivise(expanded, lexenv = lexenv)    ## No other high-level entry point to %PRIMITIVISE.
         if symbol_value(_compiler_trace_primitives_):
-                report(primitive = prim, form_id = id(form), desc = "%LOWER")
+                report(primitive = prim, form_id = id(form), desc = "%LOWER", lexenv = lexenv)
         ##
         ## LIR -> target AST
         ast  = emit_ast(prim)
@@ -9233,8 +9244,7 @@ def process_to_ast(form, lexenv = nil):
         macroexpanded = compiler_macroexpand_all(form, lexenv = lexenv)
         if symbol_value(_compiler_trace_macroexpanded_):
                 if form != macroexpanded:
-                        dprintf(";;;%s macroexpanded:\n%s%s",
-                                      sex_space(-3, ";"), sex_space(), pp(macroexpanded))
+                        report(macroexpanded = expanded, desc = "PROCESS-AST", lexenv = lexenv)
                 else:
                         dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
         return lower(macroexpanded, lexenv = lexenv)
@@ -9353,8 +9363,7 @@ def process_top_level(form, lexenv = nil) -> [ast.stmt]:
         macroexpanded = compiler_macroexpand_all(form, lexenv = lexenv)
         if symbol_value(_compiler_trace_macroexpanded_):
                 if form != macroexpanded:
-                        dprintf(";;;%s macroexpanded:\n%s%s",
-                                      sex_space(-3, ";"), sex_space(), pp(macroexpanded))
+                        report(macroexpanded = macroexpanded, desc = "PROCESS-TOP-LEVEL", lexenv = lexenv)
                 else:
                         dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
         ## Accumulation of results arranged for the run time:
