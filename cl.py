@@ -5502,7 +5502,7 @@ def defast(fn):
                                             nfixed     = len(fixed))
 
 ## AST + Symbols
-register_astifier_for_type(symbol_t, nil, (lambda sym: ast_funcall("_find_symbol_or_fail", [symbol_name(sym)])))
+register_astifier_for_type(symbol_t, nil, (lambda sym: ast_funcall("find_symbol_or_fail", [symbol_name(sym)])))
 
 # Definitions
 
@@ -7990,10 +7990,10 @@ if getenv("CL_RUN_TESTS") != "nil":
 def handle_linear_body(xs):
         return (nil   if not xs       else
                 xs[0] if len(xs) is 1 else
-                list_(progn, *xs))
+                list_(_progn, *xs))
 
 def rewrite_linear_body(xs):
-        return ((nil, list_(progn, *xs)) if len(xs) > 1 else
+        return ((nil, list_(_progn, *xs)) if len(xs) > 1 else
                 (t, handle_linear_body(xs)))
 
 def handle_constant_linear_body(xs):
@@ -8054,7 +8054,7 @@ def handle_constant_linear_body(xs):
 # Raw python references
 
 def pyref_p(x):
-        return (consp(x) and x[0] is quote and consp(x[1])
+        return (consp(x) and x[0] is _quote and consp(x[1])
                 and consp(x[1][0]) and isinstance(x[1][0][0], str))
 
 def primitivise_pyref(x):
@@ -8091,7 +8091,7 @@ def ir(*ir, **keys):
 @defknown
 class funcall(known):
         def rewrite(cont, _, func, *args):
-                return t, cont(list__(_apply, rewrite(func), append(xmap_to_conses(rewrite, args), list_(list_(quote, nil)))))
+                return t, cont(list__(_apply, rewrite(func), append(xmap_to_conses(rewrite, args), list_(list_(_quote, nil)))))
 
 # LET*
 
@@ -8114,8 +8114,8 @@ class let_(known):
                         return t, cont(list_(let, bindings, *body))
                 l = list_
                 ## Unregistered Issue LET*-REWRITE-TIME-LEXENV-WOBBLINESS
-                return t, cont(l(let, l(bindings[0]),
-                                 l(let_, bindings[1],
+                return t, cont(l(_let, l(bindings[0]),
+                                 l(_let_, bindings[1],
                                    *body)))
 
 # FLET
@@ -8135,14 +8135,14 @@ class flet(known):
                                ## This weak attempt above screams for proper liveness analysis.
                                nil                                if not (bindings or body)          else
                                handle_linear_body(body)          if not bindings                    else
-                               l(funcall,
+                               l(_funcall,
                                  (lambda rest, tns:
-                                          l(labels, xmap_to_conses(lambda btn:
+                                          l(_labels, xmap_to_conses(lambda btn:
                                                                             cons(btn[0], btn[1]),
                                                                     zip(tns, bindings)),
-                                            l(labels, xmap_to_conses(lambda btn:
-                                                                              l(btn[1][0], l(rest, rest),
-                                                                                l(_apply, l(function, btn[0]), rest)),
+                                            l(_labels, xmap_to_conses(lambda btn:
+                                                                              l(btn[1][0], l(_rest, rest),
+                                                                                l(_apply, l(f_unction, btn[0]), rest)),
                                                                       zip(tns, bindings)),
                                               *body)))
                                  (gensym("REST-"),
@@ -8177,7 +8177,7 @@ class labels(known):
                                ## This weak attempt above screams for proper liveness analysis.
                                nil                                if not (bindings or body)          else
                                handle_linear_body(body)          if not bindings                    else
-                               l(funcall, ir(_lambda, nil,
+                               l(_funcall, ir(_lambda, nil,
                                               ## We rely on that PRIMITIVE layer will allocate a
                                               ## separate function for statements, thereby not wronging the namespace.
                                               *(xmap_to_vector(lambda binding:
@@ -8230,7 +8230,7 @@ _block = intern("BLOCK")[0]
 class block(known):
         def rewrite(cont, orig, name, *body):
                 nonce = gensym("BLOCK-" + symbol_name(name) + "-")
-                catch_target = list__(catch, list_(quote, nonce), consify_linear(body))
+                catch_target = list__(_catch, list_(_quote, nonce), consify_linear(body))
                 has_return_from = nil
                 def update_has_return_from(sex, further):
                         nonlocal has_return_from
@@ -8251,7 +8251,7 @@ class return_from(known):
                 binding, _ = symbol_value(_walker_lexenv_).lookup_block(the(symbol_t, name))
                 if not binding:
                         simple_program_error("return for unknown block: %s", name)
-                return t, cont(list_(throw, list_(quote, binding.value), nil if not maybe_form else maybe_form[0]))
+                return t, cont(list_(_throw, list_(_quote, binding.value), nil if not maybe_form else maybe_form[0]))
 
 # TAGBODY
 
@@ -8300,7 +8300,7 @@ class tagbody(known):
                         return l(l_(fun_names[label], nil,
                                     nconc(subseq(body, 0, nlposn),
                                           l(ir_funcall(fun_names[nextl]) if nlposn else
-                                            l(throw, return_tag, nil)))))
+                                            l(_throw, return_tag, nil)))))
                 funs         = mapcon(lam_, body)
                 # (mapcon #'(lambda (seq &aux (label (car seq) (s (cdr seq)))      
                 #             (when (atom label)                                   
@@ -8310,15 +8310,15 @@ class tagbody(known):
                 #                      ,(if p `(,(label-to-functionname (elt s p)))
                 #                             `(throw ,return-tag nil)))))))
                 #         `(,init-tag ,@body))
-                form = l(let, l(l(go_tag, l(_apply, l(function, _list), l(quote, nil), l(quote, nil)))),
-                         l(let, l_(l(return_tag, l(_apply, l(function, _list), l(quote, nil), l(quote, nil))),
+                form = l(_let, l(l(go_tag, l(_apply, l(_function, _list), l(_quote, nil), l(_quote, nil)))),
+                         l(_let, l_(l(return_tag, l(_apply, l(_function, _list), l(_quote, nil), l(_quote, nil))),
                                    consify_linear(l(name, go_tag) for name in fun_names.values())),
-                           l(catch, return_tag,
-                             l(labels, funs,
-                               l(let, l(l(nxt_label, l(function, funs[0][0]))),
-                                 l(protoloop,
-                                   l(setq, nxt_label,
-                                           l(catch, go_tag, l(_apply, nxt_label, l(quote, nil))))))))))
+                           l(_catch, return_tag,
+                             l(_labels, funs,
+                               l(_let, l(l(_nxt_label, l(_function, funs[0][0]))),
+                                 l(_protoloop,
+                                   l(_setq, nxt_label,
+                                           l(_catch, go_tag, l(_apply, nxt_label, l(_quote, nil))))))))))
                 return t, cont(form)
 
 # GO
@@ -8331,7 +8331,7 @@ class go(known):
                 binding, lexenv = symbol_value(_lexenv_).lookup_gotag(the(symbol_t, name))
                 if not binding:
                         simple_program_error("attempt to GO to nonexistent tag: %s", name)
-                return t, cont(list_(throw, binding.value, list_(function, binding.value)))
+                return t, cont(list_(_throw, binding.value, list_(_function, binding.value)))
 
 # EVAL-WHEN
 
@@ -8383,8 +8383,8 @@ when EVAL-WHEN appears as a top level form."""
                 ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
                 ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
                 ## so that they're never seen at this level.)
-                compiler_trace_known_choice(eval_when, when, "EXECUTE" if exec else "NO-EXECUTE")
-                return t, cont(cons(progn, consify_linear(body)) if exec else
+                compiler_trace_known_choice(_eval_when, when, "EXECUTE" if exec else "NO-EXECUTE")
+                return t, cont(cons(_progn, consify_linear(body)) if exec else
                                nil)
 
 # SETQ
@@ -8398,16 +8398,16 @@ class setq(known):
                 not all(isinstance(x, symbol_t) for x in args[::2]) and \
                     error("SETQ arguments at even positions must be symbols, got: %s", pp_consly(consify_linear(args)))
                 return ((nil, cont(orig)) if len(args) == 2 else
-                        (t,   cont(handle_linear_body(map(lambda name, value: list_(setq, name, value),
+                        (t,   cont(handle_linear_body(map(lambda name, value: list_(_setq, name, value),
                                                            args[::2], args[1::2])))))
         def nvalues(_, __):                                               return 1
-        def nth_value(n, orig, _, value):                                 return orig if n is 0 else list_(progn, orig, nil)
+        def nth_value(n, orig, _, value):                                 return orig if n is 0 else list_(_progn, orig, nil)
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
         def lower(name, value):
                 assert(not _)
                 lexical_binding, lexenv = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
-                if not lexical_binding or lexical_binding.kind is special:
+                if not lexical_binding or lexical_binding.kind is _special:
                         compiler_trace_known_choice(setq, name, "GLOBAL")
                         gvar = find_global_variable(name)
                         if gvar and gvar.kind is constant:
@@ -8448,7 +8448,7 @@ class progn(known):
 class if_(known):
         def rewrite(cont, orig, test, consequent, *maybe_ante):
                 return not maybe_ante, cont(orig if maybe_ante else
-                                            list_(if_, test, consequent, nil))
+                                            list_(_if, test, consequent, nil))
         def nvalues(test, consequent, antecedent):
                 nconseq, nante = ir_nvalues(consequent), ir_nvalues(antecedent)
                 return (nconseq             if nconseq == nante                      else
@@ -8483,8 +8483,8 @@ class let(known):
                 check_no_locally_rebound_constants(names)
                 return (not (body and bindings and every(lambda x: consp(x) and length(x) == 2, bindings)),
                         cont(handle_linear_body(body)                if not bindings else
-                             list__(progn, append(forms, list_(nil))) if not body     else
-                             list_(let, consify_linear(map(list_, names, forms)))))
+                             list__(_progn, append(forms, list_(nil))) if not body     else
+                             list_(_let, consify_linear(map(list_, names, forms)))))
         def nvalues(bindings, *body):            return 1   if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else ir_nth_valueify_last_subform(n, orig)
         def lower(bindings, *body):
@@ -8569,13 +8569,13 @@ behavior."""
 class unwind_protect(known):
         def rewrite(cont, orig, form, *unwind_body):
                 return ((t, cont(form)) if not unwind_body or all(constantp(x) for x in unwind_body) else
-                        (lambda gs: (t, cont(list_(let, list_(list_(gs, form)),
+                        (lambda gs: (t, cont(list_(_let, list_(list_(gs, form)),
                                                    *(unwind_body
                                                      + (gs,))))))
                         (gensym("UWP-CONSTANT-VALUE-")) if constantp(form) else
                         (nil, cont(orig)))
         def nvalues(form, *unwind_body):            return ir_nvalues(form)
-        def nth_value(n, orig, form, *unwind_body): return list__(unwind_protect, ir_nth_value(n, form),
+        def nth_value(n, orig, form, *unwind_body): return list__(_unwind_protect, ir_nth_value(n, form),
                                                                   consify_linear(unwind_body))
         def lower(form, *unwind_body):
                 return p.unwind_protect(primitivise(form),
@@ -8587,7 +8587,9 @@ class unwind_protect(known):
 
 # REF
 
-@defknown((intern("REF")[0], " ", (_form,)))
+_ref = intern("REF")[0]
+
+@defknown((_ref, " ", (_form,)))
 class ref(known):
         def rewrite(cont, orig, x):
                 pyrefp = pyref_p(x)
@@ -8598,7 +8600,7 @@ class ref(known):
                 if pyref_p(name):
                         return primitivise_pyref(name)
                 lexical_binding, lexenv = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
-                if not lexical_binding or lexical_binding.kind is special:
+                if not lexical_binding or lexical_binding.kind is _special:
                         gvar = find_global_variable(name)
                         if not gvar and not lexical_binding: # Don't complain on yet-unknown specials.
                                 simple_style_warning("undefined variable: %s", name)
@@ -8784,21 +8786,21 @@ class lambda_(known):
                 return t, \
                     cont(ir(_lambda, a(l(whole) if whole else nil,
                                         consify_linear(fixed),
-                                        l(rest, rest_gsym) if need_rest else nil),
-                             l(let_, a(consify_linear(l(name, l(if_, l(prim, p.eq, gs, l(ref, l(quote, l("None")))),
+                                        l(_rest, rest_gsym) if need_rest else nil),
+                             l(_let_, a(consify_linear(l(name, l(_if, l(_prim, p.eq, gs, l(_ref, l(_quote, l("None")))),
                                                                  def_expr,
                                                                  gs))
                                                        for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
-                                       (l(l(rest, ir_cl_call("_consify_linear", rest_gsym)))
+                                       (l(l(rest, ir_cl_call("consify_linear", rest_gsym)))
                                         if rest else nil),
-                                       (l_(l(key_map_gsym, ir_cl_call("_parse_keyword_args", rest_gsym)),
-                                           consify_linear(l(name, l(if_, l(prim, p.not_in, ksym, key_map_gsym),
+                                       (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", rest_gsym)),
+                                           consify_linear(l(name, l(_if, l(_prim, p.not_in, ksym, key_map_gsym),
                                                                      def_expr,
-                                                                     l(prim, p.index, key_map_gsym, ksym)))
+                                                                     l(_prim, p.index, key_map_gsym, ksym)))
                                                            for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
                                         if keys else nil),
-                                       (l(l(keyset_gsym, ir_funcall("set", ir_cl_call("_vectorise_linear",
-                                                                                        a(ir_funcall(l(function, _list)),
+                                       (l(l(keyset_gsym, ir_funcall("set", ir_cl_call("vectorise_linear",
+                                                                                        a(ir_funcall(l(_function, _list)),
                                                                                           keys)))),
                                           l(gensym("DUMMY-"), ir_cl_call("_validate_keyword_args", keyset_gsym, key_map_gsym)))
                                         if must_check_keys else nil),
@@ -8821,13 +8823,13 @@ class lambda_(known):
                                                  for x in sorted(clambda.nonlocal_setqs, key = symbol_name) ]) ]
                                  if clambda.nonlocal_setqs else [])
                 with progv({ _lexenv_: make_lexenv(symbol_value(_lexenv_), clambda = clambda,
-                                                     name_varframe  = dict((b, variable_binding(b, _variable, None))
-                                                                           for b in clambda.total),
-                                                     name_funcframe = { name: function_binding(name, _function, fn(name, lambda_list)) }) }):
+                                                   name_varframe  = dict((b, variable_binding(b, _variable, None))
+                                                                         for b in clambda.total),
+                                                   name_funcframe = { name: function_binding(name, _function, fn(name, lambda_list)) }) }):
                         return p.lambda_(lower_lambda_list("LAMBDA", *(fixed, [], rest or None,
-                                                                        [], [], [])),
+                                                                       [], [], [])),
                                          p.progn(*nonlocal_decl
-                                                  + [_primitivise(x) for x in body]),
+                                                  + [primitivise(x) for x in body]),
                                          name = fnname_tn,
                                          decorators = xmap_to_vector(primitivise, decorators))
         def effects(*_):            return nil
@@ -8847,7 +8849,7 @@ class apply(known):
                 ## the comparison against a literal NIL is much weaker than a NULL type membership test.
                 ## Therefore, the important evolutionary question, is what kind of preparations are
                 ## required to make such type analysis viable.
-                if rest is nil or rest == list_(quote, nil):
+                if rest is nil or rest == list_(_quote, nil):
                         return p.funcall(primitivise(func), *(primitivise(x) for x in fixed))
                 else:
                         return p.apply(primitivise(func), *(list(primitivise(x) for x in fixed)
@@ -8893,10 +8895,8 @@ def do_multiple_value_call(fn, values_frames):
 class multiple_value_call(known):
         ## We might start considering the argument forms for the values queries,
         ## once we get into the partial evaluation affairs..
-        def nvalues(func, *_):
-                return ir_function_form_nvalues(func)
-        def nth_value(n, orig, func, *_):
-                return ir_function_form_nth_value_form(n, func, orig)
+        def nvalues(func, *_):            return ir_function_form_nvalues(func)
+        def nth_value(n, orig, func, *_): return ir_function_form_nth_value_form(n, func, orig)
         def lower(fn, *arg_forms):
                 ## We have no choice, but to lower immediately, and by hand.
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
@@ -8916,8 +8916,8 @@ class multiple_value_call(known):
 class catch(known):
         ## Critical Issue CATCH-MULTIPLE-VALUES-NOT-IMPLEMENTED
         def nvalues(_, *body):              return 1 if not body else not_implemented()
-        def nth_value(n, orig, tag, *body): return (not_implemented()      if body             else
-                                                    list_(progn, tag, nil)  if ir_effects(tag) else
+        def nth_value(n, orig, tag, *body): return (not_implemented()        if body             else
+                                                    list_(_progn, tag, nil)  if ir_effects(tag) else
                                                     nil)
         ## Unregistered Issue DOUBT-WHETHER-LAMBDA-CAN-LOWER-PROLOGUESSLY-DUE-TO-C-L-A-N-T
         def lower(tag, *body):
@@ -8931,7 +8931,7 @@ class catch(known):
 @defknown((intern("THROW")[0], " ", (_form,), (_maybe, " ", (_form,))))
 class throw(known):
         def nvalues(_, value):            return ir_nvalues(value)
-        def nth_value(n, orig, _, value): return (list_(progn, tag, ir_nth_value(value)) if ir_effects(tag) else
+        def nth_value(n, orig, _, value): return (list_(_progn, tag, ir_nth_value(value)) if ir_effects(tag) else
                                                   ir_nth_value(value))
         def lower(tag, value):
                 return p.throw(primitivise(tag), primitivise(value))
@@ -8944,10 +8944,10 @@ class throw(known):
 class nth_value(known):
         def nvalues(_, __):    return 1
         def nth_value(n, orig, form_n, form):
-                return (list_(nth_value, n, orig) if not (integerp(n) and integerp(form_n)) else ## Give up.  Too early?
-                        nil                       if n != form_n and not ir_effects(form)  else
-                        list_(progn, form, nil)   if n != form_n                            else
-                        ir_nth_value(n, form)) ## We don't risque unbounded recursion here, so let's further analysis..
+                return (list_(_nth_value, n, orig) if not (integerp(n) and integerp(form_n)) else ## Give up.  Too early?
+                        nil                        if n != form_n and not ir_effects(form)   else
+                        list_(_progn, form, nil)   if n != form_n                            else
+                        ir_nth_value(n, form)) ## We don't risk unbounded recursion here, so let's analyse further..
         def lower(n, form):
                 return p.funcall(p.impl_ref("_values_frame_project"), primitivise(n), primitivise(form))
         def effects(n, form):   return ir_effects(n) or ir_effects(form)
@@ -8960,7 +8960,7 @@ class progv(known):
         def nvalues(_, __, *body):                    return 1 if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, names, values, *body): return (ir_nth_valueify_last_subform(n, orig)
                                                               if body                     else
-                                                              list_(progn,
+                                                              list_(_progn,
                                                                     cons(_list, names),
                                                                     cons(_list, values),
                                                                     nil)
@@ -9023,8 +9023,8 @@ class multiple_value_prog1(known):
         def nvalues(first_form, *forms):            return ir_nvalues(first_form)
         def nth_value(n, orig, first_form, *forms):
                 return (ir_nth_value(n, first_form) if not any(ir_effects(f) for f in forms) else
-                        (lambda sym: list__(let, list_(list_(sym, ir_nth_value(n, first_form))),
-                                            consify_pyseq(forms, list_(sym))))
+                        (lambda sym: list__(_let, list_(list_(sym, ir_nth_value(n, first_form))),
+                                            consify_linear(forms + (sym,))))
                         (gensym("MV-PROG1-VALUE-")))
         def lower(first_form, *forms):              not_implemented()
         def effects(first_form, *forms):            return ir_effects(first_form) or any(ir_effects(f) for f in forms)
@@ -9046,8 +9046,8 @@ def run_tests_known():
         def applyification(input):
                 return compiler_macroexpand_all(input, lexenv = _null)
         assert runtest(applyification,
-                        list_(_car),
-                        consify_star(_apply, (_function, _car), (_quote, nil)))
+                       list_(_car),
+                       consify_star(_apply, (_function, _car), (_quote, nil)))
 
 if getenv("CL_RUN_TESTS") != "nil":
         run_tests_known()
@@ -9132,14 +9132,14 @@ def primitivise(form, lexenv = nil) -> p.prim:
                                 compiler_maybe_note_inner(known.name, form)
                                 return known.lower(*vectorise_linear(form[1]), **alist_hash_table(args))
                         elif (consp(x[0]) and x[0] and x[0][0] is _lambda):
-                                return rec(append(list__(_apply, x), list_(list_(quote, nil))))
+                                return rec(append(list__(_apply, x), list_(list_(_quote, nil))))
                         elif isinstance(x[0], str): # basic function call
-                                return rec(append(list__(_apply, x), list_(list_(quote, nil))))
+                                return rec(append(list__(_apply, x), list_(list_(_quote, nil))))
                         else:
-                                error("Invalid form: %s.", princ_to_string(x))
+                                error("Invalid form: %s.", pp_consly(x))
                 elif isinstance(x, symbol_t) and not constantp(x):
                         ## Unregistered Issue SYMBOL-MODEL
-                        return rec(list_(ref, x))
+                        return rec(list_(_ref, x))
                 else:
                         # NOTE: we don't care about quoting here, as constants are self-evaluating.
                         return primitivise_constant(x)
