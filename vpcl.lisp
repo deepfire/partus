@@ -2,7 +2,7 @@
   `(progn
      (eval-when (:compile-toplevel)
        ;; -compile-and-load-function() expects the compiler-level part of function to be present.
-       (apply (function (quote ("cl" "_compiler_defun"))) ',name 'nil
+       (apply (function (quote ("cl" "compiler_defun"))) ',name 'nil
               'nil))
      (eval-when (:load-toplevel :execute)
        (ir-args
@@ -10,14 +10,14 @@
           (block ,name
             ,@body))
         ("name" . ,name)
-        ("decorators" (apply (function (quote ("cl" "_set_function_definition")))
+        ("decorators" (apply (function (quote ("cl" "set_function_definition")))
                              (apply (function (quote ("globals"))) 'nil)
                              ',name nil ;; '(lambda ,lambda-list ,@body)
                              'nil)))
        'nil)))
 
 (eval-when (:compile-toplevel)
-  (apply (function (quote ("cl" "_dbgsetup"))) 'nil))
+  (apply (function (quote ("cl" "dbgsetup"))) 'nil))
 
 (defun %test-defun (&optional (basis 0) &key (x 1) y (z 3) &aux
                     (fmtargs (list basis x y z)))
