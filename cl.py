@@ -5557,12 +5557,12 @@ def ast_FunctionDef(name:            string_t,
                      decorator_list: (pylist_t, ast.expr) = list(),
                      returns:        (maybe_t,  ast.expr) = None): ...
 #       | ClassDef(identifier name,
-# 		   expr* bases,
-# 		   keyword* keywords,
-# 		   expr? starargs,
-# 		   expr? kwargs,
-# 		   stmt* body,
-# 		   expr* decorator_list)
+#                  expr* bases,
+#                  keyword* keywords,
+#                  expr? starargs,
+#                  expr? kwargs,
+#                  stmt* body,
+#                  expr* decorator_list)
 @defast
 def ast_ClassDef(name:            string_t,
                   bases:          (pylist_t, ast.expr),
@@ -10588,15 +10588,15 @@ correspondences are as follows:
 
 Table 2: Initialization arguments and accessors for generic function metaobjects.
 
-Initialization Argument		Generic Function
+Initialization Argument         Generic Function
 --------------------------------------------------------------------------
-:argument-precedence-order 	generic-function-argument-precedence-order
-:declarations 			generic-function-declarations
-:documentation 			documentation
-:lambda-list 			generic-function-lambda-list
-:method-combination 		generic-function-method-combination
-:method-class 			generic-function-method-class
-:name 				generic-function-name
+:argument-precedence-order      generic-function-argument-precedence-order
+:declarations                   generic-function-declarations
+:documentation                  documentation
+:lambda-list                    generic-function-lambda-list
+:method-combination             generic-function-method-combination
+:method-class                   generic-function-method-class
+:name                           generic-function-name
 
 Methods:
 
