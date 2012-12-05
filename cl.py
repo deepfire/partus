@@ -3446,7 +3446,7 @@ def pp_consly(x, dispatch = dict(), str_printer = repr, max_depth = 4):
                                 break
                         acc.append(pp_consly(ptr[0], dispatch = dispatch, max_depth = max_depth - 1))
                         ptr = ptr[1]
-                return "(" + " ".join(acc) + ")"
+                return "\x28" + " ".join(acc) + "\x29"
         elif isinstance(x, dict):
                 return "{ " + ", ".join("%s: %s" % (k, pp_consly(v, dispatch, str_printer, max_depth))
                                         for k, v in x.items()) + "}"
@@ -4295,14 +4295,14 @@ def write_to_string(object,
                 def write_to_string_loop(object):
                         nonlocal string
                         if listp(object):
-                                string += "("
+                                string += "\x28"
                                 max = len(object)
                                 if max:
                                         for i in range(0, max):
                                                 string += do_write_to_string(object[i])
                                                 if i != (max - 1):
                                                         string += " "
-                                string += ")"
+                                string += "\x29"
                         elif symbolp(object):
                                 # Honors *PACKAGE*, *PRINT-CASE*, *PRINT-ESCAPE*, *PRINT-GENSYM*, *PRINT-READABLY*.
                                 # XXX: in particular, *PRINT-ESCAPE* is honored only partially.
@@ -4648,7 +4648,7 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                 while t:
                         skip_whitespace()
                         char = read_char(stream)
-                        if char == ")":
+                        if char == "\x29":
                                 break
                         else:
                                 unread_char(char, stream)
@@ -4657,7 +4657,7 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                                         improper = read_inner()
                                         skip_whitespace()
                                         char = read_char(stream)
-                                        if char != ")":
+                                        if char != "\x29":
                                                 error("Unexpected character %s, where a closing paren was expected.",
                                                       repr(char))
                                         break
@@ -4697,7 +4697,7 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                 # here(">> ..%s..%s" % (pos, end))
                 while t:
                         char = read_char_maybe_eof()
-                        if char in set([nil, " ", "\t", "\n", "(", ")", "\"", "'"]):
+                        if char in set([nil, " ", "\t", "\n", "\x28", "\x29", "\"", "'"]):
                                 if char is not nil:
                                         unread_char(char, stream)
                                 break
@@ -6408,7 +6408,7 @@ def combine_pp(f0, fR, originalp, consdotp):
                 new_base = pp_depth() + 1
                 with progv({ _pp_base_depth_: new_base }):
                         ret = body(new_base)
-                        return None if ret is None else ("(" + ret + ")")
+                        return None if ret is None else ("\x28" + ret + "\x29")
         def body(base):
                 f0r = f0()
                 if f0r is None: return
@@ -6640,13 +6640,13 @@ def mock(sex, initial_depth = None, max_level = None):
                                                      subseq(cdr, (complex_tail_start if complex_tail_start is not nil else
                                                                   length(cdr))))
                         if atom(car):
-                                return ("(" + " ".join(mock_atom(x)
+                                return ("\x28" + " ".join(mock_atom(x)
                                                        for x in [car] + vectorise_linear(simple_tail)) +
                                         ("" if not complex_tail else
                                          ((("\n  " + sex_space()) if complex_tail and level < max_level else "") +
                                           (mock_complexes(complex_tail, level + 1) if level < max_level else
                                                          " ..more.."))) +
-                                        ")")
+                                        "\x29")
                         else:
                                 return (mock_complexes(sex, level + 1) if level < max_level else
                                         "..more..")
@@ -8309,7 +8309,7 @@ class tagbody(known):
                                           l(ir_funcall(fun_names[nextl]) if nlposn else
                                             l(_throw, return_tag, nil)))))
                 funs         = mapcon(lam_, body)
-                # (mapcon #'(lambda (seq &aux (label (car seq) (s (cdr seq)))      
+                # (mapcon #'(lambda (seq &aux (label (car seq) (s (cdr seq))))
                 #             (when (atom label)                                   
                 #               (let ((p (position-if #'atom s)))                  
                 #                 `((,(label-to-functionname label) ()             
