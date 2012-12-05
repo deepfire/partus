@@ -6990,7 +6990,7 @@ class lexenv_t():
                 for slot in ["varframe", "funcframe"]:
                         frame = getattr(self, slot)
                         if frame:
-                                for binding in frame["names"].values():
+                                for binding in frame["name"].values():
                                         binding.allocate_tn()
         @staticmethod
         def merge_frames(f0, f1):
