@@ -205,7 +205,10 @@ def help(x) -> ([stmt], expr):
         if not isinstance(x, prim):
                 error("A non-primitive leaked to the HELP phase: %s", x)
         with cl.progv({ cl._pp_base_depth_: cl.pp_base_depth() + 3 }):
-                r = x.help(*x.args, **x.keys)
+                def handler(cond):
+                        error("While calling %s.%s, caught:\n%s", type(x).__name__.upper(), x.help, cond)
+                r = cl.handler_case(lambda: x.help(*x.args, **x.keys),
+                                    (Exception, handler))
         p, v = (([], r) if isinstance(r, ast.expr)                         else
                 ## list(r) if isinstance(r, tuple) else
                 ## Unregistered Issue SLOW-CHECK
