@@ -8247,7 +8247,7 @@ class block(known):
                 map_sex(update_has_return_from, catch_target)
                 ## Unregistered Issue CATCH-22-WHILE-DOING-CONTENT-DEPENDENT-REWRITING
                 with progv({ _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
-                                                            name_blockframe = { name: None for name, _ in bindings }) }):
+                                                          name_blockframe = { name: None for name, _ in bindings }) }):
                         return t, cont(catch_target if has_return_from else handle_linear_body(body))
 
 # RETURN-FROM
@@ -8413,7 +8413,8 @@ class setq(known):
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
         def lower(name, value):
                 assert(not _)
-                lexical_binding, lexenv = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
+                cur_lexenv = symbol_value(_lexenv_)
+                lexical_binding, tgt_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
                         compiler_trace_known_choice(setq, name, "GLOBAL")
                         gvar = find_global_variable(name)
@@ -8424,9 +8425,8 @@ class setq(known):
                                 compiler_defvar_without_actually_defvar(name, value)
                         return p.special_setq(p.name(unit_symbol_pyname(name)), primitivise(value))
                 compiler_trace_known_choice(setq, name, "LEXICAL")
-                current_clambda = symbol_value(_compiler_lambda_)
-                if current_clambda and current_clambda is not lexenv.clambda:
-                        current_clambda.nonlocal_setqs.add(name)
+                if cur_lexenv.clambda is not tgt_lexenv.clambda:
+                        cur_lexenv.clambda.nonlocal_setqs.add(name)
                 return p.assign(lexical_binding.tn, primitivise(value))
         def effects(name, value):         return t
         def affected(name, value):        return ir_affected(value)
@@ -8606,7 +8606,8 @@ class ref(known):
         def lower(name):
                 if pyref_p(name):
                         return primitivise_pyref(name)
-                lexical_binding, lexenv = symbol_value(_lexenv_).lookup_var(the(symbol_t, name))
+                cur_lexenv = symbol_value(_lexenv_)
+                lexical_binding, src_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
                         gvar = find_global_variable(name)
                         if not gvar and not lexical_binding: # Don't complain on yet-unknown specials.
@@ -8614,8 +8615,8 @@ class ref(known):
                         unit_note_gvar_reference(name)
                         ## Note, how this differs from FUNCTION:
                         return p.special_ref(p.name(unit_symbol_pyname(name)))
-                if lexenv.clambda is not symbol_value(_compiler_lambda_):
-                        symbol_value(_compiler_lambda_).nonlocal_refs.add(name)
+                if cur_lexenv.clambda is not src_lexenv.clambda:
+                        cur_lexenv.clambda.nonlocal_refs.add(name)
                 return lexical_binding.tn
         def effects(name):         return nil
         def affected(name):        return not global_variable_constant_p(name)
