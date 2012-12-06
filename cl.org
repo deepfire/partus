@@ -4504,7 +4504,10 @@ def make_list(length, *rest):
 
 # PUSH
 # POP
-# FIRST
+
+@defun
+def first(x):
+        return nil if not x else x[0]
 
 @defun
 def second(x):
