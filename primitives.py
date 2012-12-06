@@ -697,7 +697,9 @@ class defun(body):
            ([name],), ([expr_spill],), (maybe, name)),
           expr))
 class lambda_expr(expr):
-        def help(pyargs, expr): return ast.Lambda(help_args(*pyargs), help_expr(expr))
+        def help(pyargs, expr, name = nil, decorators = []):
+                assert not (name or decorators)
+                return ast.Lambda(help_args(*pyargs), help_expr(expr))
         lambda_ = identity_method()
 
 ###
