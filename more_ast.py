@@ -331,7 +331,7 @@ def assign_meaningful_locations(node, lineno = 1):
                 return advance(reductios.get(type(x), default_reductio)(lineno, x))
         return (rec(lineno, (node, advance0))       if isinstance(node, ast.AST)       else
                 reduce(rec, normally(node), lineno) if isinstance(node, (list, tuple)) else
-                error("AST location assigner only accepts singular AST nodes and lists thereof."))
+                error("AST location assigner only accepts singular AST nodes and lists thereof, got: %s.", node))
 
 cl.string_set("*AST-PP-DEPTH*", 0, force_toplevel = t, globals = globals())
 def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_written_names = None):
