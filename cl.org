@@ -10817,11 +10817,12 @@ if not getenv("CL_NO_LISP"):
         #                 return ret
         #         return pp_sex(exp)
         dbgsetup(# compiler_validate_ast = t,
+                  macroexpanded = t,
                   subknowns = t,
                   forms = t,
                   rewrites = t,
                   knowns = t,
-                  macroexpanded = t)
+                  ast = t)
         load(compile_file("vpcl.lisp"))
         cProfile.runctx("result = compile_reader()", globals(), locals(),
                          sort = "time"
