@@ -5898,7 +5898,7 @@ def ast_info_check_args_type(info, args):
                               i, repr(field["name"]), info.type.__name__, field["type"], type_of(arg), repr(arg))
         return t
 
-def ast_validate(ast):
+def ast_validate(_ast):
         def rec(x, context):
                 if isinstance(x, (str, int, float, NoneType)):
                         return
@@ -5911,8 +5911,8 @@ def ast_validate(ast):
                 for field, ixs in args:
                         for ix in ixs if isinstance(ixs, list) else [ixs]:
                                 rec(ix, "ast.%s.%s" % (type(x).__name__, field))
-        rec(ast, "root AST")
-        return ast
+        rec(_ast, "root AST")
+        return _ast
 
 # Tracing
 
@@ -6756,26 +6756,26 @@ string_set("*COMPILER-TRACE-PRETTY-FULL*",        nil)
 string_set("*COMPILER-VALIDATE-AST*",             nil)
 string_set("*COMPILER-TRAPPED-FUNCTIONS*",        set()) ## Emit a debug entry for those functions.
 
-_compiler_debugless_traceless_frame = { _compiler_trace_forms_:             nil,
-                                        _compiler_trace_macroexpanded_:     nil,
-                                        _compiler_trace_rewrites_:          nil,
-                                        _compiler_trace_knowns_:            nil,
-                                        _compiler_trace_primitives_:        nil,
-                                        _compiler_trace_ast_:               nil,
-                                        _compiler_trace_module_ast_:        nil,
-                                        _compiler_trace_bytecode_:          nil,
+compiler_debugless_traceless_frame = { _compiler_trace_forms_:             nil,
+                                       _compiler_trace_macroexpanded_:     nil,
+                                       _compiler_trace_rewrites_:          nil,
+                                       _compiler_trace_knowns_:            nil,
+                                       _compiler_trace_primitives_:        nil,
+                                       _compiler_trace_ast_:               nil,
+                                       _compiler_trace_module_ast_:        nil,
+                                       _compiler_trace_bytecode_:          nil,
 
-                                        _compiler_trace_toplevels_:         nil,
-                                        _compiler_trace_compile_time_eval_: nil,
+                                       _compiler_trace_toplevels_:         nil,
+                                       _compiler_trace_compile_time_eval_: nil,
 
-                                        _compiler_trace_subknowns_:         nil,
-                                        _compiler_trace_inner_knowns_:      nil,
-                                        _compiler_trace_known_choices_:     nil,
-                                        _compiler_trace_known_primitives_:  nil,
+                                       _compiler_trace_subknowns_:         nil,
+                                       _compiler_trace_inner_knowns_:      nil,
+                                       _compiler_trace_known_choices_:     nil,
+                                       _compiler_trace_known_primitives_:  nil,
 
-                                        _compiler_trace_pretty_full_:       nil,
-                                        _compiler_validate_ast_:            nil,
-                                        _compiler_trapped_functions_:       set() }
+                                       _compiler_trace_pretty_full_:       nil,
+                                       _compiler_validate_ast_:            nil,
+                                       _compiler_trapped_functions_:       set() }
 
 __known_trace_args__ = { "forms", "macroexpanded", "rewrites", "knowns", "primitives", "ast", "module_ast", "bytecode",
                          "toplevels",
@@ -8416,7 +8416,7 @@ class setq(known):
                 cur_lexenv = symbol_value(_lexenv_)
                 lexical_binding, tgt_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
-                        compiler_trace_known_choice(setq, name, "GLOBAL")
+                        compiler_trace_known_choice(_setq, name, "GLOBAL")
                         gvar = find_global_variable(name)
                         if gvar and gvar.kind is constant:
                                 simple_program_error("%s is a constant and thus can't be set.", name)
@@ -8424,7 +8424,7 @@ class setq(known):
                                 simple_style_warning("undefined variable: %s", name)
                                 compiler_defvar_without_actually_defvar(name, value)
                         return p.special_setq(p.name(unit_symbol_pyname(name)), primitivise(value))
-                compiler_trace_known_choice(setq, name, "LEXICAL")
+                compiler_trace_known_choice(_setq, name, "LEXICAL")
                 if cur_lexenv.clambda is not tgt_lexenv.clambda:
                         cur_lexenv.clambda.nonlocal_setqs.add(name)
                 return p.assign(lexical_binding.tn, primitivise(value))
@@ -8466,9 +8466,9 @@ class if_(known):
                 ## Warning: this something, that goes on here, is quite interesting!
                 ## Thinking pause: WHY DO WE DO THIS ..and.. WHAT EXACTLY DO WE DO HERE?
                 ##  - what: lowering valueness?  ..a good initial approach to understanding..
-                return (list_(nth_value, n, orig) if ir_effects(consequent) or ir_effects(antecedent) else
-                        vconseq                   if (vconseq == vante) and not ir_effects(test)       else
-                        list_(if_, test, vconseq, vante))
+                return (list_(_nth_value, n, orig) if ir_effects(consequent) or ir_effects(antecedent) else
+                        vconseq                    if (vconseq == vante) and not ir_effects(test)       else
+                        list_(_if, test, vconseq, vante))
         def lower(test, consequent, antecedent):
                 return p.if_(primitivise(test),
                              primitivise(consequent),
@@ -8864,7 +8864,7 @@ class apply(known):
                         return p.funcall(primitivise(func), *(primitivise(x) for x in fixed))
                 else:
                         return p.apply(primitivise(func), *(list(primitivise(x) for x in fixed)
-                                                             + [ p.funcall(p.impl_ref("_vectorise_linear"),
+                                                             + [ p.funcall(p.impl_ref("vectorise_linear"),
                                                                            primitivise(rest)) ]))
         def effects(func, arg, *args):
                 return (any(ir_effects(arg) for arg in (func, arg) + args) or
@@ -9134,7 +9134,7 @@ def primitivise(form, lexenv = nil) -> p.prim:
                 compiler_maybe_note_subknown(x)
                 if listp(x):
                         if not x: ## Either an empty list or NIL itself.
-                                return rec(list_(ref, nil))
+                                return rec(list_(_ref, nil))
                         if isinstance(x[0], symbol_t):
                                 argsp, form, args = destructure_possible_ir_args(x)
                                 # Urgent Issue COMPILER-MACRO-SYSTEM
@@ -9268,32 +9268,34 @@ def process_to_ast(form, lexenv = nil):
 ## @defknown -> lower
 #
 
+_vector = intern("VECTOR")[0]
+
 def compilation_unit_prologue(funs, syms, gfuns, gvars):
         """Emit a prologue for a standalone unit referring to SYMBOLS."""
         def import_prologue():
                 return p.help(p.import_(p.name("cl")))[0]
         def symbol_prologue():
                 def wrap(x):
-                        return defaulted(x, consify_star(ref, (quote, ("None",))))
+                        return defaulted(x, consify_star(_ref, (_quote, ("None",))))
                 with progv(compiler_debugless_traceless_frame):
                  symbols = sorted(funs | syms, key = str)
-                 prologue = list_(progn,
+                 prologue = list_(_progn,
                                   ir_cl_call(
-                                 "_fop_make_symbol_available",
-                                 ir_funcall("globals"),
-                                 "COMMON-LISP", "VECTOR", ensure_function_pyname(_vector),
-                                 list_(ref, list_(quote, list_("None"))),
-                                 True, False),
+                                  "fop_make_symbol_available",
+                                  ir_funcall("globals"),
+                                  "COMMON-LISP", "VECTOR", ensure_function_pyname(_vector),
+                                  list_(_ref, list_(_quote, list_("None"))),
+                                  True, False),
                                   ir_cl_call(
-                                 "_fop_make_symbols_available",
-                                 ir_funcall("globals"),
-                                 ir_funcall(_vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else consify_star(ref, (quote, ("None",)))
-                                                              for sym in symbols )),
-                                 ir_funcall(_vector, *tuple(symbol_name(sym)          for sym in symbols )),
-                                 ir_funcall(_vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
-                                 ir_funcall(_vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                                 ir_funcall(_vector, *tuple(sym in gfuns              for sym in symbols )),
-                                 ir_funcall(_vector, *tuple(sym in gvars              for sym in symbols ))))
+                                  "fop_make_symbols_available",
+                                  ir_funcall("globals"),
+                                  ir_funcall(_vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else consify_star(_ref, (_quote, ("None",)))
+                                                             for sym in symbols )),
+                                  ir_funcall(_vector, *tuple(symbol_name(sym)          for sym in symbols )),
+                                  ir_funcall(_vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
+                                  ir_funcall(_vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
+                                  ir_funcall(_vector, *tuple(sym in gfuns              for sym in symbols )),
+                                  ir_funcall(_vector, *tuple(sym in gvars              for sym in symbols ))))
                  # dprintf("prologue:\n%s", pp_consly(prologue))
                  return lower(prologue,
                                ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
@@ -9312,14 +9314,14 @@ def with_symbol_unit_magic(body, standalone = nil, id = "UNIT-"):
         return with_compilation_unit(in_compilation_unit,
                                      override = t, id = id)
 
-def assemble(ast: [ast.stmt], form: cons_t, filename = "") -> "code":
+def assemble(_ast: [ast.stmt], form: cons_t, filename = "") -> "code":
         import more_ast
         if symbol_value(_compiler_validate_ast_):
-                [ ast_validate(a) for a in ast ]
-        more_ast.assign_meaningful_locations(ast)
+                [ ast_validate(a) for a in _ast ]
+        more_ast.assign_meaningful_locations(_ast)
         if symbol_value(_compiler_trace_module_ast_):
-                report(ast = ast, form_id = id(form), desc = "%ASSEMBLE")
-        bytecode = py.compile(ast.fix_missing_locations(ast_module(ast)), filename, "exec")
+                report(ast = _ast, form_id = id(form), desc = "%ASSEMBLE")
+        bytecode = py.compile(ast.fix_missing_locations(ast_module(_ast)), filename, "exec")
         if symbol_value(_compiler_trace_bytecode_):
                 report(bytecode = bytecode, form_id = id(form), desc = "%ASSEMBLE")
         return bytecode
@@ -9441,7 +9443,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                 format(t, "; compiling file \"%s\" (written %s):\n", input_file, file_write_date(input_file))
         ## input/output file conformance is bad here..
         abort_p, warnings_p, failure_p = nil, nil, nil
-        forms = list_(progn)
+        forms = list_(_progn)
         with py.open(input_file, "r") as input:
                 def in_compilation_unit():
                         nonlocal trace_file, forms
