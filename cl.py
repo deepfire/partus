@@ -8520,6 +8520,7 @@ class let(known):
 
 intern_and_bind_symbols("SETF", "LOCALLY")
 
+## Unregistered Issue MACROEXPANDABILITY-OF-FUNCTION-SUBFORM-IS-INTERESTING
 @defknown((intern("FUNCTION")[0], " ", (_form,)))
 class function(known):
         def rewrite(cont, orig, x):
