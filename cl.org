@@ -897,11 +897,11 @@ def symbol_package(x):         return x.package
 @boot_defun # Unregistered Issue COMPLIANCE-SYMBOL-VALUE
 def symbol_value(symbol):      return do_symbol_value(the(symbol_t, symbol))
 ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
-def symbol_function(symbol):  return (symbol.known          or
-                                       symbol.macro_function or
-                                       symbol.function       or
-                                       dprintf("no fun: %s", symbol) or
-                                       error(undefined_function_t, symbol))
+def do_symbol_function(symbol):  return (symbol.known          or
+                                         symbol.macro_function or
+                                         symbol.function       or
+                                         dprintf("no fun: %s", symbol) or
+                                         error(undefined_function_t, symbol))
 
 def really_do_find_symbol(str, package):
         return gethash(str, package.accessible, None)[0]
@@ -3075,7 +3075,7 @@ Should signal UNDEFINED-FUNCTION if SYMBOL is not fbound and an
 attempt is made to read its definition. (No such error is signaled on
 an attempt to write its definition.)"""
         ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
-        return symbol_function(the(symbol_t, symbol))
+        return do_symbol_function(the(symbol_t, symbol))
 
 @defun
 def macro_function(symbol, environment = nil):
@@ -7433,7 +7433,7 @@ def parse_body(body, doc_string_allowed = t):
                         if isinstance(x, str) and doc_string_allowed and remaining_forms else
                         None)
         def declaration_p(x):
-                return isinstance(x, tuple) and x[0] is declare
+                return isinstance(x, tuple) and x[0] is _declare
         decls, forms = [], []
         for i, form in enumerate(body):
                if doc_string_p(form, body[i:]):
@@ -7976,7 +7976,7 @@ def compiler_defun(name: symbol_t, lambda_expression: cons_t, check_redefinition
         if check_redefinition and isinstance(name, symbol_t):
                 if oldef and oldef.kind is _macro: ## XXX: WTF does oldef mean as a function object attribute?
                         warn_incompatible_redefinition(name, "function", "macro")
-                elif oldef and oldef.kind is function:
+                elif oldef and oldef.kind is _function:
                         warn_possible_redefinition(oldef.name, name)
         set_global_function(name, function(name, _function, lambda_expression = lambda_expression))
         return nil
@@ -7989,7 +7989,7 @@ def compiler_defmacro(name, lambda_expression, check_redefinition = t):
         if oldef and oldef.lambda_expression == lambda_expression:
                 return t
         if check_redefinition and isinstance(name, symbol_t):
-                if oldef and oldef.kind is function:
+                if oldef and oldef.kind is _function:
                         warn_incompatible_redefinition(name, "macro", "function")
                 elif oldef and oldef.kind is _macro: ## XXX: WTF does oldef mean as a function object attribute?
                         warn_possible_redefinition(oldef.name, name)
@@ -8071,7 +8071,7 @@ declared to be the names of constant variables)."""
         return (isinstance(form, (int, float, complex, str))                       or
                 keywordp(form)                                                     or
                 (isinstance(form, symbol_t) and global_variable_constant_p(form)) or
-                (isinstance(form, list) and len(form) is 2 and form[0] is quote))
+                (isinstance(form, list) and len(form) is 2 and form[0] is _quote))
 #+end_src
 
 ***** Action: populate global scope with pre-defined functions
@@ -8438,9 +8438,9 @@ def do_macroexpand_1(form, env = nil, compilerp = nil):
                 maybe_fnref = form[1][0]
                 lookupable = (consp(maybe_fnref) and length(maybe_fnref) == 2 and
                               isinstance(maybe_fnref[1][0], symbol_t))
-                global_, lexical_ = ((nil, nil)               if not lookupable             else
-                                     (maybe_fnref[1][0], nil) if maybe_fnref[0] is quote    else
-                                     (nil, maybe_fnref[1][0]) if maybe_fnref[0] is function else
+                global_, lexical_ = ((nil, nil)               if not lookupable              else
+                                     (maybe_fnref[1][0], nil) if maybe_fnref[0] is _quote    else
+                                     (nil, maybe_fnref[1][0]) if maybe_fnref[0] is _function else
                                       (nil, nil))
                 return (compiler_macro_function(global_ or lexical_, check_shadow = lexical_)
                         if global_ or lexical_ else
@@ -8906,7 +8906,7 @@ class ir_args(known):
 
 def destructure_possible_ir_args(x):
         "Maybe extract IR-ARGS' parameters, if X is indeed an IR-ARGS node, returning them as third element."
-        return ((t,   x[1][0], x[1][1]) if consp(x) and x[0] is ir_args else
+        return ((t,   x[1][0], x[1][1]) if consp(x) and x[0] is _ir_args else
                 (nil, x,       nil))
 
 def ir(*ir, **keys):
@@ -8950,7 +8950,7 @@ class let_(known):
                 if not bindings:
                         return t, cont(handle_linear_body(body))
                 if not bindings[1]:
-                        return t, cont(list_(let, bindings, *body))
+                        return t, cont(list_(_let, bindings, *body))
                 l = list_
                 ## Unregistered Issue LET*-REWRITE-TIME-LEXENV-WOBBLINESS
                 return t, cont(l(_let, l(bindings[0]),
@@ -9084,7 +9084,7 @@ class block(known):
                 has_return_from = nil
                 def update_has_return_from(sex, further):
                         nonlocal has_return_from
-                        if consp(sex) and sex[0] is return_from:
+                        if consp(sex) and sex[0] is _return_from:
                                 has_return_from = t
                         return further(sex)
                 map_sex(update_has_return_from, catch_target)
@@ -9272,7 +9272,7 @@ class setq(known):
                 if not lexical_binding or lexical_binding.kind is _special:
                         compiler_trace_known_choice(_setq, name, "GLOBAL")
                         gvar = find_global_variable(name)
-                        if gvar and gvar.kind is constant:
+                        if gvar and gvar.kind is _constant:
                                 simple_program_error("%s is a constant and thus can't be set.", name)
                         if not gvar and not lexical_binding: # Must be a special, don't complain.
                                 simple_style_warning("undefined variable: %s", name)
@@ -9307,9 +9307,11 @@ class progn(known):
 ******* IF
 
 #+begin_src python
-@defknown((intern("IF")[0], " ", (_form,),
+_if = intern("IF")[0]
+
+@defknown((_if, " ", (_form,),
           3, (_form,),
-          (maybe, "\n", (_form,))))
+          (_maybe, "\n", (_form,))))
 class if_(known):
         def rewrite(cont, orig, test, consequent, *maybe_ante):
                 return not maybe_ante, cont(orig if maybe_ante else
@@ -9968,8 +9970,8 @@ def run_tests_known():
         def applyification(input):
                 return compiler_macroexpand_all(input, lexenv = _null)
         assert runtest(applyification,
-                       list_(_car),
-                       consify_star(_apply, (_function, _car), (_quote, nil)))
+                       list_(_if, list_(_car), list_(_cdr)),
+                       consify_star(_if, (_apply, (_function, _car), (_quote, nil)), (_apply, (_function, _cdr), (_quote, nil))))
 
 if getenv("CL_RUN_TESTS") != "nil":
         run_tests_known()
@@ -10020,7 +10022,7 @@ def primitivise(form, lexenv = nil) -> p.prim:
                     not (consp(x) and x[0] in [ref, function, quote])):
                         report(known = x, desc = "PRIMITIVISE", lexenv = coerce_to_lexenv(symbol_value(_lexenv_)))
         def compiler_maybe_note_inner(known_name, xs):
-                if symbol_value(_compiler_trace_inner_knowns_) and known_name is not symbol:
+                if symbol_value(_compiler_trace_inner_knowns_) and known_name is not _symbol:
                         dprintf("%s>>> %s\n%s%s", sex_space(), name,
                                       sex_space(), ("\n" + sex_space()).join(pp(f) for f in xs))
         def compiler_maybe_note_rewrite(known_name, known_subforms, result_form):
@@ -10272,7 +10274,7 @@ def process_top_level(form, lexenv = nil) -> [ast.stmt]:
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
                 complex_named_p = (listp(form) and length(form) > 1
-                                   and (atom(form[1][0]) or form[1][0][0] is setf))
+                                   and (atom(form[1][0]) or form[1][0][0] is _setf))
                 kind, maybe_name = ((form[0], form[1][0]) if complex_named_p      else
                                     (form[0], "")         if listp(form) and form else
                                     (form, ""))
