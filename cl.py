@@ -7086,7 +7086,8 @@ class lexenv_walker(metasex_mapper):
                 def continuation(exp):
                         with progv({ _walker_binder_: lexenv_walker.binder(0) }):
                                 return m.match(bound, name, exp, pat[1], orifst, aux, limit)
-                return pat[0][1][0].known.binder(exp, continuation)
+                return (continuation(exp) if not hasattr(pat[0][1][0].known, "binder") else
+                        pat[0][1][0].known.binder(exp, continuation))
         def add_binding(m, bound, name, exp, pat, orifst):
                 ## For the sake of proper pre-lexenv maintenance for the value subform of this binding form,
                 ## bust all the bindings accumulated from previous unsuccessful matches:
