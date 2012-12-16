@@ -856,7 +856,7 @@ of nonce-ing is to be handled manually."""
                 return catch(nonce_or_fn, body)
 
 @boot_defun
-def __return_from(nonce, value):
+def return_from(nonce, value):
         nonce = ((getattr((symbol_function(nonce) if isinstance(nonce, symbol_t) else
                            nonce), "ball", None) or
                   error("RETURN-FROM was handed a function %s, but it is not cooperating in the "
@@ -2030,7 +2030,9 @@ def example_frame():
 def alist_hash_table(xs):
         return { x[0]: x[1] for x in vectorise_linear(xs) }
 
-# %CACHE
+def hash_table_alist(xs):
+        return mapcon(lambda kv: [k, [v, nil]],
+                      consify_linear(the(dict, xs).items()))
 
 class cache(collections.UserDict):
         def __init__(self, filler):
@@ -2348,8 +2350,8 @@ def intersection(x, y):
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
 def dictappend(*dicts):
         acc = dict()
-        for dict in dicts:
-                acc.update(dict)
+        for d in dicts:
+                acc.update(d)
         return acc
 
 def dict_select_keys(dict_, *keys):
@@ -3434,7 +3436,7 @@ def consify_linear(xs, last_cdr = nil):
                       reversed(tuple(xs)),
                       last_cdr)
 
-def pp_consly(x, dispatch = dict(), str_printer = repr, max_depth = 4):
+def pp_consly(x, dispatch = dict(), str_printer = repr, max_depth = 7):
         if consp(x):
                 if max_depth is 0:
                         return "#"
@@ -4430,15 +4432,18 @@ string_set("*READER-TRACE-QQEXPANSION*",        nil)
 
 def expand_quasiquotation(form):
         """Expand quasiquotation abbreviations in FORM (in a simple, yet suboptimal way)."""
-        def malform(x): error("Invalid %s form: %s.", x[0], x)
+        def process_atom(x):
+                return (x if constantp(x) else
+                        list_(_quote, x))
         def process_form(x):
-                return ((malform(x) if len(x) != 2 and x[0] is _quasiquote else
+                return ((error("Invalid form: %s - %s not inside a backquote.", x, x[0]) if x[0] is not _quasiquote else # The toplevel must be a QQ.
+                         error("Internal reader error: %s is invalid.")                  if len(x) != 2             else
                          process_qq(x[1]))        if isinstance(x, tuple)   else
                         x                         if atom(x)                else
                         mapcar(process_form, x))
         def process_qq(x):
                 if atom(x):
-                        return list_(_quote, x)
+                        return process_atom(x)
                 else:
                         acc = [_append]
                         ptr = x
@@ -4446,7 +4451,7 @@ def expand_quasiquotation(form):
                                 ## Check for a qq marker at the end of an improper list:
                                 def do_one(x):
                                         return list_(_list,
-                                                     (list_(_quote, x) if atom(x) else
+                                                     (process_atom(x) if atom(x) else
                                                       process_qq(x)))
                                 if isinstance(ptr, tuple):
                                         xi = ptr
@@ -4492,9 +4497,9 @@ def run_tests_quasiquotation():
                                              (_splice, 8), (_splice, 9))),
                         ## (append (list (_quote 1)) (list 2) (list (_quote 3)) 4 (list (_quote 5))
                         ##         (list (append (list 6) 7)) 8 9)
-                        list_(_append, list_(_list, list_(_quote, 1)), list_(_list, 2),
-                              list_(_list, list_(_quote, 3)), 4,
-                              list_(_list, list_(_quote, 5)), list_(_list, list_(_append, list_(_list, 6), 7)),
+                        list_(_append, list_(_list, 1), list_(_list, 2),
+                              list_(_list, 3), 4,
+                              list_(_list, 5), list_(_list, list_(_append, list_(_list, 6), 7)),
                               8, 9),
                         printer = pp_consly))
         
@@ -4505,14 +4510,14 @@ def run_tests_quasiquotation():
                                (_quasiquote, list_(4, (_comma, (_comma, 5)),
                                                        (_splice, 6), (_splice, (_comma, 7)))))),
                         list_(_append,
-                              list_(_list, list_(_quote, 1)), list_(_list, 2), 3,
+                              list_(_list, 1), list_(_list, 2), 3,
                               ## The first pass ought to be:
                               ## (_append, (_list, (_quote, 4)), (_list, (_comma, 5)), 6, (_comma, 7))
                               list_(_list, list_(_list,
                                                   list_(_quote, _append),
-                                                  list_(_list, list_(_quote, _list), list_(_list, list_(_quote, _quote), list_(_quote, 4))),
+                                                  list_(_list, list_(_quote, _list), 4),
                                                   list_(_list, list_(_quote, _list), 5),
-                                                  list_(_quote, 6),
+                                                  6,
                                                   7))),
                         printer = pp_consly))
 
@@ -4711,7 +4716,7 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
         ret = handler_case(read_inner,
                            (end_of_file_t,
                             lambda c: error(c) if eof_error_p else
-                                      __return_from(cold_read, eof_value)))
+                                      return_from(cold_read, eof_value)))
         # here("lastly %s" % (ret,))
         return expand_quasiquotation(ret)
 read = cold_read
@@ -4876,7 +4881,7 @@ def handler_bind(fn, *handlers, no_error = identity):
 def handler_case(body, *handlers, no_error = identity):
         "Works like real HANDLER-CASE, when the conditions are right.  Ha."
         nonce            = gensym("HANDLER-CASE-")
-        wrapped_handlers = [ (ty_ha[0], lambda cond: __return_from(nonce, ty_ha[1](cond)))
+        wrapped_handlers = [ (ty_ha[0], lambda cond: return_from(nonce, ty_ha[1](cond)))
                              for ty_ha in handlers ]
         return catch(nonce,
                       lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
@@ -5046,7 +5051,7 @@ def restart_case(body, **restarts_args):
                                                          dict(name                 = restart_name,
                                                                   function             =
                                                                   lambda *args, **keys:
-                                                                          __return_from(nonce, function(*args, **keys)),
+                                                                          return_from(nonce, function(*args, **keys)),
                                                                   interactive_function =
                                                                   (interactive                  if functionp(interactive) else
                                                                    lambda: []                   if interactive is nil else
@@ -5560,12 +5565,12 @@ def ast_FunctionDef(name:            string_t,
                      decorator_list: (pylist_t, ast.expr) = list(),
                      returns:        (maybe_t,  ast.expr) = None): ...
 #       | ClassDef(identifier name,
-# 		   expr* bases,
-# 		   keyword* keywords,
-# 		   expr? starargs,
-# 		   expr? kwargs,
-# 		   stmt* body,
-# 		   expr* decorator_list)
+#                  expr* bases,
+#                  keyword* keywords,
+#                  expr? starargs,
+#                  expr? kwargs,
+#                  stmt* body,
+#                  expr* decorator_list)
 @defast
 def ast_ClassDef(name:            string_t,
                   bases:          (pylist_t, ast.expr),
@@ -5930,8 +5935,8 @@ string_set("*MATCHER-PP-STACK*", None)
 def matcher_deeper(args, name):
         level = [[name] + args]
         symbol_value(_matcher_pp_stack_).append(level)
-        dynamic_scope_push({ matcher_depth_: symbol_value(_matcher_depth_) + 1,
-                              matcher_pp_stack_: level })
+        dynamic_scope_push({ _matcher_depth_: symbol_value(_matcher_depth_) + 1,
+                             _matcher_pp_stack_: level })
 
 def matcher_print_one_arg(x):
         return ((x[0] + ": " + matcher_pp(x[1])) if isinstance(x, tuple) and len(x) is 2 and isinstance(x[0], str) else
@@ -5943,8 +5948,8 @@ def matcher_deeper_immediate(args, name):
                  (" " * depth, name if name else caller_name().upper(),
                   ("  ".join(matcher_print_one_arg(x) for x in args)) if args else "")]
         symbol_value(_matcher_pp_stack_).append(level)
-        dynamic_scope_push({ matcher_depth_: depth,
-                              matcher_pp_stack_: level })
+        dynamic_scope_push({ _matcher_depth_: depth,
+                             _matcher_pp_stack_: level })
 
 def mrtrace(name, format, *args):
         if __enable_matcher_tracing__:
@@ -5998,8 +6003,8 @@ def matcher_pp_stack_finalise(*_):
         rec(stack[0])
 
 matcher_pp_stack = defwith("_matcher_pp_stack",
-                             lambda self: __enable_matcher_tracing__ and dynamic_scope_push({ matcher_pp_stack_: [] }),
-                             lambda *_:   __enable_matcher_tracing__ and matcher_pp_stack_finalise())
+                           lambda self: __enable_matcher_tracing__ and dynamic_scope_push({ _matcher_pp_stack_: [] }),
+                           lambda *_:   __enable_matcher_tracing__ and matcher_pp_stack_finalise())
 
 # Base class
 
@@ -6143,7 +6148,7 @@ class matcher():
                 m.__simplex_patterns__, m.__complex_patterns__ = dict(), dict()
                 m.register_complex_matcher(_some,  m.segment)
                 m.register_complex_matcher(_maybe, m.maybe)
-                m.register_complex_matcher(_or,    m.or_)
+                m.register_simplex_matcher(_or,    m.or_)
                 m.match_calls = 0
         def complex_matcher_not_implemented(m, bound, name, exp, pat, orifst, aux, limit):
                 raise Exception("Not yet capable of matching complex patterns of type %s.", pat[0][0])
@@ -6242,13 +6247,13 @@ class matcher():
                 ## Unregistered Issue SEGMENT-MATCH-USERS-REQUIRE-AUX-DOMAIN-SEPARATION
                 with match_level():
                         return r(m.segment(bound, name, exp, [[_some, pat[0][1]], pat[1]], orifst, None, 1))
-        def or_(m, bound, name, exp, pat, orifst, aux, limit):
-                alternatives = pat[0][1]
-                def fail():                 return m.fail(bound, exp, pat[0])
+        def or_(m, bound, name, exp, pat, orifst):
+                alternatives = pat[1]
+                def fail():                 return m.fail(bound, exp, pat)
                 def post_fail(x, exp, pat): return x if x[2] is None else (x[0], exp, pat)
                 def rec(current, other_options):
-                        with match_level([[current, pat[1]], exp], name = "OR"):
-                                brf_0 = r(m.match(bound, name, exp, [current, pat[1]], orifst, None, -1))
+                        with match_level([[current, pat], exp], name = "OR"):
+                                brf_0 = r(m.match(bound, name, exp, current, orifst, None, -1))
                         if brf_0[2] is None:
                                 return m.succ(brf_0[0], brf_0[1])
                         brf_1 = (fail() if not other_options else
@@ -6526,9 +6531,9 @@ class metasex_mapper(metasex_matcher):
                 handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
                 if handled:
                         return m.succ(bound, ret)
-                def cont(xformed):
+                def mapper_continuation(xformed):
                         return metasex_matcher.form(m, bound, name, xformed, pat, orifst, ignore_args = ignore_args)
-                return symbol_value(_mapper_fn_)(form, cont)
+                return symbol_value(_mapper_fn_)(form, mapper_continuation)
 
 mapper = metasex_mapper()
 
@@ -6681,7 +6686,7 @@ intern_and_bind_symbols("&WHOLE", "&OPTIONAL", "&REST", "&BODY", "&KEY", "&ALLOW
 __lambda_words__ = { _whole, _optional, _rest, _body, _key, _allow_other_keys, _aux, _environment }
 
 def lambda_word_p(x):
-        return x in __lambda_words__
+        return isinstance(x, symbol_t) and x in __lambda_words__
 
 intern_and_bind_symbols("DECLARE")
 
@@ -6739,8 +6744,7 @@ compiler_max_mockup_level = 3
 
 string_set("*COMPILER-TRACE-FORMS*",              nil)
 string_set("*COMPILER-TRACE-MACROEXPANDED*",      nil)
-string_set("*COMPILER-TRACE-REWRITES*",           nil)
-string_set("*COMPILER-TRACE-KNOWNS*",             nil)
+string_set("*COMPILER-TRACE-REWRITTEN*",          nil)
 string_set("*COMPILER-TRACE-PRIMITIVES*",         nil)
 string_set("*COMPILER-TRACE-AST*",                nil)
 string_set("*COMPILER-TRACE-MODULE-AST*",         nil)
@@ -6749,7 +6753,9 @@ string_set("*COMPILER-TRACE-BYTECODE*",           nil)
 string_set("*COMPILER-TRACE-TOPLEVELS*",          nil)
 string_set("*COMPILER-TRACE-COMPILE-TIME-EVAL*",  nil)
 
-string_set("*COMPILER-TRACE-SUBKNOWNS*",          nil)
+string_set("*COMPILER-TRACE-SUBEXPANSION*",       nil)
+string_set("*COMPILER-TRACE-SUBREWRITING*",       nil)
+string_set("*COMPILER-TRACE-SUBPRIMITIVISATION*", nil)
 string_set("*COMPILER-TRACE-INNER-KNOWNS*",       nil)
 string_set("*COMPILER-TRACE-KNOWN-CHOICES*",      nil)
 string_set("*COMPILER-TRACE-KNOWN-PRIMITIVES*",   nil)
@@ -6759,30 +6765,31 @@ string_set("*COMPILER-TRACE-PRETTY-FULL*",        nil)
 string_set("*COMPILER-VALIDATE-AST*",             nil)
 string_set("*COMPILER-TRAPPED-FUNCTIONS*",        set()) ## Emit a debug entry for those functions.
 
-compiler_debugless_traceless_frame = { _compiler_trace_forms_:             nil,
-                                       _compiler_trace_macroexpanded_:     nil,
-                                       _compiler_trace_rewrites_:          nil,
-                                       _compiler_trace_knowns_:            nil,
-                                       _compiler_trace_primitives_:        nil,
-                                       _compiler_trace_ast_:               nil,
-                                       _compiler_trace_module_ast_:        nil,
-                                       _compiler_trace_bytecode_:          nil,
+compiler_debugless_traceless_frame = { _compiler_trace_forms_:              nil,
+                                       _compiler_trace_macroexpanded_:      nil,
+                                       _compiler_trace_rewritten_:          nil,
+                                       _compiler_trace_primitives_:         nil,
+                                       _compiler_trace_ast_:                nil,
+                                       _compiler_trace_module_ast_:         nil,
+                                       _compiler_trace_bytecode_:           nil,
 
-                                       _compiler_trace_toplevels_:         nil,
-                                       _compiler_trace_compile_time_eval_: nil,
+                                       _compiler_trace_toplevels_:          nil,
+                                       _compiler_trace_compile_time_eval_:  nil,
 
-                                       _compiler_trace_subknowns_:         nil,
-                                       _compiler_trace_inner_knowns_:      nil,
-                                       _compiler_trace_known_choices_:     nil,
-                                       _compiler_trace_known_primitives_:  nil,
+                                       _compiler_trace_subexpansion_:       nil,
+                                       _compiler_trace_subrewriting_:       nil,
+                                       _compiler_trace_subprimitivisation_: nil,
+                                       _compiler_trace_inner_knowns_:       nil,
+                                       _compiler_trace_known_choices_:      nil,
+                                       _compiler_trace_known_primitives_:   nil,
 
                                        _compiler_trace_pretty_full_:       nil,
                                        _compiler_validate_ast_:            nil,
                                        _compiler_trapped_functions_:       set() }
 
-__known_trace_args__ = { "forms", "macroexpanded", "rewrites", "knowns", "primitives", "ast", "module_ast", "bytecode",
+__known_trace_args__ = { "forms", "macroexpanded", "rewritten", "primitives", "ast", "module_ast", "bytecode",
                          "toplevels",
-                         "subknowns", "inner_knowns", "known_choices", "known_primitives",
+                         "subexpansion", "subrewriting", "subprimitivisation", "inner_knowns", "known_choices", "known_primitives",
                          "pretty_full" }
 
 def compiler_explain_tracing():
@@ -6911,13 +6918,10 @@ def gotag_bindingp(x):    return isinstance(x, gotag_binding)
 
 intern_and_bind_globals("*LEXENV*")
 intern_and_bind_symbols("NULL")
+intern_and_bind_symbols("%BOOTSTRAP-NULL-LEXENV")
 
-def coerce_to_lexenv(x):
-        return (nil if x is _null else
-                (x or symbol_value(_lexenv_)))
-
-def with_lexenv_frame(frame, fn):
-        with progv({ _lexenv_: frame }):
+def with_lexenv(lexenv, fn):
+        with progv({ _lexenv_: lexenv }):
                 return fn()
 
 @defclass(intern("%LEXENV")[0])
@@ -6962,27 +6966,30 @@ class lexenv_t():
                                 complete_name_frame(name) if name else
                                 complete_kind_frame(kind) if kind else
                                 None)
-                self.parent   = coerce_to_lexenv(parent)
-                if not (parent or clambda):
-                        error("Asked to create a lexenv without provision of either a clambda or a parent lexenv.")
-                self.clambda  = defaulted(clambda, (self.parent.clambda if parent is not _null else
-                                                     nil))
+                if parent is not _bootstrap_null_lexenv:
+                        self.parent   = coerce_to_lexenv(parent)
+                        if not (self.parent or clambda):
+                                error("Asked to create a lexenv without provision of either a clambda or a parent lexenv.")
+                        self.clambda  = defaulted(clambda, (self.parent.clambda if parent is not _null else
+                                                            nil))
+                else:
+                        parent = nil
+                        self.parent, self.clambda = nil, clambda
                 ((self.varscope,   self.varframe),
                  (self.funcscope,  self.funcframe),
                  (self.blockscope, self.blockframe),
                  (self.gotagscope, self.gotagframe)
-                 ) = (self.adjoin_scope(parent,  "varscope",
+                 ) = (self.adjoin_scope(self.parent,  "varscope",
                                         complete_frame(name_varframe,   kind_varframe,   full_varframe)),
-                      self.adjoin_scope(parent, "funcscope",
+                      self.adjoin_scope(self.parent, "funcscope",
                                         complete_frame(name_funcframe,  kind_funcframe,  full_funcframe)),
-                      self.adjoin_scope(parent, "blockscope",
+                      self.adjoin_scope(self.parent, "blockscope",
                                         complete_frame(name_blockframe, kind_blockframe, full_blockframe)),
-                      self.adjoin_scope(parent, "gotagscope",
+                      self.adjoin_scope(self.parent, "gotagscope",
                                         complete_frame(name_gotagframe, kind_gotagframe, full_gotagframe)))
                 if allocate_tns:
                         self.allocate_tns()
         def adjoin_scope(self, parent_lexenv, sname, frame):
-                parent_lexenv = coerce_to_lexenv(parent_lexenv)
                 pscope = getattr(parent_lexenv, sname) if parent_lexenv else nil
                 return (pscope if not frame else
                         (frame,
@@ -7025,8 +7032,15 @@ class lexenv_t():
                                 return frame["name"][x], lexenv
                         scope = rest # COLD-CDR
                 return default, None
-        def lookup_func(self, x, default = None):         return self.do_lookup_scope(self.funcscope, x, default)
+        def print(self):
+                for name, scope in [("var", self.varscope), ("func", self.funcscope), ("block", self.blockscope), ("gotag", self.gotagscope)]:
+                        dprintf("=====  Scope:  %s", name)
+                        while scope:
+                                frame, rest, lexenv = scope
+                                dprintf("---  %s", frame)
+                                scope = rest # COLD-CDR
         def lookup_var(self, x, default = None):          return self.do_lookup_scope(self.varscope, x, default)
+        def lookup_func(self, x, default = None):         return self.do_lookup_scope(self.funcscope, x, default)
         def lookup_block(self, x, default = None):        return self.do_lookup_scope(self.blockscope, x, default)
         def lookup_gotag(self, x, default = None):        return self.do_lookup_scope(self.gotagscope, x, default)
         def funcscope_binds_p(self, x):   return self.lookup_func(x)[0]  is not None
@@ -7041,11 +7055,15 @@ class lexenv_t():
                 return (b and b.kind is kind and b) or default
 
 def lexenvp(x):                return isinstance(x, lexenv_t)
-def make_null_lexenv(clambda): return lexenv_t(clambda = clambda, parent = _null)
+def make_null_lexenv(clambda): return lexenv_t(clambda = clambda, parent = _bootstrap_null_lexenv)
 def make_lexenv(parent = nil, clambda = None, **initargs):
         """ :PARENT - NULL for a null lexenv, nil for the value of *LEXENV*.
             :{NAME,KIND,FULL}-{VAR,FUNC,BLOCK}FRAME - constituents."""
         return lexenv_t(parent, clambda = clambda, **initargs)
+
+def coerce_to_lexenv(x):
+        return (the_null_lexenv() if x is _null else
+                the(lexenv_t, x or symbol_value(_lexenv_)))
 
 __the_null_lexenv__ = make_null_lexenv(nil)
 def the_null_lexenv():
@@ -7073,7 +7091,7 @@ string_set("*WALKER-BINDER-ARGS*", nil)
 define_funcher(_lambda, (_binder, _lambda),
                 " ", ([(_notlead, " "), (_or, (_satisfies, lambda_word_p),
                                           (_bind, _variable, (_satisfies, namep)),
-                                          (_bind, _variable, ((_satisfies, namep), (_bound, (_form,)))))],),
+                                          (_bind, _variable, ((_satisfies, namep), " ", (_bound, (_form,)))))],),
                 1, [(_notlead, "\n"), (_bound, (_form,))])
 
 ## Unregistered Issue LEXENV-WALKER-NOT-REENTRANT->MACROEXPANSION-DAMAGED-GOODS
@@ -7098,8 +7116,9 @@ class lexenv_walker(metasex_mapper):
                 position = segment_iteration()
                 if isinstance(binder.args, int):
                         binder.args = position + 1
-                for i in range(position, len(binder.positionally)):
-                        del binder.positionally[i]
+                for i, (posn, _, __, ___) in binder.positionally.items():
+                        if posn >= position:
+                                del binder.positionally[i]
                 kind, bindingpat = pat[1][0], pat[1][1][0]
                 ## Recursively process the binding form for its subforms, having the clean pre-lexenv:
                 ret = m.default(exp, bindingpat, name = name, orifst = orifst)
@@ -7107,7 +7126,8 @@ class lexenv_walker(metasex_mapper):
                         return ret
                 ## Success -- extend the pre-lexenv with the binding.
                 name, what = (first(exp), second(exp)) if listp(exp) else (exp, nil)
-                binder.positionally[position] = (kind, name, what)
+                # dprintf("==== Found binding for %s", name)
+                binder.positionally[position] = (position, kind, name, what)
                 return ret
         def setup_lexenv(m, bound, name, exp, pat, orifst):
                 def further():
@@ -7115,10 +7135,10 @@ class lexenv_walker(metasex_mapper):
                 binder = symbol_value(_walker_binder_)
                 if not binder.positionally:
                         return further()
-                kind = binder.positionally[0][0]
-                names, forms = zip(*((x[1], x[2])
-                                     for x in (binder.positionally[i]
-                                               for i in range(len(binder.positionally)))))
+                items = list(sorted(binder.positionally.values()))
+                kind = items[0][1]
+                names, forms = zip(*((x[2], x[3])
+                                     for x in items))
                 space, bctor = (("name_varframe",   variable_binding) if kind in (_variable, _symbol_macro) else
                                 ("name_funcframe",  function_binding) if kind in (_macro, _function)        else
                                 ("name_blockframe", block_binding)    if kind is _block                     else
@@ -7588,14 +7608,14 @@ def parse_keyword_args(rest):
                         acc[k] = v
         return acc
 
-_allow_other_keys = intern("ALLOW-OTHER-KEYS", __keyword)[0]
+_allow_other_keys_ = intern("ALLOW-OTHER-KEYS", __keyword)[0]
 
 def validate_keyword_args(allowed_set, keymap):
-        if _allow_other_keys in keymap and keymap[__allow_other_keys] is not nil:
+        if _allow_other_keys in keymap and keymap[_allow_other_keys_] is not nil:
                 return
-        wrong_keys = keymap.keys() - allowed_set
+        wrong_keys = keymap.keys() - allowed_set - set([_allow_other_keys_])
         if wrong_keys:
-                error("Unknown &KEY arguments: %s", ", ".join(wrong_keys))
+                error("Unknown &KEY arguments: %s", ", ".join(str(x) for x in wrong_keys))
 
 # Macroexpansion
 
@@ -7612,7 +7632,7 @@ def DEFMACRO(name, lambda_list, *body):
                  # (function, (def_, name, lambda_list) + body),
                  l(_ir_args,
                    l_(_lambda, lambda_list, consify_linear(body)),
-                   l("decorators", ir_cl_call("_set_macro_definition", ir_funcall("globals"),
+                   l("decorators", ir_cl_call("set_macro_definition", ir_apply("globals"),
                                                l(_quote, name),
                                                l(_quote, nil # l_(name, lambda_list, consify_linear(body))
                                                  ))),
@@ -7646,15 +7666,20 @@ def do_macroexpand_1(form, env = nil, compilerp = nil):
                 else:
                         return (find_compiler_macroexpander(form) if known.name in (_apply, _funcall) else
                                 nil)
-        expander, args = (((form and isinstance(form[0], symbol_t) and
-                            (macro_function(form[0], env) or
-                             (compilerp and
-                              knownifier_and_maybe_compiler_macroexpander(form, find_known(form[0]))))),
-                           form[1])                                if consp(form)                else
+        expander, args = (((form
+                            and isinstance(form[0], symbol_t)
+                            and (macro_function(form[0], env)
+                                 or (compilerp
+                                     and knownifier_and_maybe_compiler_macroexpander(form, find_known(form[0]))))),
+                           form[1])                               if consp(form)                else
                           (symbol_macro_expander(form, env), nil) if isinstance(form, symbol_t) else ## Notice, how NIL is not expanded.
                           (nil, nil))
-        return ((form, nil) if not expander else
-                (expander(*vectorise_linear(args)), t))
+        ret = mxed, xformp = ((form, nil) if not expander else
+                              (expander(*vectorise_linear(args)), t))
+        if (xformp and symbol_value(_compiler_trace_subexpansion_)):
+                dprintf(";;; %s - macroexpanded ............%s   -->\n%s\n",
+                        "DO-MACROEXPAND-1", pp_consly(form), pp(mxed))
+        return ret
 
 ## Unregistered Issue COMPLIANCE-MACROEXPAND-HOOK-MUST-BE-FUNCALL-BUT-IT-IS-NOT-A-FUNCTION
 string_set("*MACROEXPAND-HOOK*", lambda f, *args, **keys: f(*args, **keys))
@@ -7677,12 +7702,15 @@ string_set("*MACROEXPANDER-COMPILERP*", nil)
 
 def macroexpander_xform(form, further):
         expanded_form, expandedp = macroexpand(form, walker_lexenv(), compilerp = symbol_value(_macroexpander_compilerp_))
-        # if expandedp:
-        #         dprintf("\n%s\n%s\n->\n%s",
-        #                       "expanded" if expandedp else "intact",
-        #                       pp_consly(form),
-        #                       pp_consly(expanded_form))
-        return further(expanded_form)
+        ret = _, combined, __ = further(expanded_form)
+        # if not (isinstance(form, (symbol_t, str, int)) or
+        #         consp(form) and form[0] in (_function, _quote, _ref)):
+        #         dprintf("\n%s\n%s\nexpanded ->\n%s\ncombined ->\n%s",
+        #                 "MACROEX" if expandedp else "INTACT",
+        #                 pp_consly(form),
+        #                 pp_consly(expanded_form),
+        #                 pp_consly(combined))
+        return ret
 
 def macroexpand_all(sex, lexenv = nil):
         return walk_with_lexenv(macroexpander_xform, sex, lexenv)
@@ -7736,32 +7764,58 @@ def form_known(form):
         complex_form_p = consp(form) and isinstance(form[0], symbol_t)
         return complex_form_p and find_known(form[0])
 
-def rewrite_1(cont: "Form -> ({} Form Bool)", form) -> "(Bool ({} Form Bool))":
-        "All non-atom forms are interpreted as knowns at this point."
+def rewrite_1_keys(cont: "Form -> ({} Form Bool)", form, keys) -> "(Bool ({} Form Bool))":
+        ## For IR-ARGS.REWRITE
         if atom(form):
                 return nil, cont(form)
         known = find_known(form[0])
         if not known:
-                error("Unknown form encountered at rewrite stage: %s", pp_consly(form))
-        # dprintf("%s(%s) calling %s.REWRITE(cont, %s, ...)", caller_name(3), pp_consly(caller_args(3)), known, pp_consly(form, max_depth = 3))
+                error("Unknown form encountered at rewrite stage: %s, form[0]: %s/%x", pp_consly(form), form[0], id(form[0]))
+        rewrite_method = known.rewrite
+        argspec = inspect.getfullargspec(rewrite_method)
+        invalid = set(keys.keys()) - set(argspec.args) - set(argspec.kwonlyargs)
+        if invalid:
+                error("Invalid IR-ARGS arguments for %s: %s does not expect arguments %s -- the argspec is %s.",
+                      form[0], rewrite_method, ", ".join("'%s'" % x for x in invalid), argspec)
+        ret = xformedp, (b, r, f) = rewrite_method(cont, form, *vectorise_linear(form[1]), **keys)
+        if (symbol_value(_compiler_trace_subrewriting_)
+            and form != r):
+                dprintf(";;; %s - rewrote ............\n%s   -->\n%s\n",
+                        "REWRITE-1-KEYS", pp(form), pp(r))
+        return ret
+
+def rewrite_1(cont: "Form -> ({} Form Bool)", form) -> "(Bool ({} Form Bool))":
+        "All non-atom forms are interpreted as knowns at this point."
+        if atom(form):
+                return nil, cont(form)
+        # dprintf("%s(%s) calling %s.REWRITE(cont, %s, ...)", caller_name(3), pp_consly(caller_args(3)), form[0], pp_consly(form))
+        known = find_known(form[0])
+        if not known:
+                error("Unknown form encountered at rewrite stage: %s, form[0]: %s/%x", pp_consly(form), form[0], id(form[0]))
+        rewrite_method = known.rewrite
         args = vectorise_linear(form[1])
         if not known.rewrite.__code__.co_flags & 4 and len(args) != known.rewrite.__code__.co_argcount - 2:
                 error("Invalid form: %s -- %d arguments provided, but %s.REWRITE expects only %d.",
                       pp_consly(form), len(args), known.__name__.upper(), known.rewrite.__code__.co_argcount - 2)
-        ret = known.rewrite(cont, form, *args)
-        # dprintf("REWROTE: %s  ->\n%s", pp_consly(form, max_depth = 10), pp_consly(ret[1][1], max_depth = 10))
+        ret = xformedp, (b, r, f) = rewrite_method(cont, form, *args)
+        if (symbol_value(_compiler_trace_subrewriting_)
+            and form != r):
+                dprintf(";;; %s - rewrote ............\n%s   -->\n%s\n",
+                        "REWRITE-1", pp(form), pp(r))
         return ret
 
 def rewrite(cont: "Form -> ({} Form Bool)", form) -> "({} Form Bool)":
         ## Unregistered issue CONTINUATION-PASSING-MULTIPLIES-STACK-PRESSURE
-        # dprintf("REWRITE: %s", pp_consly(form, max_depth = 10))
         def do_rewrite(form):
+                # dprintf("DO-REWRITE:   %s", pp_consly(form))
                 xformed_again, brf = rewrite_1(cont, form)
                 return (do_rewrite(brf[1]) if xformed_again else
                         brf)
         return do_rewrite(form)
 
 def rewriter_xform(form, further: "Form -> ({} Form Bool)") -> "({} Form Bool)":
+        ## Optimise: further(form) if atom(form) else rewrite(further, form)
+        ## Absolutely want to see it benchmarked : -)
         return rewrite(further, form)
 
 def rewrite_all(sex, lexenv = nil):
@@ -7855,13 +7909,21 @@ def primitivise_constant(x):
 intern_and_bind_symbols("APPLY", "FUNCALL")
 
 def ir_funcall(func, *args):
+        ## Has the virtue of only being available pre-rewrite.
+        l, l_ = list_, list__
+        return l(_funcall, l(_function, (l(_quote, l(func)) if isinstance(func, str) else
+                                         func)),
+                 *args)
+
+def ir_apply(func, *args):
+        ## Has the virtue of being available even post-rewrite.
         l, l_ = list_, list__
         return l(_apply, l(_function, (l(_quote, l(func)) if isinstance(func, str) else
                                          func)),
                  *(args + (l(_quote, nil),)))
 
 def ir_cl_call(name, *args):
-        return ir_funcall(list_(_quote, list_("cl", name)), *args)
+        return ir_apply(list_(_quote, list_("cl", name)), *args)
 
 # Metasex tests
 
@@ -8077,7 +8139,31 @@ def primitivise_pyref(x):
 @defknown((_ir_args, "\n", (_form,), ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pp)))],))
 class ir_args(known):
         def rewrite(cont, orig, form, *args):
-                return form[0].known.rewrite(cont, form, *vectorise_linear(form[1]), **{ k: v for k, v in args })
+                ## Effect of IR-ARGS:
+                ## 1. Process with inner rewrite, parametrised by IR-ARGS', well, args.
+                ## 2. Re-wrap the result with the same IR-ARGS.
+                if form[0] is _ir_args:
+                        error("Unlikely-to-be-valid IR-ARGS: %s  added to  %s.", pp_consly(consify_linear(args)), pp_consly(form))
+                def do_rewrite(form, keys = {}):
+                        # dprintf("IR-ARGS.DO-REWRITE:   %s", pp_consly(form))
+                        xformed_again, brf = rewrite_1_keys(lambda r: ({}, r, None), form, keys)
+                        return (do_rewrite(brf[1]) if xformed_again else
+                                brf)
+                rewritten = do_rewrite(form, dict(args))[1]
+                argless_form, subargs_retainer = ((rewritten,       identity) if atom(rewritten) or rewritten[0] is not _ir_args else
+                                                  (rewritten[1][0], lambda x: list__(_ir_args, x, rewritten[1][1])))
+                b, r, f = cont(argless_form)
+                rewrapped = subargs_retainer(r)
+                # dprintf("IR-ARGS.REWRITE: ---------------\n%s\n%s\n",
+                #         pp(orig), pp(rewrapped))
+                return nil, (b, rewrapped, f)
+                # b, r, f = cont(do_rewrite(form, dict(args))[1])
+                # output = list_(_ir_args, r, *args) if r != form else orig
+                # dprintf("IR-ARGS.REWRITE: ---------------\n%s\n%s\n%s\n%s\n",
+                #         pp_consly(orig), pp_consly(form), pp_consly(r), pp_consly(output))
+                # return nil, (b, output, f)
+                ## Proceed: ignore CONT and custom-trail?
+                # return rewrite_method(ir_args_cont, form, *vectorise_linear(form[1]), **{ k: v for k, v in args })
         def lower(*_):                     error("Invariant failed: IR-ARGS is not meant to be lowered.")
         def effects(*ir,  **args):         return ir_effects(ir)
         def affected(*ir, **args):         return ir_affected(ir)
@@ -8094,7 +8180,7 @@ def ir(*ir, **keys):
         if invalid_params:
                 error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
                       known.name, known.lower_params, invalid_params)
-        return (list__(ir_args, consify_linear(ir), consify_linear([ [k, v] for k, v in keys.items() ])) if keys else
+        return (list__(_ir_args, consify_linear(ir), consify_linear([ [k, v] for k, v in keys.items() ])) if keys else
                 consify_linear(ir))
 
 # FUNCALL
@@ -8102,7 +8188,7 @@ def ir(*ir, **keys):
 @defknown
 class funcall(known):
         def rewrite(cont, _, func, *args):
-                return t, cont(list__(_apply, rewrite(func), append(xmap_to_conses(rewrite, args), list_(list_(_quote, nil)))))
+                return t, cont(list__(_apply, func, append(consify_linear(args), list_(list_(_quote, nil)))))
 
 # LET*
 
@@ -8115,7 +8201,8 @@ _let_ = intern("LET*")[0]
 
 @defknown(((_binder, _let_),
            _let_, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_bound, (_form,)))))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]))
+           1, [(_notlead, "\n"), (_bound, (_form,))]),
+          name = _let_)
 class let_(known):
         def rewrite(cont, _, bindings, *body):
                 ## I quietly hope that there is no need to handle lexenvs here..
@@ -8136,7 +8223,8 @@ _flet = intern("FLET")[0]
 @defknown(((_binder, _flet),
            _flet, " ", ([(_notlead, "\n"), (_bind, _function,
                                            ((_satisfies, namep), (_funcher, _lambda)))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]))
+           1, [(_notlead, "\n"), (_bound, (_form,))]),
+          name = _flet)
 class flet(known):
         def binder_args(bindings, *body):
                 return xmap_to_vector(lambda b: fn(b[0], b[1][0]), bindings)
@@ -8166,7 +8254,8 @@ _labels = intern("LABELS")[0]
 
 @defknown(((_binder, _labels),
            _labels, " ", ([(_notlead, "\n"), ((_satisfies, namep), (_funcher, _lambda))],),
-           1, [(_notlead, "\n"), (_form,)]))
+           1, [(_notlead, "\n"), (_form,)]),
+          name = _labels)
 class labels(known):
         def binder(exp, further):
                 def fail(x): error("Bad LABELS form: %s", pp_consly(x))
@@ -8212,7 +8301,8 @@ _macrolet = intern("MACROLET")[0]
                                  (_bind, _variable, ((_satisfies, namep), (_bound, (_form,)))),
                                  (_form,))],),
                               1, [(_notlead, "\n"), (_form,)]))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]))
+           1, [(_notlead, "\n"), (_bound, (_form,))]),
+          name = _macrolet)
 class macrolet(known):
         def rewrite(cont, _, bindings, *body):
                 return t, cont(handle_linear_body(body))
@@ -8223,7 +8313,8 @@ _symbol_macrolet = intern("SYMBOL-MACROLET")[0]
 
 @defknown(((_binder, _symbol_macrolet),
            _symbol_macrolet, " ", ([(_notlead, "\n"), (_bind, _symbol_macro, ((_satisfies, namep), " ", (_form,)))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]))
+           1, [(_notlead, "\n"), (_bound, (_form,))]),
+          name = _symbol_macrolet)
 class symbol_macrolet(known):
         def rewrite(cont, _, bindings, *body):
                 return t, cont(handle_linear_body(body))
@@ -8237,7 +8328,8 @@ _block = intern("BLOCK")[0]
 
 @defknown(((_binder, _block),
            _block, " ", (_bind, _block, (_satisfies, namep)),
-           [1, (_bound, (_form,))],))
+           [1, (_bound, (_form,))],),
+          name = _block)
 class block(known):
         def rewrite(cont, orig, name, *body):
                 nonce = gensym("BLOCK-" + symbol_name(name) + "-")
@@ -8251,12 +8343,14 @@ class block(known):
                 map_sex(update_has_return_from, catch_target)
                 ## Unregistered Issue CATCH-22-WHILE-DOING-CONTENT-DEPENDENT-REWRITING
                 with progv({ _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
-                                                          name_blockframe = { name: None for name, _ in bindings }) }):
+                                                          name_blockframe = { name: block_binding(name, _block, None) }) }):
                         return t, cont(catch_target if has_return_from else handle_linear_body(body))
 
 # RETURN-FROM
 
-@defknown((intern("RETURN-FROM")[0], " ", (_satisfies, namep), (_maybe, " ", (_form,))))
+_return_from = intern("RETURN-FROM")[0]
+
+@defknown((_return_from, " ", (_satisfies, namep), (_maybe, " ", (_form,))))
 class return_from(known):
         def rewrite(cont, _, name, *maybe_form):
                 binding, _ = symbol_value(_walker_lexenv_).lookup_block(the(symbol_t, name))
@@ -8278,24 +8372,27 @@ intern_and_bind_symbols("%NXT-LABEL", "TAGBODY")
 ## Unregistered Issue COMPLIANCE-TAGBODY-TAGS-EXEMPT-FROM-MACROEXPANSION
 @defknown(## No need for bindings and bound markers -- all done in the BINDER method.
           ((_binder, _tagbody),
-            _tagbody, ["\n", (_form,)]))
+            _tagbody, ["\n", (_form,)]),
+          name = _tagbody)
 class tagbody(known):
         def binder(exp, further):
+                binder        = lexenv_walker.binder(0)
                 binder.tags   = [ gensym("INIT-TAG-")
                                   ] + [ x for x in vectorise_linear(exp[1])
                                         if isinstance(x, symbol_t) ]
                 binder.fnames = [ gensym("TAG-%s-" % symbol_name(tag)) for tag in binder.tags ]
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
-                with progv({ _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
-                                                          allocate_tns = symbol_value(_walker_allocate_tns_),
-                                                          name_gotagframe = { name: fname
-                                                                              for name, fname in zip(binder.tags,
-                                                                                                     binder.fnames) }),
-                              _walker_binder_args_: nil } if bindings else
-                            { _walker_binder_args_: nil }):
+                with progv(dict([ (_walker_binder_,      binder),
+                                  (_walker_binder_args_, nil)] +
+                                ([(_walker_lexenv_,      make_lexenv(symbol_value(_walker_lexenv_),
+                                                                     allocate_tns = symbol_value(_walker_allocate_tns_),
+                                                                     name_gotagframe = { name: fname
+                                                                                         for name, fname in zip(binder.tags,
+                                                                                                                binder.fnames) }))]
+                                 if binder.tags else []))):
                         return further(exp)
-        def rewrite(cont, _, *tags_and_forms):
-                binder       = walker_binder()
+        def rewrite(cont, orig, *tags_and_forms):
+                binder       = symbol_value(_walker_binder_)
                 init_tag     = binder.tags[0]
                 (go_tag,
                  return_tag) = (gensym(x + "-TAG-") for x in ["GO", "RETURN"])
@@ -8310,7 +8407,7 @@ class tagbody(known):
                         nlposn = position_if(atom, body, dict())
                         return l(l_(fun_names[label], nil,
                                     nconc(subseq(body, 0, nlposn),
-                                          l(ir_funcall(fun_names[nextl]) if nlposn else
+                                          l(ir_apply(fun_names[nextl]) if nlposn else
                                             l(_throw, return_tag, nil)))))
                 funs         = mapcon(lam_, body)
                 # (mapcon #'(lambda (seq &aux (label (car seq) (s (cdr seq))))
@@ -8400,13 +8497,15 @@ when EVAL-WHEN appears as a top level form."""
 
 # SETQ
 
-@defknown((intern("SETQ")[0], [" ", (_satisfies, namep), " ", (_form,)]))
+@defknown((intern("SETQ")[0], [" ", (_or, (_satisfies, namep), (_satisfies, pyref_p)),
+                               " ", (_form,)]))
 class setq(known):
         def rewrite(cont, orig, *args):
                 ## Actually a normalisation.. or actually, the hell knows what it is..
                 len(args) % 2 and \
                     error("SETQ accepts an even amount of arguments, got: %s", pp_consly(consify_linear(args)))
-                not all(isinstance(x, symbol_t) for x in args[::2]) and \
+                not all(pyref_p(x) or isinstance(x, symbol_t)
+                        for x in args[::2]) and \
                     error("SETQ arguments at even positions must be symbols, got: %s", pp_consly(consify_linear(args)))
                 return ((nil, cont(orig)) if len(args) == 2 else
                         (t,   cont(handle_linear_body(map(lambda name, value: list_(_setq, name, value),
@@ -8416,7 +8515,8 @@ class setq(known):
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
         def lower(name, value):
-                assert(not _)
+                if pyref_p(name):
+                        return p.assign(primitivise_pyref(name), primitivise(value))
                 cur_lexenv = symbol_value(_lexenv_)
                 lexical_binding, tgt_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
@@ -8456,7 +8556,7 @@ class progn(known):
 _if = intern("IF")[0]
 
 @defknown((_if, " ", (_form,),
-           3, (_form,),
+           4, (_form,),
           (_maybe, "\n", (_form,))))
 class if_(known):
         def rewrite(cont, orig, test, consequent, *maybe_ante):
@@ -8488,16 +8588,17 @@ _let = intern("LET")[0]
 
 @defknown(((_binder, _let),
            _let, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_form,))))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]))
+           1, [(_notlead, "\n"), (_bound, (_form,))]),
+          name = _let)
 class let(known):
         def rewrite(cont, orig, bindings, *body):
-                names, forms = zip(*_xmap_to_vector(lambda x: ((first(x), second(x)) if consp(x) else (x, nil)),
-                                                    bindings))
+                names, forms = zip(*xmap_to_vector(lambda x: ((first(x), second(x)) if consp(x) else (x, nil)),
+                                                   bindings))
                 check_no_locally_rebound_constants(names)
                 return (not (body and bindings and every(lambda x: consp(x) and length(x) == 2, bindings)),
-                        cont(handle_linear_body(body)                if not bindings else
+                        cont(handle_linear_body(body)                  if not bindings else
                              list__(_progn, append(forms, list_(nil))) if not body     else
-                             list_(_let, consify_linear(map(list_, names, forms)))))
+                             list__(_let, consify_linear(map(list_, names, forms)), consify_linear(body))))
         def nvalues(bindings, *body):            return 1   if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else ir_nth_valueify_last_subform(n, orig)
         def lower(bindings, *body):
@@ -8505,11 +8606,11 @@ class let(known):
                 # Unregistered Issue DEAD-CODE-ELIMINATION
                 normalised = vectorise_linear(bindings)
                 env = make_lexenv_varframe(list(zip(*normalised))[0], allocate_tns = t)
-                return p.let(list((tn, primitivise(form))
-                                  for tn, (_, (form, __)) in zip(tns, normalised)),
-                             p.progn(*(with_lexenv_frame(frame,
-                                                          lambda: primitivise(x))
-                                       for x in body)))
+                with progv({ _lexenv_: env }):
+                        guts = p.progn(*(primitivise(x) for x in body))
+                return p.let(list((env.varframe["name"][name].tn, primitivise(form))
+                                  for name, (form, __) in normalised),
+                             guts)
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
                 return any(ir_effects(f) for f in (x[1][0] for x in bindings) + body)
@@ -8619,6 +8720,7 @@ class ref(known):
                         gvar = find_global_variable(name)
                         if not gvar and not lexical_binding: # Don't complain on yet-unknown specials.
                                 simple_style_warning("undefined variable: %s", name)
+                                cur_lexenv.print()
                         unit_note_gvar_reference(name)
                         ## Note, how this differs from FUNCTION:
                         return p.special_ref(p.name(unit_symbol_pyname(name)))
@@ -8667,6 +8769,9 @@ def ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macro
         wholepos, optpos,  restpos,  bodypos,  keypos, aokpos, auxpos, envpos = posns = \
             [ (lambda_list.index(x) if x in lambda_list else None)
               for x in lambda_words ]
+        # dprintf("%s %s,  %s %s,  %s %s,  %s %s,  %s %s,  %s %s,  %s %s,  %s %s",
+        #         _whole, _optional, _rest, _body, _key, _allow_other_keys, _aux, _environment,
+        #         wholepos, optpos,  restpos,  bodypos,  keypos, aokpos, auxpos, envpos)
         wholeposp, optposp, restposp, bodyposp, keyposp, aokposp, auxposp, envposp = [ x is not None for x in posns ]
         fixedpos  = 0 if not wholeposp else 2
         nauxpos = len(lambda_list)
@@ -8696,22 +8801,22 @@ def ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macro
                       context, *lambda_words[:-1])
         if (wholeposp and nwholepos - wholepos < 2 or
             rbposp    and nrbpos - rbpos != 2      or
-            aokposp   and naokpos - aokpos != 0):
-                error("In %s: found garbage instead of a lambda list: %s", context, pp_consly(orig_lambda_list))
+            aokposp   and naokpos - aokpos != 1):
 #                 dprintf(
 # """(wholeposp %s and wholepos %s - nwholepos %s %s < 2 or
 #  rbposp %s   and rbpos %s - nrbpos %s %s != 2      or
 #  aokposp %s  and aokpos %s - naokpos %s %s != 0)""",
 # wholeposp, wholepos, nwholepos, wholeposp and wholepos - nwholepos,
-# rbposp, rbpos, nrbpos, wholeposp and rbpos - nrbpos,
-# aokposp, aokpos, naokpos, wholeposp and aokpos - naokpos)
+# rbposp, rbpos, nrbpos, rbposp and rbpos - nrbpos,
+# aokposp, aokpos, naokpos, aokposp and aokpos - naokpos)
+                error("In %s: found garbage instead of a lambda list: %s", context, pp_consly(orig_lambda_list))
         # locals_printf(locals(),
         #                "optpos",  "restpos",  "keypos",
         #                "optposp", "restposp", "keyposp",
         #                "toptpos", "trestpos", "tkeypos")
         ### 2. compute argument specifier sets, as determined by provided lambda list keywords
         def parse_maybe_defaulted(xs):
-                return ([ ensure_car(x)
+                return ([ x[0] if consp(x) else x
                           for x in xs ],
                         [ (second(x) if consp(x) else nil)
                           for x in xs ])
@@ -8742,7 +8847,7 @@ def ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macro
         return (total,
                 (whole, fixed, optional, rest_or_body, keys, aux),
                 (optdefs, keydefs, auxforms),
-                aokposp is not None)
+                aokposp is not False)
 
 def lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_defaults):
         assert len(optional) == len(opt_defaults)
@@ -8781,17 +8886,19 @@ class lambda_(known):
                 clambda = compiler_lambda(name, lambda_list)
                 (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
                     args, forms = clambda.args, clambda.forms
-                rewritep = not not (optional or keys or aux)
-                if not rewritep: ## Only has &WHOLE and fixed args:
+                complexp = not not (optional or rest or keys or aux)
+                if not complexp: ## Only has &WHOLE and fixed args:
                         with progv({ _walker_lexenv_: make_lexenv_varframe(clambda.total, parent = env) }):
-                                return nil, cont(orig)
+                                return nil, cont(ir(*vectorise_linear(orig),
+                                                    **dictappend({ "name":       name }       if name       else {},
+                                                                 { "decorators": decorators } if decorators else {})))
                 ## Optimisations
                 # constant_forms_p = all(constantp(x) for x in optdefs + keydefs + auxforms)
                 opt_gsyms        = [ gensym_tn("OPT-" + symbol_name(x) + "-")
                                      for x in optional ]
                 need_rest        = rest or keys ## &key is processed through parsing of *rest
                 rest_gsym        = ((gensym_tn("REST-" + (symbol_name(rest) if rest else
-                                                           "#TN#") + "-")) if need_rest else
+                                                           "TN") + "-")) if need_rest else
                                     None)
                 must_check_keys  = keys and not clambda.allow_other_keys
                 keyset_gsym      = gensym("KEYSET-") if must_check_keys else nil
@@ -8801,53 +8908,52 @@ class lambda_(known):
                 ### This is the biggest victim of IR representation mixing (cons vs. linear-tuple),
                 ### all in the name of enrolling python lambda lists on board.
                 l, l_, a = list_, list__, append
-                return t, \
-                    cont(ir(_lambda, a(l(whole) if whole else nil,
-                                        consify_linear(fixed),
-                                        l(_rest, rest_gsym) if need_rest else nil),
-                             l(_let_, a(consify_linear(l(name, l(_if, l(_prim, p.eq, gs, l(_ref, l(_quote, l("None")))),
-                                                                 def_expr,
-                                                                 gs))
-                                                       for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
-                                       (l(l(rest, ir_cl_call("consify_linear", rest_gsym)))
-                                        if rest else nil),
-                                       (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", rest_gsym)),
-                                           consify_linear(l(name, l(_if, l(_prim, p.not_in, ksym, key_map_gsym),
-                                                                     def_expr,
-                                                                     l(_prim, p.index, key_map_gsym, ksym)))
-                                                           for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
-                                        if keys else nil),
-                                       (l(l(keyset_gsym, ir_funcall("set", ir_cl_call("vectorise_linear",
-                                                                                        a(ir_funcall(l(_function, _list)),
-                                                                                          keys)))),
-                                          l(gensym("DUMMY-"), ir_cl_call("_validate_keyword_args", keyset_gsym, key_map_gsym)))
-                                        if must_check_keys else nil),
-                                       consify_linear(l(name, form)
-                                                       for name, form in zip(aux, auxforms))),
-                               *body),
-                             **_dictappend({ "name":       name }       if name       else {},
-                                           { "decorators": decorators } if decorators else {})))
+                return nil, cont(ir(_lambda, a(l(whole) if whole else nil,
+                                               consify_linear(fixed),
+                                               l_(_optional, consify_linear(opt_gsyms)) if optional else nil,
+                                               l(_rest, rest_gsym) if need_rest else nil),
+                                    l(_let_, a(consify_linear(l(name, l(_if, l(_prim, p.eq, gs, l(_ref, l(_quote, l("None")))),
+                                                                        def_expr,
+                                                                        gs))
+                                                              for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
+                                               (l(l(rest, ir_cl_call("consify_linear", rest_gsym)))
+                                                if rest else nil),
+                                               (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", rest_gsym)),
+                                                   consify_linear(l(name, l(_if, l(_prim, p.not_in, ksym, key_map_gsym),
+                                                                            def_expr,
+                                                                            l(_prim, p.index, key_map_gsym, ksym)))
+                                                                  for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
+                                                if keys else nil),
+                                               (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
+                                                  l(gensym("DUMMY-"), ir_cl_call("validate_keyword_args", keyset_gsym, key_map_gsym)))
+                                                if must_check_keys else nil),
+                                               consify_linear(l(name, form)
+                                                              for name, form in zip(aux, auxforms))),
+                                      *body),
+                                    **dictappend({ "name":       name }       if name       else {},
+                                                 { "decorators": decorators } if decorators else {})))
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
         def lower(lambda_list, *body, name = nil, decorators = nil):
                 clambda = compiler_lambda(name, lambda_list)
                 (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
                     args, forms = clambda.args, clambda.forms
-                assert not (whole or optional or keys or aux)
+                assert not (whole or keys or aux) ## &WHOLE is a piece of debt, currently.
                 fnname_tn = function_tn(name) if name else None
                 ## Things, that are needed:
                 ##  - CLAMBDA passing
                 nonlocal_decl = ([ p.nonlocal_([ variable_tn(x)
                                                  for x in sorted(clambda.nonlocal_setqs, key = symbol_name) ]) ]
                                  if clambda.nonlocal_setqs else [])
+                varframe      = dict((b, variable_binding(b, _variable, None))
+                                     for b in clambda.total)
                 with progv({ _lexenv_: make_lexenv(symbol_value(_lexenv_), clambda = clambda, allocate_tns = t,
-                                                   name_varframe  = dict((b, variable_binding(b, _variable, None))
-                                                                         for b in clambda.total),
+                                                   name_varframe  = varframe,
                                                    name_funcframe = { name: function_binding(name, _function, fn(name, lambda_list)) }) }):
-                        return p.lambda_(lower_lambda_list("LAMBDA", *(fixed, [], rest or None,
-                                                                       [], [], [])),
+                        return p.lambda_(lower_lambda_list("LAMBDA", *(fixed, optional, rest or None, [],
+                                                                       [None] * len(optional), [])),
                                          p.progn(*nonlocal_decl
-                                                  + [primitivise(x) for x in body]),
+                                                 + [ primitivise(x) for x in body ]),
                                          name = fnname_tn,
                                          decorators = xmap_to_vector(primitivise, decorators))
         def effects(*_):            return nil
@@ -8929,7 +9035,9 @@ class multiple_value_call(known):
 
 # CATCH
 
-@defknown((intern("CATCH")[0], " ", (_form,),
+_catch = intern("CATCH")[0]
+
+@defknown((_catch, " ", (_form,),
           1, [(_notlead, "\n"), (_form,)]))
 class catch(known):
         ## Critical Issue CATCH-MULTIPLE-VALUES-NOT-IMPLEMENTED
@@ -9006,7 +9114,9 @@ class protoloop(known):
 
 # PRIM
 
-@defknown((intern("PRIM")[0], " ", (_typep, t), [(_notlead, " "), (_form,)]))
+_prim = intern("PRIM")[0]
+
+@defknown((_prim, " ", (_typep, t), [" ", (_form,)]))
 class prim(known):
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
@@ -9061,14 +9171,28 @@ class load_time_value(known):
 # Tests
 
 def run_tests_known():
+        def lexenvful_identity_rewrite(input):
+                def identity_rewriter(form, further: "Form -> ({} Form Bool)") -> "({} Form Bool)":
+                        return further(form)
+                return walk_with_lexenv(identity_rewriter, input, lexenv = _null)
         def applyification(input):
+                # Essentially a walk_with_lexenv(macroexpander_xform, sex, lexenv), with *MACROEXPANDER-COMPILERP* bound.
                 return compiler_macroexpand_all(input, lexenv = _null)
-        assert runtest(applyification,
-                       list_(_if, list_(_car), list_(_cdr)),
-                       consify_star(_if, (_apply, (_function, _car), (_quote, nil)), (_apply, (_function, _cdr), (_quote, nil))))
+        l = list_
+        assert runtest(lexenvful_identity_rewrite,
+                       l(_let, l(l(_car, _cdr))),
+                       l(_let, l(l(_car, _cdr))))
+        assert runtest(applyification, 
+                       l(_let, l(l(_car, _cdr)),
+                         l(_lambda, l(_car, _cdr),
+                           l(_cdr, _car))),
+                       l(_let, l(l(_car, _cdr)),
+                         l(_lambda, l(_car, _cdr),
+                           l(_funcall, l(_function, _cdr), _car))))
 
 if getenv("CL_RUN_TESTS") != "nil":
-        run_tests_known()
+        with matcher_pp_stack():
+                run_tests_known()
 
 # Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
 
@@ -9108,28 +9232,19 @@ def primitivise(form, lexenv = nil) -> p.prim:
         # - scopes
         # - symbols not terribly clear
         # - proper quote processing
-        def compiler_maybe_note_subknown(x):
-                if (symbol_value(_compiler_trace_subknowns_) and
-                    not isinstance(x, (symbol_t, bool))                            and
-                    not (consp(x) and x[0] in [ref, function, quote])):
+        def compiler_maybe_note_subprimitivisation(x):
+                if (symbol_value(_compiler_trace_subprimitivisation_)
+                    and not isinstance(x, (symbol_t, bool, int, str))
+                    and not (consp(x) and x[0] in [_ref, _function, _quote])):
                         report(known = x, desc = "PRIMITIVISE", lexenv = coerce_to_lexenv(symbol_value(_lexenv_)))
         def compiler_maybe_note_inner(known_name, xs):
                 if symbol_value(_compiler_trace_inner_knowns_) and known_name is not _symbol:
                         dprintf("%s>>> %s\n%s%s", sex_space(), name,
                                       sex_space(), ("\n" + sex_space()).join(pp(f) for f in xs))
-        def compiler_maybe_note_rewrite(known_name, known_subforms, result_form):
-                if symbol_value(_compiler_trace_known_rewrites_) and known_name not in (symbol, ref):
-                        dprintf("%s======================================================\n%s\n"
-                                      "%s--------------------- rewrote ------------------------>\n%s\n"
-                                      # "%s--------------------- rewrote ------------------------>",
-                                      "%s......................................................",
-                                      sex_space(), sex_space() + pp((known_name,) + known_subforms),
-                                      sex_space(), sex_space() + pp(result_form),
-                                      sex_space())
         def compiler_maybe_note_known_primitives(form, prim):
                 if (symbol_value(_compiler_trace_known_primitives_) and
                     ## Too trivial to take notice
-                    not typep(form, (or_t, symbol_t, string_t, integer_t, (cons_t, (member_t, quote, function, ref), t)))):
+                    not typep(form, (or_t, symbol_t, string_t, integer_t, (cons_t, (member_t, _quote, _function, _ref), t)))):
                         ssp = sex_space()
                         dprintf(";;;\n;;; knowns ->\n;;;\n%s%s\n;;;\n;;; -> primitives\n%s",
                                       ssp, pp(form),
@@ -9138,7 +9253,7 @@ def primitivise(form, lexenv = nil) -> p.prim:
                 ## XXX: what are the side-effects?
                 ## NOTE: we are going to splice unquoting processing here, as we must be able
                 ## to work in READ-less environment.
-                compiler_maybe_note_subknown(x)
+                compiler_maybe_note_subprimitivisation(x)
                 if listp(x):
                         if not x: ## Either an empty list or NIL itself.
                                 return rec(list_(_ref, nil))
@@ -9207,15 +9322,17 @@ class name_context_fixer(ast.NodeTransformer):
                                           iter = w.visit(o.iter),
                                           ifs = [ w.visit(x) for x in o.ifs ])
         def visit_Subscript(w, o):
+                writep = symbol_value(fixupp)
                 with progv({ fixupp: nil }):
                         return ast.Subscript(value = w.visit(o.value),
                                               slice = w.visit(o.slice),
-                                              ctx = o.ctx)
+                                              ctx = ast.Store() if writep else o.ctx)
         def visit_Attribute(w, o):
+                writep = symbol_value(fixupp)
                 with progv({ fixupp: nil }):
                         return ast.Attribute(value = w.visit(o.value),
                                               attr = o.attr,
-                                              ctx = o.ctx)
+                                              ctx = ast.Store() if writep else o.ctx)
 
 name_context_fixer = name_context_fixer()
 
@@ -9229,11 +9346,11 @@ def emit_ast(prim) -> [p.stmt]:
 def lower(form, lexenv = nil):
         "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
         ## Macroexpanded SEX -> MacIR
-        expanded = rewrite_all(form, lexenv = lexenv)    ## No other high-level entry point to %REWRITE-ALL
-        if symbol_value(_compiler_trace_rewrites_):
-                report(known =  expanded, form_id = id(form), desc = "%LOWER", lexenv = lexenv)
+        rewritten = rewrite_all(form, lexenv = lexenv)    ## No other high-level entry point to %REWRITE-ALL
+        if symbol_value(_compiler_trace_rewritten_):
+                report(known = rewritten, form_id = id(form), desc = "%LOWER", lexenv = lexenv)
         ## HIR -> LIR
-        prim = primitivise(expanded, lexenv = lexenv)    ## No other high-level entry point to %PRIMITIVISE.
+        prim = primitivise(rewritten, lexenv = lexenv)    ## No other high-level entry point to %PRIMITIVISE.
         if symbol_value(_compiler_trace_primitives_):
                 report(primitive = prim, form_id = id(form), desc = "%LOWER", lexenv = lexenv)
         ##
@@ -9289,20 +9406,20 @@ def compilation_unit_prologue(funs, syms, gfuns, gvars):
                  prologue = list_(_progn,
                                   ir_cl_call(
                                   "fop_make_symbol_available",
-                                  ir_funcall("globals"),
+                                  ir_apply("globals"),
                                   "COMMON-LISP", "VECTOR", ensure_function_pyname(_vector),
                                   list_(_ref, list_(_quote, list_("None"))),
                                   True, False),
                                   ir_cl_call(
                                   "fop_make_symbols_available",
-                                  ir_funcall("globals"),
-                                  ir_funcall(_vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else consify_star(_ref, (_quote, ("None",)))
+                                  ir_apply("globals"),
+                                  ir_apply(_vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else consify_star(_ref, (_quote, ("None",)))
                                                              for sym in symbols )),
-                                  ir_funcall(_vector, *tuple(symbol_name(sym)          for sym in symbols )),
-                                  ir_funcall(_vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
-                                  ir_funcall(_vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                                  ir_funcall(_vector, *tuple(sym in gfuns              for sym in symbols )),
-                                  ir_funcall(_vector, *tuple(sym in gvars              for sym in symbols ))))
+                                  ir_apply(_vector, *tuple(symbol_name(sym)          for sym in symbols )),
+                                  ir_apply(_vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
+                                  ir_apply(_vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
+                                  ir_apply(_vector, *tuple(sym in gfuns              for sym in symbols )),
+                                  ir_apply(_vector, *tuple(sym in gvars              for sym in symbols ))))
                  # dprintf("prologue:\n%s", pp_consly(prologue))
                  return lower(prologue,
                                ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
@@ -9354,9 +9471,8 @@ def load_module_bytecode(bytecode, func_name = nil, filename = ""):
 
 # High-level drivers: %PROCESS-TOP-LEVEL, COMPILE-FILE, @LISP, COMPILE, EVAL
 
-def process_top_level(form, lexenv = nil) -> [ast.stmt]:
+def process_top_level(form) -> [ast.stmt]:
         "A, hopefully, faithful implementation of CLHS 3.2.3.1."
-        check_type(lexenv, (or_t, null_t, lexenv_t))
         ## Compiler macro expansion, unless disabled by a NOTINLINE declaration, SAME MODE
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
@@ -9370,12 +9486,16 @@ def process_top_level(form, lexenv = nil) -> [ast.stmt]:
         if symbol_value(_compiler_trace_forms_):
                 dprintf(";;;%s compiling:\n%s%s",
                               sex_space(-3, ";"), sex_space(), pp(form))
-        macroexpanded = compiler_macroexpand_all(form, lexenv = lexenv)
+        macroexpanded = compiler_macroexpand_all(form, lexenv = _null)
         if symbol_value(_compiler_trace_macroexpanded_):
                 if form != macroexpanded:
-                        report(macroexpanded = macroexpanded, desc = "PROCESS-TOP-LEVEL", lexenv = lexenv)
+                        # dprintf("  MX  %s   --->\n%s", pp_consly(form), pp_consly(macroexpanded))
+                        report(macroexpanded = macroexpanded, desc = "PROCESS-TOP-LEVEL", lexenv = _null)
                 else:
                         dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
+        ## Note, that at this point, the lexenv is discharged completely.
+        ## ..is it?  Macroexpansion is done, so what could it be?
+        ##
         ## Accumulation of results arranged for the run time:
         run_time_results = []
         def make_processor(skip_subforms, doc_and_decls):
@@ -9399,7 +9519,8 @@ def process_top_level(form, lexenv = nil) -> [ast.stmt]:
                 ## Additional note: this is %PROCESS, split in half, due to cases.
                 form = consify_linear(form)
                 if process or eval:
-                        stmts, *unit_data = with_symbol_unit_magic(lambda: lower(form, lexenv = lexenv),
+                        ## Note, how lie wrt. the NULL lexenv -- what about {SYMBOL-,}MACROLET?  See above..
+                        stmts, *unit_data = with_symbol_unit_magic(lambda: lower(form, lexenv = _null),
                                                                     id = "PROCESS-TOPLEVEL-")
                 if process:
                         if toplevel and symbol_value(_compiler_trace_toplevels_):
@@ -9464,7 +9585,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                                 while form is not input:
                                         forms = cons(form, forms)
                                         ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
-                                        form_stmts = process_top_level(form, lexenv = the_null_lexenv())
+                                        form_stmts = process_top_level(form)
                                         stmts.extend(form_stmts)
                                         if trace_file:
                                                 trace_file.write(pp(form))
@@ -9472,7 +9593,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                                                         trace_file.write(str(stmt))
                                                         trace_file.write("\n")
                                         form = read(input, eof_value = input, eof_error_p = nil)
-                                return (compilation_unit_prologue(*_compilation_unit_symbols()) +
+                                return (compilation_unit_prologue(*compilation_unit_symbols()) +
                                         stmts)
                         finally:
                                 if trace_file:
@@ -9495,7 +9616,7 @@ def read_function_as_toplevel_compile_and_load(body):
         ##  - COMPILE-FILE + LOAD
         ##  - COMPILE-TOPLEVEL-FORM + ?
         name, form = read_python_toplevel_as_lisp(body)
-        bytecode = process_as_loadable(process_top_level, form, lexenv = the_null_lexenv(), id = "LISP-")
+        bytecode = process_as_loadable(process_top_level, form, id = "LISP-")
         function, bad_gls, good_gls = load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
         return function.name
@@ -9509,10 +9630,10 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
         form = ir(*vectorise_linear(lambda_expression),
                    name = name,
                    **({ "decorators": list_(ir_cl_call("set_macro_definition",
-                                                        ir_funcall("globals"), name, lambda_expression)
+                                                        ir_apply("globals"), name, lambda_expression)
                                             if global_macro_p else
                                             ir_cl_call("set_function_definition",
-                                                        ir_funcall("globals"), name, lambda_expression))}
+                                                        ir_apply("globals"), name, lambda_expression))}
                       if globalp else {}))
         bytecode = process_as_loadable(linearise_processor(process_to_ast), form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
         function, bad_gls, good_gls = load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
@@ -9758,8 +9879,8 @@ def load(pathspec, verbose = None, print = None,
                              _load_pathname_: pathname(stream),
                              _load_truename_: handler_case(lambda: truename(stream),
                                                            (error_t, lambda _: nil)) }):
-                        __return_from(load, (load_as_fasl if faslp else
-                                             load_as_source)(stream, verbose = verbose, print = print))
+                        return_from(load, (load_as_fasl if faslp else
+                                           load_as_source)(stream, verbose = verbose, print = print))
         ## Case 1: stream.
         if streamp(pathspec):
                 return load_stream(pathspec, fasl_header_p(pathspec))
@@ -9767,12 +9888,12 @@ def load(pathspec, verbose = None, print = None,
         ## Case 2: Open as binary, try to process as a fasl.
         def with_open_stream_body(stream):
                 if not stream:
-                        __return_from(load, nil)
+                        return_from(load, nil)
                 real = probe_file(stream)
                 should_be_fasl_p = real and string_equal(pathname_type(real), symbol_value(_fasl_file_type_))
                 if ((should_be_fasl_p or file_length(stream)) and
                     fasl_header_p(stream, errorp = should_be_fasl_p)):
-                        __return_from(load, load_stream(stream, t))
+                        return_from(load, load_stream(stream, t))
         def typeless_pathname_branch():
                 nonlocal pathname_
                 defaulted_pathname = probe_load_defaults(pathspec)
@@ -9813,7 +9934,6 @@ configure_recursion_limit(262144)
 def dbgsetup(**keys):
         compiler_dbgconf(# forms = t,
                           # macroexpanded = t,
-                          # knowns = t,
                           # primitives = t,
                           # ast = t,
                           # module_ast = t,
@@ -9822,7 +9942,7 @@ def dbgsetup(**keys):
                           # toplevels = t,
                           # compile_time_eval = t,
 
-                          # subknowns = t,
+                          # subprimitivisation = t,
                           # inner_knowns = t,
                           # known_choices = t,
                           # known_rewrites = t,
@@ -9889,13 +10009,23 @@ if not getenv("CL_NO_LISP"):
         #                 dprintf(";;;\n;;; match calls: %d\n;;; expr: %s\n;;;", metasex.match_calls, pp_consly(exp))
         #                 return ret
         #         return pp_sex(exp)
-        dbgsetup(# compiler_validate_ast = t,
-                  macroexpanded = t,
-                  subknowns = t,
-                  forms = t,
-                  rewrites = t,
-                  knowns = t,
-                  ast = t)
+        dbgsetup( # forms = t,
+
+                  # subexpansion = t,
+                  # macroexpanded = t,
+
+                  # subrewriting = t,
+                  # rewritten = t,
+
+                  # subprimitivisation = t,
+                  # primitives = t,
+
+                  # compiler_validate_ast = t,
+                  # ast = t,
+                  # module_ast = t,
+
+                  # bytecodes = t
+                  )
         load(compile_file("vpcl.lisp"))
         cProfile.runctx("result = compile_reader()", globals(), locals(),
                          sort = "time"
@@ -10599,15 +10729,15 @@ correspondences are as follows:
 
 Table 2: Initialization arguments and accessors for generic function metaobjects.
 
-Initialization Argument		Generic Function
+Initialization Argument         Generic Function
 --------------------------------------------------------------------------
-:argument-precedence-order 	generic-function-argument-precedence-order
-:declarations 			generic-function-declarations
-:documentation 			documentation
-:lambda-list 			generic-function-lambda-list
-:method-combination 		generic-function-method-combination
-:method-class 			generic-function-method-class
-:name 				generic-function-name
+:argument-precedence-order      generic-function-argument-precedence-order
+:declarations                   generic-function-declarations
+:documentation                  documentation
+:lambda-list                    generic-function-lambda-list
+:method-combination             generic-function-method-combination
+:method-class                   generic-function-method-class
+:name                           generic-function-name
 
 Methods:
 
