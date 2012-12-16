@@ -963,7 +963,7 @@ class catch(body):
          (expr_spill, expr_spill))
 class throw(expr):
         def help(tag, value):
-                return help_expr(funcall(impl_ref("__throw"), tag, value))
+                return help_expr(funcall(impl_ref("throw"), tag, value))
 
 ###
 ### References
@@ -972,13 +972,13 @@ class throw(expr):
          (name,))
 class special_ref(efless):
         def help(name):
-                return help(funcall(impl_ref("_symbol_value"), name))
+                return help(funcall(impl_ref("symbol_value"), name))
 
 @defprim(intern("SPECIAL-SETQ")[0],
          (name, expr_spill))
 class special_setq(expr):
         def help(nom, value):
-                return help(funcall(impl_ref("_do_set"), nom, value, name("None")))
+                return help(funcall(impl_ref("do_set"), nom, value, name("None")))
 
 @defprim(intern("IMPL-REF")[0],
          (str,))

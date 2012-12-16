@@ -464,7 +464,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         return "for %s in %s%s" % (rec(x.target), rec(x.iter), "".join(" if %s" % rec(x) for x in x.ifs))
                 ## Multilines
                 def pp_subprogn(body):
-                        with _progv({_ast_pp_depth_: symbol_value(_ast_pp_depth_) + 1}):
+                        with progv({_ast_pp_depth_: symbol_value(_ast_pp_depth_) + 1}):
                                 return "\n".join(iterate(body))
                 def pp_module(x):
                         return "\n".join(iterate(x.body))
