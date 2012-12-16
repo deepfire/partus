@@ -8603,7 +8603,7 @@ class unwind_protect(known):
 
 _ref = intern("REF")[0]
 
-@defknown((_ref, " ", (_form,)))
+@defknown((_ref, " ", (_or, (_satisfies, namep), (_satisfies, pyref_p))))
 class ref(known):
         def rewrite(cont, orig, x):
                 pyrefp = pyref_p(x)
