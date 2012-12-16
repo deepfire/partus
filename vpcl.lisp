@@ -16,10 +16,12 @@
                              'nil)))
        'nil)))
 
-(eval-when (:compile-toplevel)
-  (apply (function (quote ("cl" "dbgsetup"))) 'nil))
+;; (eval-when (:compile-toplevel)
+;;   (apply (function (quote ("cl" "dbgsetup"))) 'nil))
+;; (eval-when (:compile-toplevel)
+;;   (setq (quote ("cl" "__enable_matcher_tracing__")) t))
 
-(defun %test-defun (&optional (basis 0) &key (x 1) y (z 3) &aux
+(defun %test-defun (&optional (basis 0) &key (x 1) y (z 3) &allow-other-keys &aux
                     (fmtargs (list basis x y z)))
   (apply (function format) t "Hello from DEFUN TEST basis:%s  x:%s  y:%s  z:%s" fmtargs)
   (terpri))
