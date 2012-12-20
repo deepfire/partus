@@ -6978,7 +6978,8 @@ class lexenv_t():
                         res = collections.defaultdict(set)
                         res["name"] = framespec
                         for b in framespec.values():
-                                res[b.kind].add(the(binding, b))
+                                check_type(b, binding)
+                                res[b.kind].add(b)
                         return res
                 def complete_kind_frame(framespec):
                         res = dict(framespec)
