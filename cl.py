@@ -5929,36 +5929,58 @@ def matcher_pp(x):
 
 __running_tests__ = False
 __enable_matcher_tracing__ = False
+__matcher_tracing_immediate__ = False
+
+string_set("*MATCHER-TRACING*", nil)
 string_set("*MATCHER-DEPTH*", 0)
 string_set("*MATCHER-PP-STACK*", None)
 
-def matcher_deeper(args, name):
-        level = [[name] + args]
-        symbol_value(_matcher_pp_stack_).append(level)
-        dynamic_scope_push({ _matcher_depth_: symbol_value(_matcher_depth_) + 1,
-                             _matcher_pp_stack_: level })
+def matcher_traced():
+        return __enable_matcher_tracing__ and symbol_value(_matcher_tracing_)
+
+def setup_emt(self):
+        global __enable_matcher_tracing__
+        self.saved_emt = __enable_matcher_tracing__
+        __enable_matcher_tracing__ = defaulted(self.new_emt, __enable_matcher_tracing__)
+
+def restore_emt(self):
+        global __enable_matcher_tracing__
+        __enable_matcher_tracing__ = self.saved_emt
+
+traced_matcher = defwith("traced_matcher",
+                         lambda self:        setup_emt(self) or dynamic_scope_push({ _matcher_tracing_: t }),
+                         lambda self, *_:  restore_emt(self) or dynamic_scope_pop(),
+                         __init__ = lambda self, new_emt = None: self.__dict__.update({ "new_emt": new_emt } ))
 
 def matcher_print_one_arg(x):
         return ((x[0] + ": " + matcher_pp(x[1])) if isinstance(x, tuple) and len(x) is 2 and isinstance(x[0], str) else
                 matcher_pp(x))
 
+def matcher_deeper_deferred(args, name):
+        level = [[name] + args]
+        symbol_value(_matcher_pp_stack_).append(level)
+        dynamic_scope_push({ _matcher_depth_: symbol_value(_matcher_depth_) + 1,
+                             _matcher_pp_stack_: level })
+
 def matcher_deeper_immediate(args, name):
+        level = [[name] + args]
         depth = symbol_value(_matcher_depth_) + 1
-        level = ["%s%s    %s" %
+        record = "%s%s    %s" % \
                  (" " * depth, name if name else caller_name().upper(),
-                  ("  ".join(matcher_print_one_arg(x) for x in args)) if args else "")]
+                  ("  ".join(matcher_print_one_arg(x) for x in args)) if args else "")
+        dprintf("%s", record)
         symbol_value(_matcher_pp_stack_).append(level)
         dynamic_scope_push({ _matcher_depth_: depth,
                              _matcher_pp_stack_: level })
 
 def mrtrace(name, format, *args):
-        if __enable_matcher_tracing__:
+        if matcher_traced():
                 symbol_value(_matcher_pp_stack_).append(
                         [(" " * (symbol_value(_matcher_depth_) + 1))
                          + name + "    " + (format % args)])
 
 def r(retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex", "simplex"]), id_frames = False):
-        if __enable_matcher_tracing__:
+        if matcher_traced():
                 depth = symbol_value(_matcher_depth_)
                 level = symbol_value(_matcher_pp_stack_)
                 name, *args = level[0]
@@ -5971,7 +5993,7 @@ def r(retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex", "simp
         return retval
 
 def match_level_concede(desc, *args):
-        if not __enable_matcher_tracing__:
+        if not matcher_traced():
                 return
         depth = symbol_value(_matcher_depth_)
         level = symbol_value(_matcher_pp_stack_)
@@ -5983,15 +6005,19 @@ def make_ml(_, x = [], name = None, **args):
         o.x, o.name = x, name
         return o
 
-match_level = defwith("_match_level",
-                        lambda self: __enable_matcher_tracing__ and matcher_deeper(self.x, self.name),
-                        lambda *_:   __enable_matcher_tracing__ and dynamic_scope_pop(),
-                        __new__ = make_ml)
+match_level_deferred = defwith("match_level_deferred",
+                               lambda self: matcher_traced() and matcher_deeper_deferred(self.x, self.name),
+                               lambda *_:   matcher_traced() and dynamic_scope_pop(),
+                               __new__ = make_ml)
 
-match_level_immediate = defwith("_match_level_immediate",
-                                  lambda self: __enable_matcher_tracing__ and matcher_deeper_immediate(self.x, self.name),
-                                  lambda *_:   __enable_matcher_tracing__ and dynamic_scope_pop(),
+match_level_immediate = defwith("match_level_immediate",
+                                  lambda self: matcher_traced() and matcher_deeper_immediate(self.x, self.name),
+                                  lambda *_:   matcher_traced() and dynamic_scope_pop(),
                                   __new__ = make_ml)
+
+def match_level(*args, **keys):
+        return (match_level_immediate if __matcher_tracing_immediate__ else
+                match_level_deferred)(*args, **keys)
 
 def matcher_pp_stack_finalise(*_):
         stack = symbol_value(_matcher_pp_stack_)
@@ -6000,7 +6026,7 @@ def matcher_pp_stack_finalise(*_):
                 dprintf("%s", x[0])
                 for x in x[1:]:
                         rec(x)
-        rec(stack[0])
+        stack and rec(stack[0])
 
 matcher_pp_stack = defwith("_matcher_pp_stack",
                            lambda self: __enable_matcher_tracing__ and dynamic_scope_push({ _matcher_pp_stack_: [] }),
