@@ -6394,25 +6394,18 @@ def preprocess_metasex(pat):
 
 def strip_metasex(form, strip_pp = nil, strip_bind = nil):
         def de_bind(x):
-                if x[0] is _bound:   return list_(x[1][0])
-                if x[0] is _bind:    return list_(x[1][1][0])
-                if x[0] is _binder:  return nil
-                ## Yet Another Python Bug IFEXPR-BREAKS-EVALUATION-CONTRACT
-                return (list_(x[1][0])    if x[0] is _bound                             else
-                        list_(x[1][1][0]) if x[0] in _bind                              else
-                        nil               if x[0] is _binder                            else
+                return (x[1][0]    if x[0] is _bound           else
+                        x[1][1][0] if x[0] in (_bind, _binder) else
                         error("Invalid form for binder stripping: %s", pp_consly(x)))
-        ret = mapcon(lambda x: (list_(x[0])                          if not consp(x[0])                                  else
-                                list_(strip_metasex(
-                                        x[0], strip_pp, strip_bind)) if not (symbolp(x[0][0]) or strip_pp or strip_bind) else
-                                nil                                  if (strip_pp
-                                                                         and metasex_pp_word_p(x[0][0]))                else
-                                strip_metasex(de_bind(x[0]), strip_pp, strip_bind)
-                                                                     if (strip_bind
-                                                                         and metasex_bind_word_p(x[0][0]))              else
-                                list_(strip_metasex(x[0], strip_pp, strip_bind))),
-                      form)
-        # dprintf("STRIP: %s\n--->\n%s", pp_consly(form), pp_consly(ret))
+        def rec(xs):
+                return mapcon(lambda x: (list_(x[0])                if not consp(x[0])                                  else
+                                         list_(strip_metasex(x[0])) if not (symbolp(x[0][0]) or strip_pp or strip_bind) else
+                                         nil                        if (strip_pp   and   metasex_pp_word_p(x[0][0]))    else
+                                         rec(list_(de_bind(x[0])))  if (strip_bind and metasex_bind_word_p(x[0][0]))    else
+                                         list_(rec(x[0]))),
+                              xs)
+        ret = rec(list_(form))[0]
+        # dprintf("STRIP %s: %s\n--->\n%s", "pp" if strip_pp else "bind" if strip_bind else "???", pp_consly(form), pp_consly(ret))
         return ret
 
 # METASEX-MATCHER, METASEX-MATCHER-PP and METASEX-MATCHER-NONSTRICT-PP
@@ -7130,7 +7123,7 @@ class lexenv_walker(metasex_mapper):
                         return "#<BINDER %s>" % (self.description,)
         def __init__(m):
                 metasex_mapper.__init__(m)
-                m.register_complex_matcher(_binder,        m.establish_binder)
+                m.register_simplex_matcher(_binder,        m.establish_binder)
                 m.register_simplex_matcher(_bind,          m.add_binding)
                 m.register_simplex_matcher(_bound,         m.setup_lexenv)
                 m.register_simplex_matcher(_form,          m.form)
@@ -7142,16 +7135,16 @@ class lexenv_walker(metasex_mapper):
                 peek_pat = form_metasex(form, kind = symbol_value(_metasex_kind_))
                 def continuation(form):
                         return metasex_mapper.form(m, bound, name, form, pat, orifst, ignore_args = ignore_args)
-                if consp(peek_pat) and consp(peek_pat[0]) and peek_pat[0][0] is _binder:
-                        kind = peek_pat[0][1][0]
+                if consp(peek_pat) and peek_pat[0] is _binder:
+                        kind = peek_pat[1][0]
                         return kind.known.binder(form, continuation)
                 else:
                         return continuation(form)
-        def establish_binder(m, bound, name, exp, pat, orifst, aux, limit):
+        def establish_binder(m, bound, name, exp, pat, orifst):
                 # def continuation(exp):
                 #         return m.match(bound, name, exp, pat[1], orifst, aux, limit)
                 # return pat[0][1][0].known.binder(exp, continuation)
-                return m.match(bound, name, exp, pat[1], orifst, aux, limit)
+                return m.match(bound, name, exp, pat[1][1][0], orifst, None, -1)
         def add_binding(m, bound, name, exp, pat, orifst):
                 ## For the sake of proper pre-lexenv maintenance for the value subform of this binding form,
                 ## bust all the bindings accumulated from previous unsuccessful matches:
@@ -8246,9 +8239,9 @@ class funcall(known):
 
 _let_ = intern("LET*")[0]
 
-@defknown(((_binder, _let_),
-           _let_, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_bound, (_form,)))))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]),
+@defknown((_binder, _let_,
+           (_let_, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_bound, (_form,)))))],),
+            1, [(_notlead, "\n"), (_bound, (_form,))])),
           name = _let_)
 class let_(known):
         def rewrite(cont, _, bindings, *body):
@@ -8267,10 +8260,11 @@ class let_(known):
 
 _flet = intern("FLET")[0]
 
-@defknown(((_binder, _flet),
-           _flet, " ", ([(_notlead, "\n"), (_bind, _function,
-                                           ((_satisfies, namep), (_binder, _lambda), (_funcher, _lambda)))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]),
+@defknown((_binder, _flet,
+           (_flet, " ", ([(_notlead, "\n"), (_bind, _function,
+                                             (_binder, _lambda,
+                                              ((_satisfies, namep), (_funcher, _lambda))))],),
+            1, [(_notlead, "\n"), (_bound, (_form,))])),
           name = _flet)
 class flet(known):
         def binder_args(bindings, *body):
@@ -8299,9 +8293,10 @@ class flet(known):
 
 _labels = intern("LABELS")[0]
 
-@defknown(((_binder, _labels),
-           _labels, " ", ([(_notlead, "\n"), ((_satisfies, namep), (_binder, _lambda), (_funcher, _lambda))],),
-           1, [(_notlead, "\n"), (_form,)]),
+@defknown((_binder, _labels,
+           (_labels, " ", ([(_notlead, "\n"), (_binder, _lambda,
+                                               ((_satisfies, namep), (_funcher, _lambda)))],),
+            1, [(_notlead, "\n"), (_form,)])),
           name = _labels)
 class labels(known):
         def binder(exp, further):
@@ -8338,17 +8333,17 @@ class labels(known):
 ## Unregistered Issue EXTENDED-LAMBDA-LIST-DESTRUCTURING-WRECKS-ALL
 _macrolet = intern("MACROLET")[0]
 
-@defknown(((_binder, _macrolet),
-           _macrolet, " ", ([(_notlead, "\n"),
-                            (_bind, _macro,
-                             ((_satisfies, namep), " ",
-                              ([(_notlead, " "),
-                                (_or, (_satisfies, lambda_word_p),
-                                 (_bind, _variable, (_satisfies, namep)),
-                                 (_bind, _variable, ((_satisfies, namep), (_bound, (_form,)))),
-                                 (_form,))],),
-                              1, [(_notlead, "\n"), (_form,)]))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]),
+@defknown((_binder, _macrolet,
+           (_macrolet, " ", ([(_notlead, "\n"),
+                              (_bind, _macro,
+                               ((_satisfies, namep), " ",
+                                ([(_notlead, " "),
+                                  (_or, (_satisfies, lambda_word_p),
+                                   (_bind, _variable, (_satisfies, namep)),
+                                   (_bind, _variable, ((_satisfies, namep), (_bound, (_form,)))),
+                                   (_form,))],),
+                                1, [(_notlead, "\n"), (_form,)]))],),
+            1, [(_notlead, "\n"), (_bound, (_form,))])),
           name = _macrolet)
 class macrolet(known):
         def rewrite(cont, _, bindings, *body):
@@ -8358,9 +8353,9 @@ class macrolet(known):
 
 _symbol_macrolet = intern("SYMBOL-MACROLET")[0]
 
-@defknown(((_binder, _symbol_macrolet),
-           _symbol_macrolet, " ", ([(_notlead, "\n"), (_bind, _symbol_macro, ((_satisfies, namep), " ", (_form,)))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]),
+@defknown((_binder, _symbol_macrolet,
+           (_symbol_macrolet, " ", ([(_notlead, "\n"), (_bind, _symbol_macro, ((_satisfies, namep), " ", (_form,)))],),
+            1, [(_notlead, "\n"), (_bound, (_form,))])),
           name = _symbol_macrolet)
 class symbol_macrolet(known):
         def rewrite(cont, _, bindings, *body):
@@ -8373,9 +8368,9 @@ class symbol_macrolet(known):
 
 _block = intern("BLOCK")[0]
 
-@defknown(((_binder, _block),
-           _block, " ", (_bind, _block, (_satisfies, namep)),
-           [1, (_bound, (_form,))],),
+@defknown((_binder, _block,
+           (_block, " ", (_bind, _block, (_satisfies, namep)),
+            [1, (_bound, (_form,))],)),
           name = _block)
 class block(known):
         def rewrite(cont, orig, name, *body):
@@ -8418,8 +8413,8 @@ intern_and_bind_symbols("%NXT-LABEL", "TAGBODY")
 
 ## Unregistered Issue COMPLIANCE-TAGBODY-TAGS-EXEMPT-FROM-MACROEXPANSION
 @defknown(## No need for bindings and bound markers -- all done in the BINDER method.
-          ((_binder, _tagbody),
-            _tagbody, ["\n", (_form,)]),
+          (_binder, _tagbody,
+           (_tagbody, ["\n", (_form,)])),
           name = _tagbody)
 class tagbody(known):
         def binder(exp, further):
@@ -8634,9 +8629,9 @@ class if_(known):
 
 _let = intern("LET")[0]
 
-@defknown(((_binder, _let),
-           _let, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_form,))))],),
-           1, [(_notlead, "\n"), (_bound, (_form,))]),
+@defknown((_binder, _let,
+           (_let, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_form,))))],),
+            1, [(_notlead, "\n"), (_bound, (_form,))])),
           name = _let)
 class let(known):
         def rewrite(cont, orig, bindings, *body):
@@ -8913,8 +8908,9 @@ def lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_de
 
 ## Welcome to the wonderful world of macros shadowed by a named lambda, within its arglist defaulting forms..
 ## ..also, to the wonderful world of %IR-ARGS being critically unhandled.
-@defknown(((_binder, _lambda),
-           _lambda, (_funcher, _lambda)))
+@defknown((_binder, _lambda,
+           (_lambda, (_funcher, _lambda))),
+          name = _lambda)
 class lambda_(known):
         def binder(exp, further, name = nil, decorators = nil):
                 length(exp) < 2 and error("Bad LAMBDA form: %s", pp_consly(exp))
