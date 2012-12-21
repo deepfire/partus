@@ -15,7 +15,7 @@
 #+STYLE: <link rel="stylesheet" type="text/css" href="style.css" />
 #+XSLT:
 #+STARTUP: odd hidestars
-#+TODO:  IMPL CONFLICT DUPLICATION DEAD-CODE ATTIC | OBSOLETE IRRELEVANT DONE
+#+TODO:  IMPL FAIL CONFLICT DUPLICATION DEAD-CODE ATTIC | OBSOLETE IRRELEVANT DONE
 #+PROPERTY: tangle cl.py
 #+PROPERTY: no-expand
 #+PROPERTY: session *VPCL*
@@ -54,23 +54,20 @@
       - a boolean, T in doubt
 
 * Issues
-*** Open ends
-***** Lexenv creation
-******* Parent semantics: null/current lexenv, NIL and NULL specifiers
-******* Content conformance: %MAKE-LEXENV-FUNCFRAME, LABELS
-***** LAMBDA's NAME argument globality wrt. FLET/LABELS
-***** Lambda's REWRITE: lexenv maintenance not done for variable bindings
-***** The whole binder args story is not terribly convincing
-***** FLET binder args
-***** clambda parent/child model
-***** clambda <-> lexenv relationship
-*** Possibilities
-***** If only we could manage a proper walking/evaluation order in LOWER, we would be able to factor lexenv maintenance.
-*** Tentativities
-***** Multiple values -- as a rewrite stage
-***** Liveness analysis and correspondent rewrites -- as the last rewrite
-***** GENSYMNAME safety? (esp. in the fasl context) -- UUID-ing
-***** WPO and dependent tracking
+*** Facts
+***** Loops
+******* DEFMACRO
+
+        DEFMACRO is best expressed as a macro, expanding to a DEF or LAMBDA knowns.
+
+        Solution: hand-code DEFMACRO.
+
+******* LAMBDA
+
+        General-case LAMBDA, with default value forms and &AUX is best expressed as a simpler lambda + LET*.
+
+        Solution: 1. two-stage primitivisation, or 2. known macros.
+
 *** Models
 ***** Runtime
 
@@ -143,70 +140,85 @@
         - GET-VALUE :: aka (NTH-VALUE 0 ...)
           - unpack the first value from value frame, in the generic case
           - identity, in cases something special is known
+***** FAIL Variable-width metasex matching (aka "complex" matchers)
+******* Can match any part of the expression at the current level of nesting, including nothing at all
+******* How did we end up needing a standalone complex pattern subexpression to cover binders?
+********* Maybe if we used a simplex around whole expressions we'd be able to avoid the sheer embarassment?
+*********** Only a part of it -- the rest, including the part where we'd need to pre-parse the patterns, is the same?
+************* The transparent handling of IR-ARGS is another orthogonal issue, isn't it?
+*** Open ends
+***** Lexenv creation
+******* Parent semantics: null/current lexenv, NIL and NULL specifiers
+******* Content conformance: %MAKE-LEXENV-FUNCFRAME, LABELS
+***** LAMBDA's NAME argument globality wrt. FLET/LABELS
+***** Lambda's REWRITE: lexenv maintenance not done for variable bindings
+***** The whole binder args story is not terribly convincing
+***** FLET binder args
+***** clambda parent/child model
+***** clambda <-> lexenv relationship
+***** Compliance
+******* lambda lists: &WHOLE and &ENVIRONMENT
+******* lambda lists: PROVIDED-P
+******* lambda lists: Keyword argument renaming
+******* LAMBDA is not a macro
+******* Declarations
+********* IR-BINDS ignores declarations
+*** Possibilities
+***** If only we could manage a proper walking/evaluation order in LOWER, we would be able to factor lexenv maintenance.
+*** Tentativities
+***** Multiple values -- as a rewrite stage
+***** Liveness analysis and correspondent rewrites -- as the last rewrite
+***** GENSYMNAME safety? (esp. in the fasl context) -- UUID-ing
+***** WPO and dependent tracking
 
-*** (OPTIMIZE DEBUG)
-***** Form tracking
-******* Form paths
+***** (OPTIMIZE DEBUG)
+******* Form tracking
+********* Form paths
+***** Optimisations
+******* LET, etc
+
+        Potential optimisations:
+         - better tail position detection: non-local-transfer-of-control-free and ending with RETURN.
+         - even when not in the tail position, but the bound names are not:
+           - xtnls
+           - free in some other local expression
+           - falls out, sort of.. (see below)
+
+        ## A great optimisation, but mutation can affect:
+        ##  - scope of called outside functions
+        ##    - cannot optimize if body could jump to local code depending on mutated locals
+        ##  - xtnls
+        ##    - cannot optimize if bindings contain xtnls of the current DEF_
+        ##      - which ones must be, therefore, determined before the DEF_'s body is compiled
+        ## But possibly, just possibly, I've missed another requirement, so playing it safe for now.
+        ##
+        ## This optimisation is, currently, tactically broken, but for another reason: order of evaluation.
+        # names = mapset(_ensure_car, bindings)
+        # if tail_position_p() and not ((_mapsetn(_atre__free, body) - set(names)) or
+        #                                 (_compiling_def().xtnls & set(names))):
+        #         with no_tail_position():
+        #                 # Consciously discarding the values returned by (SETF VALUES)
+        #                 bind_pro, _ = lower((setf_values,
+        #                                       [ car(x) for x in bindings_thru_defaulting ],
+        #                                       ("tuple",) + tuple(cdr(x) for x in bindings_thru_defaulting)))
+        #         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
+        #         body_pro, body_val = lower((progn,) + body)
+        #         return (bind_pro + body_pro,
+        #                 body_val)
+
 *** Incomprehensible - Sense: lost
 ***** All these temporary names in binding constructs and whatnot definitely look like a hint, but hint at what..
 ******* exprnessp + direct-or-let-and-retry is a definite pattern
 ********* APPLY
-*** Compliance
-***** lambda lists: &WHOLE and &ENVIRONMENT
-***** lambda lists: PROVIDED-P
-***** lambda lists: Keyword argument renaming
-***** LAMBDA is not a macro
-***** Declarations
-******* IR-BINDS ignores declarations
-*** Loops
-***** DEFMACRO
-
-      DEFMACRO is best expressed as a macro, expanding to a DEF or LAMBDA knowns.
-
-      Solution: hand-code DEFMACRO.
-
-***** LAMBDA
-
-      General-case LAMBDA, with default value forms and &AUX is best expressed as a simpler lambda + LET*.
-
-      Solution: 1. two-stage primitivisation, or 2. known macros.
-
-*** Optimisations
-***** LET, etc
-
-      Potential optimisations:
-       - better tail position detection: non-local-transfer-of-control-free and ending with RETURN.
-       - even when not in the tail position, but the bound names are not:
-         - xtnls
-         - free in some other local expression
-         - falls out, sort of.. (see below)
-
-      ## A great optimisation, but mutation can affect:
-      ##  - scope of called outside functions
-      ##    - cannot optimize if body could jump to local code depending on mutated locals
-      ##  - xtnls
-      ##    - cannot optimize if bindings contain xtnls of the current DEF_
-      ##      - which ones must be, therefore, determined before the DEF_'s body is compiled
-      ## But possibly, just possibly, I've missed another requirement, so playing it safe for now.
-      ##
-      ## This optimisation is, currently, tactically broken, but for another reason: order of evaluation.
-      # names = mapset(_ensure_car, bindings)
-      # if tail_position_p() and not ((_mapsetn(_atre__free, body) - set(names)) or
-      #                                 (_compiling_def().xtnls & set(names))):
-      #         with no_tail_position():
-      #                 # Consciously discarding the values returned by (SETF VALUES)
-      #                 bind_pro, _ = lower((setf_values,
-      #                                       [ car(x) for x in bindings_thru_defaulting ],
-      #                                       ("tuple",) + tuple(cdr(x) for x in bindings_thru_defaulting)))
-      #         # Unregistered Issue COMPILATION-SHOULD-TRACK-SCOPES
-      #         body_pro, body_val = lower((progn,) + body)
-      #         return (bind_pro + body_pro,
-      #                 body_val)
-
-***** LET, FLET, LABELS
-
-      - warn on/drop dead code, when bound names are not used
-
+*** Deep future
+***** IR-level interop
+******* GIMPLE
+***** Backends
+******* CPython bytecode
+********* the existing runtime ties us to that
+******* TAL x86
+******* QEMU TCG
+******* LLVM
 *** SBCL weirdnesses
 ***** Clearly compile-time-detected program errors are deferred until code run-time
 
@@ -234,15 +246,6 @@ Compile-time error:
   return for unknown block: A
 #+end_example
 
-*** Deep future
-***** IR-level interop
-******* GIMPLE
-***** Backends
-******* CPython bytecode
-********* the existing runtime ties us to that
-******* TAL x86
-******* QEMU TCG
-******* LLVM
 *** ATTIC AST free variable calculation thoughts
 
    - except for special cases, it (the set of FV) is
