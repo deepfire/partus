@@ -6423,6 +6423,10 @@ def form_metasex(form, kind = "metasex"):
                 preprocess_metasex((([(_notlead, " "), (_form,)] if kind == "metasex_pp" else
                                       [                  (_form,)]),)))
 
+def form_real(x):
+        return (x if not (consp(x) and x[0] is _ir_args) else
+                x[1][0])
+
 def combine_t_or_None(f0, fR, originalp):
         f0r = f0()
         if f0r is not None:
@@ -7132,7 +7136,7 @@ class lexenv_walker(metasex_mapper):
                 if handled:
                         return m.succ(bound, ret)
                 ## Hmm.. BINDER patterns..
-                peek_pat = form_metasex(form, kind = symbol_value(_metasex_kind_))
+                peek_pat = form_metasex(form_real(form), kind = symbol_value(_metasex_kind_))
                 def continuation(form):
                         return metasex_mapper.form(m, bound, name, form, pat, orifst, ignore_args = ignore_args)
                 if consp(peek_pat) and peek_pat[0] is _binder:
@@ -7401,6 +7405,7 @@ string_set("*COMPILER-FN*",     nil)
 string_set("*COMPILER-LAMBDA*", nil)
 
 ## Critical Issue COALESCE-FNS-WITH-FUNCTION-SCOPE
+## Critical Issue FIGURE-OUT-WHAT-IS-COMPILE-TIME-AND-WHAT-IS-LOAD-TIME
 fns = make_hash_table()
 
 @defclass
@@ -7762,7 +7767,7 @@ class known():
                 return nil, cont(orig)
         def binder(exp, continuation):
                 with progv({ _walker_binder_: lexenv_walker.binder(0, "Generic binder.") }):
-                        dprintf("== KNOWN.BINDER: establishing a generic one")
+                        # dprintf("== KNOWN.BINDER: establishing a generic one")
                         return continuation(exp)
 
 def compute_default_metasex(name):
@@ -8270,7 +8275,12 @@ class flet(known):
         def binder_args(bindings, *body):
                 return xmap_to_vector(lambda b: fn(b[0], b[1][0]), bindings)
         def rewrite(cont, _, bindings, *body):
+                def fail(x): error("Bad FLET form: %s", pp_consly(x))
                 l = list_
+                not (listp(bindings)
+                     and all((length(x) >= 2 and
+                              listp(second(x)))
+                             for x in bindings)) and fail(form)
                 return t, cont(handle_constant_linear_body(body) if all(constantp(x) for x in body) else
                                ## This weak attempt above screams for proper liveness analysis.
                                nil                                if not (bindings or body)          else
@@ -8301,23 +8311,27 @@ _labels = intern("LABELS")[0]
 class labels(known):
         def binder(exp, further):
                 def fail(x): error("Bad LABELS form: %s", pp_consly(x))
-                length(exp) < 2 and fail(exp)
-                bindings = exp[1][0]
-                not listp(bindings) and fail(exp)
+                form = form_real(exp) ## Filter out any potential IR-ARGS
+                length(form) < 2 and fail(form)
+                bindings = vectorise_linear(form[1][0])
+                not (listp(bindings)
+                     and all((length(x) >= 2 and
+                              listp(second(x)))
+                             for x in bindings)) and fail(form)
                 env = symbol_value(_walker_lexenv_)
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
                 with progv({ _walker_lexenv_:
                               make_lexenv(env, allocate_tns = symbol_value(_walker_allocate_tns_),
                                           name_funcframe = { name: function_binding(name, _function, fn(name, lam))
                                                              for name, (lam, _) in bindings }),
-                              _walker_binder_args_: nil } if bindings else
-                            { _walker_binder_args_: nil }):
+                             _walker_binder_args_: nil } if bindings else
+                           { _walker_binder_args_: nil }):
                         return further(exp)
         def rewrite(cont, _, bindings, *body):
                 l = list_
                 return t, cont(handle_constant_linear_body(body) if all(constantp(x) for x in body) else
                                ## This weak attempt above screams for proper liveness analysis.
-                               nil                                if not (bindings or body)          else
+                               nil                               if not (bindings or body)          else
                                handle_linear_body(body)          if not bindings                    else
                                l(_funcall, ir(_lambda, nil,
                                               ## We rely on that PRIMITIVE layer will allocate a
@@ -8326,7 +8340,7 @@ class labels(known):
                                                                         ir(_lambda, *vectorise_linear(binding[1]),
                                                                             name = binding[0]),
                                                                 bindings)
-                                                + vectorise_linear(body)))))
+                                                + list(body)))))
 
 # MACROLET
 
@@ -8418,9 +8432,10 @@ intern_and_bind_symbols("%NXT-LABEL", "TAGBODY")
           name = _tagbody)
 class tagbody(known):
         def binder(exp, further):
+                form          = form_real(exp)
                 binder        = lexenv_walker.binder(0, "Tagbody.")
                 binder.tags   = [ gensym("INIT-TAG-")
-                                  ] + [ x for x in vectorise_linear(exp[1])
+                                  ] + [ x for x in vectorise_linear(form[1])
                                         if isinstance(x, symbol_t) ]
                 binder.fnames = [ gensym("TAG-%s-" % symbol_name(tag)) for tag in binder.tags ]
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
@@ -8441,13 +8456,14 @@ class tagbody(known):
                  return_tag) = (gensym(x + "-TAG-") for x in ["GO", "RETURN"])
                 body         = cons(init_tag, consify_linear(tags_and_forms))
                 fun_names = dict(zip(binder.tags, binder.fnames))
+                nxt_label = gensym("NXT-")
                 l, l_ = list_, list__
                 def lam_(seq):
                         label, body = seq[0], seq[1]
                         if not atom(label):
                                 return nil
-                        nextl = find_if(atom, body, dict())
-                        nlposn = position_if(atom, body, dict())
+                        nextl = do_find_if(atom, body, dict())
+                        nlposn = do_position_if(atom, body, dict())
                         return l(l_(fun_names[label], nil,
                                     nconc(subseq(body, 0, nlposn),
                                           l(ir_apply(fun_names[nextl]) if nlposn else
@@ -8479,7 +8495,7 @@ intern_and_bind_symbols("GO")
 @defknown((_go, " ", (_typep, symbol_t)))
 class go(known):
         def rewrite(cont, _, name):
-                binding, lexenv = symbol_value(_lexenv_).lookup_gotag(the(symbol_t, name))
+                binding, lexenv = symbol_value(_walker_lexenv_).lookup_gotag(the(symbol_t, name))
                 if not binding:
                         simple_program_error("attempt to GO to nonexistent tag: %s", name)
                 return t, cont(list_(_throw, binding.value, list_(_function, binding.value)))
@@ -8540,8 +8556,10 @@ when EVAL-WHEN appears as a top level form."""
 
 # SETQ
 
-@defknown((intern("SETQ")[0], [" ", (_or, (_satisfies, namep), (_satisfies, pyref_p)),
-                               " ", (_form,)]))
+_setq = intern("SETQ")[0]
+
+@defknown((_setq, [" ", (_or, (_satisfies, namep), (_satisfies, pyref_p)),
+                   " ", (_form,)]))
 class setq(known):
         def rewrite(cont, orig, *args):
                 ## Actually a normalisation.. or actually, the hell knows what it is..
@@ -8599,7 +8617,7 @@ class progn(known):
 _if = intern("IF")[0]
 
 @defknown((_if, " ", (_form,),
-           4, (_form,),
+           3, (_form,),
           (_maybe, "\n", (_form,))))
 class if_(known):
         def rewrite(cont, orig, test, consequent, *maybe_ante):
@@ -8913,8 +8931,9 @@ def lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_de
           name = _lambda)
 class lambda_(known):
         def binder(exp, further, name = nil, decorators = nil):
-                length(exp) < 2 and error("Bad LAMBDA form: %s", pp_consly(exp))
-                lam = exp[1][0]
+                form = form_real(exp)
+                length(form) < 2 and error("Bad LAMBDA form: %s", pp_consly(form))
+                lam = form[1][0]
                 not listp(lam) and error("Bad lambda list in LAMBDA form: %s", pp_consly(exp))
                 clambda = compiler_lambda(name, lam)
                 with progv(dict([ (_walker_binder_, lexenv_walker.binder(0, "Lambda.")),
@@ -9099,7 +9118,9 @@ class catch(known):
 
 # THROW
 
-@defknown((intern("THROW")[0], " ", (_form,), (_maybe, " ", (_form,))))
+_throw = intern("THROW")[0]
+
+@defknown((_throw, " ", (_form,), (_maybe, " ", (_form,))))
 class throw(known):
         def nvalues(_, value):            return ir_nvalues(value)
         def nth_value(n, orig, _, value): return (list_(_progn, tag, ir_nth_value(value)) if ir_effects(tag) else
@@ -9146,7 +9167,9 @@ class progv(known):
 
 # PROTOLOOP
 
-@defknown((intern("PROTOLOOP")[0], ["\n", (_form,)]))
+_protoloop = intern("PROTOLOOP")[0]
+
+@defknown((_protoloop, ["\n", (_form,)]))
 class protoloop(known):
         "This was implemented exclusively for the sake of TAGBODY."
         ## Critical Issue PROTOLOOP-MULTIPLE-VALUES-NOT-IMPLEMENTED
