@@ -41,7 +41,10 @@ Irreversibles: %."""
         ret = sub(x).upper()
         return ret
 
-def setf_global(value, name, globals):
+def setf_global(value, name, globals, force = None):
+        if not force and name in globals and globals[name] and globals[name] is not value:
+                raise Exception("Attempt to shadow a non-NIL global '%s' (old value: %s,  new value: %s" %
+                                (name, globals[name], value))
         globals[name] = value
         return value
 

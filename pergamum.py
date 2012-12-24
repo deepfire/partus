@@ -4,20 +4,19 @@
 from cl           import typep, functionp, zerop, plusp, stringp, mapcar, mapc, identity, remove_if, null, every, some, aref, t
 from cl           import evenp
 from functools    import reduce, partial
-from cl           import _of_type as of_type, _setp as setp, _frozensetp as frozensetp
-from cl           import _if_let as if_let, _when_let as when_let, _lret as lret
-from cl           import _prefix_suffix_if as prefix_suffix_if, _prefix_suffix_if_not as prefix_suffix_if_not
-from cl           import _map_into_hash as map_into_hash, _remap_hash_table as remap_hash_table
-from cl           import _not_implemented_error as not_implemented_error, _not_implemented as not_implemented
-from cl           import _curry as curry, _compose as compose
-from cl           import _mapset as mapset, _mapsetn as mapsetn
-from cl           import _slotting as slotting, _slot_of as slot_of
-from cl           import _ensure_list as ensure_list
-from cl           import _caller_name as caller_name
-from cl           import _here as here
-from cl           import _servile as servile
-from cl           import _stream_as_string as stream_as_string, _file_as_string as file_as_string
-from cl           import _fprintf as fprintf, _debug_printf as debug_printf
+from cl           import of_type, setp, frozensetp
+from cl           import if_let, when_let, lret
+from cl           import prefix_suffix_if, prefix_suffix_if_not
+from cl           import map_into_hash, remap_hash_table
+from cl           import not_implemented_error, not_implemented
+from cl           import curry, compose
+from cl           import mapset, mapsetn
+from cl           import slotting, slot_of
+from cl           import caller_name
+from cl           import here
+from cl           import servile
+from cl           import stream_as_string, file_as_string
+from cl           import fprintf, dprintf
 import neutrality
 import ast
 import os                 # listdir(), stat(), path[]
