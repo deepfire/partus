@@ -522,7 +522,7 @@ def really_do_find_symbol(str, package):
         return gethash(str, package.accessible, None)[0]
 
 def find_symbol_or_fail(x, package = None):
-        sym = do_find_symbol(x, coerce_to_package(package))
+        sym = really_do_find_symbol(x, coerce_to_package(package))
         return (sym if sym is not None else
                 symbols_not_accessible_error(p, [x]))
 
@@ -7937,10 +7937,10 @@ def primitivisable_p(x):
 
 def try_primitivise_constant(x):
         "It's more efficient to try doing it, than to do a complete check and then to 'try' again."
-        def _try_primitivise_list(xs):
+        def try_primitivise_list(xs):
                 ret = []
                 for x in xs:
-                        res, successp = _try_primitivise_constant(x)
+                        res, successp = try_primitivise_constant(x)
                         if not successp:
                                 return None, None
                         ret.append(res)
