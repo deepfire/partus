@@ -10328,12 +10328,13 @@ class name_context_fixer(ast.NodeTransformer):
 
 name_context_fixer = name_context_fixer()
 
+def ast_fixup_written_name_contexts(x):
+        with progv({ fixupp: nil }):
+                return name_context_fixer.visit(the(ast.AST, x))
+
 def emit_ast(prim) -> [p.stmt]:
-        def fixup_written_name_contexts(x):
-                with progv({ fixupp: nil }):
-                        return name_context_fixer.visit(the(ast.AST, x))
         xs = p.help_prog([prim])
-        return [ fixup_written_name_contexts(x) for x in xs ]
+        return [ ast_fixup_written_name_contexts(x) for x in xs ]
 
 def lower(form, lexenv = nil):
         "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
