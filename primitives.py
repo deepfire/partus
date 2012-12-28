@@ -4,6 +4,7 @@ from cl import gensymname
 from cl import symbol_value, sex_deeper
 from cl import ensure_symbol_pyname
 from cl import sex_space, defaulted
+from cl import dprintf
 
 import ast
 import sys
@@ -45,7 +46,7 @@ def defprim(name, form_specifier):
                 def strategyp(x): return (isinstance(x, tuple) and x and x[0] is defstrategy and x[1:]
                                           #         See defstrategy above, for the definition of x[1:]
                                           or (None, None))
-                # cl.dprintf("trying to process %s as strategy in %s", spec, cls)
+                # dprintf("trying to process %s as strategy in %s", spec, cls)
                 test, xform_or_keys = strategyp(spec)
                 # Due to the definition of defstrategy, test cannot be a false-equivalent.
                 if test and xform_or_keys:
@@ -140,8 +141,8 @@ def determine(cls, args, keys):
                         xf = (xform_or_keys if not isinstance(xform_or_keys, list) else
                               cls.find_method(xform_or_keys))
                         # if cls is progn:
-                        #         # cl.dprintf("PROGN-DET args %s", args)
-                        # cl.dprintf("xf %s", xf)
+                        #         # dprintf("PROGN-DET args %s", args)
+                        # dprintf("xf %s", xf)
                         return xf(*args, **keys)
         else:
                 error("Unhandled primitive form: %s", self)
@@ -219,7 +220,7 @@ def help(x) -> ([stmt], expr):
                 error("Invalid output from lowerer for %s -- %s.", x, r))
         if not isinstance(x, name) and symbol_value(cl._compiler_trace_subastification_):
                 ssp = sex_space()
-                cl.dprintf("%s---- helpery %s --->\n"
+                dprintf("%s---- helpery %s --->\n"
                            "%s%s\n"
                            "%s%s\n",
                            ssp, cl.pp_chain_of_frame(cl.caller_frame(-1), callers = 15),
@@ -336,7 +337,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
         ###
         def tuple_spills(spec, args, force_spill = nil, strict_segment = nil):
                 # if isinstance(primitive, defun):
-                #         cl.dprintf("DEFUN args: %s", primitive.args)
+                #         dprintf("DEFUN args: %s", primitive.args)
                 specialp = spec and spec[0] in [maybe]
                 if specialp:
                         if spec[0] is maybe:
@@ -354,7 +355,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                               ("exactly %d" % nspec))
                 a_fixed, a_segment, s_spec = ((args[:nspec - 1], args[nspec - 1:], spec[-1][0]) if segmentp else
                                               (args,             [],               None))
-                # isinstance(primitive, defun) and cl.dprintf("tuple %s, spec %s,  af %s, as %s",
+                # isinstance(primitive, defun) and dprintf("tuple %s, spec %s,  af %s, as %s",
                 #                                                   args, spec, a_fixed, a_segment)
                 def expr_tuple_spill_partition(spec, args):
                         pre_spills = []
@@ -362,10 +363,10 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                 pre_spills.append(process(s,      a, force_spill = force_spill))
                         for a in a_segment:
                                 pre_spills.append(process(s_spec, a, force_spill = force_spill))
-                        # isinstance(primitive, defun) and cl.dprintf("presp %s",
+                        # isinstance(primitive, defun) and dprintf("presp %s",
                         #                                                   pre_spills)
                         ## only allowable spills will land here
-                        # cl.dprintf("pre-spills of %s: %s", primitive, pre_spills)
+                        # dprintf("pre-spills of %s: %s", primitive, pre_spills)
                         last_spilled_posns = [ i
                                                for i, x in reversed(list(enumerate(pre_spills)))
                                                if x[0] ]
@@ -387,7 +388,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                 r = (spills,
                      tuple(forms) + tuple(unspilled))
                 # if spills:
-                #         cl.dprintf("spilled tuple %s, into:\n%s",
+                #         dprintf("spilled tuple %s, into:\n%s",
                 #                          " ".join(str(x) for x in args),
                 #                          "\n".join(str(x) for x in spills))
                 return r
@@ -428,7 +429,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         tn = genname("EXP-") ## Temporary Name.
                         spill = [ assign(tn, arg) ]
                         # if spill:
-                        #         cl.dprintf("process spills for %s, to:\n%s\n due to:"
+                        #         dprintf("process spills for %s, to:\n%s\n due to:"
                         #                          "\n  forc %s" "\n  stmt %s" "\n  aspi %s",
                         #                          arg,
                         #                          ", ".join(str(x) for x in spill),
@@ -440,7 +441,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
         spills, primitive.args  = tuple_spills(primitive.form_specifier, primitive.args, strict_segment = nil)
         if spills:
                 spilled = progn(*spills + [primitive])
-        #         cl.dprintf("\nspilled:\n%s\n     ------>\n%s\n", unspilled, spilled)
+        #         dprintf("\nspilled:\n%s\n     ------>\n%s\n", unspilled, spilled)
         #         sys.exit()
         return (spilled if spills else
                 primitive)
@@ -539,11 +540,11 @@ class assign(stmt):
                               ], help_expr(place if simple_tgt_p else ## There is a higher chance, that tgt will be simple.
                                            value if simple_val_p else
                                            the_tn)
-                # cl.dprintf("ASSIGN:\nsimp-val-p  %s\nstmt-val-p  %s\nsimp-tgt-p  %s",
+                # dprintf("ASSIGN:\nsimp-val-p  %s\nstmt-val-p  %s\nsimp-tgt-p  %s",
                 #                  simple_val_p,
                 #                  statem_val_p,
                 #                  simple_tgt_p)
-                # cl.dprintf("ASSIGN gets:\n%s  =  %s\nASSIGN yields P:\n%s\nV:\n%s",
+                # dprintf("ASSIGN gets:\n%s  =  %s\nASSIGN yields P:\n%s\nV:\n%s",
                 #                  place, value,
                 #                  "\n".join(pp_ast_as_code(x) for x in ret[0]),
                 #                  pp_ast_as_code(ret[1]))
@@ -859,7 +860,7 @@ class progn(body):
         ## Make this special, to provide instantiation-time elision of redundant PROGNs.
         def __new__(cls, *children, **keys):
                 prims, exprp = simplify_progns(children)
-                # cl.dprintf("\nPRE-SIMP:\n%s\n\nPOST-SIMP %s:\n%s",
+                # dprintf("\nPRE-SIMP:\n%s\n\nPOST-SIMP %s:\n%s",
                 #                  "\n          -------\n".join(str(x) for x in children),
                 #                  "expr" if exprp else "non-expr",
                 #                  "\n          -------\n".join(str(x) for x in prims))
