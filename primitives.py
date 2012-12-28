@@ -163,6 +163,8 @@ class det(prim):
                 prim.__init__(self, *args, **keys)
                 return prim_check_and_spill(self)
 
+class nospill(prim):           pass
+
 class stmt(det):               pass ## lower to ([ast.stmt], ast.expr)
 class body(stmt):              pass ## lower to ([ast.stmt], ast.expr), and has an embedded body
 class name_setter(stmt):       pass
@@ -437,6 +439,8 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                         return (spill,
                                 tn)
                 return processors.get(type(spec), type_check)(spec, arg, force_spill = force_spill)
+        if isinstance(primitive, nospill):
+                return primitive
         # unspilled = str(primitive)
         spills, primitive.args  = tuple_spills(primitive.form_specifier, primitive.args, strict_segment = nil)
         if spills:
