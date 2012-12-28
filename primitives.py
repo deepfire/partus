@@ -643,6 +643,30 @@ class import_(stmt):
                                     ) ], help_nil()
 
 ###
+### Raw AST wrappers
+###
+## We cannot spill these, so they need to be treated specially.
+## 
+@defprim(intern("RAW")[0],
+         (ast.AST,))
+class raw(indet, nospill):
+        a_expr = defstrategy(test = lambda x: isinstance(x, ast.expr),
+                             keys = expr)
+        b_stmt = defstrategy(keys = stmt)
+
+@defprim(intern("RAW-EXP")[0],
+         (ast.expr,))
+class raw_expr(expr, nospill):
+        def help(val): return val
+        raw = identity_method()
+
+@defprim(intern("RAW-STMT")[0],
+         (ast.stmt,))
+class raw_stmt(stmt, nospill):
+        def help(pro): return [pro], help_nil()
+        raw = identity_method()
+
+###
 ### Constants
 ###
 @defprim(intern("INTEGER")[0],
