@@ -8802,7 +8802,8 @@ def try_primitivise_constant(x):
 def primitivise_constant(x):
         prim, successp = try_primitivise_constant(x)
         return (prim if successp else
-                error("Cannot primitivise value %s.  Is it a literal?", pp_consly(x)))
+                error("Cannot primitivise value %s (of type %s).  Is it a literal?",
+                      pp_consly(x), type(x).__name__))
 
 intern_and_bind_symbols("APPLY", "FUNCALL")
 
