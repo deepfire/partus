@@ -4542,7 +4542,7 @@ def run_tests_quasiquotation():
                                                   7))),
                         printer = pp_consly))
 
-if getenv("CL_RUN_TESTS") != "nil":
+if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_QQ") != "nil":
         with progv({ _reader_trace_qqexpansion_: nil }):
                 run_tests_quasiquotation()
 
@@ -8138,7 +8138,7 @@ def run_tests_metasex():
                          list_(list_(_typep, t))),
                         printer = printer)
 
-if getenv("CL_RUN_TESTS") != "nil":
+if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_METASEX") != "nil":
         run_tests_metasex()
 
 # Form-based IR toolkit
@@ -9295,7 +9295,7 @@ def run_tests_known():
                          l(_lambda, l(_car, _cdr),
                            l(_funcall, l(_function, _cdr), _car))))
 
-if getenv("CL_RUN_TESTS") != "nil":
+if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_KNOWN") != "nil":
         with matcher_pp_stack():
                 run_tests_known()
 
@@ -9741,13 +9741,56 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
                                             ir_cl_call("set_function_definition",
                                                         ir_apply("globals"), name, lambda_expression))}
                       if globalp else {}))
-        bytecode = process_as_loadable(linearise_processor(process_to_ast), form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
+        bytecode = process_as_loadable(process_to_ast, form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
         function, bad_gls, good_gls = load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
         ## Doesn't this make %READ-FUNCTION-AS-TOPLEVEL-COMPILE-AND-LOAD somewhat of an excess?
-        return function
+        return the(cold_function_type, function)
 
 ##
+
+def function_lambda_expression(function):
+        """function-lambda-expression function
+
+=> LAMBDA-EXPRESSION, CLOSURE-P, NAME
+
+Arguments and Values:
+
+FUNCTION---a function.
+
+LAMBDA-EXPRESSION---a lambda expression or NIL.
+
+CLOSURE-P---a generalized boolean.
+
+NAME---an object.
+
+Description:
+
+Returns information about function as follows:
+
+The primary value, LAMBDA-EXPRESSION, is function's defining lambda
+expression, or NIL if the information is not available.  The lambda
+expression may have been pre-processed in some ways, but it should
+remain a suitable argument to COMPILE or FUNCTION.  Any implementation
+may legitimately return NIL as the LAMBDA-EXPRESSION of any FUNCTION.
+
+The secondary value, CLOSURE-P, is NIL if FUNCTION's definition was
+enclosed in the null lexical environment or something non-NIL if
+FUNCTION's definition might have been enclosed in some non-null
+lexical environment.  Any implementation may legitimately return true
+as the CLOSURE-P of any function.
+
+The tertiary value, NAME, is the ``name'' of FUNCTION.  The name is
+intended for debugging only and is not necessarily one that would be
+valid for use as a name in DEFUN or FUNCTION, for example.  By
+convention, NIL is used to mean that FUNCTION has no name.  Any
+implementation may legitimately return NIL as the name of any
+FUNCTION."""
+        return values(*(gethash(slot, the(function_t, function).__dict__, default)[0]
+                        for slot, default in [("lambda_expression", nil),
+                                              ("closure_p",         t),
+                                              ("name",              nil)]))
+
 def compile(name, definition = None):
         """compile name &optional definition => FUNCTION, WARNINGS-P, FAILURE-P
 
@@ -9818,58 +9861,253 @@ and true otherwise."""
         #  - THERE-EXIST lambdas non-expressible in Python
         # Coerce the lambda to a named def, for ast_compiled_name purposes:
         return compile_in_lexenv(lambda_expression,
-                                 name           = name,
+                                 lexenv         = the_null_lexenv(),
+                                 name           = final_name,
                                  globalp        = not not name,
                                  global_macro_p = name and not not macro_function(name))
 
 def eval(form):
-        return compile(nil, (_lambda, (), form))()
+        return compile(nil, list_(_lambda, nil, form))()
 
-# Auxiliary: F-L-X, FDEFINITION
+def dbgsetup(**keys):
+        compiler_dbgconf(pretty_full = t,
+                         **keys)
+
+def run_tests_compiler():
+        def evaltest(name, form, expected):
+                return runtest((name, eval), form, expected, printer = pp_consly, tabstop = 55)
+        dbgsetup( # forms = t,
+
+                  # subexpansion = t,
+                  # macroexpanded = t,
+
+                  # subrewriting = t,
+                  # rewritten = t,
+
+                  # subprimitivisation = t,
+                  # primitives = t,
+
+                  # compiler_validate_ast = t,
+                  # subastification = t,
+                  # ast = t,
+                  # module_ast = t,
+
+                  # bytecodes = t
+                  )
+        l = list_
+        __cons, _identity, _values = [ intern(x)[0]
+                                       for x in ["CONS", "IDENTITY", "VALUES"]]
+        __cdr = make_keyword("CDR")
+        _cadr, __cadr = intern("CADR")[0], make_keyword("CADR")
+        _cddr, __cddr = intern("CDDR")[0], make_keyword("CDDR")
+        assert evaltest("CONST-NIL",                nil,                       nil)
+        assert evaltest("CONST-T",                  t,                         t)
+        assert evaltest("CONST-42",                 42,                        42)
+        assert evaltest("CONST-FOO",                "foo",                    "foo")
+        assert evaltest("QUOTE-NONCONSTANT-SYMBOL", l(_quote, _car),           _car)
+        assert evaltest("QUOTE-CONSTANT",           l(_quote, 42),             42)
+        assert evaltest("QUOTE-SEX",                l(_quote, l(_car, 42)),    l(_car, 42))
+        assert evaltest("APPLY-SIMPLE",             l(_list, 3.14, "a", 42),   l(3.14, "a", 42))
+        #### TODO: QUOTE-UNPRIMITIVISABLE-ERROR-CASE
+        ## SETQ/REF/PROGN
+        assert evaltest("EMPTY-PROGN",                   l(_progn),                                nil)
+        assert evaltest("SIMPLE-PROGN",                  l(_progn, 1, 0),                          0)
+        assert evaltest("SETQ-SIMPLE/REF",               l(_progn,
+                                                           l(_setq, _car, 42),
+                                                           _car),                                  42)
+        assert evaltest("SETQ-COMPLEX/REF/APPLY-SIMPLE", l(_progn,
+                                                           l(_setq, _car, 42,
+                                                             _cdr, 3.14),
+                                                           l(_list, _car, _cdr)),                  l(42, 3.14))
+        assert evaltest("SETQ/REF-PYREF",                l(_progn,
+                                                           l(_setq, l(_quote, l("foo")), "bar"),
+                                                           l(_ref, l(_quote, l("foo")))),         "bar")
+        assert evaltest("LET/SETQ/REF-LEXICAL",          l(_progn,
+                                                           l(_setq, _car, "bar"),
+                                                           l(_let, l(_car,
+                                                                     l(_cdr, 42),
+                                                                     l(_let, 42)),
+                                                             l(_setq, _let, 21264),
+                                                             l(_list, _car, _cdr, _let))),         l(nil, 42, 21264))
+        ## IF
+        assert evaltest("IF-TRUE",
+                       l(_if, t, t, nil),   t)
+        assert evaltest("IF-FALSE",
+                       l(_if, nil, nil, t), t)
+        assert evaltest("IF-FALSE-SINGLE-BRANCH",
+                       l(_if, nil, t),      nil)
+        ## LET
+        assert evaltest("LET-EMPTY",
+                        l(_let, nil),
+                        nil)
+        assert evaltest("LET-NO-BINDINGS",
+                        l(_let, nil, 0),
+                        0)
+        assert evaltest("LET-NO-BODY",
+                        l(_progn,
+                          l(_list,
+                            l(_let, l(l(_car, l(_setq, _cdr, 42)))),
+                            _cdr)),
+                        l(nil, 42))
+        ## PRIM, IR-ARGS
+        assert evaltest("PRIM-DEF-CALL",
+                        l(_progn,
+                          l(_ir_args,
+                            l(_prim, p.lambda_, ([], [], [], None, [], [], None),
+                                     p.integer(42)),
+                            ["name", p.name("foo")]),
+                          l(_prim, p.funcall, p.name("foo"))),
+                        42)
+        ## FUNCTION
+        assert evaltest("FUNCTION/PYREF",
+                        l(_function, l(_quote, l("cl", "list_"))),
+                        list_)
+        ## LAMBDA
+        assert evaltest("LAMBDA-SIMPLE-CALL",
+                        l(l(_lambda, nil)),
+                        nil)
+        assert evaltest("LAMBDA-IDENTITY",
+                        l(l(_lambda, l(_car), _car), 3.14),
+                        3.14)
+        assert evaltest("LAMBDA-&OPTIONAL-NIL-DEFAULTED",
+                        l(l(_lambda, l(_car, _optional, _cdr), l(_list, _car, _cdr)), 3.14),
+                        l(3.14, nil))
+        assert evaltest("LAMBDA-&OPTIONAL-DEFAULTED",
+                        l(l(_lambda, l(_car, _optional, l(_cdr, 42)), l(_list, _car, _cdr)), 3.14),
+                        l(3.14, 42))
+        assert evaltest("LAMBDA-&OPTIONAL-PROVIDED",
+                        l(l(_lambda, l(_car, _optional, l(_cdr, 42)), l(_list, _car, _cdr)), 3.14, 2.71),
+                        l(3.14, 2.71))
+        assert evaltest("LAMBDA-&KEY-NIL-DEFAULTED",
+                        l(l(_lambda, l(_car, _key, _cdr), l(_list, _car, _cdr)), 3.14),
+                        l(3.14, nil))
+        assert evaltest("LAMBDA-&KEY-DEFAULTED",
+                        l(l(_lambda, l(_car, _key, l(_cdr, 42)), l(_list, _car, _cdr)), 3.14),
+                        l(3.14, 42))
+        assert evaltest("LAMBDA-&KEY-PROVIDED",
+                        l(l(_lambda, l(_car, _key, l(_cdr, 42)), l(_list, _car, _cdr)), 3.14, __cdr, 2.71),
+                        l(3.14, 2.71))
+        assert evaltest("LAMBDA-&KEY-&ALLOW-OTHER-KEYS-LAMBDA-ALLOWS",
+                        l(l(_lambda, l(_car, _key, _allow_other_keys), t), 3.14, __cdr, 2.71),
+                        t)
+        assert evaltest("LAMBDA-&KEY-:ALLOW-OTHER-KEYS-CALL-ALLOWS",
+                        l(l(_lambda, l(_key), t), __cdr, 2.71, _allow_other_keys_, t),
+                        t)
+        assert evaltest("LAMBDA-&OPTIONAL-&KEY-PROVIDED",
+                        l(l(_lambda, l(_car, _optional, _cdr, _key, l(_cadr, 42)), l(_list, _car, _cdr, _cadr)),
+                          3.14, 42, __cadr, 2.71),
+                        l(3.14, 42, 2.71))
+        assert evaltest("LAMBDA-&REST-NIL",
+                        l(l(_lambda, l(_car, _rest, _cdr), l(__cons, _car, _cdr)), 2.71),
+                        l(2.71))
+        assert evaltest("LAMBDA-&REST-SOMETHING",
+                        l(l(_lambda, l(_rest, _car), _car), 2.71, 3.14, 42),
+                        l(2.71, 3.14, 42))
+        assert evaltest("LAMBDA-&REST-&KEY-PROVIDED",
+                        l(l(_lambda, l(_car, _rest, _cdr, _key, l(_cadr, 42), l(_cddr, 123)),
+                            l(_list, _car, _cdr, _cadr, _cddr)),
+                          3.14, __cddr, 2.71),
+                        l(3.14, l(__cddr, 2.71), 42, 2.71))
+        ## APPLY
+        assert evaltest("APPLY-PFUNCALL",
+                        l(_apply, l(_function, _identity), 1, l(_quote, nil)),
+                        1)
+        assert evaltest("APPLY-PAPPLY",
+                        l(_apply, l(_function, _identity), l(_list, 1)),
+                        1)
+        ## MULTIPLE-VALUE-CALL
+        assert evaltest("MULTIPLE-VALUE-CALL-SIMPLE",
+                        l(_multiple_value_call, l(_function, _list), l(_values, 1, 2, 3)),
+                        l(1, 2, 3))
+        # dbgsetup( # forms = t,
+        #           # macroexpanded = t,
+        #           # rewritten = t,
+        #           primitives = t,
+        #           # module_ast = t,
+        #           )
+        # assert evaltest("MULTIPLE-VALUE-CALL-COMPLEX",
+        #                 l(_multiple_value_call, l(_function, _list), l(_values, 1, 2), 3, l(_values, 4, 5)),
+        #                 l(1, 2, 3, 4, 5))
+        ## CATCH
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## THROW
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## UNWIND-PROTECT
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## NTH-VALUE
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## PROGV
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## PROTOLOOP
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## THE
+        ## LOCALLY
+        ## MULTIPLE-VALUE-PROG1
+        ## LOAD-TIME-VALUE
+        ####
+        ## FUNCALL
+        # assert evaltest("FUNCALL-PRIM",
+        #                 l(_progn,
+        #                   l(_ir_args,
+        #                     l(_prim, p.lambda_, ([], [], [], None, [], [], None),
+        #                              p.integer(42)),
+        #                     ["name", p.name("bar")]),
+        #                   l(_funcall, l(_function, l(_quote, l("bar"))))),
+        #                 42)
+        ## LET*
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## FLET
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## LABELS
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## MACROLET
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## SYMBOL-MACROLET
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## BLOCK/RETURN-FROM
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## TAGBODY/GO
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## EVAL-WHEN
+        # assert evaltest("",
+        #                 l(),
+        #                 )
+        ## if-true, if-false, if-false-one-handed,
+
+if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_COMPILER") != "nil":
+        with matcher_pp_stack():
+                run_tests_compiler()
+        exit()
+
+# Auxiliary: FDEFINITION
 
 ################################################################################
-
-def function_lambda_expression(function):
-        """function-lambda-expression function
-
-=> LAMBDA-EXPRESSION, CLOSURE-P, NAME
-
-Arguments and Values:
-
-FUNCTION---a function.
-
-LAMBDA-EXPRESSION---a lambda expression or NIL.
-
-CLOSURE-P---a generalized boolean.
-
-NAME---an object.
-
-Description:
-
-Returns information about function as follows:
-
-The primary value, LAMBDA-EXPRESSION, is function's defining lambda
-expression, or NIL if the information is not available.  The lambda
-expression may have been pre-processed in some ways, but it should
-remain a suitable argument to COMPILE or FUNCTION.  Any implementation
-may legitimately return NIL as the LAMBDA-EXPRESSION of any FUNCTION.
-
-The secondary value, CLOSURE-P, is NIL if FUNCTION's definition was
-enclosed in the null lexical environment or something non-NIL if
-FUNCTION's definition might have been enclosed in some non-null
-lexical environment.  Any implementation may legitimately return true
-as the CLOSURE-P of any function.
-
-The tertiary value, NAME, is the ``name'' of FUNCTION.  The name is
-intended for debugging only and is not necessarily one that would be
-valid for use as a name in DEFUN or FUNCTION, for example.  By
-convention, NIL is used to mean that FUNCTION has no name.  Any
-implementation may legitimately return NIL as the name of any
-FUNCTION."""
-        return values_frame(*(gethash(slot, the(function_t, function).__dict__, default)[0]
-                               for slot, default in [("lambda_expression", nil),
-                                                     ("closure_p",         t),
-                                                     ("name",              nil)]))
 
 # getsource
 #   getsourcelines
@@ -10036,25 +10274,6 @@ def configure_recursion_limit(new_limit):
         sys.setrecursionlimit(new_limit)
 
 configure_recursion_limit(262144)
-
-def dbgsetup(**keys):
-        compiler_dbgconf(# forms = t,
-                          # macroexpanded = t,
-                          # primitives = t,
-                          # ast = t,
-                          # module_ast = t,
-                          # bytecode = t,
-
-                          # toplevels = t,
-                          # compile_time_eval = t,
-
-                          # subprimitivisation = t,
-                          # inner_knowns = t,
-                          # known_choices = t,
-                          # known_rewrites = t,
-                          # known_primitives = t,
-                          pretty_full = t,
-                          **keys)
 dbgsetup()
 
 # compiler_trap_function(intern("DEFPACKAGE")[0])
@@ -10127,6 +10346,7 @@ if not getenv("CL_NO_LISP"):
                   # primitives = t,
 
                   # compiler_validate_ast = t,
+                  # subastification = t,
                   # ast = t,
                   # module_ast = t,
 
