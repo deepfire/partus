@@ -1071,19 +1071,19 @@ class or_(potconst):
 ## + - * / MOD POW << >> LOGIOR LOGXOR LOGAND FLOOR
 @defprim(intern("+")[0], ([expr_spill],))
 class add(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Add)
+        def help(*xs): return help_binop_seq(xs, ast.Add, 0)
 
 @defprim(intern("-")[0], ([expr_spill],))
 class subtract(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Sub)
+        def help(*xs): return help_binop_seq(xs, ast.Sub, 0)
 
 @defprim(intern("*")[0], ([expr_spill],))
 class multiply(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Mult)
+        def help(*xs): return help_binop_seq(xs, ast.Mult, 1)
 
 @defprim(intern("/")[0], ([expr_spill],))
 class divide(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Div)
+        def help(*xs): return help_binop_seq(xs, ast.Div, 1)
 
 @defprim(intern("MOD")[0], (expr_spill, expr_spill))
 class mod(potconst):
