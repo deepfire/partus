@@ -5268,7 +5268,7 @@ def ast_efless_p(x):
 __astifier_map__ = { str:       (nil, ast_string),
                      int:       (nil, ast_num),
                      bool:      (nil, ast_num),
-                     NoneType: (nil, lambda x: ast_name("None")),
+                     NoneType:  (nil, lambda x: ast_name("None")),
                      list:      (t,   ast_list),
                      tuple:     (t,   ast_tuple),
                      set:       (t,   ast_set),
@@ -6443,6 +6443,7 @@ def form_metasex(form, kind = "metasex"):
         "Return a normalised metasex for FORM."
         ## Unregistered Issue FORM-METASEX-SHOULD-COMPUTE-METASEX-OF-DEFINED-MACROS
         ## Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
+        ## Unregistered Issue FORM-METASEX-STATICALLY-PRECLUDES-MULTILINE-FORMS
         return (preprocess_metasex((_typep, t))    if not consp(form)                                                  else
                 getattr(find_known(form[0]), kind)  if isinstance(form[0], symbol_t) and find_known(form[0])           else
                 preprocess_metasex((([(_notlead, " "), (_form,)] if kind == "metasex_pp" else
