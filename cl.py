@@ -1346,8 +1346,9 @@ class simple_package_error_t(simple_error_t, package_error_t):
 
 intern_and_bind_symbols("%MV-MARKER")
 
-def values_frame(*xs):
-        return (_mv_marker,) + xs
+@defun
+def values(*rest):
+        return (_mv_marker,) + rest
 
 def values_frame_p(x):
         return isinstance(x, tuple) and x[0] is _mv_marker
@@ -3191,7 +3192,7 @@ def parse_namestring(thing, host = nil, default_pathname = None, *args, start = 
         if streamp(thing):
                 thing = pathname(thing)
         if pathnamep(thing):
-                return (values_frame(thing, start) if not (host or thing.host) or host is thing.host else
+                return (values(thing, start) if not (host or thing.host) or host is thing.host else
                         error("The specified host %s does not match pathname's host %s.", host, thing.host))
         ## It is a string.
         check_type(thing, string_t)
@@ -3216,8 +3217,8 @@ def parse_namestring(thing, host = nil, default_pathname = None, *args, start = 
         if not effective_host:
                 error("Can't parse the namestring for an unspecified host: either %s or a %s specifying a pathname host must be provided.",
                       make_keyword("HOST"), make_keyword("DEFAULT-PATHNAME"))
-        return values_frame(effective_host.parse(subseq(thing, start, end) if start or end else thing),
-                             start)
+        return values(effective_host.parse(subseq(thing, start, end) if start or end else thing),
+                      start)
 
 @defun
 def namestring(x):
