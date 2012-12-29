@@ -4064,7 +4064,16 @@ def mapcar(f, xs, *xss):
                         ptr[1] = ptr = [f(car), nil]
                 return acc
         else:
-                not_implemented("MAPCAR: multiple-list case")
+                if not xs or not all(xss): ## This misfires when something is illegally not a list, but a pyfalse -- e.g. 0.
+                        return nil
+                caar, cars = xs[0], [ x[0] for x in xss ]
+                cadr, cdrs = xs[1], [ x[1] for x in xss ]
+                acc = ptr = [f(caar, *cars), nil]
+                while cadr and all(cdrs):
+                        caar, cars = cadr[0], [ x[0] for x in cdrs ]
+                        cadr, cdrs = cadr[1], [ x[1] for x in cdrs ]
+                        ptr[1] = ptr = [f(caar, *cars), nil]
+                return acc
 
 @defun
 def mapcan(f, *xs):
