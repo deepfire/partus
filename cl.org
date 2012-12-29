@@ -5419,7 +5419,7 @@ def __cl_condition_handler__(condspec, frame):
                                       prin1_to_string(cond), type_of(cond),
                                       callers = 45, frame = symbol_value(_stack_top_hint_))
                         with progv({_traceback_: traceback,
-                                    _signalling_frame_: frame}): # These bindings are the deviation from the CL standard.
+                                    _signalling_frame_: frame}):
                                 presignal_hook = symbol_value(_presignal_hook_)
                                 if presignal_hook:
                                         with progv({_presignal_hook_: nil}):
