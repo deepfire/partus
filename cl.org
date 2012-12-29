@@ -7553,6 +7553,7 @@ string_set("*COMPILER-TRACE-COMPILE-TIME-EVAL*",  nil)
 string_set("*COMPILER-TRACE-SUBEXPANSION*",       nil)
 string_set("*COMPILER-TRACE-SUBREWRITING*",       nil)
 string_set("*COMPILER-TRACE-SUBPRIMITIVISATION*", nil)
+string_set("*COMPILER-TRACE-SUBASTIFICATION*",    nil)
 string_set("*COMPILER-TRACE-INNER-KNOWNS*",       nil)
 string_set("*COMPILER-TRACE-KNOWN-CHOICES*",      nil)
 string_set("*COMPILER-TRACE-KNOWN-PRIMITIVES*",   nil)
@@ -7576,6 +7577,7 @@ compiler_debugless_traceless_frame = { _compiler_trace_forms_:              nil,
                                        _compiler_trace_subexpansion_:       nil,
                                        _compiler_trace_subrewriting_:       nil,
                                        _compiler_trace_subprimitivisation_: nil,
+                                       _compiler_trace_subastification_:    nil,
                                        _compiler_trace_inner_knowns_:       nil,
                                        _compiler_trace_known_choices_:      nil,
                                        _compiler_trace_known_primitives_:   nil,
@@ -7586,7 +7588,7 @@ compiler_debugless_traceless_frame = { _compiler_trace_forms_:              nil,
 
 __known_trace_args__ = { "forms", "macroexpanded", "rewritten", "primitives", "ast", "module_ast", "bytecode",
                          "toplevels",
-                         "subexpansion", "subrewriting", "subprimitivisation", "inner_knowns", "known_choices", "known_primitives",
+                         "subexpansion", "subrewriting", "subprimitivisation", "subastification", "inner_knowns", "known_choices", "known_primitives",
                          "pretty_full" }
 
 def compiler_explain_tracing():
