@@ -4854,7 +4854,7 @@ def __cl_condition_handler__(condspec, frame):
                         dprintf("In thread %s: a non-condition of type %s was raised: %s",
                                       threading.current_thread().name, type_of(cond), repr(cond))
                 if not backtrace_printed:
-                        backtrace()
+                        backtrace(offset = 2) ## 2 = [ pytracer, __cl_condition_handler__ ]
                 frost.disable_pytracer()
                 try:
                         invoke_debugger(cond)
