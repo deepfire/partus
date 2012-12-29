@@ -7850,6 +7850,7 @@ class lexenv_t():
                         scope = rest # COLD-CDR
                 return default, None
         def print(self):
+                dprintf("===  Dumping lexenv:")
                 for name, scope in [("var", self.varscope), ("func", self.funcscope), ("block", self.blockscope), ("gotag", self.gotagscope)]:
                         dprintf("=====  Scope:  %s", name)
                         while scope:
