@@ -295,38 +295,40 @@ def assign_meaningful_locations(node, lineno = 1):
                         return binder
                 def self_binder(): return make_binder(x)
                 def handle_body_orelse(x, prechain, intrachain = []):
-                        return chain(rec, ([prechain, dir(self_binder()), dir(1), normally(x.body), intrachain] +
-                                           (normally(x.orelse) if hasattr(x, "orelse") and x.orelse else
-                                            [])),
-                                     lineno)
-                reductios = { type(None):        (lambda lineno, x: lineno),
-                              ast.Module:        (lambda lineno, x: reduce(rec, dir(self_binder()) + normally(x.body), lineno)),
-                              ast.FunctionDef:   (lambda lineno, x: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
-                                                                                normally(attrs("name", "args", "returns")), dir(1),
-                                                                                normally(x.body)],
-                                                                          lineno)),
-                              ast.ClassDef:      (lambda lineno, x: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
-                                                                                normally(attrs("name", "bases", "keywords",
-                                                                                               "starargs", "kwargs")), dir(1),
-                                                                                normally(x.body)],
-                                                                          lineno)),
-                              ast.With:          (lambda lineno, x: handle_body_orelse(x, normally([x.context_expr, x.optional_vars]))),
-                              ast.For:           (lambda lineno, x: handle_body_orelse(x, normally([x.target, x.test]))),
-                              ast.If:            (lambda lineno, x: handle_body_orelse(x, normally([x.test]))),
-                              ast.While:         (lambda lineno, x: handle_body_orelse(x, normally([x.test]))),
-                              ast.TryExcept:     (lambda lineno, x: handle_body_orelse(x, [], normally(x.handlers))),
-                              ast.ExceptHandler: (lambda lineno, x: handle_body_orelse(x, normally([x.type, x.name]))),
-                              ast.TryFinally:    (lambda lineno, x: chain(rec, [dir(self_binder()), dir(1),
-                                                                                normally(x.body), dir(1),
-                                                                                normally(x.finalbody)], lineno)) }
+                        chainables = ([prechain, dir(self_binder()), dir(1), normally(x.body), intrachain] +
+                                      ([normally(x.orelse)] if hasattr(x, "orelse") and x.orelse else
+                                       []))
+                        return chain(rec, chainables, lineno)
+                reductios = {
+                        type(None):        (lambda lineno, x: lineno),
+                        ast.Module:        (lambda lineno, x: reduce(rec, dir(self_binder()) + normally(x.body), lineno)),
+                        ast.FunctionDef:   (lambda lineno, x: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
+                                                                          normally(attrs("name", "args", "returns")), dir(1),
+                                                                          normally(x.body)],
+                                                                    lineno)),
+                        ast.ClassDef:      (lambda lineno, x: chain(rec, [advancing(x.decorator_list), dir(self_binder()),
+                                                                          normally(attrs("name", "bases", "keywords",
+                                                                                         "starargs", "kwargs")), dir(1),
+                                                                          normally(x.body)],
+                                                                    lineno)),
+                        ast.With:          (lambda lineno, x: handle_body_orelse(x, normally([x.context_expr, x.optional_vars]))),
+                        ast.For:           (lambda lineno, x: handle_body_orelse(x, normally([x.target, x.test]))),
+                        ast.If:            (lambda lineno, x: handle_body_orelse(x, normally([x.test]))),
+                        ast.While:         (lambda lineno, x: handle_body_orelse(x, normally([x.test]))),
+                        ast.TryExcept:     (lambda lineno, x: handle_body_orelse(x, [], normally(x.handlers))),
+                        ast.ExceptHandler: (lambda lineno, x: handle_body_orelse(x, normally([x.type, x.name]))),
+                        ast.TryFinally:    (lambda lineno, x: chain(rec, [dir(self_binder()), dir(1),
+                                                                          normally(x.body), dir(1),
+                                                                          normally(x.finalbody)], lineno)) }
                 def default_reductio(lineno: int, x: ast.AST) -> int:
                         if not isinstance(x, ast.AST):
                                 return lineno
                         x.lineno = lineno
                         for f in x._fields:
                                 fv = getattr(x, f)
-                                [rec(lineno, (fvv, advance0)) for fvv in (fv if isinstance(fv, list) else [fv])
-                                 if isinstance(fvv, ast.AST)]
+                                [ rec(lineno, (fvv, advance0))
+                                  for fvv in (fv if isinstance(fv, list) else [fv])
+                                  if isinstance(fvv, ast.AST) ]
                         return lineno + (1 if isinstance(x, ast.stmt) else 0)
                 return advance(reductios.get(type(x), default_reductio)(lineno, x))
         return (rec(lineno, (node, advance0))       if isinstance(node, ast.AST)       else
