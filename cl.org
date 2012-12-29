@@ -9689,7 +9689,6 @@ class ref(known):
                         gvar = find_global_variable(name)
                         if not gvar and not lexical_binding: # Don't complain on yet-unknown specials.
                                 simple_style_warning("undefined variable: %s", name)
-                                cur_lexenv.print()
                         unit_note_gvar_reference(name)
                         ## Note, how this differs from FUNCTION:
                         return p.special_ref(p.name(unit_symbol_pyname(name)))
