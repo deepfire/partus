@@ -7792,8 +7792,8 @@ def compiler_macroexpand_all(form, lexenv = nil):
 # Known IR
 
 class known():
-        def rewrite(cont, orig, *_):
-                return nil, cont(orig)
+        def rewrite(orig, *_):
+                return nil, orig
         def binder(exp, continuation):
                 with progv({ _walker_binder_: lexenv_walker.binder(0, "Generic binder.") }):
                         # dprintf("== KNOWN.BINDER: establishing a generic one")
@@ -7806,17 +7806,13 @@ def compute_default_metasex(name):
 def defknown(metasex_or_class, name = None):
         def do_def(cls, sym, pyname, metasex):
                 orig = global_(pyname, globals())
-                rewrite, lower = [ getattr(cls, x, None) for x in ["rewrite", "lower"] ]
                 ## Complete, record the deeds.
                 metasex = preprocess_metasex(metasex)
                 cls.name           = sym
                 cls.metasex        = strip_metasex(metasex, strip_pp = t, strip_bind = t)
                 cls.metasex_pp     = strip_metasex(metasex,               strip_bind = t)
                 cls.metasex_bind   = strip_metasex(metasex, strip_pp = t)
-                cls.rewrite_params = mapset(lambda x: x[0], function_lambda_list(rewrite)[3])
-                if lower:
-                        cls.lower_params = mapset(lambda x: x[0], function_lambda_list(lower)[3])
-                sym.known         = cls
+                sym.known          = cls
                 define_global_sym_for_pyname(globals(), pyname, sym)
                 return orig # pass through -- let the symbol be bound to the name
         def def_(cls, name = name, metasex = metasex_or_class):
@@ -7838,59 +7834,64 @@ def form_known(form):
         complex_form_p = consp(form) and isinstance(form[0], symbol_t)
         return complex_form_p and find_known(form[0])
 
-def rewrite_1_keys(cont: "Form -> ({} Form Bool)", form, keys) -> "(Bool ({} Form Bool))":
+def rewrite_1_keys(form, keys) -> "(Bool ({} Form Bool))":
         ## For IR-ARGS.REWRITE
         if atom(form):
-                return nil, cont(form)
+                return nil, form
         known = find_known(form[0])
         if not known:
                 error("Unknown form encountered at rewrite stage: %s, form[0]: %s/%x", pp_consly(form), form[0], id(form[0]))
         rewrite_method = known.rewrite
-        argspec = inspect.getfullargspec(rewrite_method)
-        invalid = set(keys.keys()) - set(argspec.args) - set(argspec.kwonlyargs)
-        if invalid:
-                error("Invalid IR-ARGS arguments for %s: %s does not expect arguments %s -- the argspec is %s.",
-                      form[0], rewrite_method, ", ".join("'%s'" % x for x in invalid), argspec)
-        ret = xformedp, (b, r, f) = rewrite_method(cont, form, *vectorise_linear(form[1]), **keys)
+        validate_function_keys(form[0], rewrite_method, keys)
+        ret = _, r = rewrite_method(form, *vectorise_linear(form[1]), **keys)
         if (symbol_value(_compiler_trace_subrewriting_)
             and form != r):
                 dprintf(";;; %s - rewrote ............\n%s   -->\n%s\n",
                         "REWRITE-1-KEYS", pp(form), pp(r))
         return ret
 
-def rewrite_1(cont: "Form -> ({} Form Bool)", form) -> "(Bool ({} Form Bool))":
+def rewrite_1(form) -> "(Bool ({} Form Bool))":
         "All non-atom forms are interpreted as knowns at this point."
+        # dprintf("%s(%s) calling %s.REWRITE(%s, ...)", caller_name(3), pp_consly(caller_args(3)), form[0], pp_consly(form))
+        ## 0. Atoms are not rewritten.
         if atom(form):
-                return nil, cont(form)
-        # dprintf("%s(%s) calling %s.REWRITE(cont, %s, ...)", caller_name(3), pp_consly(caller_args(3)), form[0], pp_consly(form))
+                return nil, form
+        ## 1. Funcallify LAMBDA calls .. and recursively rewrite all contents.
+        if consp(form[0]) and form[0][0] is _lambda:
+                ## Applyification of ((LAMBDA ...) ...) forms -- the generic way only works on symbol calls.
+                return t, cons(_funcall, form)
+        ## 2. Otherwise, find the corresponding known.
         known = find_known(form[0])
         if not known:
                 error("Unknown form encountered at rewrite stage: %s, form[0]: %s/%x", pp_consly(form), form[0], id(form[0]))
+        ## 3. Check known parameter/argument count correspondence.
         rewrite_method = known.rewrite
+        argspec = inspect.getfullargspec(rewrite_method)
         args = vectorise_linear(form[1])
-        if not known.rewrite.__code__.co_flags & 4 and len(args) != known.rewrite.__code__.co_argcount - 2:
+        if not argspec.varargs and len(args) != len(argspec.args) - 1:
                 error("Invalid form: %s -- %d arguments provided, but %s.REWRITE expects only %d.",
                       pp_consly(form), len(args), known.__name__.upper(), known.rewrite.__code__.co_argcount - 2)
-        ret = xformedp, (b, r, f) = rewrite_method(cont, form, *args)
+        ## 4. Invoke the rewrite method.
+        ret = _, r = rewrite_method(form, *args)
         if (symbol_value(_compiler_trace_subrewriting_)
             and form != r):
                 dprintf(";;; %s - rewrote ............\n%s   -->\n%s\n",
                         "REWRITE-1", pp(form), pp(r))
         return ret
 
-def rewrite(cont: "Form -> ({} Form Bool)", form) -> "({} Form Bool)":
+def rewrite(form) -> "({} Form Bool)":
         ## Unregistered issue CONTINUATION-PASSING-MULTIPLIES-STACK-PRESSURE
         def do_rewrite(form):
-                # dprintf("DO-REWRITE:   %s", pp_consly(form))
-                xformed_again, brf = rewrite_1(cont, form)
-                return (do_rewrite(brf[1]) if xformed_again else
-                        brf)
-        return do_rewrite(form)
+                xformed_again, reform = rewrite_1(form)
+                return (do_rewrite(reform) if xformed_again else
+                        reform)
+        ret = do_rewrite(form)
+        return ret
 
 def rewriter_xform(form, further: "Form -> ({} Form Bool)") -> "({} Form Bool)":
         ## Optimise: further(form) if atom(form) else rewrite(further, form)
         ## Absolutely want to see it benchmarked : -)
-        return rewrite(further, form)
+        return further(rewrite(form))
 
 def rewrite_all(sex, lexenv = nil):
         return walk_with_lexenv(rewriter_xform, sex, lexenv = lexenv)
@@ -7938,6 +7939,7 @@ with disabled_condition_system():
 
 def variable_tn(sym):         return p.name(unit_variable_pyname(sym))
 def function_tn(sym):         return p.name(unit_function_pyname(sym))
+def symbol_tn(sym):           return p.name(unit_symbol_pyname(sym))
 def variable_tn_no_unit(sym): return p.name(ensure_variable_pyname(sym))
 def function_tn_no_unit(sym): return p.name(ensure_function_pyname(sym))
 
@@ -7946,12 +7948,20 @@ def gensym_tn(x = "G"):
         sym.tn = variable_tn(sym)
         return sym
 
+def make_keyword_tn(name):
+        kw = make_keyword(name)
+        kw.tn = symbol_tn(kw)
+        return kw
+
 __primitiviser_map__ = { str:        (nil, p.string),
                          int:        (nil, p.integer),
                          float:      (nil, p.float_num),
                          ## Note: this relies on the corresponding name to be made available by some means.
                          symbol_t:   (nil, lambda x: p.symbol(unit_symbol_pyname(x))),
-                         bool:       (nil, lambda x: p.name("True" if x else "False"))
+                         bool:       (nil, lambda x: p.name("True" if x else "False")),
+                         NoneType:   (nil, lambda x: p.name("None")),
+                         list:       (t,   lambda xs: p.pylist(*xs)),
+                         tuple:      (t,   lambda xs: p.pytuple(*xs)),
                          }
 
 def primitivisable_p(x):
@@ -8221,7 +8231,7 @@ def primitivise_pyref(x):
 
 @defknown((_ir_args, "\n", (_form,), ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pp)))],))
 class ir_args(known):
-        def rewrite(cont, orig, form, *args):
+        def rewrite(orig, form, *args):
                 ## Effect of IR-ARGS:
                 ## 1. Process with inner rewrite, parametrised by IR-ARGS', well, args.
                 ## 2. Re-wrap the result with the same IR-ARGS.
@@ -8229,18 +8239,17 @@ class ir_args(known):
                         error("Unlikely-to-be-valid IR-ARGS: %s  added to  %s.", pp_consly(consify_linear(args)), pp_consly(form))
                 def do_rewrite(form, keys = {}):
                         # dprintf("IR-ARGS.DO-REWRITE:   %s", pp_consly(form))
-                        xformed_again, brf = rewrite_1_keys(lambda r: ({}, r, None), form, keys)
-                        return (do_rewrite(brf[1]) if xformed_again else
-                                brf)
-                rewritten = do_rewrite(form, dict(args))[1]
+                        xformed_again, reform = rewrite_1_keys(form, keys)
+                        return (do_rewrite(reform) if xformed_again else
+                                reform)
+                rewritten = do_rewrite(form, dict(args))
                 argless_form, subargs_retainer = ((rewritten,       identity) if atom(rewritten) or rewritten[0] is not _ir_args else
                                                   (rewritten[1][0], lambda x: list__(_ir_args, x, rewritten[1][1])))
-                b, r, f = cont(argless_form)
-                rewrapped = subargs_retainer(r)
+                rewrapped = subargs_retainer(argless_form)
                 # dprintf("IR-ARGS.REWRITE: ---------------\n%s\n%s\n",
                 #         pp(orig), pp(rewrapped))
-                return nil, (b, rewrapped, f)
-                # b, r, f = cont(do_rewrite(form, dict(args))[1])
+                return nil, rewrapped
+                # r = do_rewrite(form, dict(args))[1]
                 # output = list_(_ir_args, r, *args) if r != form else orig
                 # dprintf("IR-ARGS.REWRITE: ---------------\n%s\n%s\n%s\n%s\n",
                 #         pp_consly(orig), pp_consly(form), pp_consly(r), pp_consly(output))
@@ -8259,10 +8268,7 @@ def destructure_possible_ir_args(x):
 def ir(*ir, **keys):
         "A syntactic sugar for convenient IR-ARGS specification."
         known = find_known(the(symbol_t, ir[0]))
-        invalid_params = set(keys.keys()) - known.lower_params
-        if invalid_params:
-                error("In IR-ARGS: IR %s accepts parameters in the set %s, whereas following unknowns were passed: %s.",
-                      known.name, known.lower_params, invalid_params)
+        validate_function_keys("IR %s lower method" % known.name, known.lower, keys)
         return (list__(_ir_args, consify_linear(ir), consify_linear([ [k, v] for k, v in keys.items() ])) if keys else
                 consify_linear(ir))
 
@@ -8270,8 +8276,8 @@ def ir(*ir, **keys):
 
 @defknown
 class funcall(known):
-        def rewrite(cont, _, func, *args):
-                return t, cont(list__(_apply, func, append(consify_linear(args), list_(list_(_quote, nil)))))
+        def rewrite(_, func, *args):
+                return t, list__(_apply, func, append(consify_linear(args), list_(list_(_quote, nil))))
 
 # LET*
 
@@ -8287,17 +8293,17 @@ _let_ = intern("LET*")[0]
             1, [(_notlead, "\n"), (_bound, (_form,))])),
           name = _let_)
 class let_(known):
-        def rewrite(cont, _, bindings, *body):
+        def rewrite(_, bindings, *body):
                 ## I quietly hope that there is no need to handle lexenvs here..
                 if not bindings:
-                        return t, cont(handle_linear_body(body))
+                        return t, handle_linear_body(body)
                 if not bindings[1]:
-                        return t, cont(list_(_let, bindings, *body))
+                        return t, list_(_let, bindings, *body)
                 l = list_
                 ## Unregistered Issue LET*-REWRITE-TIME-LEXENV-WOBBLINESS
-                return t, cont(l(_let, l(bindings[0]),
-                                 l(_let_, bindings[1],
-                                   *body)))
+                return t, l(_let, l(bindings[0]),
+                            l(_let_, bindings[1],
+                              *body))
 
 # FLET
 
@@ -8312,18 +8318,18 @@ _flet = intern("FLET")[0]
 class flet(known):
         def binder_args(bindings, *body):
                 return xmap_to_vector(lambda b: fn(b[0], b[1][0]), bindings)
-        def rewrite(cont, _, bindings, *body):
+        def rewrite(_, bindings, *body):
                 def fail(x): error("Bad FLET form: %s", pp_consly(x))
                 l = list_
                 not (listp(bindings)
                      and all((length(x) >= 2 and
                               listp(second(x)))
                              for x in bindings)) and fail(form)
-                return t, cont(handle_constant_linear_body(body) if all(constantp(x) for x in body) else
-                               ## This weak attempt above screams for proper liveness analysis.
-                               nil                                if not (bindings or body)          else
-                               handle_linear_body(body)          if not bindings                    else
-                               l(_funcall,
+                return t, (handle_constant_linear_body(body) if all(constantp(x) for x in body) else
+                           ## This weak attempt above screams for proper liveness analysis.
+                           nil                                if not (bindings or body)          else
+                           handle_linear_body(body)          if not bindings                    else
+                           l(_funcall,
                                  (lambda rest, tns:
                                           l(_labels, xmap_to_conses(lambda btn:
                                                                             cons(btn[0], btn[1]),
@@ -8333,9 +8339,9 @@ class flet(known):
                                                                                 l(_apply, l(f_unction, btn[0]), rest)),
                                                                       zip(tns, bindings)),
                                               *body)))
-                                 (gensym("REST-"),
-                                  (gensym("FN-" + symbol_name(x[0]) + "-")
-                                   for x in vectorise_linear(bindings)))))
+                             (gensym("REST-"),
+                              (gensym("FN-" + symbol_name(x[0]) + "-")
+                               for x in vectorise_linear(bindings)))))
 
 # LABELS
 
@@ -8365,20 +8371,20 @@ class labels(known):
                              _walker_binder_args_: nil } if bindings else
                            { _walker_binder_args_: nil }):
                         return further(exp)
-        def rewrite(cont, _, bindings, *body):
+        def rewrite(_, bindings, *body):
                 l = list_
-                return t, cont(handle_constant_linear_body(body) if all(constantp(x) for x in body) else
-                               ## This weak attempt above screams for proper liveness analysis.
-                               nil                               if not (bindings or body)          else
-                               handle_linear_body(body)          if not bindings                    else
-                               l(_funcall, ir(_lambda, nil,
-                                              ## We rely on that PRIMITIVE layer will allocate a
-                                              ## separate function for statements, thereby not wronging the namespace.
-                                              *(xmap_to_vector(lambda binding:
-                                                                        ir(_lambda, *vectorise_linear(binding[1]),
-                                                                            name = binding[0]),
-                                                                bindings)
-                                                + list(body)))))
+                return t, (handle_constant_linear_body(body) if all(constantp(x) for x in body) else
+                           ## This weak attempt above screams for proper liveness analysis.
+                           nil                               if not (bindings or body)          else
+                           handle_linear_body(body)          if not bindings                    else
+                           l(_funcall, ir(_lambda, nil,
+                                          ## We rely on that PRIMITIVE layer will allocate a
+                                          ## separate function for statements, thereby not wronging the namespace.
+                                          *(xmap_to_vector(lambda binding:
+                                                                   ir(_lambda, *vectorise_linear(binding[1]),
+                                                                      name = binding[0]),
+                                                           bindings)
+                                            + list(body)))))
 
 # MACROLET
 
@@ -8398,8 +8404,8 @@ _macrolet = intern("MACROLET")[0]
             1, [(_notlead, "\n"), (_bound, (_form,))])),
           name = _macrolet)
 class macrolet(known):
-        def rewrite(cont, _, bindings, *body):
-                return t, cont(handle_linear_body(body))
+        def rewrite(_, bindings, *body):
+                return t, handle_linear_body(body)
 
 # SYMBOL-MACROLET
 
@@ -8410,8 +8416,8 @@ _symbol_macrolet = intern("SYMBOL-MACROLET")[0]
             1, [(_notlead, "\n"), (_bound, (_form,))])),
           name = _symbol_macrolet)
 class symbol_macrolet(known):
-        def rewrite(cont, _, bindings, *body):
-                return t, cont(handle_linear_body(body))
+        def rewrite(_, bindings, *body):
+                return t, handle_linear_body(body)
 
 # BLOCK
 
@@ -8425,7 +8431,7 @@ _block = intern("BLOCK")[0]
             [1, (_bound, (_form,))],)),
           name = _block)
 class block(known):
-        def rewrite(cont, orig, name, *body):
+        def rewrite(orig, name, *body):
                 nonce = gensym("BLOCK-" + symbol_name(name) + "-")
                 catch_target = list__(_catch, list_(_quote, nonce), consify_linear(body))
                 has_return_from = nil
@@ -8438,7 +8444,7 @@ class block(known):
                 ## Unregistered Issue CATCH-22-WHILE-DOING-CONTENT-DEPENDENT-REWRITING
                 with progv({ _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
                                                           name_blockframe = { name: block_binding(name, _block, None) }) }):
-                        return t, cont(catch_target if has_return_from else handle_linear_body(body))
+                        return t, (catch_target if has_return_from else handle_linear_body(body))
 
 # RETURN-FROM
 
@@ -8446,11 +8452,11 @@ _return_from = intern("RETURN-FROM")[0]
 
 @defknown((_return_from, " ", (_satisfies, namep), (_maybe, " ", (_form,))))
 class return_from(known):
-        def rewrite(cont, _, name, *maybe_form):
+        def rewrite(_, name, *maybe_form):
                 binding, _ = symbol_value(_walker_lexenv_).lookup_block(the(symbol_t, name))
                 if not binding:
                         simple_program_error("return for unknown block: %s", name)
-                return t, cont(list_(_throw, list_(_quote, binding.value), nil if not maybe_form else maybe_form[0]))
+                return t, list_(_throw, list_(_quote, binding.value), nil if not maybe_form else maybe_form[0])
 
 # TAGBODY
 
@@ -8487,7 +8493,7 @@ class tagbody(known):
                                                                                           binder.fnames) }))]
                                  if binder.tags else []))):
                         return further(exp)
-        def rewrite(cont, orig, *tags_and_forms):
+        def rewrite(orig, *tags_and_forms):
                 binder       = symbol_value(_walker_binder_)
                 init_tag     = binder.tags[0]
                 (go_tag,
@@ -8524,7 +8530,7 @@ class tagbody(known):
                                  l(_protoloop,
                                    l(_setq, nxt_label,
                                            l(_catch, go_tag, l(_apply, nxt_label, l(_quote, nil))))))))))
-                return t, cont(form)
+                return t, form
 
 # GO
 
@@ -8532,11 +8538,11 @@ intern_and_bind_symbols("GO")
 
 @defknown((_go, " ", (_typep, symbol_t)))
 class go(known):
-        def rewrite(cont, _, name):
+        def rewrite(_, name):
                 binding, lexenv = symbol_value(_walker_lexenv_).lookup_gotag(the(symbol_t, name))
                 if not binding:
                         simple_program_error("attempt to GO to nonexistent tag: %s", name)
-                return t, cont(list_(_throw, binding.value, list_(_function, binding.value)))
+                return t, list_(_throw, binding.value, list_(_function, binding.value))
 
 # EVAL-WHEN
 
@@ -8583,14 +8589,14 @@ EVAL-WHEN normally appears as a top level form, but it is meaningful
 for it to appear as a non-top-level form.  However, the compile-time
 side effects described in Section 3.2 (Compilation) only take place
 when EVAL-WHEN appears as a top level form."""
-        def rewrite(cont, _, when, *body):
+        def rewrite(_, when, *body):
                 ctop, ltop, exec = parse_eval_when_situations(when)
                 ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
                 ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
                 ## so that they're never seen at this level.)
                 compiler_trace_known_choice(_eval_when, when, "EXECUTE" if exec else "NO-EXECUTE")
-                return t, cont(cons(_progn, consify_linear(body)) if exec else
-                               nil)
+                return t, (cons(_progn, consify_linear(body)) if exec else
+                           nil)
 
 # SETQ
 
@@ -8599,16 +8605,16 @@ _setq = intern("SETQ")[0]
 @defknown((_setq, [" ", (_or, (_satisfies, namep), (_satisfies, pyref_p)),
                    " ", (_form,)]))
 class setq(known):
-        def rewrite(cont, orig, *args):
+        def rewrite(orig, *args):
                 ## Actually a normalisation.. or actually, the hell knows what it is..
                 len(args) % 2 and \
                     error("SETQ accepts an even amount of arguments, got: %s", pp_consly(consify_linear(args)))
                 not all(pyref_p(x) or isinstance(x, symbol_t)
                         for x in args[::2]) and \
                     error("SETQ arguments at even positions must be symbols, got: %s", pp_consly(consify_linear(args)))
-                return ((nil, cont(orig)) if len(args) == 2 else
-                        (t,   cont(handle_linear_body(map(lambda name, value: list_(_setq, name, value),
-                                                           args[::2], args[1::2])))))
+                return ((nil, orig) if len(args) == 2 else
+                        (t,   handle_linear_body(list(map(lambda name, value: list_(_setq, name, value),
+                                                          args[::2], args[1::2])))))
         def nvalues(_, __):                                               return 1
         def nth_value(n, orig, _, value):                                 return orig if n is 0 else list_(_progn, orig, nil)
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
@@ -8639,9 +8645,9 @@ class setq(known):
 @defknown((_progn,
            1, [(_notlead, "\n"), (_form,)]))
 class progn(known):
-        def rewrite(cont, _, *body):
+        def rewrite(_, *body):
                 rewrote, form = rewrite_linear_body(body)
-                return rewrote, cont(form)
+                return rewrote, form
         def nvalues(*body):            return 1   if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, *body): return nil if not body else ir_nth_valueify_last_subform(n, orig)
         def lower(*body):
@@ -8658,9 +8664,9 @@ _if = intern("IF")[0]
            3, (_form,),
           (_maybe, "\n", (_form,))))
 class if_(known):
-        def rewrite(cont, orig, test, consequent, *maybe_ante):
-                return not maybe_ante, cont(orig if maybe_ante else
-                                            list_(_if, test, consequent, nil))
+        def rewrite(orig, test, consequent, *maybe_ante):
+                return not maybe_ante, (orig if maybe_ante else
+                                        list_(_if, test, consequent, nil))
         def nvalues(test, consequent, antecedent):
                 nconseq, nante = ir_nvalues(consequent), ir_nvalues(antecedent)
                 return (nconseq             if nconseq == nante                      else
@@ -8690,14 +8696,16 @@ _let = intern("LET")[0]
             1, [(_notlead, "\n"), (_bound, (_form,))])),
           name = _let)
 class let(known):
-        def rewrite(cont, orig, bindings, *body):
-                names, forms = zip(*xmap_to_vector(lambda x: ((first(x), second(x)) if consp(x) else (x, nil)),
-                                                   bindings))
+        def rewrite(orig, bindings, *body):
+                names, forms = list(zip(*xmap_to_vector(lambda x: ((first(x), second(x)) if consp(x) else (x, nil)),
+                                                               bindings))) or ([], [])
                 check_no_locally_rebound_constants(names)
                 return (not (body and bindings and every(lambda x: consp(x) and length(x) == 2, bindings)),
-                        cont(handle_linear_body(body)                  if not bindings else
-                             list__(_progn, append(forms, list_(nil))) if not body     else
-                             list__(_let, consify_linear(map(list_, names, forms)), consify_linear(body))))
+                        (list__(_let, mapcar(list_, consify_linear(names), consify_linear(forms)),
+                                consify_linear(body))
+                         if bindings and body else
+                         handle_linear_body(body) if body              else
+                         list__(_progn, append(consify_linear(forms), list_(nil)))))
         def nvalues(bindings, *body):            return 1   if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else ir_nth_valueify_last_subform(n, orig)
         def lower(bindings, *body):
@@ -8723,11 +8731,11 @@ intern_and_bind_symbols("SETF", "LOCALLY")
 ## Unregistered Issue MACROEXPANDABILITY-OF-FUNCTION-SUBFORM-IS-INTERESTING
 @defknown((intern("FUNCTION")[0], " ", (_form,)))
 class function(known):
-        def rewrite(cont, orig, x):
+        def rewrite(orig, x):
                 lambdap = pyref_p(x) or not (consp(x) and x[0] is _lambda)
-                return not lambdap, cont(orig if lambdap else
-                                         x) ## Elide the FUNCTION form -- LAMBDA is a known.
-                                            ## Unregistered Issue LAMBDA-IS-NOT-A-MACRO
+                return not lambdap, (orig if lambdap else
+                                     x) ## Elide the FUNCTION form -- LAMBDA is a known.
+                                        ## Unregistered Issue LAMBDA-IS-NOT-A-MACRO
         ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
@@ -8781,13 +8789,13 @@ behavior."""
 @defknown((intern("UNWIND-PROTECT")[0], " ", (_form,),
            1, [(_notlead, "\n"), (_form,)]))
 class unwind_protect(known):
-        def rewrite(cont, orig, form, *unwind_body):
+        def rewrite(orig, form, *unwind_body):
                 return ((t, cont(form)) if not unwind_body or all(constantp(x) for x in unwind_body) else
-                        (lambda gs: (t, cont(list_(_let, list_(list_(gs, form)),
-                                                   *(unwind_body
-                                                     + (gs,))))))
+                        (lambda gs: (t, list_(_let, list_(list_(gs, form)),
+                                              *(unwind_body
+                                                + (gs,)))))
                         (gensym("UWP-CONSTANT-VALUE-")) if constantp(form) else
-                        (nil, cont(orig)))
+                        (nil, orig))
         def nvalues(form, *unwind_body):            return ir_nvalues(form)
         def nth_value(n, orig, form, *unwind_body): return list__(_unwind_protect, ir_nth_value(n, form),
                                                                   consify_linear(unwind_body))
@@ -8805,9 +8813,9 @@ _ref = intern("REF")[0]
 
 @defknown((_ref, " ", (_or, (_satisfies, namep), (_satisfies, pyref_p))))
 class ref(known):
-        def rewrite(cont, orig, x):
+        def rewrite(orig, x):
                 pyrefp = pyref_p(x)
-                return not pyrefp, cont(orig if pyrefp else x)
+                return not pyrefp, (orig if pyrefp else x)
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
         def lower(name):
@@ -8835,18 +8843,18 @@ class compiler_lambda():
                      "args", "whole", "fixed", "optional", "rest", "keys", "aux",
                      "forms", "optdefs", "keydefs", "auxforms",
                      "total", "total_types", "value_types",
-                     "allow_other_keys",
+                     "aokp", "keysp",
                      "nonlocal_refs", "nonlocal_setqs")
         def __repr__(self):
                 return "#<CLAMBDA %s {%x}>" % (pp_consly(self.lambda_list),
                                                id(self))
         def __init__(self, name, lambda_list):
-                total, args, forms, allow_other_keys = ir_parse_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
+                total, args, forms, keysp, aokp = ir_parse_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 check_no_locally_rebound_constants(total)
                 self.name, self.lambda_list = the(symbol_t, name), the(list_t, lambda_list)
                 (self.whole, self.fixed, self.optional, self.rest, self.keys, self.aux), \
                     (self.optdefs, self.keydefs, self.auxforms), \
-                    self.allow_other_keys = args, forms, allow_other_keys
+                    self.aokp, self.keysp = args, forms, aokp, keysp
                 self.total, self.args, self.forms = total, args, forms
                 self.total_types, self.value_types = [t] * len(total), t
                 self.nonlocal_refs, self.nonlocal_setqs = set(), set()
@@ -8945,7 +8953,7 @@ def ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macro
         return (total,
                 (whole, fixed, optional, rest_or_body, keys, aux),
                 (optdefs, keydefs, auxforms),
-                aokposp is not False)
+                keyposp, aokposp)
 
 def lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_defaults):
         assert len(optional) == len(opt_defaults)
@@ -8981,65 +8989,65 @@ class lambda_(known):
                                                name_funcframe = { name: function_binding(name, _function, fn(name, lam)) }))
                                  ])):
                         return further(exp)
-        def rewrite(cont, orig, lambda_list, *body, name = nil, decorators = nil):
+        def rewrite(orig, lambda_list, *body, name = nil, decorators = nil):
                 # Unregistered Issue COMPLIANCE-MACRO-LAMBDA-LIST-DESTRUCTURING-AND-ENV
                 env = symbol_value(_walker_lexenv_)
                 clambda = compiler_lambda(name, lambda_list)
                 (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
-                    args, forms = clambda.args, clambda.forms
-                complexp = not not (optional or rest or keys or aux)
+                    args, forms = clambda.args, clambda.forms,
+                complexp = not not (optional or rest or clambda.keysp or aux)
                 if not complexp: ## Only has &WHOLE and fixed args:
                         with progv({ _walker_lexenv_: make_lexenv_varframe(clambda.total, parent = env) }):
-                                return nil, cont(ir(*vectorise_linear(orig),
-                                                    **dictappend({ "name":       name }       if name       else {},
-                                                                 { "decorators": decorators } if decorators else {})))
+                                return nil, ir(*vectorise_linear(orig),
+                                               **dictappend({ "name":       name }       if name       else {},
+                                                            { "decorators": decorators } if decorators else {}))
                 ## Optimisations
                 # constant_forms_p = all(constantp(x) for x in optdefs + keydefs + auxforms)
                 opt_gsyms        = [ gensym_tn("OPT-" + symbol_name(x) + "-")
                                      for x in optional ]
-                need_rest        = rest or keys ## &key is processed through parsing of *rest
+                need_rest        = rest or clambda.keysp ## &key is processed through parsing of *rest
                 rest_gsym        = ((gensym_tn("REST-" + (symbol_name(rest) if rest else
                                                            "TN") + "-")) if need_rest else
                                     None)
-                must_check_keys  = keys and not clambda.allow_other_keys
+                must_check_keys  = clambda.keysp and not clambda.aokp
                 keyset_gsym      = gensym("KEYSET-") if must_check_keys else nil
-                key_map_gsym     = gensym("KWHASH") if keys else nil
-                ksyms            = [ make_keyword(symbol_name(x)) for x in keys ]
+                key_map_gsym     = gensym_tn("KWHASH") if clambda.keysp else nil
+                ksyms            = [ make_keyword_tn(symbol_name(x)) for x in keys ]
                 ## 1. validate_keyword_args, parse_keyword_args
                 ### This is the biggest victim of IR representation mixing (cons vs. linear-tuple),
                 ### all in the name of enrolling python lambda lists on board.
                 l, l_, a = list_, list__, append
-                return nil, cont(ir(_lambda, a(l(whole) if whole else nil,
-                                               consify_linear(fixed),
-                                               l_(_optional, consify_linear(opt_gsyms)) if optional else nil,
-                                               l(_rest, rest_gsym) if need_rest else nil),
-                                    l(_let_, a(consify_linear(l(name, l(_if, l(_prim, p.eq, gs, l(_ref, l(_quote, l("None")))),
-                                                                        def_expr,
-                                                                        gs))
-                                                              for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
-                                               (l(l(rest, ir_cl_call("consify_linear", rest_gsym)))
-                                                if rest else nil),
-                                               (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", rest_gsym)),
-                                                   consify_linear(l(name, l(_if, l(_prim, p.not_in, ksym, key_map_gsym),
-                                                                            def_expr,
-                                                                            l(_prim, p.index, key_map_gsym, ksym)))
-                                                                  for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
-                                                if keys else nil),
-                                               (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
-                                                  l(gensym("DUMMY-"), ir_cl_call("validate_keyword_args", keyset_gsym, key_map_gsym)))
-                                                if must_check_keys else nil),
-                                               consify_linear(l(name, form)
-                                                              for name, form in zip(aux, auxforms))),
-                                      *body),
-                                    **dictappend({ "name":       name }       if name       else {},
-                                                 { "decorators": decorators } if decorators else {})))
+                return nil, ir(_lambda, a(l(whole) if whole else nil,
+                                          consify_linear(fixed),
+                                          l_(_optional, consify_linear(opt_gsyms)) if optional else nil,
+                                          l(_rest, rest_gsym) if need_rest else nil),
+                               l(_let_, a(consify_linear(l(name, l(_if, l(_prim, p.eq, gs.tn, p.name("None")),
+                                                                   def_expr,
+                                                                   gs))
+                                                         for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
+                                          (l(l(rest, ir_cl_call("consify_linear", rest_gsym)))
+                                           if rest else nil),
+                                          (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", rest_gsym)),
+                                                consify_linear(l(name, l(_if, l(_prim, p.not_in, ksym.tn, key_map_gsym.tn),
+                                                                         def_expr,
+                                                                         l(_prim, p.index, key_map_gsym.tn, ksym.tn)))
+                                                             for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
+                                           if clambda.keysp else nil),
+                                          (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
+                                             l(gensym("DUMMY-"), ir_cl_call("validate_keyword_args", keyset_gsym, key_map_gsym)))
+                                           if must_check_keys else nil),
+                                          consify_linear(l(name, form)
+                                                         for name, form in zip(aux, auxforms))),
+                                 *body),
+                               **dictappend({ "name":       name }       if name       else {},
+                                            { "decorators": decorators } if decorators else {}))
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
         def lower(lambda_list, *body, name = nil, decorators = nil):
                 clambda = compiler_lambda(name, lambda_list)
                 (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
                     args, forms = clambda.args, clambda.forms
-                assert not (whole or keys or aux) ## &WHOLE is a piece of debt, currently.
+                assert not (whole or clambda.keysp or aux) ## &WHOLE is a piece of debt, currently.
                 fnname_tn = function_tn(name) if name else None
                 ## Things, that are needed:
                 ##  - CLAMBDA passing
@@ -9059,6 +9067,23 @@ class lambda_(known):
                                          decorators = xmap_to_vector(primitivise, decorators))
         def effects(*_):            return nil
         def affected(*_):           return nil
+
+# PRIM
+
+_prim = intern("PRIM")[0]
+
+@defknown((_prim, " ", (_typep, t), [" ", (_form,)]))
+class prim(known):
+        def rewrite(orig, prim, *args, **keys):
+                return nil, (ir(_prim, prim, *args,
+                                **keys) if keys else
+                             orig)
+        def nvalues(*_):            return 1
+        def nth_value(n, orig, *_): return orig if n is 0 else nil
+        def lower(prim, *args, **keys):
+                return prim(*args, **keys)
+        def effects(*_):            return t
+        def affected(*_):           return t
 
 # APPLY
 
@@ -9096,16 +9121,16 @@ class quote(known):
         def lower(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if isinstance(x, symbol_t) and not constantp(x):
-                        compiler_trace_known_choice(quote, x, "NONCONSTANT-SYMBOL")
+                        compiler_trace_known_choice(_quote, x, "NONCONSTANT-SYMBOL")
                         return p.symbol(unit_symbol_pyname(x))
                 else:
                         prim, successp = try_primitivise_constant(x)
                         if successp:
-                                compiler_trace_known_choice(quote, x, "CONSTANT")
+                                compiler_trace_known_choice(_quote, x, "CONSTANT")
                                 return prim
                         elif consp(x):
-                                compiler_trace_known_choice(quote, x, "SEX")
-                                return p.literal_list(*(primitivise(list_(quote, x)) for x in x))
+                                compiler_trace_known_choice(_quote, x, "SEX")
+                                return p.literal_list(*(primitivise(list_(_quote, x)) for x in vectorise_linear(x)))
                         else:
                                 error("QUOTE: cannot handle %s: non-primitivisable constant atom.")
         def effects(x):            return nil
@@ -9115,6 +9140,8 @@ class quote(known):
 
 def do_multiple_value_call(fn, values_frames):
         return fn(*reduce(lambda acc, f: acc + f[1:], values_frames, []))
+
+_multiple_value_call = intern("MULTIPLE-VALUE-CALL")[0]
 
 @defknown
 class multiple_value_call(known):
@@ -9126,7 +9153,7 @@ class multiple_value_call(known):
                 ## We have no choice, but to lower immediately, and by hand.
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
                 return p.apply(primitivise(fn),
-                               p.add(*(p.slice(primitivise(x), 1, nil, nil) for x in arg_forms)))
+                               p.add(*(p.slice(primitivise(x), p.integer(1), nil, nil) for x in arg_forms)))
         def effects(fn, *arg_forms):
                 return (any(ir_effects(arg) for arg in arg_forms) or
                         ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
@@ -9178,7 +9205,7 @@ class nth_value(known):
                         list_(_progn, form, nil)   if n != form_n                            else
                         ir_nth_value(n, form)) ## We don't risk unbounded recursion here, so let's analyse further..
         def lower(n, form):
-                return p.funcall(p.impl_ref("_values_frame_project"), primitivise(n), primitivise(form))
+                return p.funcall(p.impl_ref("values_frame_project"), primitivise(n), primitivise(form))
         def effects(n, form):   return ir_effects(n) or ir_effects(form)
         def affected(n, form):  return ir_affected(n) or ir_affected(form)
 
@@ -9216,18 +9243,6 @@ class protoloop(known):
                 return p.loop(p.progn(*(primitivise(x) for x in body)))
         def effects(*body):         return any(ir_effects(x)  for x in body)
         def affected(*body):        return any(ir_affected(x) for x in body)
-
-# PRIM
-
-_prim = intern("PRIM")[0]
-
-@defknown((_prim, " ", (_typep, t), [" ", (_form,)]))
-class prim(known):
-        def nvalues(*_):            return 1
-        def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def lower(prim, *args):     return prim(*(primitivise(x) for x in args))
-        def effects(*_):            return t
-        def affected(*_):           return t
 
 # THE
 
@@ -9359,9 +9374,10 @@ def primitivise(form, lexenv = nil) -> p.prim:
                 ## NOTE: we are going to splice unquoting processing here, as we must be able
                 ## to work in READ-less environment.
                 compiler_maybe_note_subprimitivisation(x)
-                if listp(x):
-                        if not x: ## Either an empty list or NIL itself.
-                                return rec(list_(_ref, nil))
+                if x is nil or isinstance(x, symbol_t) and not constantp(x):
+                        ## Unregistered Issue SYMBOL-MODEL
+                        return rec(list_(_ref, x))
+                elif listp(x):
                         if isinstance(x[0], symbol_t):
                                 argsp, form, args = destructure_possible_ir_args(x)
                                 # Urgent Issue COMPILER-MACRO-SYSTEM
@@ -9370,15 +9386,8 @@ def primitivise(form, lexenv = nil) -> p.prim:
                                         error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
                                 compiler_maybe_note_inner(known.name, form)
                                 return known.lower(*vectorise_linear(form[1]), **alist_hash_table(args))
-                        elif (consp(x[0]) and x[0] and x[0][0] is _lambda):
-                                return rec(append(list__(_apply, x), list_(list_(_quote, nil))))
-                        elif isinstance(x[0], str): # basic function call
-                                return rec(append(list__(_apply, x), list_(list_(_quote, nil))))
                         else:
                                 error("Invalid form: %s.", pp_consly(x))
-                elif isinstance(x, symbol_t) and not constantp(x):
-                        ## Unregistered Issue SYMBOL-MODEL
-                        return rec(list_(_ref, x))
                 else:
                         # NOTE: we don't care about quoting here, as constants are self-evaluating.
                         return primitivise_constant(x)
@@ -9475,7 +9484,7 @@ def process_to_ast(form, lexenv = nil):
         macroexpanded = compiler_macroexpand_all(form, lexenv = lexenv)
         if symbol_value(_compiler_trace_macroexpanded_):
                 if form != macroexpanded:
-                        report(macroexpanded = expanded, desc = "PROCESS-AST", lexenv = lexenv)
+                        report(macroexpanded = macroexpanded, desc = "PROCESS-AST", lexenv = lexenv)
                 else:
                         dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
         return lower(macroexpanded, lexenv = lexenv)
@@ -9557,15 +9566,15 @@ def assemble(_ast: [ast.stmt], form: cons_t, filename = "") -> "code":
         return bytecode
 
 def process_as_loadable(processor, form, lexenv = nil, id = "PROCESSED-"):
-        stmts, *_ =_with_symbol_unit_magic(lambda: processor(form, lexenv = lexenv),
+        stmts, *_ = with_symbol_unit_magic(lambda: processor(form, lexenv = lexenv),
                                            standalone = t, id = id)
         return assemble(stmts, form)
 
 def load_module_bytecode(bytecode, func_name = nil, filename = ""):
         mod, globals, locals = load_code_object_as_module(filename, bytecode, register = nil)
         if func_name:
-                sf = the((or_t, symbol_t, function_t), # globals[_get_function_pyname(name)]
-                         mod.__dict__[_get_function_pyname(func_name)])
+                sf = the((or_t, symbol_t, function_t), # globals[get_function_pyname(name)]
+                         mod.__dict__[get_function_pyname(func_name)])
                 func = sf if functionp(sf) else symbol_function(sf)
                 # without_condition_system(pdb.set_trace) # { k:v for k,v in globals().items() if v is None }
                 func.name = func_name # Debug name, as per F-L-E spec.
@@ -12018,10 +12027,10 @@ fewer elements than the generic function accepts required arguments.
 The list returned by this generic function will not be mutated by the
 implementation. The results are undefined if a portable program
 mutates the list returned by this generic function."""
-        return values_frame_project(0, compute_applicable_methods_using_types(generic_function,
-                                                                                types_from_args(generic_function,
-                                                                                                 arguments,
-                                                                                                 eql)))
+        return values_project(0, compute_applicable_methods_using_types(generic_function,
+                                                                        types_from_args(generic_function,
+                                                                                        arguments,
+                                                                                        eql)))
 
 def error_need_at_least_n_args(function, n):
         error("The function %s requires at least %d arguments.", function, n)
