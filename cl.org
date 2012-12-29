@@ -2680,17 +2680,20 @@ def gensymnames(**initargs): return gen(gen = gensymname, **initargs)
 
 #+begin_src python
 results_ = []
-def runtest(fn, input, expected, printer = str):
+def runtest(fn_spec, input, expected, printer = str, tabstop = 30):
+        name, fn = ((fn_spec.__name__.upper().replace("_", "-"), fn_spec) if functionp(fn_spec)         else
+                    fn_spec                                               if isinstance(fn_spec, tuple) else
+                    error("Test function specifier must be either a function, or a tuple of two elements, was: %s", fn_spec))
         result = fn(input)
-        name = fn.__name__.upper().replace("_", "-")
+        pref = "; %%%d" % tabstop
         if result != expected:
-                dprintf("; %30s:  FAILED\n;  input:\n%s\n;  expected:\n%s\n;  actual:\n%s",
-                              name, printer(input), printer(expected), printer(result))
+                dprintf(pref + "s:  FAILED\n;  input:\n%s\n;  expected:\n%s\n;  actual:\n%s",
+                        name, printer(input), printer(expected), printer(result))
         results_.append((fn, result))
         successp = result == expected
         if successp:
-                print("; %30s:  ok" % name)
-        return successp and result
+                dprintf(pref + "s:  ok", name)
+        return successp
 #+end_src
 
 ******* Generic
