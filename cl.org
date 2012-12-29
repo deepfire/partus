@@ -433,6 +433,14 @@ def only_specified_keys(**keys):
 def defaulted_keys(**keys):
         return dict((key, (default if value is None else value))
                     for key, (value, default) in keys.items())
+
+def validate_function_keys(desc, f, keys):
+        argspec = inspect.getfullargspec(f)
+        invalid = (nil if argspec.varkw else
+                   (set(keys.keys()) - set(argspec.args) - set(argspec.kwonlyargs)))
+        if invalid:
+                error("Invalid arguments for %s: %s does not expect keyword arguments %s -- the argspec is %s.",
+                      desc, f, ", ".join("'%s'" % x for x in invalid), argspec)
 #+end_src
 
 ******* Boot messaging
