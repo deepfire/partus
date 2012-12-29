@@ -11890,10 +11890,10 @@ def compute_applicable_methods_using_types(generic_function, types_):
                 nreq, applyp, metatypes, nkeys, arg_info = get_generic_fun_info(generic_function)
                 # (declare (ignore nreq applyp metatypes nkeys))
                 precedence = arg_info_precedence(arg_info)
-                return values_frame(sort_applicable_methods(precedence,
-                                                              reversed(possibly_applicable_methods),
-                                                              types),
-                                     definite_p)
+                return values(sort_applicable_methods(precedence,
+                                                      reversed(possibly_applicable_methods),
+                                                      types),
+                              definite_p)
 
 def type_from_specializer(specl):
         if specl is t:
@@ -11910,7 +11910,7 @@ def type_from_specializer(specl):
 def specializer_applicable_using_type_p(specl, type):
         specl = type_from_specializer(specl)
         if specl is t:
-                return values_frame(t, t)
+                return values(t, t)
         ## This is used by C-A-M-U-T and GENERATE-DISCRIMINATION-NET-INTERNAL,
         ## and has only what they need.
         return ((nil, t) if atom(type) or car(type) is t else
