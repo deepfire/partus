@@ -835,15 +835,13 @@ class let__stmt(body):
         let_ = identity_method()
 
 @defprim(intern("PROGV")[0],
-         (([(expr_spill, expr_spill)],),
+         (([expr_spill],), ([expr_spill],),
           prim))
 class progv(body):
         def help(vars, vals, body):
                 tn = genname("VALUE-")
-                return [ ast.With(funcall(impl_ref("_env_cluster"),
-                                          literal_hash_table_expr(*((help_expr(var), help_expr(val))
-                                                                    # No type checking!
-                                                                    for var, val in zip(vars, vals)))),
+                return [ ast.With(help_expr(funcall(impl_ref("progv"),
+                                                    literal_hash_table_expr(*zip(vars, vals)))),
                                   None,
                                   help(assign(tn, body))[0])
                          ], help_expr(tn)
