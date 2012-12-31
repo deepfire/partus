@@ -10331,7 +10331,7 @@ class name_context_fixer(ast.NodeTransformer):
                                 orelse = [ w.visit(x) for x in o.orelse ])
         def visit_With(w, o):
                 with progv({ fixupp: t }):
-                        optional_vars = w.visit(o.optional_vars)
+                        optional_vars = w.visit(o.optional_vars) if o.optional_vars else None
                 return ast.With(context_expr = w.visit(o.context_expr),
                                  optional_vars = optional_vars,
                                  body = [ w.visit(x) for x in o.body ])
