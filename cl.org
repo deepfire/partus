@@ -10361,8 +10361,10 @@ def ast_fixup_written_name_contexts(x):
                 return name_context_fixer.visit(the(ast.AST, x))
 
 def emit_ast(prim) -> [p.stmt]:
-        xs = p.help_prog([prim])
-        return [ ast_fixup_written_name_contexts(x) for x in xs ]
+        asts = p.help_prog([prim])
+        if symbol_value(_compiler_validate_ast_):
+                [ ast_validate(a) for a in asts ]
+        return [ ast_fixup_written_name_contexts(a) for a in asts ]
 
 def lower(form, lexenv = nil):
         "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
