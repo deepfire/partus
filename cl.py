@@ -870,7 +870,7 @@ def return_from(nonce, value):
                   error("RETURN-FROM was handed a function %s, but it is not cooperating in the "
                         "__BLOCK__ nonce passing syntax.", nonce)) if isinstance(nonce, cold_function_type) else
                  ## This can mean either the @defun-ned function, or absent a function definition, the symbol itself.
-                 (getattr(nonce.function, "ball", nonce))          if isinstance(nonce, symbol_p)            else
+                 (getattr(nonce.function, "ball", nonce))          if isinstance(nonce, symbol_t)            else
                  nonce                                             if isinstance(nonce, str)                 else
                  error("In RETURN-FROM: nonce must either be a string, or a function designator;  was: %s.", repr(nonce)))
         throw(nonce, value)
