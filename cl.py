@@ -9887,7 +9887,6 @@ def run_tests_compiler():
                   # subprimitivisation = t,
                   # primitives = t,
 
-                  # compiler_validate_ast = t,
                   # subastification = t,
                   # ast = t,
                   # module_ast = t,
@@ -9895,11 +9894,21 @@ def run_tests_compiler():
                   # bytecodes = t
                   )
         l = list_
-        __cons, _identity, _values = [ intern(x)[0]
-                                       for x in ["CONS", "IDENTITY", "VALUES"]]
+        (__cons,
+         _identity,
+         _symbol_value,
+         _values,) = [ intern(x)[0]
+                       for x in ["CONS", "IDENTITY", "SYMBOL-VALUE", "VALUES"]]
         __cdr = make_keyword("CDR")
         _cadr, __cadr = intern("CADR")[0], make_keyword("CADR")
         _cddr, __cddr = intern("CDDR")[0], make_keyword("CDDR")
+        # dbgsetup( # forms = t,
+        #           # macroexpanded = t,
+        #           # subrewriting = t,
+        #           # rewritten = t,
+        #           # primitives = t,
+        #           # module_ast = t,
+        #           )
         assert evaltest("CONST-NIL",                nil,                       nil)
         assert evaltest("CONST-T",                  t,                         t)
         assert evaltest("CONST-42",                 42,                        42)
@@ -10019,54 +10028,111 @@ def run_tests_compiler():
         assert evaltest("MULTIPLE-VALUE-CALL-SIMPLE",
                         l(_multiple_value_call, l(_function, _list), l(_values, 1, 2, 3)),
                         l(1, 2, 3))
-        # dbgsetup( # forms = t,
-        #           # macroexpanded = t,
-        #           # rewritten = t,
-        #           primitives = t,
-        #           # module_ast = t,
-        #           )
-        # assert evaltest("MULTIPLE-VALUE-CALL-COMPLEX",
-        #                 l(_multiple_value_call, l(_function, _list), l(_values, 1, 2), 3, l(_values, 4, 5)),
-        #                 l(1, 2, 3, 4, 5))
-        ## CATCH
-        # assert evaltest("",
-        #                 l(),
-        #                 )
-        ## THROW
-        # assert evaltest("",
-        #                 l(),
-        #                 )
+        assert evaltest("MULTIPLE-VALUE-CALL-COMPLEX",
+                        l(_multiple_value_call, l(_function, _list), l(_values, 1, 2), 3, l(_values, 4, 5)),
+                        l(1, 2, 3, 4, 5),
+                        known_failure = t, catch_errors = t)
+        ## CATCH/THROW
+        assert evaltest("CATCH/THROW-TRIVIAL",
+                        l(_catch, l(_quote, _car),
+                          l(_throw, l(_quote, _car), 42),
+                          3.14),
+                        42)
+        name = gensym("FNAME")
+        assert evaltest("CATCH/THROW-FUNCALL",
+                        l(_progn,
+                          ir(_lambda, nil,
+                             l(_throw, l(_quote, _car), 42),
+                             name = name),
+                          l(_catch, l(_quote, _car),
+                            l(name),
+                            3.14)),
+                        42)
         ## UNWIND-PROTECT
-        # assert evaltest("",
-        #                 l(),
-        #                 )
+        assert evaltest("UNWIND-PROTECT",
+                        l(_progn,
+                          l(_setq, _car, nil),
+                          l(_list,
+                            l(_catch, l(_quote, _cdr),
+                              l(_unwind_protect,
+                                l(_throw, l(_quote, _cdr), 42),
+                                l(_setq, _car, 2.718281828))),
+                            _car)),
+                        l(42, 2.718281828))
         ## NTH-VALUE
-        # assert evaltest("",
-        #                 l(),
-        #                 )
+        assert evaltest("NTH-VALUE-SIMPLE",
+                        l(_nth_value, 1, l(_values, 3.14, 42, 2.71)),
+                        42)
+        name = gensym("FNAME")
+        assert evaltest("NTH-VALUE-FUNCALL",
+                        l(_progn,
+                          ir(_lambda, nil,
+                             l(_values, 3.14, 42, 2.71),
+                             name = name),
+                          l(_nth_value, 1, l(name))),
+                        42)
+        name = gensym("FNAME")
+        assert evaltest("VALUES-MANY-AS-ONE",
+                        l(_progn,
+                          ir(_lambda, nil,
+                             l(_values, 3.14, 42, 2.71),
+                             name = name),
+                          l(_identity, l(name))),
+                        3.14,
+                        known_failure = t)
         ## PROGV
-        # assert evaltest("",
-        #                 l(),
-        #                 )
+        name = gensym("FNAME")
+        assert evaltest("PROGV",
+                        l(_progn,
+                          ir(_lambda, nil,
+                             l(_symbol_value, l(_quote, _car)),
+                             name = name),
+                          l(_progv, l(l(_car, l(_list, l(_quote, _car)))), l(42),
+                            l(name))),
+                        42)
         ## PROTOLOOP
-        # assert evaltest("",
-        #                 l(),
-        #                 )
+        assert evaltest("PROTOLOOP/CATCH-THROW",
+                        l(_progn,
+                          l(_setq, l(_quote, l("acc")), 0,
+                                   l(_quote, l("counter")), 42),
+                          l(_catch, l(_quote, _car),
+                            l(_protoloop,
+                              l(_if, l(_prim, p.eq, p.name("counter"), p.integer(0)),
+                                l(_throw, l(_quote, _car), l(_ref, l(_quote, l("acc"))))),
+                              l(_setq, l(_quote, l("acc")), l(_prim, p.add, p.name("acc"), p.integer(2)),
+                                       l(_quote, l("counter")), l(_prim, p.subtract, p.name("counter"), p.integer(1)))))),
+                        84)
         ## THE
         ## LOCALLY
         ## MULTIPLE-VALUE-PROG1
         ## LOAD-TIME-VALUE
         ####
         ## FUNCALL
-        # assert evaltest("FUNCALL-PRIM",
-        #                 l(_progn,
-        #                   l(_ir_args,
-        #                     l(_prim, p.lambda_, ([], [], [], None, [], [], None),
-        #                              p.integer(42)),
-        #                     ["name", p.name("bar")]),
-        #                   l(_funcall, l(_function, l(_quote, l("bar"))))),
-        #                 42)
+        assert evaltest("FUNCALL-PRIM",
+                        l(_progn,
+                          l(_ir_args,
+                            l(_prim, p.lambda_, ([], [], [], None, [], [], None),
+                                     p.integer(42)),
+                            ["name", p.name("bar")]),
+                          l(_funcall, l(_function, l(_quote, l("bar"))))),
+                        42)
+        name = gensym("FNAME")
+        assert evaltest("FUNCALL",
+                        l(_progn,
+                          ir(_lambda, l(_car, _key, l(_cdr, 42)),
+                             l(_list, _car, _cdr),
+                             name = name),
+                          l(_funcall, l(_function, name), 3.14, __cdr, 2.71)),
+                        l(3.14, 2.71))
         ## LET*
+        # dbgsetup( # forms = t,
+        #           # macroexpanded = t,
+        #           # subrewriting = t,
+        #           rewritten = t,
+        #           # primitives = t,
+        #           # module_ast = t,
+        #           )
+        # # do_set(_compiler_validate_ast_, t, nil)
         # assert evaltest("",
         #                 l(),
         #                 )
