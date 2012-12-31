@@ -7847,45 +7847,33 @@ def form_known(form):
         complex_form_p = consp(form) and isinstance(form[0], symbol_t)
         return complex_form_p and find_known(form[0])
 
-def rewrite_1_keys(form, keys) -> "(Bool ({} Form Bool))":
-        ## For IR-ARGS.REWRITE
-        if atom(form):
-                return nil, form
-        known = find_known(form[0])
-        if not known:
-                error("Unknown form encountered at rewrite stage: %s, form[0]: %s/%x", pp_consly(form), form[0], id(form[0]))
-        rewrite_method = known.rewrite
-        validate_function_keys(form[0], rewrite_method, keys)
-        ret = _, r = rewrite_method(form, *vectorise_linear(form[1]), **keys)
-        if (symbol_value(_compiler_trace_subrewriting_)
-            and form != r):
-                dprintf(";;; %s - rewrote ............\n%s   -->\n%s\n",
-                        "REWRITE-1-KEYS", pp(form), pp(r))
-        return ret
-
-def rewrite_1(form) -> "(Bool ({} Form Bool))":
+def rewrite_1(preform) -> "(Bool ({} Form Bool))":
         "All non-atom forms are interpreted as knowns at this point."
         # dprintf("%s(%s) calling %s.REWRITE(%s, ...)", caller_name(3), pp_consly(caller_args(3)), form[0], pp_consly(form))
         ## 0. Atoms are not rewritten.
-        if atom(form):
-                return nil, form
+        if atom(preform):
+                return nil, preform
         ## 1. Funcallify LAMBDA calls .. and recursively rewrite all contents.
-        if consp(form[0]) and form[0][0] is _lambda:
+        if consp(preform[0]) and preform[0][0] is _lambda:
                 ## Applyification of ((LAMBDA ...) ...) forms -- the generic way only works on symbol calls.
-                return t, cons(_funcall, form)
-        ## 2. Otherwise, find the corresponding known.
+                return t, cons(_funcall, preform)
+        ## 2. Process IR-ARGS
+        form, keys = ((preform,       {}) if preform[0] is not _ir_args else
+                      (preform[1][0], dict(vectorise_linear(preform[1][1]))))
+        ## 3. Find the corresponding known.
         known = find_known(form[0])
         if not known:
                 error("Unknown form encountered at rewrite stage: %s, form[0]: %s/%x", pp_consly(form), form[0], id(form[0]))
-        ## 3. Check known parameter/argument count correspondence.
+        ## 4. Check known parameter/argument count correspondence.
         rewrite_method = known.rewrite
+        validate_function_keys(form[0], rewrite_method, keys)
         argspec = inspect.getfullargspec(rewrite_method)
         args = vectorise_linear(form[1])
         if not argspec.varargs and len(args) != len(argspec.args) - 1:
                 error("Invalid form: %s -- %d arguments provided, but %s.REWRITE expects only %d.",
                       pp_consly(form), len(args), known.__name__.upper(), known.rewrite.__code__.co_argcount - 2)
-        ## 4. Invoke the rewrite method.
-        ret = _, r = rewrite_method(form, *args)
+        ## 5. Invoke the rewrite method.
+        ret = _, r = rewrite_method(form, *args, **keys)
         if (symbol_value(_compiler_trace_subrewriting_)
             and form != r):
                 dprintf(";;; %s - rewrote ............\n%s   -->\n%s\n",
@@ -8247,33 +8235,9 @@ def primitivise_pyref(x):
 
 # IR argument passing
 
-@defknown((_ir_args, "\n", (_form,), ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pp)))],))
+@defknown((_ir_args, "\n", (_form, (_for_matcher_layers_skip_action, (rewriter, metasex_mapper))),
+           ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pp)))],))
 class ir_args(known):
-        def rewrite(orig, form, *args):
-                ## Effect of IR-ARGS:
-                ## 1. Process with inner rewrite, parametrised by IR-ARGS', well, args.
-                ## 2. Re-wrap the result with the same IR-ARGS.
-                if form[0] is _ir_args:
-                        error("Unlikely-to-be-valid IR-ARGS: %s  added to  %s.", pp_consly(consify_linear(args)), pp_consly(form))
-                def do_rewrite(form, keys = {}):
-                        # dprintf("IR-ARGS.DO-REWRITE:   %s", pp_consly(form))
-                        xformed_again, reform = rewrite_1_keys(form, keys)
-                        return (do_rewrite(reform) if xformed_again else
-                                reform)
-                rewritten = do_rewrite(form, dict(args))
-                argless_form, subargs_retainer = ((rewritten,       identity) if atom(rewritten) or rewritten[0] is not _ir_args else
-                                                  (rewritten[1][0], lambda x: list__(_ir_args, x, rewritten[1][1])))
-                rewrapped = subargs_retainer(argless_form)
-                # dprintf("IR-ARGS.REWRITE: ---------------\n%s\n%s\n",
-                #         pp(orig), pp(rewrapped))
-                return nil, rewrapped
-                # r = do_rewrite(form, dict(args))[1]
-                # output = list_(_ir_args, r, *args) if r != form else orig
-                # dprintf("IR-ARGS.REWRITE: ---------------\n%s\n%s\n%s\n%s\n",
-                #         pp_consly(orig), pp_consly(form), pp_consly(r), pp_consly(output))
-                # return nil, (b, output, f)
-                ## Proceed: ignore CONT and custom-trail?
-                # return rewrite_method(ir_args_cont, form, *vectorise_linear(form[1]), **{ k: v for k, v in args })
         def lower(*_):                     error("Invariant failed: IR-ARGS is not meant to be lowered.")
         def effects(*ir,  **args):         return ir_effects(ir)
         def affected(*ir, **args):         return ir_affected(ir)
