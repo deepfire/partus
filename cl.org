@@ -7212,7 +7212,7 @@ def combine_append(f0, fR, originalp):
 
 intern_and_bind_symbols("%SATISFIES", "%CONS", "%TYPEP")
 
-class metasex_matcher(matcher):
+class metasex_matcher_t(matcher):
         def __init__(m):
                 matcher.__init__(m)
                 m.register_simplex_matcher(_form,             m.form)
@@ -7248,7 +7248,7 @@ class metasex_matcher(matcher):
                                         return True, ret
                                 ptr = ptr[1]
                 return None, None
-        def cons(m, bound, name, form, pat, orifst, ignore_args = None):
+        def cons(m, bound, name, form, pat, orifst):
                 with match_level([form, pat[1]]):
                         return r(m.crec([form, pat],
                                          lambda:    m.match(bound, None, form[0], pat[1][0],    (orifst[0], True),  None, -1),
@@ -7256,10 +7256,10 @@ class metasex_matcher(matcher):
                                                             name = "CDR-CONSMATCH"),
                                          m.comc,
                                          originalp = orifst[0]))
-        def form(m, bound, name, form, pat, orifst, ignore_args = None):
+        def form(m, bound, name, form, pat, orifst):
                 with match_level([form, pat]):
                         ## This is actually a filter.
-                        handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
+                        handled, ret = m.process_formpat_arguments(metasex, form, pat)
                         if handled:
                                 return m.succ(bound, ret)
                         form_pat = form_metasex(form, kind = symbol_value(_metasex_kind_))
@@ -7273,7 +7273,7 @@ class metasex_matcher(matcher):
                         return r(m.test(typep(form, pat[1][0]), "typep", bound, name, form,
                                          lambda: m.prod(form, orifst), pat))
 
-metasex              = metasex_matcher()
+metasex = metasex_matcher_t()
 
 def match_sex(sex, pattern = None, matcher = None):
         matcher = defaulted(matcher, metasex)
@@ -7285,9 +7285,9 @@ def match_sex(sex, pattern = None, matcher = None):
 #+begin_src python
 string_set("*MAPPER-FN*", nil)
 
-class metasex_mapper(metasex_matcher):
+class metasex_mapper_t(metasex_matcher_t):
         def __init__(m):
-                metasex_matcher.__init__(m)
+                metasex_matcher_t.__init__(m)
                 m.register_simplex_matcher(_form, m.form)
         @staticmethod
         def prod(x, _):      return x
@@ -7297,24 +7297,24 @@ class metasex_mapper(metasex_matcher):
         def comr(f0, fR, _): return combine_cons(f0, fR, nil)
         @staticmethod
         def comc(f0, fR, _): return combine_cons(f0, fR, nil)
-        def form(m, bound, name, form, pat, orifst, ignore_args = None):
+        def form(m, bound, name, form, pat, orifst):
                 # dprintf("MM.FORM %s", pp_consly(form, max_depth = 10))
+                def mapper_continuation(xformed):
+                        return metasex_matcher_t.form(m, bound, name, xformed, pat, orifst)
                 handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
                 if handled:
                         return m.succ(bound, ret)
-                def mapper_continuation(xformed):
-                        return metasex_matcher.form(m, bound, name, xformed, pat, orifst, ignore_args = ignore_args)
                 return symbol_value(_mapper_fn_)(form, mapper_continuation)
 
-mapper = metasex_mapper()
+metasex_mapper = metasex_mapper_t()
 
 def map_sex(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
-             sex, matcher = mapper, start_inside = nil) -> "({} Form Bool)":
+             sex, matcher = metasex_mapper, start_inside = nil) -> "({} Form Bool)":
         with progv({ _mapper_fn_: fn }):
                 return match(matcher, sex, form_metasex(sex) if start_inside else list_(_form))
 
 def xform_ir(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
-              sex, matcher = mapper, start_inside = nil) -> "Form":
+              sex, matcher = metasex_mapper, start_inside = nil) -> "Form":
         with matcher_pp_stack():
                 _, r, f = map_sex(fn, sex, matcher, start_inside)
         if f is not None:
@@ -7327,9 +7327,9 @@ def xform_ir(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
 #+begin_src python
 intern_and_bind_symbols("%NEWLINE", "%INDENT", "%LEAD", "%NOTLEAD", "%NOTTAIL")
 
-class metasex_matcher_pp(metasex_matcher):
+class metasex_matcher_pp_t(metasex_matcher_t):
         def __init__(m):
-                metasex_matcher.__init__(m)
+                metasex_matcher_t.__init__(m)
                 m.register_complex_matcher(_newline,     m.newline)
                 m.register_complex_matcher(_indent,      m.indent)
                 m.register_complex_matcher(_lead,        m.lead)
@@ -7382,7 +7382,7 @@ class metasex_matcher_pp(metasex_matcher):
                 ############## act as identity
                 return         m.match(bound, name, exp, [maybe_pat, pat[1]], orifst, aux, limit)
 
-metasex_pp           = metasex_matcher_pp()
+metasex_pp = metasex_matcher_pp_t()
 
 def pp_sex(sex, strict = t, initial_depth = None):
         ## Unregistered Issue RELAXED-METASEX-PRETTY-PRINTER-MODE-NEEDED
@@ -7929,14 +7929,14 @@ define_funcher(_lambda,
                 1, [(_notlead, "\n"), (_bound, (_form,))])
 
 ## Unregistered Issue LEXENV-WALKER-NOT-REENTRANT->MACROEXPANSION-DAMAGED-GOODS
-class lexenv_walker(metasex_mapper):
+class lexenv_walker(metasex_mapper_t):
         class binder():
                 def __init__(self, args, description):
                         self.args, self.positionally, self.description = args, dict(), description
                 def __repr__(self):
                         return "#<BINDER %s>" % (self.description,)
         def __init__(m):
-                metasex_mapper.__init__(m)
+                metasex_mapper_t.__init__(m)
                 m.register_simplex_matcher(_binder,        m.establish_binder)
                 m.register_simplex_matcher(_bind,          m.add_binding)
                 m.register_simplex_matcher(_bound,         m.setup_lexenv)
