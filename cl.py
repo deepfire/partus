@@ -9056,7 +9056,7 @@ class lambda_(known):
 
 _prim = intern("PRIM")[0]
 
-@defknown((_prim, " ", (_typep, t), [" ", (_form,)]))
+@defknown((_prim, " ", (_satisfies, p.prim_type_p), [" ", (_form,)]))
 class prim(known):
         def rewrite(orig, prim, *args, **keys):
                 return nil, (ir(_prim, prim, *args,
