@@ -2198,20 +2198,32 @@ def gensymnames(**initargs): return gen(gen = gensymname, **initargs)
 #         Used by quasiquotation, metasex and others.
 
 results_ = []
-def runtest(fn_spec, input, expected, printer = str, tabstop = 30):
+def runtest(fn_spec, input, expected, printer = str, tabstop = 30,
+            known_failure = nil, catch_errors = nil):
         name, fn = ((fn_spec.__name__.upper().replace("_", "-"), fn_spec) if functionp(fn_spec)         else
                     fn_spec                                               if isinstance(fn_spec, tuple) else
                     error("Test function specifier must be either a function, or a tuple of two elements, was: %s", fn_spec))
-        result = fn(input)
-        pref = "; %%%d" % tabstop
+        pref   = "; %%%d" % tabstop
+        caught = nil
+        def handler(cond):
+                nonlocal caught
+                caught = t
+                dprintf(pref + "s:  EXCEPTION%s\n;  caught%s:\n%s",
+                        name, " (known)" if known_failure else "", " (this is normal)" if known_failure else "",
+                        cond)
+        result = fn(input) if not catch_errors else handler_case(lambda: fn(input),
+                                                                 (Exception, handler))
+        if caught:
+                return known_failure
         if result != expected:
-                dprintf(pref + "s:  FAILED\n;  input:\n%s\n;  expected:\n%s\n;  actual:\n%s",
-                        name, printer(input), printer(expected), printer(result))
+                dprintf(pref + "s:  FAILED%s\n;  input:\n%s\n;  expected:\n%s\n;  actual:\n%s",
+                        name, " (known)" if known_failure else "", printer(input), printer(expected), printer(result))
         results_.append((fn, result))
         successp = result == expected
         if successp:
                 dprintf(pref + "s:  ok", name)
-        return successp
+        return (successp if not known_failure else
+                not successp)
 
 # Basic functions
 
@@ -9883,8 +9895,8 @@ def dbgsetup(**keys):
                          **keys)
 
 def run_tests_compiler():
-        def evaltest(name, form, expected):
-                return runtest((name, eval), form, expected, printer = pp_consly, tabstop = 55)
+        def evaltest(name, form, expected, **keys):
+                return runtest((name, eval), form, expected, printer = pp_consly, tabstop = 55, **keys)
         dbgsetup( # forms = t,
 
                   # subexpansion = t,
