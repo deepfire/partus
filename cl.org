@@ -7601,7 +7601,7 @@ compiler_debugless_traceless_frame = { _compiler_trace_forms_:              nil,
                                        _compiler_trapped_functions_:       set() }
 
 __known_trace_args__ = { "forms", "macroexpanded", "rewritten", "primitives", "ast", "module_ast", "bytecode",
-                         "toplevels",
+                         "toplevels", "compile_time_eval",
                          "subexpansion", "subrewriting", "subprimitivisation", "subastification", "inner_knowns", "known_choices", "known_primitives",
                          "pretty_full" }
 
