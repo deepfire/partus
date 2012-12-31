@@ -8991,7 +8991,7 @@ class lambda_(known):
                                      for x in optional ]
                 need_rest        = rest or clambda.keysp ## &key is processed through parsing of *rest
                 rest_gsym        = ((gensym_tn("REST-" + (symbol_name(rest) if rest else
-                                                           "TN") + "-")) if need_rest else
+                                                          "TN") + "-")) if need_rest else
                                     None)
                 must_check_keys  = clambda.keysp and not clambda.aokp
                 keyset_gsym      = gensym("KEYSET-") if must_check_keys else nil
@@ -9867,7 +9867,9 @@ and true otherwise."""
                                  global_macro_p = name and not not macro_function(name))
 
 def eval(form):
-        return compile(nil, list_(_lambda, nil, form))()
+        code = compile(nil, list_(_lambda, nil, form))
+        # dprintf("; compiled %s ->\n; %s", pp_consly(form), code)
+        return code()
 
 def dbgsetup(**keys):
         compiler_dbgconf(pretty_full = t,
@@ -10411,7 +10413,7 @@ if not getenv("CL_NO_LISP"):
                   # subprimitivisation = t,
                   # primitives = t,
 
-                  # compiler_validate_ast = t,
+                  # validate_ast = t,
                   # subastification = t,
                   # ast = t,
                   # module_ast = t,
