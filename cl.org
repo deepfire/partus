@@ -8005,11 +8005,11 @@ class lexenv_walker(metasex_mapper_t):
 lexenv_walker = lexenv_walker()
 
 def walk_with_lexenv(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
-                      sex, lexenv = nil, allocate_tns = nil) -> "Form":
+                      sex, lexenv = nil, allocate_tns = nil, matcher = lexenv_walker) -> "Form":
         with progv({ _walker_lexenv_: coerce_to_lexenv(lexenv),
                      _walker_allocate_tns_: allocate_tns,
                      _metasex_kind_:  "metasex_bind" }):
-                return xform_ir(fn, sex, matcher = lexenv_walker)
+                return xform_ir(fn, sex, matcher = matcher)
 
 def walker_lexenv():
         return symbol_value(_walker_lexenv_)
