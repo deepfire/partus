@@ -6385,14 +6385,14 @@ intern_and_bind_symbols(
         "%NEWLINE", "%INDENT",
         "%BINDER", "%BIND", "%BOUND",
         "%LEAD", "%NOTLEAD", "%NOTTAIL",
-        "%FOR-MATCHERS-XFORM", "%FOR-NOT-MATCHERS-XFORM")
+        "%FOR-MATCHERS-XFORM", "%FOR-NOT-MATCHERS-XFORM", "%FOR-MATCHER-LAYERS-SKIP-ACTION")
 
 __metasex_words__          = set() ## Populated by register_*_matcher()
 __metasex_pp_words__       = { _newline, _indent, _lead, _notlead, _nottail }
 __metasex_bind_words__     = { _binder, _bind, _bound }
 __metasex_leaf_words__     = { _form,
                                _newline, _indent,
-                               _for_matchers_xform, _for_not_matchers_xform }
+                               _for_matchers_xform, _for_not_matchers_xform, _for_matcher_layers_skip_action }
 
 def metasex_word_p(x):      return isinstance(x, symbol_t) and x in __metasex_words__
 def metasex_pp_word_p(x):   return isinstance(x, symbol_t) and x in __metasex_pp_words__
@@ -6520,26 +6520,27 @@ class metasex_matcher_t(matcher):
         def comr(f0, fR, originalp): return combine_t_or_None(f0, fR, originalp)
         @staticmethod
         def comc(f0, fR, originalp): return combine_t_or_None(f0, fR, originalp)
-        def process_formpat_arguments(m, form, pat):
-                arg_handlers = { _for_matchers_xform:     (lambda arg: find(m, arg[1]),
-                                                           lambda arg: arg[0](form)),
-                                 _for_not_matchers_xform: (lambda arg: not find(m, arg[1]),
-                                                           lambda arg: arg[0](form)),
-                                 }
-                if consp(pat):
-                        args = pat[1]
-                        # dprintf("args of %s: %s", pp_consly(pat), pp_consly(args))
-                        ptr = args
-                        while ptr:
-                                argname, argval = ptr[0]
-                                if argname not in arg_handlers:
-                                        error("Invalid FORM argument: %s, pat: %s", argname, pat)
-                                arg_applicable_p, arg_handler = arg_handlers[argname]
-                                if arg_applicable_p(argval):
-                                        ret = arg_handler(argval)
-                                        # dprintf("\n\nMATCHED/xformed: %s ->\n%s", pp_consly(form), pp_consly(ret))
-                                        return True, ret
-                                ptr = ptr[1]
+        def process_formpat_arguments(m, layer, form, pat, continuation = None):
+                ## Handlers are called with the REST of the matched OP form.
+                handlers = { _for_matchers_xform:             (lambda _, *ms:         m in ms,
+                                                               lambda action, *_: action(form)),
+                             _for_not_matchers_xform:         (lambda _, *ms:     not m in ms,
+                                                               lambda action, *_: action(form)),
+                             _for_matcher_layers_skip_action: (lambda *mls:   any((m is mr and layer is lr)
+                                                                                  for mr, (lr, _) in mls),
+                                                               lambda *_: continuation(form)[1])
+                             }
+                ptr = pat[1]
+                while ptr:
+                        name, args = ptr[0]
+                        if name not in handlers:
+                                error("Invalid FORM argument: %s, pat: %s", name, pat)
+                        applicable_p, handler = handlers[name]
+                        if applicable_p(*vectorise_linear(args)):
+                                ret = handler(*vectorise_linear(args))
+                                # dprintf("\n\nMATCHED/xformed: %s ->\n%s", pp_consly(form), pp_consly(ret))
+                                return True, ret
+                        ptr = ptr[1]
                 return None, None
         def cons(m, bound, name, form, pat, orifst):
                 with match_level([form, pat[1]]):
@@ -6592,7 +6593,7 @@ class metasex_mapper_t(metasex_matcher_t):
                 # dprintf("MM.FORM %s", pp_consly(form, max_depth = 10))
                 def mapper_continuation(xformed):
                         return metasex_matcher_t.form(m, bound, name, xformed, pat, orifst)
-                handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
+                handled, ret = m.process_formpat_arguments(metasex_mapper, form, pat, continuation = mapper_continuation)
                 if handled:
                         return m.succ(bound, ret)
                 return symbol_value(_mapper_fn_)(form, mapper_continuation)
@@ -7173,19 +7174,18 @@ class lexenv_walker(metasex_mapper_t):
                 m.register_simplex_matcher(_bind,          m.add_binding)
                 m.register_simplex_matcher(_bound,         m.setup_lexenv)
                 m.register_simplex_matcher(_form,          m.form)
-        def form(m, bound, name, form, pat, orifst, ignore_args = None):
-                handled, ret = m.process_formpat_arguments(form, pat) if not ignore_args else (None, None)
+        def form(m, bound, name, form, pat, orifst):
+                def lexenv_walker_continuation(form):
+                        return metasex_mapper_t.form(m, bound, name, form, pat, orifst)
+                handled, ret = m.process_formpat_arguments(lexenv_walker, form, pat)
                 if handled:
                         return m.succ(bound, ret)
                 ## Hmm.. BINDER patterns..
                 peek_pat = form_metasex(form_real(form), kind = symbol_value(_metasex_kind_))
-                def continuation(form):
-                        return metasex_mapper.form(m, bound, name, form, pat, orifst, ignore_args = ignore_args)
                 if consp(peek_pat) and peek_pat[0] is _binder:
-                        kind = peek_pat[1][0]
-                        return kind.known.binder(form, continuation)
+                        return peek_pat[1][0].known.binder(form, lexenv_walker_continuation)
                 else:
-                        return continuation(form)
+                        return lexenv_walker_continuation(form)
         def establish_binder(m, bound, name, exp, pat, orifst):
                 # def continuation(exp):
                 #         return m.match(bound, name, exp, pat[1], orifst, aux, limit)
