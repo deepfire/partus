@@ -8768,7 +8768,9 @@ behavior."""
 
 # UNWIND-PROTECT
 
-@defknown((intern("UNWIND-PROTECT")[0], " ", (_form,),
+_unwind_protect = intern("UNWIND-PROTECT")[0]
+
+@defknown((_unwind_protect, " ", (_form,),
            1, [(_notlead, "\n"), (_form,)]))
 class unwind_protect(known):
         def rewrite(orig, form, *unwind_body):
@@ -9178,7 +9180,9 @@ class throw(known):
 
 # NTH-VALUE
 
-@defknown((intern("NTH-VALUE")[0], " ", (_form,), " ", (_form,)))
+_nth_value = intern("NTH-VALUE")[0]
+
+@defknown((_nth_value, " ", (_form,), " ", (_form,)))
 class nth_value(known):
         def nvalues(_, __):    return 1
         def nth_value(n, orig, form_n, form):
@@ -9193,7 +9197,10 @@ class nth_value(known):
 
 # PROGV
 
-@defknown((intern("PROGV")[0], " ", (_form,), " ", (_form,), ([(_notlead, "\n"), (_form,)],)))
+_progv = intern("PROGV")[0]
+
+@defknown((_progv, " ", ([(_notlead, " "), (_form,)],), " ", ([(_notlead, " "), (_form,)],),
+           1, [(_notlead, "\n"), (_form,)]))
 class progv(known):
         def nvalues(_, __, *body):                    return 1 if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, names, values, *body): return (ir_nth_valueify_last_subform(n, orig)
