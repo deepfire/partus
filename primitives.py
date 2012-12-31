@@ -130,6 +130,9 @@ class prim(metaclass = primclass):
                         error("Ambiguous method specification: primitive %s for tags %s.", cls.__name__, tags)
                 return sett.pop()
 
+def prim_type_p(x):
+        return isinstance(x, primclass)
+
 def determine(cls, args, keys):
         for name, test, xform_or_keys in cls.help_strategies:
                 if test(*args, **keys):
