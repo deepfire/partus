@@ -7901,13 +7901,18 @@ def rewrite(form) -> "({} Form Bool)":
         ret = do_rewrite(form)
         return ret
 
+class rewriter_t(type(lexenv_walker)):
+        pass
+
+rewriter = rewriter_t()
+
 def rewriter_xform(form, further: "Form -> ({} Form Bool)") -> "({} Form Bool)":
         ## Optimise: further(form) if atom(form) else rewrite(further, form)
         ## Absolutely want to see it benchmarked : -)
         return further(rewrite(form))
 
 def rewrite_all(sex, lexenv = nil):
-        return walk_with_lexenv(rewriter_xform, sex, lexenv = lexenv)
+        return walk_with_lexenv(rewriter_xform, sex, lexenv = lexenv, matcher = rewriter)
 
 def ir_nvalues(form):
         return (lambda known: (known.nvalues(*vectorise_linear(form[1]))            if known else
