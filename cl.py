@@ -9213,7 +9213,7 @@ class progv(known):
                                                                   or ir_effects(values)) else
                                                               nil)
         def lower(vars, vals, *body):
-                return p.progv((primitivise(x) for x in vars), (primitivise(x) for x in vals),
+                return p.progv(tuple(primitivise(x) for x in vars), tuple(primitivise(x) for x in vals),
                                p.progn(*(primitivise(x) for x in body)))
         def effects(names, values, *body):            return any(ir_effects(f) for f in (names, values) + body)
         def affected(names, values, *body):           return any(ir_affected(f) for f in (names, values) + body)
