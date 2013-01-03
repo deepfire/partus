@@ -10316,17 +10316,19 @@ def run_tests_compiler():
                           l(_funcall, l(_function, name), 3.14, __cdr, 2.71)),
                         l(3.14, 2.71))
         ## LET*
-        # dbgsetup( # forms = t,
-        #           # macroexpanded = t,
-        #           # subrewriting = t,
-        #           rewritten = t,
-        #           # primitives = t,
-        #           # module_ast = t,
-        #           )
-        # # do_set(_compiler_validate_ast_, t, nil)
-        # assert evaltest("",
-        #                 l(),
-        #                 )
+        assert evaltest("LET*",
+                        l(_let, l(l(_car, nil)),
+                          l(_list,
+                            l(_let_, l(l(_car, l(__cons, nil, _car)),
+                                       l(_car, l(__cons, nil, _car))),
+                              _car),
+                            _car)),
+                        l(l(nil, nil),
+                          nil))
+        assert evaltest("LET*-NO-BINDINGS",
+                        l(_let, l(),
+                          42),
+                        42)
         ## FLET
         # assert evaltest("",
         #                 l(),
