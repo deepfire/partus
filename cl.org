@@ -5114,6 +5114,7 @@ def expand_quasiquotation(form):
 def run_tests_quasiquotation():
         def quasiquotation_simple(x): return expand_quasiquotation(x)
         def quasiquotation_nested(x): return expand_quasiquotation(x)
+        dprintf("; testing the quasiquotation rewriter:")   ## Quirky stuff reference mode ON!  Go go Arachna!
         assert(runtest(quasiquotation_simple,
                         ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
                         (_quasiquote, list_(1, (_comma, 2), 3, (_splice, 4), 5,
@@ -7091,11 +7092,11 @@ intern_and_bind_symbols(
         "%FORM",
         "%NEWLINE", "%INDENT",
         "%BINDER", "%BIND", "%BOUND",
-        "%LEAD", "%NOTLEAD", "%NOTTAIL",
+        "%POSCASE", "%LEAD", "%NOTLEAD", "%NOTTAIL",
         "%FOR-MATCHERS-XFORM", "%FOR-NOT-MATCHERS-XFORM", "%FOR-MATCHER-LAYERS-SKIP-ACTION")
 
 __metasex_words__          = set() ## Populated by register_*_matcher()
-__metasex_pp_words__       = { _newline, _indent, _lead, _notlead, _nottail }
+__metasex_pp_words__       = { _newline, _indent, _poscase, _lead, _notlead, _nottail }
 __metasex_bind_words__     = { _binder, _bind, _bound }
 __metasex_leaf_words__     = { _form,
                                _newline, _indent,
@@ -7121,36 +7122,43 @@ def preprocess_metasex(pat):
                 def prep_binding(b):
                         k, v = tuple(b.items())[0]
                         return { k: rec(v)[0] }
+                def prep_poscase(c):
+                        return cons(_poscase, mapcar(lambda x: cons(x[0], rec(x[1])[0]), c[1]))
                 def prep_linear(xs):
                         return mapcon(lambda con: rec(con[0]), xs)
                 return (l(prep_binding(x))             if isinstance(x, dict)                 else
-                        l(l(_indent, 1))              if x == " "                            else
-                        l(l(_newline, 0))             if x == "\n"                           else
-                        l(l(_newline, x))             if isinstance(x, int)                  else
+                        l(l(_indent, 1))               if x == " "                            else
+                        l(l(_newline, 0))              if x == "\n"                           else
+                        l(l(_newline, x))              if isinstance(x, int)                  else
                         l(x)                           if atom(x)                             else
                         (error("Reference to an undefined funcher %s in pattern %s.",
                                x[1][0], pat) if not funcher_name_p(x[1][0]) else
-                         find_funcher(x[1][0]))      if x[0] is _funcher                    else
+                         find_funcher(x[1][0]))        if x[0] is _funcher                    else
+                        l(prep_poscase(x))             if x[0] is _poscase                    else
                         l(prep_linear(x)))
         consified = consify_metasex(pat)
         ret = rec(consified)[0]
         # dprintf("Preprocessed\n%s  ->\n%s  ->\n%s", pat, pp_consly(consified), pp_consly(ret))
         return ret
 
-def strip_metasex(form, strip_pp = nil, strip_bind = nil):
+def rewrite_metasex(form, for_pp = nil, for_bind = nil):
+        strip_pp   = not for_pp
+        strip_bind = not for_bind
+        l = list_
         def de_bind(x):
                 return (x[1][0]    if x[0] is _bound           else
                         x[1][1][0] if x[0] in (_bind, _binder) else
-                        error("Invalid form for binder stripping: %s", pp_consly(x)))
+                        error("Invalid form for binder rewriting: %s", pp_consly(x)))
         def rec(xs):
-                return mapcon(lambda x: (list_(x[0])                if not consp(x[0])                                  else
-                                         list_(strip_metasex(x[0])) if not (symbolp(x[0][0]) or strip_pp or strip_bind) else
-                                         nil                        if (strip_pp   and   metasex_pp_word_p(x[0][0]))    else
-                                         rec(list_(de_bind(x[0])))  if (strip_bind and metasex_bind_word_p(x[0][0]))    else
-                                         list_(rec(x[0]))),
+                return mapcon(lambda x: (l(x[0])                  if not consp(x[0])                                  else
+                                         l(rewrite_metasex(x[0])) if not (symbolp(x[0][0]) or strip_pp or strip_bind) else
+                                         nil                      if strip_pp   and   metasex_pp_word_p(x[0][0])      else
+                                         l(l(_form))              if for_pp     and x[0][0] is _satisfies             else
+                                         rec(l(de_bind(x[0])))    if strip_bind and metasex_bind_word_p(x[0][0])      else
+                                         l(rec(x[0]))),
                               xs)
-        ret = rec(list_(form))[0]
-        # dprintf("STRIP %s: %s\n--->\n%s", "pp" if strip_pp else "bind" if strip_bind else "???", pp_consly(form), pp_consly(ret))
+        ret = rec(l(form))[0]
+        # dprintf("REWR %s: %s\n--->\n%s", "pp" if for_pp else "bind" if for_bind else "???", pp_consly(form), pp_consly(ret))
         return ret
 
 #+end_src
@@ -7167,10 +7175,12 @@ def form_metasex(form, kind = "metasex"):
         ## Unregistered Issue FORM-METASEX-SHOULD-COMPUTE-METASEX-OF-DEFINED-MACROS
         ## Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
         ## Unregistered Issue FORM-METASEX-STATICALLY-PRECLUDES-MULTILINE-FORMS
-        return (preprocess_metasex((_typep, t))    if not consp(form)                                                  else
-                getattr(find_known(form[0]), kind)  if isinstance(form[0], symbol_t) and find_known(form[0])           else
+        return (preprocess_metasex((_typep, t))          if not consp(form)                                         else
+                getattr(find_known(form[0]), kind)       if isinstance(form[0], symbol_t) and find_known(form[0])   else
+                preprocess_metasex((_cons,
+                                    (_form,), (_form,))) if not listp(form[1])                                      else
                 preprocess_metasex((([(_notlead, " "), (_form,)] if kind == "metasex_pp" else
-                                      [                  (_form,)]),)))
+                                     [                 (_form,)]),)))
 
 def form_real(x):
         return (x if not (consp(x) and x[0] is _ir_args) else
@@ -7186,18 +7196,26 @@ def combine_t_or_None(f0, fR, originalp):
 def combine_pp(f0, fR, originalp, consdotp):
         def orig_tuple_comb(body):
                 new_base = pp_depth() + 1
-                with progv({ _pp_base_depth_: new_base }):
+                # dprintf("==== COMPP-OTCOM new_base (%d) = pp_base_depth() (%d) + n (%d)", new_base, pp_depth(), 1)
+                with progv({ _pp_base_depth_: new_base,
+                             _pp_depth_     : new_base }):
                         ret = body(new_base)
                         return None if ret is None else ("\x28" + ret + "\x29")
         def body(base):
                 f0r = f0()
                 if f0r is None: return
-                with progv({ _pp_depth_: base + len(f0r.split("\n")[-1]) }):
+                insertion = (" . " if consdotp else "")
+                lines = f0r.split("\n")
+                new_depth = ((base + len(f0r)) if len(lines) is 1 else len(lines[-1])) + len(insertion)
+                # dprintf("==== COMPP-BODY  f0r:      '%s'", f0r)
+                # dprintf("==== COMPP-BODY new_depth (%d) = base (%d) + len(f0r.split(RET)[-1]) (%d) + len(insertion) (%d)",
+                #         new_depth, base, len(f0r.split("\n")[-1]), len(insertion))
+                with progv({ _pp_depth_: new_depth }):
                         fRr = fR()
                         if fRr is None: return
-                        return f0r + (" . " if consdotp else "") + fRr
+                        return f0r + insertion + fRr
         return (orig_tuple_comb if originalp else
-                lambda f: f(pp_base_depth()))(body)
+                lambda f: f(pp_depth()))(body)
 
 def combine_cons(f0, fR, originalp):
         f0r = f0()
@@ -7329,13 +7347,12 @@ def xform_ir(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
 ***** Pretty-printing
 
 #+begin_src python
-intern_and_bind_symbols("%NEWLINE", "%INDENT", "%LEAD", "%NOTLEAD", "%NOTTAIL")
-
-class metasex_matcher_pp_t(metasex_matcher_t):
+class metasex_pprinter_t(metasex_matcher_t):
         def __init__(m):
                 metasex_matcher_t.__init__(m)
                 m.register_complex_matcher(_newline,     m.newline)
                 m.register_complex_matcher(_indent,      m.indent)
+                m.register_complex_matcher(_poscase,     m.poscase)
                 m.register_complex_matcher(_lead,        m.lead)
                 m.register_complex_matcher(_notlead,     m.notlead)
                 m.register_complex_matcher(_nottail,     m.nottail)
@@ -7354,6 +7371,7 @@ class metasex_matcher_pp_t(metasex_matcher_t):
         def newline(m, bound, name, exp, pat, orifst, aux, limit):
                 n, tail = pat[0][1][0], pat[1]
                 new_base = pp_base_depth() + n
+                # dprintf("==== NEWLINE new_base (%d) = pp_base_depth() (%d) + n (%d)", new_base, pp_base_depth(), n)
                 with progv({ _pp_depth_:      new_base,
                              _pp_base_depth_: new_base }):
                         return m.post(m.match(m.bind(new_base, bound, name), None, exp, tail, orifst, aux, -1),
@@ -7361,9 +7379,17 @@ class metasex_matcher_pp_t(metasex_matcher_t):
         def indent(m, bound, name, exp, pat, orifst, aux, limit):
                 n, tail = pat[0][1][0], pat[1]
                 new_depth = pp_depth() + n
+                # dprintf("==== INDENT new_depth (%d) = pp_depth() (%d) + n (%d)", new_depth, pp_depth(), n)
                 with progv({ _pp_depth_: new_depth }):
                         return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: (" " * n) + r)
+        def poscase(m, bound, name, exp, pat, orifst, aux, limit):
+                segpos = segment_iteration()
+                for pos, casepat in xmap_to_vector(lambda x: (x[0], x[1][0]), pat[0][1]):
+                        if pos in (segpos, t):
+                                return m.match(bound, name, exp, [casepat, pat[1]], orifst, aux, limit)
+                ## act as identity
+                return m.match(bound, name, exp, pat[1],              orifst, aux, limit)
         def lead(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1][0]
                 if not orifst[1]:
@@ -7372,8 +7398,6 @@ class metasex_matcher_pp_t(metasex_matcher_t):
                 return         m.match(bound, name, exp, [maybe_pat, pat[1]], orifst, aux, limit)
         def notlead(m, bound, name, exp, pat, orifst, aux, limit):
                 maybe_pat = pat[0][1][0]
-                mrtrace("NOTLEAD", "lead: %s, %sing %s",
-                         orifst[1], "ignor" if orifst[1] else "process", pp_consly(maybe_pat))
                 if orifst[1]:
                         return m.match(bound, name, exp, pat[1],              orifst, aux, limit)
                 ############## act as identity
@@ -7386,7 +7410,7 @@ class metasex_matcher_pp_t(metasex_matcher_t):
                 ############## act as identity
                 return         m.match(bound, name, exp, [maybe_pat, pat[1]], orifst, aux, limit)
 
-metasex_pp = metasex_matcher_pp_t()
+metasex_pprinter = metasex_pprinter_t()
 
 def pp_sex(sex, strict = t, initial_depth = None):
         ## Unregistered Issue RELAXED-METASEX-PRETTY-PRINTER-MODE-NEEDED
@@ -7396,18 +7420,18 @@ def pp_sex(sex, strict = t, initial_depth = None):
                      _pp_base_depth_:    initial_depth,
                      _metasex_kind_:     "metasex_pp" }): ## Guide the nested %FORM-METASEX invocations.
                 with matcher_pp_stack():
-                        _, r, f = match(metasex_pp, sex, pat)
-        if f is not None:
-                error("\n=== failed sex: %s\n=== failpat: %s\n=== failsubpat: %s\n=== subex: %s",
-                      matcher_pp(sex), matcher_pp(pat), matcher_pp(f), matcher_pp(r))
-        return r or ""
+                        _, r, f = match(metasex_pprinter, sex, pat)
+                        if f is not None:
+                                dprintf(";  failed to properly print %s", repr(sex))
+                        return r if f is None else pp_consly(sex)
 
 def ir_minify(form):
         return ('"%s"' % form if stringp(form)                                else
                 str(form)     if symbolp(form) or not form or not consp(form) else
                 ("(%s ...)" % ir_minify(form[0])))
 
-def mock(sex, initial_depth = None, max_level = None):
+def mock_sex(sex, initial_depth = None, max_level = None):
+        ## Unregistered Issue IMPROPER-LISTS-BREAK-MOCK
         max_level = defaulted(max_level, compiler_max_mockup_level)
         def mock_atom(x):       return '"' + x + '"' if isinstance(x, str) else str(x)
         def mock_complexes(xs, new_level):
@@ -7576,7 +7600,7 @@ string_set("*COMPILER-TRACE-INNER-KNOWNS*",       nil)
 string_set("*COMPILER-TRACE-KNOWN-CHOICES*",      nil)
 string_set("*COMPILER-TRACE-KNOWN-PRIMITIVES*",   nil)
 
-string_set("*COMPILER-TRACE-PRETTY-FULL*",        nil)
+string_set("*COMPILER-TRACE-PRETTY-FULL*",        t)
 
 string_set("*COMPILER-VALIDATE-AST*",             nil)
 string_set("*COMPILER-TRAPPED-FUNCTIONS*",        set()) ## Emit a debug entry for those functions.
@@ -7600,9 +7624,9 @@ compiler_debugless_traceless_frame = { _compiler_trace_forms_:              nil,
                                        _compiler_trace_known_choices_:      nil,
                                        _compiler_trace_known_primitives_:   nil,
 
-                                       _compiler_trace_pretty_full_:       nil,
-                                       _compiler_validate_ast_:            nil,
-                                       _compiler_trapped_functions_:       set() }
+                                       _compiler_trace_pretty_full_:        t,
+                                       _compiler_validate_ast_:             nil,
+                                       _compiler_trapped_functions_:        set() }
 
 __known_trace_args__ = { "forms", "macroexpanded", "rewritten", "primitives", "ast", "module_ast", "bytecode",
                          "toplevels", "compile_time_eval",
@@ -7633,7 +7657,7 @@ def sex_deeper(n, body):
                 return body()
 
 def pp(x, **args):
-        return (pp_sex if symbol_value(_compiler_trace_pretty_full_) else mock)(x, **args)
+        return (pp_sex if symbol_value(_compiler_trace_pretty_full_) else mock_sex)(x, **args)
 
 ## Compiler messages:
 ## - entry        lower:rec()                             ;* lowering
@@ -7930,7 +7954,7 @@ define_funcher(_lambda,
                 " ", ([(_notlead, " "), (_or, (_satisfies, lambda_word_p),
                                           (_bind, _variable, (_satisfies, namep)),
                                           (_bind, _variable, ((_satisfies, namep), " ", (_bound, (_form,)))))],),
-                1, [(_notlead, "\n"), (_bound, (_form,))])
+                [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])
 
 ## Unregistered Issue LEXENV-WALKER-NOT-REENTRANT->MACROEXPANSION-DAMAGED-GOODS
 class lexenv_walker(metasex_mapper_t):
@@ -8523,8 +8547,8 @@ intern_and_bind_symbols("DEFMACRO", "EVAL-WHEN")
 
 ensure_function_pyname(_defmacro) ## This is only needed due to the special definition of DEFMACRO.
 @set_macro_definition(globals(), _defmacro, nil)
-# ((intern("DEFMACRO")[0], " ", (satisfies, namep), " ", ([(notlead, " "), (satisfies, namep)],),
-#   1, [(notlead, "\n"), (bound, form)]))
+# ((intern("DEFMACRO")[0], " ", (_satisfies, namep), " ", ([(_notlead, " "), (_satisfies, _namep)],),
+#   [(_lead, 1), (_notlead, "\n"), (_bound, form)]))
 def DEFMACRO(name, lambda_list, *body):
         l, l_ = list_, list__
         return l(_eval_when, l(_compile_toplevel, _load_toplevel, _execute),
@@ -8641,9 +8665,9 @@ def defknown(metasex_or_class, name = None):
                 ## Complete, record the deeds.
                 metasex = preprocess_metasex(metasex)
                 cls.name           = sym
-                cls.metasex        = strip_metasex(metasex, strip_pp = t, strip_bind = t)
-                cls.metasex_pp     = strip_metasex(metasex,               strip_bind = t)
-                cls.metasex_bind   = strip_metasex(metasex, strip_pp = t)
+                cls.metasex        = rewrite_metasex(metasex)
+                cls.metasex_pp     = rewrite_metasex(metasex, for_pp = t)
+                cls.metasex_bind   = rewrite_metasex(metasex, for_bind = t)
                 sym.known          = cls
                 define_global_sym_for_pyname(globals(), pyname, sym)
                 return orig # pass through -- let the symbol be bound to the name
@@ -8858,10 +8882,14 @@ def matcher_result_printer(x):
                 matcher_pp(x)                                            if consp(x)             else
                 str(x))
 
+def dbgsetup(**keys):
+        compiler_dbgconf(pretty_full = t,
+                         **keys)
+
 intern_and_bind_symbols("CAR", "CDR", "LET", "&BODY")
 def run_tests_metasex():
         printer = matcher_result_printer
-        def do_run_test(input, matcher = metasex_pp):
+        def do_run_test(input, matcher = metasex_pprinter):
                 with matcher_pp_stack():
                         return match_sex(input[0], preprocess_metasex(input[1]), matcher = matcher)
         def just_match(input):   return do_run_test(input, matcher = metasex)
@@ -8876,6 +8904,7 @@ def run_tests_metasex():
         def proper_fail(input):  return do_run_test(input, matcher = metasex)
 
         ###
+        dprintf("; testing the MetaSEX engine:")   ## Quirky stuff reference mode ON!  Go go Arachna!
         assert runtest(just_match,
                         (consify_star(_let, ((_car, ()),
                                              (_cdr, (_car,))),
@@ -9068,7 +9097,7 @@ def primitivise_pyref(x):
 
 #+begin_src python +n
 @defknown((_ir_args, "\n", (_form, (_for_matcher_layers_skip_action, (rewriter, metasex_mapper))),
-           ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pp)))],))
+           ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pprinter)))],))
 class ir_args(known):
         def lower(*_):                     error("Invariant failed: IR-ARGS is not meant to be lowered.")
         def effects(*ir,  **args):         return ir_effects(ir)
@@ -9110,7 +9139,7 @@ _let_ = intern("LET*")[0]
 
 @defknown((_binder, _let_,
            (_let_, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_bound, (_form,)))))],),
-            1, [(_notlead, "\n"), (_bound, (_form,))])),
+            [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _let_)
 class let_(known):
         def rewrite(_, bindings, *body):
@@ -9136,35 +9165,39 @@ _flet = intern("FLET")[0]
            (_flet, " ", ([(_notlead, "\n"), (_bind, _function,
                                              (_binder, _lambda,
                                               ((_satisfies, namep), (_funcher, _lambda))))],),
-            1, [(_notlead, "\n"), (_bound, (_form,))])),
+            [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _flet)
 class flet(known):
         def binder_args(bindings, *body):
                 return xmap_to_vector(lambda b: fn(b[0], b[1][0]), bindings)
-        def rewrite(_, bindings, *body):
+        def rewrite(orig, bindings, *body):
                 def fail(x): error("Bad FLET form: %s", pp_consly(x))
                 l = list_
                 not (listp(bindings)
-                     and all((length(x) >= 2 and
-                              listp(second(x)))
-                             for x in bindings)) and fail(form)
-                return t, (handle_constant_linear_body(body) if all(constantp(x) for x in body) else
-                           ## This weak attempt above screams for proper liveness analysis.
-                           nil                                if not (bindings or body)          else
-                           handle_linear_body(body)          if not bindings                    else
-                           l(_funcall,
-                                 (lambda rest, tns:
-                                          l(_labels, xmap_to_conses(lambda btn:
-                                                                            cons(btn[0], btn[1]),
-                                                                    zip(tns, bindings)),
-                                            l(_labels, xmap_to_conses(lambda btn:
-                                                                              l(btn[1][0], l(_rest, rest),
-                                                                                l(_apply, l(f_unction, btn[0]), rest)),
-                                                                      zip(tns, bindings)),
-                                              *body)))
-                             (gensym("REST-"),
-                              (gensym("FN-" + symbol_name(x[0]) + "-")
-                               for x in vectorise_linear(bindings)))))
+                     and every(lambda x: (length(x) >= 2 and
+                                          listp(second(x))),
+                               bindings)) and fail(orig)
+                r = (handle_constant_linear_body(body) if all(constantp(x) for x in body) else
+                     ## This weak attempt above screams for proper liveness analysis.
+                     nil                               if not (bindings or body)          else
+                     handle_linear_body(body)          if not bindings                    else
+                     l(_funcall,
+                       (lambda rest, tns:
+                                l(_labels, xmap_to_conses(lambda tn_b:
+                                                                  cons(tn_b[0], tn_b[1][1]),
+                                                          list(zip(tns, bindings))),
+                                  l(_labels, xmap_to_conses(lambda tn_b:
+                                                                    l(tn_b[1][0], l(_rest, rest),
+                                                                      l(_apply, l(_function, tn_b[0]), rest)),
+                                                            list(zip(tns, bindings))),
+                                    *body)))
+                       (gensym("REST-"),
+                       (gensym("FN-" + symbol_name(x[0]) + "-")
+                        for x in vectorise_linear(bindings)))))
+                dprintf("FLET r %s %s %s -->\n%s",
+                        all(constantp(x) for x in body), not (bindings or body), not bindings,
+                        pp_consly(r))
+                return t, r
 #+end_src
 
 ******* LABELS
@@ -9175,7 +9208,7 @@ _labels = intern("LABELS")[0]
 @defknown((_binder, _labels,
            (_labels, " ", ([(_notlead, "\n"), (_binder, _lambda,
                                                ((_satisfies, namep), (_funcher, _lambda)))],),
-            1, [(_notlead, "\n"), (_form,)])),
+            [(_lead, 1), (_notlead, "\n"), (_form,)])),
           name = _labels)
 class labels(known):
         def binder(exp, further):
@@ -9183,16 +9216,18 @@ class labels(known):
                 form = form_real(exp) ## Filter out any potential IR-ARGS
                 length(form) < 2 and fail(form)
                 bindings = vectorise_linear(form[1][0])
-                not (listp(bindings)
-                     and all((length(x) >= 2 and
-                              listp(second(x)))
-                             for x in bindings)) and fail(form)
+                not all((length(x) >= 2 and
+                         listp(second(x)))
+                        for x in bindings) or fail(form)
                 env = symbol_value(_walker_lexenv_)
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
+                dprintf("LABING: %s", " ".join(pp_consly(b) for b in bindings))
                 with progv({ _walker_lexenv_:
                               make_lexenv(env, allocate_tns = symbol_value(_walker_allocate_tns_),
-                                          name_funcframe = { name: function_binding(name, _function, fn(name, lam))
-                                                             for name, (lam, _) in bindings }),
+                                          name_funcframe = { dprintf("LABIN: processing (%s %s %s)",
+                                                                     name, pp_consly(lam), pp_consly(body)) or
+                                                             name: function_binding(name, _function, fn(name, lam))
+                                                             for name, (lam, body) in bindings }),
                              _walker_binder_args_: nil } if bindings else
                            { _walker_binder_args_: nil }):
                         return further(exp)
@@ -9227,8 +9262,8 @@ _macrolet = intern("MACROLET")[0]
                                    (_bind, _variable, (_satisfies, namep)),
                                    (_bind, _variable, ((_satisfies, namep), (_bound, (_form,)))),
                                    (_form,))],),
-                                1, [(_notlead, "\n"), (_form,)]))],),
-            1, [(_notlead, "\n"), (_bound, (_form,))])),
+                                [(_lead, 1), (_notlead, "\n"), (_form,)]))],),
+            [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _macrolet)
 class macrolet(known):
         def rewrite(_, bindings, *body):
@@ -9242,7 +9277,7 @@ _symbol_macrolet = intern("SYMBOL-MACROLET")[0]
 
 @defknown((_binder, _symbol_macrolet,
            (_symbol_macrolet, " ", ([(_notlead, "\n"), (_bind, _symbol_macro, ((_satisfies, namep), " ", (_form,)))],),
-            1, [(_notlead, "\n"), (_bound, (_form,))])),
+            [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _symbol_macrolet)
 class symbol_macrolet(known):
         def rewrite(_, bindings, *body):
@@ -9259,7 +9294,7 @@ _block = intern("BLOCK")[0]
 
 @defknown((_binder, _block,
            (_block, " ", (_bind, _block, (_satisfies, namep)),
-            [1, (_bound, (_form,))],)),
+            [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))],)),
           name = _block)
 class block(known):
         def rewrite(orig, name, *body):
@@ -9391,7 +9426,7 @@ intern_and_bind_symbols("PROGN")
 @defknown((intern("EVAL-WHEN")[0], " ", ([(_notlead, " "),
                                          (_or, _compile_toplevel, _load_toplevel, _execute,
                                                _compile, _load, _eval)],),
-           1, [(_notlead, "\n"), (_form,)]))
+           [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class eval_when(known):
         """eval-when (situation*) form* => result*
 
@@ -9444,8 +9479,10 @@ when EVAL-WHEN appears as a top level form."""
 #+begin_src python
 _setq = intern("SETQ")[0]
 
-@defknown((_setq, [" ", (_or, (_satisfies, namep), (_satisfies, pyref_p)),
-                   " ", (_form,)]))
+@defknown((_setq, [(_poscase,
+                    (0, " "),
+                    (1, 5),
+                    (t, "\n")), (_or, (_satisfies, namep), (_satisfies, pyref_p)), " ", (_form,)]))
 class setq(known):
         def rewrite(orig, *args):
                 ## Actually a normalisation.. or actually, the hell knows what it is..
@@ -9487,7 +9524,7 @@ class setq(known):
 
 #+begin_src python
 @defknown((_progn,
-           1, [(_notlead, "\n"), (_form,)]))
+           [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class progn(known):
         def rewrite(_, *body):
                 rewrote, form = rewrite_linear_body(body)
@@ -9541,7 +9578,7 @@ _let = intern("LET")[0]
 
 @defknown((_binder, _let,
            (_let, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_form,))))],),
-            1, [(_notlead, "\n"), (_bound, (_form,))])),
+            [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _let)
 class let(known):
         def rewrite(orig, bindings, *body):
@@ -9641,8 +9678,9 @@ behavior."""
 #+begin_src python
 _unwind_protect = intern("UNWIND-PROTECT")[0]
 
-@defknown((_unwind_protect, " ", (_form,),
-           1, [(_notlead, "\n"), (_form,)]))
+@defknown((_unwind_protect,
+           3, (_form,),
+           [(_lead, -2), (_notlead, "\n"), (_form,)]))
 class unwind_protect(known):
         def rewrite(orig, form, *unwind_body):
                 return ((t, cont(form)) if not unwind_body or all(constantp(x) for x in unwind_body) else
@@ -9982,7 +10020,7 @@ class apply(known):
 ******* QUOTE
 
 #+begin_src python
-@defknown((intern("QUOTE")[0], " ", (_form, (_for_not_matchers_xform, identity, metasex_pp))))
+@defknown((intern("QUOTE")[0], " ", (_form, (_for_not_matchers_xform, identity, metasex_pprinter))))
 class quote(known):
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
@@ -10038,7 +10076,7 @@ class multiple_value_call(known):
 _catch = intern("CATCH")[0]
 
 @defknown((_catch, " ", (_form,),
-          1, [(_notlead, "\n"), (_form,)]))
+          [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class catch(known):
         ## Critical Issue CATCH-MULTIPLE-VALUES-NOT-IMPLEMENTED
         def nvalues(_, *body):              return 1 if not body else not_implemented()
@@ -10105,7 +10143,7 @@ class nth_value(known):
 _progv = intern("PROGV")[0]
 
 @defknown((_progv, " ", ([(_notlead, " "), (_form,)],), " ", ([(_notlead, " "), (_form,)],),
-           1, [(_notlead, "\n"), (_form,)]))
+           [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class progv(known):
         def nvalues(_, __, *body):                    return 1 if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, names, values, *body): return (ir_nth_valueify_last_subform(n, orig)
@@ -10129,7 +10167,8 @@ class progv(known):
 #+begin_src python
 _protoloop = intern("PROTOLOOP")[0]
 
-@defknown((_protoloop, ["\n", (_form,)]))
+@defknown((_protoloop,
+           [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class protoloop(known):
         "This was implemented exclusively for the sake of TAGBODY."
         ## Critical Issue PROTOLOOP-MULTIPLE-VALUES-NOT-IMPLEMENTED
@@ -10157,7 +10196,8 @@ class the(known):
 ******* LOCALLY
 
 #+begin_src python
-@defknown((intern("LOCALLY")[0], (["\n", (_form,)],)))
+@defknown((intern("LOCALLY")[0],
+           [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class locally(known):
         def nvalues(*decls_n_body):            not_implemented()
         def nth_value(n, orig, *decls_n_body): not_implemented()
@@ -10169,7 +10209,9 @@ class locally(known):
 ******* MULTIPLE-VALUE-PROG1
 
 #+begin_src python
-@defknown((intern("MULTIPLE-VALUE-PROG1")[0], " ", (_form,), (["\n", (_form,)],)))
+@defknown((intern("MULTIPLE-VALUE-PROG1")[0],
+           3, (_form,),
+           [(_lead, -2), (_notlead, "\n"), (_form,)]))
 class multiple_value_prog1(known):
         def nvalues(first_form, *forms):            return ir_nvalues(first_form)
         def nth_value(n, orig, first_form, *forms):
@@ -10206,6 +10248,7 @@ def run_tests_known():
                 # Essentially a walk_with_lexenv(macroexpander_xform, sex, lexenv), with *MACROEXPANDER-COMPILERP* bound.
                 return compiler_macroexpand_all(input, lexenv = _null)
         l = list_
+        dprintf("; testing basis known operations:")   ## Quirky stuff reference mode ON!  Go go Arachna!
         assert runtest(lexenvful_identity_rewrite,
                        l(_let, l(l(_car, _cdr))),
                        l(_let, l(l(_car, _cdr))))
@@ -10220,6 +10263,148 @@ def run_tests_known():
 if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_KNOWN") != "nil":
         with matcher_pp_stack():
                 run_tests_known()
+
+def run_tests_pp():
+        def pptest(name, form, expected, **keys):
+                ret = runtest((name, pp_sex), form, expected, tabstop = 55, **keys)
+                # dprintf("0 2 4 6 8 1012141618202224262830323436384042")
+                return ret
+        l = list_
+        (__cons,
+         _identity,
+         _symbol_value,
+         _values,) = [ intern(x)[0]
+                       for x in ["CONS", "IDENTITY", "SYMBOL-VALUE", "VALUES"] ]
+        __cdr = make_keyword("CDR")
+        _cadr, __cadr = intern("CADR")[0], make_keyword("CADR")
+        _cddr, __cddr = intern("CDDR")[0], make_keyword("CDDR")
+        dprintf("; testing the pretty-printer:")   ## Quirky stuff reference mode ON!  Go go Arachna!
+        assert pptest("INTEGER",               42,                "42")
+        assert pptest("FLOAT",                 2.718281828,       "2.718281828")
+        assert pptest("STRING",               "xyzzy",            '"xyzzy"')
+        assert pptest("NIL",                   l(),               "NIL")
+        assert pptest("LIST",                  l(42, "xyzzy"),    '(42 "xyzzy")')
+        assert pptest("CONS",                  cons(42, "xyzzy"), '(42 . "xyzzy")')
+        assert pptest("IF",
+                      l(_if, 0, 1, 2),
+"""(IF 0
+    1
+    2)""")
+        assert pptest("IF-NESTED",
+                      l(_if, l(_if, 0, 1, 2), l(_if, 0, 1, 2), l(_if, 0, 1, 2)),
+"""(IF (IF 0
+        1
+        2)
+    (IF 0
+        1
+        2)
+    (IF 0
+        1
+        2))""")
+        assert pptest("IR-ARGS",
+                      l(_ir_args, 42,
+                        ["foo", 3.14],
+                        l("bar", 2.71)),
+"""(IR-ARGS
+ 42
+ ("foo" . 3.14)
+ ("bar" . (2.71)))""")
+        assert pptest("FUNCALL-NO-ARGS",       l(_funcall, _car),       "(FUNCALL CAR)")
+        assert pptest("FUNCALL",               l(_funcall, _car, _car), "(FUNCALL CAR CAR)")
+        assert pptest("FUNCALL-IF",
+                      l(_funcall, 2.71, l(_if, 0, 1, 2), 42, l(_if, 3, 4, 5), 3.14),
+"""(FUNCALL 2.71 (IF 0
+                  1
+                  2) 42 (IF 3
+                            4
+                            5) 3.14)""")
+        assert pptest("LET*-EMPTY",            l(_let_, nil),           "(LET* NIL)")
+        assert pptest("LET*-NO-BINDINGS",
+                      l(_let_, l(),
+                        42),
+"""(LET* NIL
+  42)""")
+        assert pptest("LET*",
+                      l(_let_, l(l(_car, 2.71),
+                                 l(_car, 3.14)),
+                        42,
+                        43),
+"""(LET* ((CAR 2.71)
+       (CAR 3.14))
+  42
+  43)""")
+        assert pptest("LET*-NESTED",
+                      l(_let_, l(l(_car, l(_let_, nil,
+                                           42)))),
+"""(LET* ((CAR (LET* NIL
+              42))))""")
+        assert pptest("FLET-NO-BODY",          l(_flet, l(l(_car, nil))), "(FLET ((CAR NIL)))")
+        assert pptest("FLET-EMPTY",            l(_flet, nil),             "(FLET NIL)")
+        assert pptest("FLET",
+                      l(_flet, l(l(_car, l(),
+                                   2.71,
+                                   2.71),
+                                 l(_car, l(_car, _key, _cdr, l(_cddr, l(_if, t,
+                                                                             nil,
+                                                                             2.71))),
+                                   3.14),
+                                 l(_car, l(),
+                                   2.71)),
+                        42,
+                        42),
+"""(FLET ((CAR NIL
+         2.71
+         2.71)
+       (CAR (CAR &KEY CDR (CDDR (IF T
+                                    NIL
+                                    2.71)))
+         3.14)
+       (CAR NIL
+         2.71))
+  42
+  42)""")
+        assert pptest("BLOCK",
+                      l(_block, 42,
+                        nil,
+                        nil),
+"""(BLOCK 42
+  NIL
+  NIL)""")
+        assert pptest("RETURN-FROM",       l(_return_from, 1, 2), "(RETURN-FROM 1 2)")
+        assert pptest("RETURN-FROM-SHORT", l(_return_from, 1),    "(RETURN-FROM 1)")
+        assert pptest("EVAL-WHEN",
+                      l(_eval_when, l(_compile_toplevel, _load_toplevel, _execute),
+                        nil,
+                        nil),
+"""(EVAL-WHEN (:COMPILE-TOPLEVEL :LOAD-TOPLEVEL :EXECUTE)
+  NIL
+  NIL)""")
+        assert pptest("SETQ-EMPTY",        l(_setq),  "(SETQ)")
+        assert pptest("SETQ",              l(_setq, 0, l(_if, 1, 2, 3), 4, 5, 3.14, 2.71),
+"""(SETQ 0 (IF 1
+            2
+            3)
+      4 5
+      3.14 2.71)""")
+        assert pptest("UNWIND-PROTECT",    l(_unwind_protect, 42, 2.71, 3.14),
+"""(UNWIND-PROTECT
+    42
+  2.71
+  3.14)""")
+        assert pptest("QUOTE",             l(_quote, 42), "'42",
+                      known_failure = t)
+        assert pptest("PROGV",
+                      l(_progv, l(42, 2.71), l(3.14, 7),
+                        nil,
+                        nil),
+"""(PROGV (42 2.71) (3.14 7)
+  NIL
+  NIL)""")
+        # with traced_matcher(emt = True, immediate = True):
+
+if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_PP") != "nil":
+        with matcher_pp_stack():
+                run_tests_pp()
 #+end_src
 
 *** Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
@@ -10796,10 +10981,6 @@ def eval(form):
         # dprintf("; compiled %s ->\n; %s", pp_consly(form), code)
         return code()
 
-def dbgsetup(**keys):
-        compiler_dbgconf(pretty_full = t,
-                         **keys)
-
 def run_tests_compiler():
         def evaltest(name, form, expected, **keys):
                 return runtest((name, eval), form, expected, printer = pp_consly, tabstop = 55, **keys)
@@ -10829,6 +11010,7 @@ def run_tests_compiler():
         __cdr = make_keyword("CDR")
         _cadr, __cadr = intern("CADR")[0], make_keyword("CADR")
         _cddr, __cddr = intern("CDDR")[0], make_keyword("CDDR")
+        dprintf("; testing compiler evaluation powers:")   ## Quirky stuff reference mode ON!  Go go the spider Queen!
         # dbgsetup( # forms = t,
         #           # macroexpanded = t,
         #           # subrewriting = t,
@@ -11273,7 +11455,6 @@ def configure_recursion_limit(new_limit):
         sys.setrecursionlimit(new_limit)
 
 configure_recursion_limit(262144)
-dbgsetup()
 
 # compiler_trap_function(intern("DEFPACKAGE")[0])
 
