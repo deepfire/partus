@@ -7887,7 +7887,11 @@ def rewrite_1(preform) -> "(Bool ({} Form Bool))":
         ## 2. Process IR-ARGS
         form, keys = ((preform,       {}) if preform[0] is not _ir_args else
                       (preform[1][0], dict(vectorise_linear(preform[1][1]))))
+        if atom(form) and keys:
+                error("In a fit of madness, somebody provided keys to an atom: %s", pp_consly(preform))
         ## 3. Find the corresponding known.
+        if not symbolp(form[0]):
+                error("Invalid form: %s", pp_consly(form))
         known = find_known(form[0])
         if not known:
                 error("Unknown form encountered at rewrite stage: %s, form[0]: %s/%x", pp_consly(form), form[0], id(form[0]))
