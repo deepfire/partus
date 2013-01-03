@@ -6590,11 +6590,14 @@ string_set("*MATCHER-PP-STACK*", None)
 def matcher_traced():
         return __enable_matcher_tracing__ and symbol_value(_matcher_tracing_)
 
-def setup_emt(self):
+def do_setup_emt(emt = None, immediate = None):
         global __enable_matcher_tracing__, __matcher_tracing_immediate__
+        __enable_matcher_tracing__ = defaulted(emt, __enable_matcher_tracing__)
+        __matcher_tracing_immediate__ = defaulted(immediate, __matcher_tracing_immediate__)
+
+def setup_emt(self):
         self.saved_emt, self.saved_immediate = __enable_matcher_tracing__, __matcher_tracing_immediate__
-        __enable_matcher_tracing__ = defaulted(self.new_emt, __enable_matcher_tracing__)
-        __matcher_tracing_immediate__ = defaulted(self.immediate, __matcher_tracing_immediate__)
+        do_setup_emt(emt = self.new_emt, immediate = self.immediate)
 
 def restore_emt(self):
         global __enable_matcher_tracing__, __matcher_tracing_immediate__
@@ -6604,8 +6607,8 @@ def restore_emt(self):
 traced_matcher = defwith("traced_matcher",
                          lambda self:        setup_emt(self) or dynamic_scope_push({ _matcher_tracing_: t }),
                          lambda self, *_:  restore_emt(self) or dynamic_scope_pop(),
-                         __init__ = (lambda self, new_emt = None, immediate = None:
-                                             self.__dict__.update({ "new_emt": new_emt,
+                         __init__ = (lambda self, emt = None, immediate = None:
+                                             self.__dict__.update({ "new_emt": emt,
                                                                     "immediate": immediate })))
 
 def matcher_print_one_arg(x):
