@@ -3460,7 +3460,7 @@ def consify_linear(xs, last_cdr = nil):
                       reversed(tuple(xs)),
                       last_cdr)
 
-def pp_consly(x, dispatch = dict(), str_printer = repr, max_depth = 7):
+def pp_consly(x, dispatch = dict(), str_printer = lambda x: '"' + x + '"', max_depth = 7):
         if consp(x):
                 if max_depth is 0:
                         return "#"
