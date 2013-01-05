@@ -7019,11 +7019,12 @@ def nameusep(x):
         return isinstance(x, nameuse)
 
 class binding():
-        value, shadows = None, None
+        tn, value, shadows = None, None, None
         def __init__(self, value, shadows = None, **attributes):
                 attrify_args(self, locals(), "value", "shadows")
         def __repr__(self):
-                return "#<bind %s %s: %s>" % (self.kind, self.name, self.value)
+                return "#<bind %s %s: %s  tn: %s>" % (self.kind, self.name, self.value,
+                                                      (defaulted(self.tn, "<not allocated>")))
 def bindingp(x):
         return isinstance(x, binding)
 
