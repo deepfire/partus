@@ -6792,6 +6792,7 @@ def pp_sex(sex, strict = t, initial_depth = None):
         pat = form_metasex(sex, kind = "metasex_pp")
         with progv({ _pp_depth_:         initial_depth,
                      _pp_base_depth_:    initial_depth,
+                     _matcher_tracing_:  nil,
                      _metasex_kind_:     "metasex_pp" }): ## Guide the nested %FORM-METASEX invocations.
                 with matcher_pp_stack():
                         _, r, f = match(metasex_pprinter, sex, pat)
