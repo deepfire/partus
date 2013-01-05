@@ -6452,16 +6452,16 @@ def match(matcher, exp, pat):
 
 intern_and_bind_symbols(
         "%FORM",
-        "%NEWLINE", "%INDENT",
+        "%BASE", "%NEWLINE", "%FILL", "%NBSP",
         "%BINDER", "%BIND", "%BOUND",
         "%POSCASE", "%LEAD", "%NOTLEAD", "%NOTTAIL",
         "%FOR-MATCHERS-XFORM", "%FOR-NOT-MATCHERS-XFORM", "%FOR-MATCHER-LAYERS-SKIP-ACTION")
 
 __metasex_words__          = set() ## Populated by register_*_matcher()
-__metasex_pp_words__       = { _newline, _indent, _poscase, _lead, _notlead, _nottail }
+__metasex_pp_words__       = { _base, _newline, _fill, _nbsp, _poscase, _lead, _notlead, _nottail }
 __metasex_bind_words__     = { _binder, _bind, _bound }
 __metasex_leaf_words__     = { _form,
-                               _newline, _indent,
+                               _base, _newline, _fill, _nbsp,
                                _for_matchers_xform, _for_not_matchers_xform, _for_matcher_layers_skip_action }
 
 def metasex_word_p(x):      return isinstance(x, symbol_t) and x in __metasex_words__
@@ -6489,7 +6489,8 @@ def preprocess_metasex(pat):
                 def prep_linear(xs):
                         return mapcon(lambda con: rec(con[0]), xs)
                 return (l(prep_binding(x))             if isinstance(x, dict)                 else
-                        l(l(_indent, 1))               if x == " "                            else
+                        l(l(_nbsp, 1))                 if x == " "                            else
+                        l(l(_base))                    if x == "."                            else
                         l(l(_newline, 0))              if x == "\n"                           else
                         l(l(_newline, x))              if isinstance(x, int)                  else
                         l(x)                           if atom(x)                             else
@@ -6705,8 +6706,10 @@ def xform_ir(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
 class metasex_pprinter_t(metasex_matcher_t):
         def __init__(m):
                 metasex_matcher_t.__init__(m)
+                m.register_complex_matcher(_base,        m.base)
                 m.register_complex_matcher(_newline,     m.newline)
-                m.register_complex_matcher(_indent,      m.indent)
+                m.register_complex_matcher(_fill,        m.fill)
+                m.register_complex_matcher(_nbsp,        m.nbsp)
                 m.register_complex_matcher(_poscase,     m.poscase)
                 m.register_complex_matcher(_lead,        m.lead)
                 m.register_complex_matcher(_notlead,     m.notlead)
@@ -6723,6 +6726,9 @@ class metasex_pprinter_t(metasex_matcher_t):
         def comr(f0, fR, originalp): return combine_pp(f0, fR, originalp, nil)
         @staticmethod
         def comc(f0, fR, originalp): return combine_pp(f0, fR, originalp, t)
+        def base(m, bound, name, exp, pat, orifst, aux, limit):
+                with progv({ _pp_base_depth_: pp_depth() }):
+                        return m.match(bound, name, exp, pat[1], orifst, aux, limit)
         def newline(m, bound, name, exp, pat, orifst, aux, limit):
                 n, tail = pat[0][1][0], pat[1]
                 new_base = pp_base_depth() + n
@@ -6731,7 +6737,12 @@ class metasex_pprinter_t(metasex_matcher_t):
                              _pp_base_depth_: new_base }):
                         return m.post(m.match(m.bind(new_base, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: "\n" + (" " * new_base) + r)
-        def indent(m, bound, name, exp, pat, orifst, aux, limit):
+        def fill(m, bound, name, exp, pat, orifst, aux, limit):
+                if pp_depth() >= 50:
+                        return m.newline(bound, name, exp, cons(list_(_newline, 0), pat[1]), orifst, aux, limit)
+                else:
+                        return m.nbsp(bound, name, exp, cons(list_(_nbsp, 1), pat[1]), orifst, aux, limit)
+        def nbsp(m, bound, name, exp, pat, orifst, aux, limit):
                 n, tail = pat[0][1][0], pat[1]
                 new_depth = pp_depth() + n
                 # dprintf("==== INDENT new_depth (%d) = pp_depth() (%d) + n (%d)", new_depth, pp_depth(), n)
