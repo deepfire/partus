@@ -8295,6 +8295,29 @@ declared to be the names of constant variables)."""
 ***** Action: populate global scope with pre-defined functions
 
 #+begin_src python
+intern_and_bind_symbols(("_mult",   "*"),
+                        ("_add",    "+"),
+                        ("_sub",    "-"),
+                        ("_equals", "="))
+
+@defun(_mult)
+def mult(*xs):
+        return reduce(operator.mul, xs)
+
+@defun(_add)
+def add(*xs):
+        return 0 if not xs else reduce(operator.add, xs)
+
+@defun(_sub)
+def sub(*xs):
+        return (0      if not xs       else
+                -xs[0] if len(xs) is 1 else
+                reduce(operator.sub, xs))
+
+@defun(_equals)
+def equals(x, y):
+        return x == y
+
 def populate_compilation_environment_from_package(package):
         for sym in package.own:
                 if sym.function:
