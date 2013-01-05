@@ -2736,19 +2736,21 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 
 # Namespace separation.
 
-compiler_safe_namespace_separation = t
+def new_function_pyname(symbol):
+        return gensymname("FUN_" + str(symbol) + "-")
+
+def new_symbol_pyname(symbol):
+        return gensymname("SYM_" + str(symbol) + "-")
 
 def ensure_function_pyname(symbol):
         if the(symbol_t, symbol).function_pyname is not None:
                 return symbol.function_pyname
-        symbol.function_pyname = (gensymname("FUN_" + str(symbol) + "-") if compiler_safe_namespace_separation else
-                                  str(symbol))
+        symbol.function_pyname = new_function_pyname(symbol)
         return symbol.function_pyname
 def ensure_symbol_pyname(symbol):
         if the(symbol_t, symbol).symbol_pyname is not None:
                 return symbol.symbol_pyname
-        symbol.symbol_pyname = (gensymname("SYM_" + str(symbol) + "-") if compiler_safe_namespace_separation else
-                                str(symbol))
+        symbol.symbol_pyname = new_symbol_pyname(symbol)
         return symbol.symbol_pyname
 
 def ensure_variable_pyname(x):
