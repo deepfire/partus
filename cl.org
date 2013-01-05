@@ -7407,9 +7407,12 @@ class metasex_mapper_t(metasex_matcher_t):
 metasex_mapper = metasex_mapper_t()
 
 def map_sex(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
-             sex, matcher = metasex_mapper, start_inside = nil) -> "({} Form Bool)":
+             sex, matcher = metasex_mapper, start_inside = nil, error_if_fail = t) -> "({} Form Bool)":
         with progv({ _mapper_fn_: fn }):
-                return match(matcher, sex, form_metasex(sex) if start_inside else list_(_form))
+                ret = _, r, f = match(matcher, sex, form_metasex(sex, kind = symbol_value(_metasex_kind_)) if start_inside else list_(_form))
+                if f is not None and error_if_fail:
+                        matcher_error(sex, r, f, desc = "mapping")
+                return ret
 
 def xform_ir(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
               sex, matcher = metasex_mapper, start_inside = nil) -> "Form":
