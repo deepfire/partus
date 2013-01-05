@@ -27,5 +27,6 @@ smalltest:
 	$(PYTHON) cl-tests.py
 
 merge:
+	git diff HEAD^1 cl.py > d.diff
 	patch --merge cl.org d.diff; rm -f d.diff cl.org.orig
 
