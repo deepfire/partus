@@ -9205,6 +9205,21 @@ def primitivise_pyref(x):
 ***** IR argument passing
 
 #+begin_src python +n
+intern_and_bind_symbols("IR-ARGS", "FUNCALL", ("_let_", "LET*"),
+                        "FLET", "LABELS", "MACROLET",
+                        "SYMBOL-MACROLET", "BLOCK", "RETURN-FROM",
+                        "TAGBODY", "GO", "EVAL-WHEN",
+                        "SETQ", "PROGN", "IF",
+                        "LET", "FUNCTION", "UNWIND-PROTECT",
+                        "REF", "LAMBDA", "PRIM",
+                        "APPLY", "QUOTE", "MULTIPLE-VALUE-CALL",
+                        "CATCH", "THROW", "NTH-VALUE",
+                        "PROGV", "PROTOLOOP", "THE",
+                        "LOCALLY", "MULTIPLE-VALUE-PROG1", "LOAD-TIME-VALUE")
+
+intern_and_bind_symbols("AREF", "VECTOR", "INLINE", ## For LABELS
+                        )
+
 @defknown((_ir_args, "\n", (_form, (_for_matcher_layers_skip_action, (rewriter, metasex_mapper))),
            ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pprinter)))],))
 class ir_args(known):
@@ -9244,8 +9259,6 @@ class funcall(known):
       before MACROEXPAND-1 could have seen it.  But CL exposes macroexpansion, and users will not be amused :-)
 
 #+begin_src python
-_let_ = intern("LET*")[0]
-
 @defknown((_binder, _let_,
            (_let_, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_bound, (_form,)))))],),
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
@@ -9268,7 +9281,6 @@ class let_(known):
 ******* FLET
 
 #+begin_src python
-_flet = intern("FLET")[0]
 
 @defknown((_binder, _flet,
            (_flet, " ", ([(_notlead, "\n"), (_bind, _function,
@@ -9311,9 +9323,10 @@ class flet(known):
 
 ******* LABELS
 
-#+begin_src python
-_labels = intern("LABELS")[0]
+        Implementation strategy:
+         - Henry Baker's '92  CIRCULAR ENVIRONMENTS OF "LABELS" EMULATED BY "FLET" ALONE
 
+#+begin_src python
 @defknown((_binder, _labels,
            (_labels, " ", ([(_notlead, "\n"), (_binder, _lambda,
                                                ((_satisfies, namep), (_funcher, _lambda)))],),
@@ -9360,8 +9373,6 @@ class labels(known):
 
 #+begin_src python
 ## Unregistered Issue EXTENDED-LAMBDA-LIST-DESTRUCTURING-WRECKS-ALL
-_macrolet = intern("MACROLET")[0]
-
 @defknown((_binder, _macrolet,
            (_macrolet, " ", ([(_notlead, "\n"),
                               (_bind, _macro,
@@ -9382,8 +9393,6 @@ class macrolet(known):
 ******* SYMBOL-MACROLET
 
 #+begin_src python
-_symbol_macrolet = intern("SYMBOL-MACROLET")[0]
-
 @defknown((_binder, _symbol_macrolet,
            (_symbol_macrolet, " ", ([(_notlead, "\n"), (_bind, _symbol_macro, ((_satisfies, namep), " ", (_form,)))],),
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
@@ -9399,8 +9408,6 @@ class symbol_macrolet(known):
       we could rely on the RETURN-FROM marking its presence.
 
 #+begin_src python
-_block = intern("BLOCK")[0]
-
 @defknown((_binder, _block,
            (_block, " ", (_bind, _block, (_satisfies, namep)),
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))],)),
@@ -9425,8 +9432,6 @@ class block(known):
 ******* RETURN-FROM
 
 #+begin_src python
-_return_from = intern("RETURN-FROM")[0]
-
 @defknown((_return_from, " ", (_satisfies, namep), (_maybe, " ", (_form,))))
 class return_from(known):
         def rewrite(_, name, *maybe_form):
@@ -9446,7 +9451,7 @@ class return_from(known):
           definition
 
 #+begin_src python
-intern_and_bind_symbols("%NXT-LABEL", "TAGBODY")
+intern_and_bind_symbols("%NXT-LABEL")
 
 ## Unregistered Issue COMPLIANCE-TAGBODY-TAGS-EXEMPT-FROM-MACROEXPANSION
 @defknown(## No need for bindings and bound markers -- all done in the BINDER method.
@@ -9515,8 +9520,6 @@ class tagbody(known):
 ******* GO
 
 #+begin_src python
-intern_and_bind_symbols("GO")
-
 @defknown((_go, " ", (_typep, symbol_t)))
 class go(known):
         def rewrite(_, name):
@@ -9529,8 +9532,6 @@ class go(known):
 ******* EVAL-WHEN
 
 #+begin_src python
-intern_and_bind_symbols("PROGN")
-
 ## Unregistered Issue EVAL-WHEN-LACKING-SPACE-BETWEEN-KEYWORDS-WHEN-PRINTED
 @defknown((intern("EVAL-WHEN")[0], " ", ([(_notlead, " "),
                                          (_or, _compile_toplevel, _load_toplevel, _execute,
@@ -9586,8 +9587,6 @@ when EVAL-WHEN appears as a top level form."""
 ******* SETQ
 
 #+begin_src python
-_setq = intern("SETQ")[0]
-
 @defknown((_setq, [(_poscase,
                     (0, " "),
                     (1, 5),
@@ -9650,8 +9649,6 @@ class progn(known):
 ******* IF
 
 #+begin_src python
-_if = intern("IF")[0]
-
 @defknown((_if, " ", (_form,),
            3, (_form,),
           (_maybe, "\n", (_form,))))
@@ -9683,8 +9680,6 @@ class if_(known):
 ******* LET
 
 #+begin_src python
-_let = intern("LET")[0]
-
 @defknown((_binder, _let,
            (_let, " ",  ([(_notlead, "\n"), (_bind, _variable, (_or, (_satisfies, namep), ((_satisfies, namep), " ", (_form,))))],),
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
@@ -9723,10 +9718,8 @@ class let(known):
 ******* FUNCTION
 
 #+begin_src python
-intern_and_bind_symbols("SETF", "LOCALLY")
-
 ## Unregistered Issue MACROEXPANDABILITY-OF-FUNCTION-SUBFORM-IS-INTERESTING
-@defknown((intern("FUNCTION")[0], " ", (_form,)))
+@defknown((_function, " ", (_form,)))
 class function(known):
         def rewrite(orig, x):
                 lambdap = pyref_p(x) or not (consp(x) and x[0] is _lambda)
@@ -9785,8 +9778,6 @@ behavior."""
 ******* UNWIND-PROTECT
 
 #+begin_src python
-_unwind_protect = intern("UNWIND-PROTECT")[0]
-
 @defknown((_unwind_protect,
            3, (_form,),
            [(_lead, -2), (_notlead, "\n"), (_form,)]))
@@ -9813,8 +9804,6 @@ class unwind_protect(known):
 ******* REF
 
 #+begin_src python
-_ref = intern("REF")[0]
-
 @defknown((_ref, " ", (_or, (_satisfies, namep), (_satisfies, pyref_p))))
 class ref(known):
         def rewrite(orig, x):
@@ -10079,8 +10068,6 @@ class lambda_(known):
 ******* PRIM
 
 #+begin_src python
-_prim = intern("PRIM")[0]
-
 @defknown((_prim, " ", (_satisfies, p.prim_type_p), [" ", (_form,)]))
 class prim(known):
         def rewrite(orig, prim, *args, **keys):
@@ -10129,7 +10116,7 @@ class apply(known):
 ******* QUOTE
 
 #+begin_src python
-@defknown((intern("QUOTE")[0], " ", (_form, (_for_not_matchers_xform, identity, metasex_pprinter))))
+@defknown((_quote, " ", (_form, (_for_not_matchers_xform, identity, metasex_pprinter))))
 class quote(known):
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
@@ -10158,8 +10145,6 @@ class quote(known):
 def do_multiple_value_call(fn, values_frames):
         return fn(*reduce(lambda acc, f: acc + f[1:], values_frames, []))
 
-_multiple_value_call = intern("MULTIPLE-VALUE-CALL")[0]
-
 @defknown
 class multiple_value_call(known):
         ## We might start considering the argument forms for the values queries,
@@ -10182,8 +10167,6 @@ class multiple_value_call(known):
 ******* CATCH
 
 #+begin_src python
-_catch = intern("CATCH")[0]
-
 @defknown((_catch, " ", (_form,),
           [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class catch(known):
@@ -10203,8 +10186,6 @@ class catch(known):
 ******* THROW
 
 #+begin_src python
-_throw = intern("THROW")[0]
-
 @defknown((_throw, " ", (_form,), (_maybe, " ", (_form,))))
 class throw(known):
         def nvalues(_, value):            return ir_nvalues(value)
@@ -10230,8 +10211,6 @@ class throw(known):
 ******* NTH-VALUE
 
 #+begin_src python
-_nth_value = intern("NTH-VALUE")[0]
-
 @defknown((_nth_value, " ", (_form,), " ", (_form,)))
 class nth_value(known):
         def nvalues(_, __):    return 1
@@ -10249,8 +10228,6 @@ class nth_value(known):
 ******* PROGV
 
 #+begin_src python
-_progv = intern("PROGV")[0]
-
 @defknown((_progv, " ", ([(_notlead, " "), (_form,)],), " ", ([(_notlead, " "), (_form,)],),
            [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class progv(known):
@@ -10274,8 +10251,6 @@ class progv(known):
 ******* PROTOLOOP
 
 #+begin_src python
-_protoloop = intern("PROTOLOOP")[0]
-
 @defknown((_protoloop,
            [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class protoloop(known):
@@ -10293,7 +10268,7 @@ class protoloop(known):
 ******* THE
 
 #+begin_src python
-@defknown((intern("THE")[0], " ", (_form,), " ", (_form,)))
+@defknown((_the, " ", (_form,), " ", (_form,)))
 class the(known):
         def nvalues(type, form):            not_implemented()
         def nth_value(n, orig, type, form): not_implemented()
@@ -10305,7 +10280,7 @@ class the(known):
 ******* LOCALLY
 
 #+begin_src python
-@defknown((intern("LOCALLY")[0],
+@defknown((_locally,
            [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class locally(known):
         def nvalues(*decls_n_body):            not_implemented()
@@ -10318,7 +10293,7 @@ class locally(known):
 ******* MULTIPLE-VALUE-PROG1
 
 #+begin_src python
-@defknown((intern("MULTIPLE-VALUE-PROG1")[0],
+@defknown((_multiple_value_prog1,
            3, (_form,),
            [(_lead, -2), (_notlead, "\n"), (_form,)]))
 class multiple_value_prog1(known):
@@ -10336,7 +10311,7 @@ class multiple_value_prog1(known):
 ******* LOAD-TIME-VALUE
 
 #+begin_src python
-@defknown((intern("LOAD-TIME-VALUE")[0], " ", (_form,), (_maybe, " ", (_typep, (member_t, t, nil)))))
+@defknown((_load_time_value, " ", (_form,), (_maybe, " ", (_typep, (member_t, t, nil)))))
 class load_time_value(known):
         def nvalues(form, read_only_p):            not_implemented()
         def nth_value(n, orig, form, read_only_p): not_implemented()
