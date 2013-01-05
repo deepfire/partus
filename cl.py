@@ -6450,6 +6450,9 @@ def match(matcher, exp, pat):
         name, prepped = maybe_destructure_binding(pat)
         return matcher.default(exp, prepped, name = name)
 
+def matcher_error(sex, r, f, desc = "matching"):
+        error("While %s %s: failed to match %s using pattern %s.", desc, pp_consly(sex), pp_consly(r), pp_consly(f))
+
 # Preprocessing
 
 intern_and_bind_symbols(
