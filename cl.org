@@ -3171,7 +3171,7 @@ def symbol_macro_expander(sym, environment = None):
         ## -> (-> expansion) | None
         lexical = environment and the(lexenv_t, environment).lookup_var_kind(_symbol_macro, sym)
         expansion = (the(symbol_t, sym).symbol_macro_expansion if not lexical else
-                     lexical.value)
+                     lexical.value[0])
         return (lambda: expansion) if expansion is not None else None
 
 def style_warn(control, *args):
