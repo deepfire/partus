@@ -11376,14 +11376,55 @@ def run_tests_compiler():
                           42),
                         42)
         ## FLET
-        # assert evaltest("",
-        #                 l(),
-        #                 )
+        name = gensym("FNAME")
+        assert evaltest("FLET-SIMPLE",
+                        l(_flet, l(l(name, l(_car),
+                                     l(__cons, 42, _car))),
+                          l(name, l(_list, 2.17))),
+                        l(42, 2.17))
+        name = gensym("FNAME")
+        assert evaltest("FLET-COMPLEX",
+                        l(_flet, l(l(name, l(_car, _optional, _cons, _rest, _cdr, _key, l(_cadr, 42), l(_cddr, 123)),
+                                     l(_list, _car, _cons, _cdr, _cadr, _cddr))),
+                          l(name, 3.14, 2.71, __cadr, 2.71)),
+                        l(3.14, 2.71, l(__cadr, 2.71), 2.71, 123))
+        name = gensym("FNAME")
+        assert evaltest("FLET-SHADOW/SCOPE",
+                        l(_flet, l(l(name, l(),
+                                     42)),
+                          l(_list,
+                            l(name),
+                            l(_flet, l(l(name, l(),
+                                         l(_list, 3.14, l(name)))),
+                              l(name)),
+                            l(name))),
+                        l(42, l(3.14, 42), 42))
         ## LABELS
-        # assert evaltest("",
-        #                 l(),
-        #                 )
+        name = gensym("FNAME")
+        assert evaltest("LABELS-SIMPLE",
+                        l(_labels, l(l(name, l(_car),
+                                       l(__cons, 42, _car))),
+                          l(name, l(_list, 2.17))),
+                        l(42, 2.17))
+
+        name, acc, n, cur = [ gensym(x) for x in [ "FACT", "ACC", "N", "CUR" ] ]
+        assert evaltest("LABELS-REC",
+                        l(_labels, l(l(name, l(n, _optional, l(acc, 1), l(cur, n)),
+                                       l(_if, l(_equals, cur, 0),
+                                         acc,
+                                         l(name, n, l(_mult, acc, cur), l(_sub, cur, 1))))),
+                          l(name, 5)),
+                        120)
         ## MACROLET
+        dbgsetup( # forms = t,
+                  # macroexpanded = t,
+                  # subrewriting = t,
+                  # rewritten = t,
+                  # subprimitivisation = t,
+                  # primitives = t,
+                  # module_ast = t,
+                  )
+        # do_set(_compiler_validate_ast_, t, nil)
         # assert evaltest("",
         #                 l(),
         #                 )
