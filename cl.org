@@ -7813,18 +7813,19 @@ class variable_binding(variable, binding):
                 binding.__init__(self, value, **attributes)
                 if tn:
                         self.tn = tn
-        def allocate_tn(self):
+        def allocate_tn(self, globalp = nil):
                 ## This calls onto primitive IR
-                self.tn = variable_tn(self.name)
+                self.tn = variable_tn(self.name, globalp = globalp)
 class function_binding(function, binding):
         def __init__(self, name, kind, value, tn = nil, **attributes):
                 function.__init__(self, name, kind, **attributes)
                 binding.__init__(self, value, **attributes)
                 if tn:
                         self.tn = tn
-        def allocate_tn(self):
+        def allocate_tn(self, globalp = nil):
                 ## This calls onto primitive IR
-                self.tn = function_tn(self.name)
+                self.tn = function_tn(self.name, globalp = globalp)
+                # dprintf("  ALLOCATE-TN: %s -> %s", self.name, self.tn)
 class block_binding(block, binding):
         def __init__(self, name, _, value, **attributes):
                 block.__init__(self, name, **attributes)
@@ -7928,7 +7929,7 @@ class lexenv_t():
                       self.adjoin_scope(self.parent, "gotagscope",
                                         complete_frame(name_gotagframe, kind_gotagframe, full_gotagframe)))
                 if allocate_tns:
-                        self.allocate_tns()
+                        self.allocate_tns(globalp = nil)
         def adjoin_scope(self, parent_lexenv, sname, frame):
                 pscope = getattr(parent_lexenv, sname) if parent_lexenv else nil
                 return (pscope if not frame else
@@ -7936,12 +7937,12 @@ class lexenv_t():
                          (nil if parent_lexenv is nil else pscope),
                          self)
                         ), frame
-        def allocate_tns(self):
+        def allocate_tns(self, globalp = nil):
                 for slot in ["varframe", "funcframe"]:
                         frame = getattr(self, slot)
                         if frame:
                                 for binding in frame["name"].values():
-                                        binding.allocate_tn()
+                                        binding.allocate_tn(globalp = globalp)
         @staticmethod
         def merge_frames(f0, f1):
                 res = dict(f0)
@@ -8402,15 +8403,15 @@ class fn():
         # affected      - T or NIL
         def __init__(self, name,
                      arglist = None, body = None,
-                     globalp = t,
+                     globalp = nil,
                      args_types = None, values_types = None,
                      effects = None, affected = None):
                 check_type(arglist, list_t)
                 args_types = [t] * length(arglist)
                 if the(symbol_t, name): ## Not anonymous LAMBDA?
-                        if name in fns:
-                                error("Asked to overwrite FN record %s.", name)
                         if globalp:
+                                if name in fns:
+                                        error("Asked to overwrite FN record %s.", name)
                                 fns[name] = self
                 attrify_args(self, locals(), "name",
                               "arglist", "args_types", "values_types",
@@ -8897,11 +8898,9 @@ def ir_nth_valueify_last_subform(n, form):
 with disabled_condition_system():
         import primitives as p
 
-def variable_tn(sym):         return p.name(unit_variable_pyname(sym))
-def function_tn(sym):         return p.name(unit_function_pyname(sym))
-def symbol_tn(sym):           return p.name(unit_symbol_pyname(sym))
-def variable_tn_no_unit(sym): return p.name(ensure_variable_pyname(sym))
-def function_tn_no_unit(sym): return p.name(ensure_function_pyname(sym))
+def variable_tn(sym, globalp = nil): return p.name((unit_variable_pyname if globalp else ensure_variable_pyname)(sym))
+def function_tn(sym, globalp = nil): return p.name((unit_function_pyname if globalp else new_function_pyname)(sym))
+def   symbol_tn(sym):                return p.name(unit_symbol_pyname(sym))
 
 def gensym_tn(x = "G"):
         sym = gensym(x)
@@ -9281,6 +9280,77 @@ class let_(known):
 ******* FLET
 
 #+begin_src python
+def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
+        # Unregistered Issue COMPLIANCE-MACRO-LAMBDA-LIST-DESTRUCTURING-AND-ENV
+        (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
+            args, forms = clambda.args, clambda.forms,
+        complexp = not not (optional or rest or clambda.keysp or aux)
+        if not complexp: ## Only has &WHOLE and fixed args:
+                return cons(lam, consify_linear(body))
+        ## Optimisations
+        # constant_forms_p = all(constantp(x) for x in optdefs + keydefs + auxforms)
+        opt_gsyms        = [ gensym_tn("OPT-" + symbol_name(x) + "-")
+                             for x in optional ]
+        need_rest        = rest or clambda.keysp ## &key is processed through parsing of *rest
+        rest_gsym        = ((gensym_tn("REST-" + (symbol_name(rest) if rest else
+                                                  "TN") + "-")) if need_rest else
+                            None)
+        must_check_keys  = clambda.keysp and not clambda.aokp
+        keyset_gsym      = gensym("KEYSET-") if must_check_keys else nil
+        key_map_gsym     = gensym_tn("KWHASH-") if clambda.keysp else nil
+        ksyms            = [ make_keyword_tn(symbol_name(x)) for x in keys ]
+        ## 1. validate_keyword_args, parse_keyword_args
+        ### This is the biggest victim of IR representation mixing (cons vs. linear-tuple),
+        ### all in the name of enrolling python lambda lists on board.
+        l, l_, a = list_, list__, append
+        return l(a(l(whole) if whole else nil,
+                   consify_linear(fixed),
+                   l_(_optional, consify_linear(opt_gsyms)) if optional else nil,
+                   l(_rest, rest_gsym) if need_rest else nil),
+                 # l(_funcall, l(_function, l(_quote, l("cl", "dprintf"))),
+                 #   ("fixed:%s    optional:%s    rest:%s"
+                 #    % (" %s"*len(fixed), " %s"*len(optional), (" %s" if need_rest else ""))),
+                 #   *(fixed + opt_gsyms + ([rest_gsym] if need_rest else []))),
+                 l(_let_, a(consify_linear(l(name, l(_if, l(_prim, p.eq, gs.tn, p.name("None")),
+                                                     def_expr,
+                                                     gs))
+                                           for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
+                            (l(l(rest, ir_cl_call("consify_linear", rest_gsym)))
+                             if rest else nil),
+                            (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", rest_gsym)),
+                                  consify_linear(l(name, l(_if, l(_prim, p.not_in, ksym.tn, key_map_gsym.tn),
+                                                           def_expr,
+                                                           l(_prim, p.index, key_map_gsym.tn, ksym.tn)))
+                                               for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
+                             if clambda.keysp else nil),
+                            (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
+                               l(gensym("DUMMY-"), ir_cl_call("validate_keyword_args", keyset_gsym, key_map_gsym)))
+                             if must_check_keys else nil),
+                            consify_linear(l(name, form)
+                                           for name, form in zip(aux, auxforms))),
+                   *body))
+
+def lower_lambda(lexenv, clambda, lam, body, name = nil, decorators = nil, self_binding = nil, globalp = nil):
+        (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
+            args, forms = clambda.args, clambda.forms
+        assert not (whole or clambda.keysp or aux) ## &WHOLE is a piece of debt, currently.
+        fnname_tn = function_tn(name, globalp = globalp) if name else None
+        ## Things, that are needed:
+        ##  - CLAMBDA passing
+        nonlocal_decl = ([ p.nonlocal_([ variable_tn(x)
+                                         for x in sorted(clambda.nonlocal_setqs, key = symbol_name) ]) ]
+                         if clambda.nonlocal_setqs else [])
+        varframe      = dict((b, variable_binding(b, _variable, None))
+                             for b in clambda.total)
+        with progv({ _lexenv_: make_lexenv(lexenv, clambda = clambda, allocate_tns = t,
+                                           name_varframe  = varframe,
+                                           name_funcframe = ({ name: self_binding }
+                                                             if self_binding else None)) }):
+                return p.lambda_(lower_lambda_list(fixed, optional, [None] * len(optional), rest or None, [], []),
+                                 p.progn(*nonlocal_decl
+                                         + [ primitivise(x) for x in body ]),
+                                 name = fnname_tn,
+                                 decorators = xmap_to_vector(primitivise, decorators))
 
 @defknown((_binder, _flet,
            (_flet, " ", ([(_notlead, "\n"), (_bind, _function,
@@ -9739,7 +9809,10 @@ class function(known):
                         if not find_global_function(name):
                                 simple_style_warning("undefined function: %s", name)
                         unit_note_gfun_reference(name)
-                return (function_tn(name) if not lexical_binding else
+                # dprintf("-=-=-=-  FUNCTION  lexicalp - %s - %s",
+                #         lexical_binding, (function_tn(name, globalp = t) if not lexical_binding else
+                #                           lexical_binding.tn))
+                return (function_tn(name, globalp = t) if not lexical_binding else
                         lexical_binding.tn)
         def effects(name):         return nil
         def affected(name):        return not symbol_value(_lexenv_).funcscope_binds_p(name)
@@ -9950,7 +10023,7 @@ def ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macro
                 (optdefs, keydefs, auxforms),
                 keyposp, aokposp)
 
-def lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_defaults):
+def lower_lambda_list(fixed, optional, opt_defaults, rest, keys, key_defaults):
         assert len(optional) == len(opt_defaults)
         assert len(keys)     == len(key_defaults)
         def to_names(xs): return [ variable_tn(x) for x in xs ]
@@ -9970,7 +10043,7 @@ def lower_lambda_list(context, fixed, optional, rest, keys, opt_defaults, key_de
            (_lambda, (_funcher, _lambda))),
           name = _lambda)
 class lambda_(known):
-        def binder(exp, further, name = nil, decorators = nil):
+        def binder(exp, further, name = nil, decorators = nil, globalp = nil):
                 form = form_real(exp)
                 length(form) < 2 and error("Bad LAMBDA form: %s", pp_consly(form))
                 lam = form[1][0]
@@ -9981,85 +10054,26 @@ class lambda_(known):
                                   (_walker_lexenv_,
                                    make_lexenv(symbol_value(_walker_lexenv_), clambda = clambda,
                                                allocate_tns = symbol_value(_walker_allocate_tns_),
+                                               ## Unregistered Issue PER-PHASE-FN-ALLOCATION-FOR-SAME-CODE
                                                name_funcframe = { name: function_binding(name, _function, fn(name, lam)) }))
                                  ])):
                         return further(exp)
-        def rewrite(orig, lambda_list, *body, name = nil, decorators = nil):
-                # Unregistered Issue COMPLIANCE-MACRO-LAMBDA-LIST-DESTRUCTURING-AND-ENV
-                env = symbol_value(_walker_lexenv_)
-                clambda = compiler_lambda(name, lambda_list)
-                (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
-                    args, forms = clambda.args, clambda.forms,
-                complexp = not not (optional or rest or clambda.keysp or aux)
-                if not complexp: ## Only has &WHOLE and fixed args:
-                        with progv({ _walker_lexenv_: make_lexenv_varframe(clambda.total, parent = env) }):
-                                return nil, ir(*vectorise_linear(orig),
-                                               **dictappend({ "name":       name }       if name       else {},
-                                                            { "decorators": decorators } if decorators else {}))
-                ## Optimisations
-                # constant_forms_p = all(constantp(x) for x in optdefs + keydefs + auxforms)
-                opt_gsyms        = [ gensym_tn("OPT-" + symbol_name(x) + "-")
-                                     for x in optional ]
-                need_rest        = rest or clambda.keysp ## &key is processed through parsing of *rest
-                rest_gsym        = ((gensym_tn("REST-" + (symbol_name(rest) if rest else
-                                                          "TN") + "-")) if need_rest else
-                                    None)
-                must_check_keys  = clambda.keysp and not clambda.aokp
-                keyset_gsym      = gensym("KEYSET-") if must_check_keys else nil
-                key_map_gsym     = gensym_tn("KWHASH") if clambda.keysp else nil
-                ksyms            = [ make_keyword_tn(symbol_name(x)) for x in keys ]
-                ## 1. validate_keyword_args, parse_keyword_args
-                ### This is the biggest victim of IR representation mixing (cons vs. linear-tuple),
-                ### all in the name of enrolling python lambda lists on board.
-                l, l_, a = list_, list__, append
-                return nil, ir(_lambda, a(l(whole) if whole else nil,
-                                          consify_linear(fixed),
-                                          l_(_optional, consify_linear(opt_gsyms)) if optional else nil,
-                                          l(_rest, rest_gsym) if need_rest else nil),
-                               l(_let_, a(consify_linear(l(name, l(_if, l(_prim, p.eq, gs.tn, p.name("None")),
-                                                                   def_expr,
-                                                                   gs))
-                                                         for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
-                                          (l(l(rest, ir_cl_call("consify_linear", rest_gsym)))
-                                           if rest else nil),
-                                          (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", rest_gsym)),
-                                                consify_linear(l(name, l(_if, l(_prim, p.not_in, ksym.tn, key_map_gsym.tn),
-                                                                         def_expr,
-                                                                         l(_prim, p.index, key_map_gsym.tn, ksym.tn)))
-                                                             for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
-                                           if clambda.keysp else nil),
-                                          (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
-                                             l(gensym("DUMMY-"), ir_cl_call("validate_keyword_args", keyset_gsym, key_map_gsym)))
-                                           if must_check_keys else nil),
-                                          consify_linear(l(name, form)
-                                                         for name, form in zip(aux, auxforms))),
-                                 *body),
+        def rewrite(_, lambda_list, *body, name = nil, decorators = nil, globalp = nil):
+                return nil, ir(_lambda, *vectorise_linear(rewrite_lambda(symbol_value(_walker_lexenv_),
+                                                                         compiler_lambda(name, lambda_list),
+                                                                         lambda_list, body)),
                                **dictappend({ "name":       name }       if name       else {},
-                                            { "decorators": decorators } if decorators else {}))
+                                            { "decorators": decorators } if decorators else {},
+                                            { "globalp":    globalp }    if globalp    else {}))
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def lower(lambda_list, *body, name = nil, decorators = nil):
-                clambda = compiler_lambda(name, lambda_list)
-                (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
-                    args, forms = clambda.args, clambda.forms
-                assert not (whole or clambda.keysp or aux) ## &WHOLE is a piece of debt, currently.
-                fnname_tn = function_tn(name) if name else None
-                ## Things, that are needed:
-                ##  - CLAMBDA passing
-                nonlocal_decl = ([ p.nonlocal_([ variable_tn(x)
-                                                 for x in sorted(clambda.nonlocal_setqs, key = symbol_name) ]) ]
-                                 if clambda.nonlocal_setqs else [])
-                varframe      = dict((b, variable_binding(b, _variable, None))
-                                     for b in clambda.total)
-                with progv({ _lexenv_: make_lexenv(symbol_value(_lexenv_), clambda = clambda, allocate_tns = t,
-                                                   name_varframe  = varframe,
-                                                   name_funcframe = { name: function_binding(name, _function, fn(name, lambda_list)) }) }):
-                        return p.lambda_(lower_lambda_list("LAMBDA", *(fixed, optional, rest or None, [],
-                                                                       [None] * len(optional), [])),
-                                         p.progn(*nonlocal_decl
-                                                 + [ primitivise(x) for x in body ]),
-                                         name = fnname_tn,
-                                         decorators = xmap_to_vector(primitivise, decorators))
+        def lower(lambda_list, *body, name = nil, decorators = nil, globalp = nil):
+                return lower_lambda(symbol_value(_lexenv_),
+                                    compiler_lambda(name, lambda_list),
+                                    lambda_list, body,
+                                    name = name, decorators = decorators,
+                                    globalp = globalp,
+                                    self_binding = function_binding(name, _function, fn(name, lambda_list)))
         def effects(*_):            return nil
         def affected(*_):           return nil
 
@@ -10929,6 +10943,7 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
                 error("In %%COMPILE-IN-LEXENV: the provided non-NULL lexenv conflicts with GLOBALP.")
         form = ir(*vectorise_linear(lambda_expression),
                    name = name,
+                   globalp = t,  ## This (LOWER-LAMBDA's) globalp is different from COMPILE-IN-LEXENV's globalp.
                    **({ "decorators": list_(ir_cl_call("set_macro_definition",
                                                         ir_apply("globals"), name, lambda_expression)
                                             if global_macro_p else
@@ -11236,7 +11251,7 @@ def run_tests_compiler():
                         l(_progn,
                           ir(_lambda, nil,
                              l(_throw, l(_quote, _car), 42),
-                             name = name),
+                             name = name, globalp = t),
                           l(_catch, l(_quote, _car),
                             l(name),
                             3.14)),
@@ -11261,7 +11276,7 @@ def run_tests_compiler():
                         l(_progn,
                           ir(_lambda, nil,
                              l(_values, 3.14, 42, 2.71),
-                             name = name),
+                             name = name, globalp = t),
                           l(_nth_value, 1, l(name))),
                         42)
         name = gensym("FNAME")
@@ -11269,7 +11284,7 @@ def run_tests_compiler():
                         l(_progn,
                           ir(_lambda, nil,
                              l(_values, 3.14, 42, 2.71),
-                             name = name),
+                             name = name, globalp = t),
                           l(_identity, l(name))),
                         3.14,
                         known_failure = t)
@@ -11279,7 +11294,7 @@ def run_tests_compiler():
                         l(_progn,
                           ir(_lambda, nil,
                              l(_symbol_value, l(_quote, _car)),
-                             name = name),
+                             name = name, globalp = t),
                           l(_progv, l(l(_car, l(_list, l(_quote, _car)))), l(42),
                             l(name))),
                         42)
@@ -11314,7 +11329,7 @@ def run_tests_compiler():
                         l(_progn,
                           ir(_lambda, l(_car, _key, l(_cdr, 42)),
                              l(_list, _car, _cdr),
-                             name = name),
+                             name = name, globalp = t),
                           l(_funcall, l(_function, name), 3.14, __cdr, 2.71)),
                         l(3.14, 2.71))
         ## LET*
