@@ -7322,7 +7322,7 @@ class lexenv_walker(metasex_mapper_t):
                 if ret[2] is not None: ## Propagate match failure.  Can we incrementalise the above bustage here?
                         return ret
                 ## Success -- extend the pre-lexenv with the binding.
-                name, what = (first(exp), second(exp)) if listp(exp) else (exp, nil)
+                name, what = (first(exp), cdr(exp)) if listp(exp) else (exp, nil)
                 # dprintf("==== Found binding for %s", name)
                 binder.positionally[position] = (position, kind, name, what)
                 return ret
