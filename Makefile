@@ -25,3 +25,7 @@ test:
 	export CL_RUN_TESTS=$(TEST) CL_TEST_QQ=$(TEST_QQ) CL_TEST_METASEX=$(TEST_METASEX) CL_TEST_KNOWN=$(TEST_KNOWN) CL_TEST_PP=$(TEST_PP) CL_TEST_COMPILER=$(TEST_COMPILER); $(PYTHON) -c "from cl import *; in_package('CL'); load('../informatimago/common-lisp/lisp-reader/reader.lisp', verbose =t, print = t)"
 smalltest:
 	$(PYTHON) cl-tests.py
+
+merge:
+	patch --merge cl.org d.diff; rm -f d.diff cl.org.orig
+
