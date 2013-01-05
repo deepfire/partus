@@ -651,13 +651,13 @@ def do_symbol_value(name):
         return (frame[name] if frame else
                 error(AttributeError, "Unbound variable: %s." % name))
 
-def do_pyimport_symbol(symbol, globals, name_xform = frost.lisp_symbol_name_python_name, force = False):
-        inmod_name = name_xform(symbol_name(symbol))
+def do_pyimport_symbol(symbol, globals, inmod_name = None, name_xform = frost.lisp_symbol_name_python_name, force = False):
+        inmod_name = name_xform(symbol_name(symbol)) if inmod_name is None else inmod_name
         # dprintf("PYMPORT '%s'", inmod_name)
         frost.setf_global(symbol, inmod_name, globals, force = force)
 
-def pyimport_symbol(symbol, globals = None, name_xform = frost.lisp_symbol_name_python_name, force = False):
-        do_pyimport_symbol(boot_check_type(symbolp, symbol), defaulted(globals, py.globals()), name_xform, force)
+def pyimport_symbol(symbol, globals = None, inmod_name = None, name_xform = frost.lisp_symbol_name_python_name, force = False):
+        do_pyimport_symbol(boot_check_type(symbolp, symbol), defaulted(globals, py.globals()), inmod_name, name_xform, force)
 
 def global_pyname(name):
         if name[0] != "*" != name[-1]:
@@ -669,13 +669,15 @@ def symbol_pyname(name):
 
 def intern_and_bind_symbols(*names, globals = None):
         globals = defaulted(globals, py.globals())
-        for name in names:
-                pyimport_symbol(intern(name)[0], globals, symbol_pyname)
+        for namespec in names:
+                pyname, name = namespec if isinstance(namespec, tuple) else (None, namespec)
+                pyimport_symbol(intern(name)[0], globals, pyname, symbol_pyname)
 
 def intern_and_bind_globals(*names, globals = None):
         globals = defaulted(globals, py.globals())
-        for name in names:
-                pyimport_symbol(intern(name)[0], globals, global_pyname)
+        for namespec in names:
+                pyname, name = namespec if isinstance(namespec, tuple) else (None, namespec)
+                pyimport_symbol(intern(name)[0], globals, pyname, global_pyname)
 
 def intern_and_bind_names_in_module_specifically(*name_specs, globals = None):
         globals = defaulted(globals, py.globals())
