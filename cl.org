@@ -10795,7 +10795,7 @@ def process_top_level(form) -> [ast.stmt]:
         ## Macro expansion, SAME MODE
         if symbol_value(_compile_verbose_):
                 complex_named_p = (listp(form) and length(form) > 1
-                                   and (atom(form[1][0]) or form[1][0][0] is _setf))
+                                   and (atom(form[1][0]) or form[1][0][0] is _setq))
                 kind, maybe_name = ((form[0], form[1][0]) if complex_named_p      else
                                     (form[0], "")         if listp(form) and form else
                                     (form, ""))
