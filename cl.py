@@ -2266,15 +2266,15 @@ def take(n, xs):
                 if elt is not termination_marker:
                         yield elt
 
-def some_fast(fn, xs):
+def some_fast(f, xs):
         for x in xs:
-                ret = fn(x)
+                ret = f(x)
                 if ret: return ret or t
         return nil
 
-def some_fast_2(fn, xs, ys):
+def some_fast_2(f, xs, ys):
         for x, y in zip(xs, ys):
-                ret = fn(x, y)
+                ret = f(x, y)
                 if ret: return ret or t
         return nil
 
@@ -2844,9 +2844,9 @@ def streamp(x):                     return isinstance(x, stream_t)
 def file_stream_p(x):              return isinstance(x, (_io._TextIOBase, _io._BufferedIOBase))
 
 @defun
-def with_open_stream(stream, fn):
+def with_open_stream(stream, f):
         try:
-                return fn(stream)
+                return f(stream)
         finally:
                 close(stream)
 
@@ -4185,10 +4185,10 @@ def setf_getf(value, xs, key):
 # Function CONSTANTLY
 
 @defun
-def every(fn, xs, *xss):
+def every(f, xs, *xss):
         if not xss:
                 while xs:
-                        if not fn(xs[0]):
+                        if not f(xs[0]):
                                  return nil
                         xs = xs[1]
                 return t
@@ -4196,10 +4196,10 @@ def every(fn, xs, *xss):
                 not_implemented("EVERY: multiple-list case")
 
 @defun
-def some(fn, xs, *xss):
+def some(f, xs, *xss):
         if not xss:
                 while xs:
-                        if fn(xs[0]):
+                        if f(xs[0]):
                                  return t
                         xs = xs[1]
                 return nil
@@ -4207,10 +4207,10 @@ def some(fn, xs, *xss):
                 not_implemented("SOME: multiple-list case")
 
 @defun
-def notevery(fn, xs, *xss):
+def notevery(f, xs, *xss):
         if not xss:
                 while xs:
-                        if not fn(xs[0]):
+                        if not f(xs[0]):
                                  return t
                         xs = xs[1]
                 return nil
@@ -4218,10 +4218,10 @@ def notevery(fn, xs, *xss):
                 not_implemented("NOTEVERY: multiple-list case")
 
 @defun
-def notany(fn, xs, *xss):
+def notany(f, xs, *xss):
         if not xss:
                 while xs:
-                        if fn(xs[0]):
+                        if f(xs[0]):
                                  return nil
                         xs = xs[1]
                 return t
@@ -4888,7 +4888,7 @@ def __cl_condition_handler__(condspec, frame):
         # even reach this point, as the stack is already unwound.
 set_condition_handler(__cl_condition_handler__)
 
-def handler_bind(fn, *handlers, no_error = identity):
+def handler_bind(f, *handlers, no_error = identity):
         "Works like real HANDLER-BIND, when the conditions are right.  Ha."
         value = None
 
@@ -4899,7 +4899,7 @@ def handler_bind(fn, *handlers, no_error = identity):
                 # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
                 with progv({_handler_clusters_: (symbol_value(_handler_clusters_) +
                                                  [handlers + (("__frame__", caller_frame()),)])}):
-                        return no_error(fn())
+                        return no_error(f())
         else:
                 # old world case..
                 # format(t, "crap FAIL: pep %s, exhook is cch: %s",
@@ -4909,7 +4909,7 @@ def handler_bind(fn, *handlers, no_error = identity):
                               len(handlers))
                 condition_type_name, handler = handlers[-1]
                 try:
-                        value = fn()
+                        value = f()
                 except find_class(condition_type_name) as cond:
                         return handler(cond)
                 finally:
@@ -7014,9 +7014,9 @@ intern_and_bind_globals("*LEXENV*")
 intern_and_bind_symbols("NULL")
 intern_and_bind_symbols("%BOOTSTRAP-NULL-LEXENV")
 
-def with_lexenv(lexenv, fn):
+def with_lexenv(lexenv, f):
         with progv({ _lexenv_: lexenv }):
-                return fn()
+                return f()
 
 @defclass(intern("%LEXENV")[0])
 class lexenv_t():
@@ -7512,10 +7512,10 @@ class fn():
         def add_dependent(self, reason, depee):
                 self.dependents[reason].add(depee)
                 depee.dependencies[reason].add(self)
-        def map_dependents(self, fn):
+        def map_dependents(self, f):
                 for reason, depees in self.dependents:
                         for d in depees:
-                                fn(d, reason)
+                                f(d, reason)
         def clear_dependencies(self):
                 for reason, deps in self.dependencies.items():
                         for d in deps:
@@ -7592,7 +7592,7 @@ def compilation_unit_adjoin_symbols(funs, syms, gfuns, gvars):
 
 string_set("*COMPILATION-UNIT-ID*", nil)
 
-def with_compilation_unit(fn, override = nil, id = "UNIT-"):
+def with_compilation_unit(f, override = nil, id = "UNIT-"):
         """Affects compilations that take place within its dynamic extent. It is
 intended to be eg. wrapped around the compilation of all files in the same system.
 
@@ -7637,7 +7637,7 @@ Examples:
         if symbol_value(_in_compilation_unit_) and not override:
                 try:
                         with progv({_top_compilation_unit_p_: nil}):
-                                ret = fn()
+                                ret = f()
                         succeeded_p = t
                         return ret
                 finally:
@@ -7663,7 +7663,7 @@ Examples:
                         try:
                                 # dprintf("############################################ Entered %s%s",
                                 #               id, (" parent: %s" % parent_id) if parent_id else "")
-                                ret = fn()
+                                ret = f()
                                 succeeded_p = t
                                 return ret
                         finally:
