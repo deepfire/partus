@@ -9409,39 +9409,59 @@ class flet(known):
           name = _labels)
 class labels(known):
         def binder(exp, further):
-                def fail(x): error("Bad LABELS form: %s", pp_consly(x))
                 form = form_real(exp) ## Filter out any potential IR-ARGS
+                def fail(x): error("Bad LABELS form: %s", pp_consly(x))
                 length(form) < 2 and fail(form)
                 bindings = vectorise_linear(form[1][0])
-                not all((length(x) >= 2 and
-                         listp(second(x)))
-                        for x in bindings) or fail(form)
+                all((length(x) >= 2 and
+                     listp(second(x)))
+                    for x in bindings) or fail(form)
                 env = symbol_value(_walker_lexenv_)
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
-                dprintf("LABING: %s", " ".join(pp_consly(b) for b in bindings))
                 with progv({ _walker_lexenv_:
                               make_lexenv(env, allocate_tns = symbol_value(_walker_allocate_tns_),
-                                          name_funcframe = { dprintf("LABIN: processing (%s %s %s)",
-                                                                     name, pp_consly(lam), pp_consly(body)) or
-                                                             name: function_binding(name, _function, fn(name, lam))
+                                          name_funcframe = { name: function_binding(name, _function, fn(name, lam))
                                                              for name, (lam, body) in bindings }),
                              _walker_binder_args_: nil } if bindings else
                            { _walker_binder_args_: nil }):
                         return further(exp)
         def rewrite(_, bindings, *body):
                 l = list_
+                def henry_baker_labels_using_flet_alone():
+                        # (defmacro laybells (fns &body forms)
+                        #   (let* ((fnames (mapcar #'car fns))
+                        #          (fnvec (gensym))
+                        #          (findicies (iota-list (length fns)))
+                        #          (fbodies (mapcar #'(lambda (f i)
+                        #                              `(,f (&rest a) (apply (svref ,fnvec ,i) ,fnvec a)))
+                        #                   fnames findicies))
+                        #          (fdecls `(declare (inline ,@fnames)))
+                        #          (nfbodies (mapcar #'(lambda (f)
+                        #                              `#'(lambda (,fnvec ,@(cadr f))
+                        #                                   (flet ,fbodies ,fdecls ,@(cddr f))))
+                        #                    fns)))
+                        #    `(let ((,fnvec (vector ,@nfbodies)))
+                        #       (flet ,fbodies ,fdecls ,@forms))))
+                        fnames    = xmap_to_vector(first, bindings)
+                        fnvec     = gensym("Y")
+                        findicies = range(len(fnames))
+                        rest      = gensym()
+                        fbodies   = [ l(f, l(_rest, rest), l(_apply, l(_funcall, l(_function, _aref), fnvec, i), fnvec, rest))
+                                      for f, i in zip(fnames, findicies) ]
+                        fdecls    = nil ## l(_declare, cons(_inline, consify_linear(fnames)))
+                        nfbodies  = [ l(_lambda, cons(fnvec, f[1][0]),
+                                         list__(_flet, consify_linear(fbodies), fdecls,
+                                                  f[1][1]))
+                                      for f in vectorise_linear(bindings) ]
+                        return l(_let, l(l(fnvec, list__(_funcall, l(_function, _vector), consify_linear(nfbodies)))),
+                                  list__(_flet, consify_linear(fbodies),
+                                          fdecls,
+                                          consify_linear(body)))
                 return t, (handle_constant_linear_body(body) if all(constantp(x) for x in body) else
                            ## This weak attempt above screams for proper liveness analysis.
                            nil                               if not (bindings or body)          else
                            handle_linear_body(body)          if not bindings                    else
-                           l(_funcall, ir(_lambda, nil,
-                                          ## We rely on that PRIMITIVE layer will allocate a
-                                          ## separate function for statements, thereby not wronging the namespace.
-                                          *(xmap_to_vector(lambda binding:
-                                                                   ir(_lambda, *vectorise_linear(binding[1]),
-                                                                      name = binding[0]),
-                                                           bindings)
-                                            + list(body)))))
+                           henry_baker_labels_using_flet_alone())
 #+end_src
 
 ******* MACROLET
