@@ -7947,7 +7947,6 @@ class known():
                 return nil, orig
         def binder(exp, continuation):
                 with progv({ _walker_binder_: lexenv_walker.binder(0, "Generic binder.") }):
-                        # dprintf("== KNOWN.BINDER: establishing a generic one")
                         return continuation(exp)
 
 def compute_default_metasex(name):
