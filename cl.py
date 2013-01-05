@@ -2313,13 +2313,6 @@ def constantly (x):
 def stable_sort(xs, predicate):
         return sorted(xs, key = functools.cmp_to_key(predicate))
 
-@defun
-def aref(xs, *indices):
-        r = xs
-        for i in indices:
-                r = r[i]
-        return r
-
 __allowed__ = frozenset([str, set, frozenset, tuple, list, bytes, bytearray])
 def maprestype(x):
         type = type_of(x)
@@ -4151,6 +4144,75 @@ def setf_getf(value, xs, key):
 # SUBSETP
 # UNION
 # NUNION
+
+# Arrays
+
+# Function MAKE-ARRAY
+
+# Function ADJUST-ARRAY
+
+# Function ADJUSTABLE-ARRAY-P
+
+@defun
+def aref(x, *indices):
+        ## Let's not forget the first two non-elements within arrays.
+        return (x[indices[0] + 2] if len(indices) is 1 else
+                x                if not indices       else
+                aref(x[indices[0]], *indices[1:]))
+
+# Function ARRAY-DIMENSION
+
+# Function ARRAY-DIMENSIONS
+
+# Function ARRAY-ELEMENT-TYPE
+
+# Function ARRAY-HAS-FILL-POINTER-P
+
+# Function ARRAY-DISPLACEMENT
+
+# Function ARRAY-IN-BOUNDS-P
+
+# Function ARRAY-RANK
+
+# Function ARRAY-ROW-MAJOR-INDEX
+
+# Function ARRAY-TOTAL-SIZE
+
+# Function ARRAYP
+
+# Accessor FILL-POINTER
+
+# Accessor ROW-MAJOR-AREF
+
+# Function UPGRADED-ARRAY-ELEMENT-TYPE
+
+# Constant Variable ARRAY-DIMENSION-LIMIT
+
+# Constant Variable ARRAY-RANK-LIMIT
+
+# Constant Variable ARRAY-TOTAL-SIZE-LIMIT
+
+# Function SIMPLE-VECTOR-P
+
+# Accessor SVREF
+
+@defun("VECTOR")
+def vector(*xs):
+        return [nil, nil] + list(xs)
+
+# Function VECTOR-POP
+
+# Function VECTOR-PUSH, VECTOR-PUSH-EXTEND
+
+# Function VECTORP
+
+# Accessor BIT, SBIT
+
+# Function BIT-AND, BIT-ANDC1, BIT-ANDC2, BIT-EQV, BIT-IOR, BIT-NAND, BIT-NOR, BIT-NOT, BIT-ORC1, BIT-ORC2, BIT-XOR
+
+# Function BIT-VECTOR-P
+
+# Function SIMPLE-BIT-VECTOR-P
 
 # Data function part of 5.3
 
