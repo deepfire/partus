@@ -9362,33 +9362,38 @@ class flet(known):
         def binder_args(bindings, *body):
                 return xmap_to_vector(lambda b: fn(b[0], b[1][0]), bindings)
         def rewrite(orig, bindings, *body):
-                def fail(x): error("Bad FLET form: %s", pp_consly(x))
-                l = list_
+                ## Unregistered Issue FLET-POTENTIALLY-MISSING-LAMBDA-BINDER-MAGIC
                 not (listp(bindings)
                      and every(lambda x: (length(x) >= 2 and
                                           listp(second(x))),
-                               bindings)) and fail(orig)
-                r = (handle_constant_linear_body(body) if all(constantp(x) for x in body) else
-                     ## This weak attempt above screams for proper liveness analysis.
-                     nil                               if not (bindings or body)          else
-                     handle_linear_body(body)          if not bindings                    else
-                     l(_funcall,
-                       (lambda rest, tns:
-                                l(_labels, xmap_to_conses(lambda tn_b:
-                                                                  cons(tn_b[0], tn_b[1][1]),
-                                                          list(zip(tns, bindings))),
-                                  l(_labels, xmap_to_conses(lambda tn_b:
-                                                                    l(tn_b[1][0], l(_rest, rest),
-                                                                      l(_apply, l(_function, tn_b[0]), rest)),
-                                                            list(zip(tns, bindings))),
-                                    *body)))
-                       (gensym("REST-"),
-                       (gensym("FN-" + symbol_name(x[0]) + "-")
-                        for x in vectorise_linear(bindings)))))
-                dprintf("FLET r %s %s %s -->\n%s",
-                        all(constantp(x) for x in body), not (bindings or body), not bindings,
-                        pp_consly(r))
-                return t, r
+                               bindings)) and error("Bad FLET form: %s", pp_consly(orig))
+                l = list_
+                lexenv = symbol_value(_walker_lexenv_)
+                return nil, (handle_constant_linear_body(body) if all(constantp(x) for x in body) else
+                             ## This weak attempt above screams for proper liveness analysis.
+                             nil                               if not (bindings or body)          else
+                             handle_linear_body(body)          if not bindings                    else
+                             l(_flet, mapcar(lambda f: cons(f[0], rewrite_lambda(lexenv,
+                                                                                 compiler_lambda(f[0], f[1][0]),
+                                                                                 f[1][0], vectorise_linear(f[1][1]))),
+                                             bindings),
+                                *body))
+        def lower(bindings, *body):
+                lexenv          = symbol_value(_lexenv_)
+                names, bindings = list(zip(*xmap_to_vector(lambda b: (b[0], b), bindings)))
+                clambdas        = [  compiler_lambda(b[0], b[1][0])                      for b in bindings ]
+                fbindings       = [ function_binding(b[0], _function, fn(b[0], b[1][0])) for b in bindings ]
+                for b in fbindings:
+                        b.allocate_tn()
+                # dprintf("fbindings: %s", fbindings)
+                return p.funcall(p.lambda_(([ b.tn for b in fbindings ], [], [], None, [], [], None),
+                                           with_lexenv(make_lexenv(lexenv, ## TNs were just preallocated.
+                                                                   name_funcframe = { b.name: b for b in fbindings }),
+                                                       lambda: p.progn(*(primitivise(x) for x in body)))),
+                                 *[ lower_lambda(lexenv, clambda,
+                                                 lambda_list, vectorise_linear(body),
+                                                 name = name)
+                                    for clambda, (name, (lambda_list, body)) in zip(clambdas, bindings) ])
 #+end_src
 
 ******* LABELS
