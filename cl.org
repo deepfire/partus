@@ -9230,7 +9230,7 @@ intern_and_bind_symbols("AREF", "VECTOR", "INLINE", ## For LABELS
 @defknown((_ir_args, "\n", (_form, (_for_matcher_layers_skip_action, (rewriter, metasex_mapper))),
            ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pprinter)))],))
 class ir_args(known):
-        def lower(*_):                     error("Invariant failed: IR-ARGS is not meant to be lowered.")
+        def primitivise(*_):               error("Invariant failed: IR-ARGS is not meant to be lowered.")
         def effects(*ir,  **args):         return ir_effects(ir)
         def affected(*ir, **args):         return ir_affected(ir)
 
@@ -9242,7 +9242,7 @@ def destructure_possible_ir_args(x):
 def ir(*ir, **keys):
         "A syntactic sugar for convenient IR-ARGS specification."
         known = find_known(the(symbol_t, ir[0]))
-        validate_function_keys("IR %s lower method" % known.name, known.lower, keys)
+        validate_function_keys("IR %s primitivise method" % known.name, known.primitivise, keys)
         return (list__(_ir_args, consify_linear(ir), consify_linear([ [k, v] for k, v in keys.items() ])) if keys else
                 consify_linear(ir))
 
@@ -9386,7 +9386,7 @@ class flet(known):
                                                                                  f[1][0], vectorise_linear(f[1][1]))),
                                              bindings),
                                 *body))
-        def lower(bindings, *body):
+        def primitivise(bindings, *body):
                 lexenv          = symbol_value(_lexenv_)
                 names, bindings = list(zip(*xmap_to_vector(lambda b: (b[0], b), bindings)))
                 clambdas        = [  compiler_lambda(b[0], b[1][0])                      for b in bindings ]
@@ -9709,7 +9709,7 @@ class setq(known):
         def nth_value(n, orig, _, value):                                 return orig if n is 0 else list_(_progn, orig, nil)
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
-        def lower(name, value):
+        def primitivise(name, value):
                 if pyref_p(name):
                         return p.assign(primitivise_pyref(name), primitivise(value))
                 cur_lexenv = symbol_value(_lexenv_)
@@ -9742,7 +9742,7 @@ class progn(known):
                 return rewrote, form
         def nvalues(*body):            return 1   if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, *body): return nil if not body else ir_nth_valueify_last_subform(n, orig)
-        def lower(*body):
+        def primitivise(*body):
                 return (p.progn(*(primitivise(x) for x in body)) if body else
                         primitivise(nil))
         def effects(*body):            return any(ir_effects(f) for f in body)
@@ -9772,7 +9772,7 @@ class if_(known):
                 return (list_(_nth_value, n, orig) if ir_effects(consequent) or ir_effects(antecedent) else
                         vconseq                    if (vconseq == vante) and not ir_effects(test)       else
                         list_(_if, test, vconseq, vante))
-        def lower(test, consequent, antecedent):
+        def primitivise(test, consequent, antecedent):
                 return p.if_(primitivise(test),
                              primitivise(consequent),
                              primitivise(antecedent))
@@ -9800,7 +9800,7 @@ class let(known):
                          list__(_progn, append(consify_linear(forms), list_(nil)))))
         def nvalues(bindings, *body):            return 1   if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else ir_nth_valueify_last_subform(n, orig)
-        def lower(bindings, *body):
+        def primitivise(bindings, *body):
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
                 # Unregistered Issue DEAD-CODE-ELIMINATION
                 normalised = vectorise_linear(bindings)
@@ -9832,7 +9832,7 @@ class function(known):
         ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def lower(name):
+        def primitivise(name):
                 ## (QUOTE ("str"))
                 if pyref_p(name):
                         return primitivise_pyref(name)
@@ -9898,7 +9898,7 @@ class unwind_protect(known):
         def nvalues(form, *unwind_body):            return ir_nvalues(form)
         def nth_value(n, orig, form, *unwind_body): return list__(_unwind_protect, ir_nth_value(n, form),
                                                                   consify_linear(unwind_body))
-        def lower(form, *unwind_body):
+        def primitivise(form, *unwind_body):
                 return p.unwind_protect(primitivise(form),
                                         p.progn(*(primitivise(x) for x in unwind_body)))
         def effects(form, *unwind_body):
@@ -9917,7 +9917,7 @@ class ref(known):
                 return not pyrefp, (orig if pyrefp else x)
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def lower(name):
+        def primitivise(name):
                 if pyref_p(name):
                         return primitivise_pyref(name)
                 cur_lexenv = symbol_value(_lexenv_)
@@ -10100,7 +10100,7 @@ class lambda_(known):
                                             { "globalp":    globalp }    if globalp    else {}))
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def lower(lambda_list, *body, name = nil, decorators = nil, globalp = nil):
+        def primitivise(lambda_list, *body, name = nil, decorators = nil, globalp = nil):
                 return lower_lambda(symbol_value(_lexenv_),
                                     compiler_lambda(name, lambda_list),
                                     lambda_list, body,
@@ -10123,7 +10123,7 @@ class prim(known):
                              orig)
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def lower(prim, *args, **keys):
+        def primitivise(prim, *args, **keys):
                 return prim(*args, **keys)
         def effects(*_):            return t
         def affected(*_):           return t
@@ -10138,7 +10138,7 @@ class prim(known):
 class apply(known):
         def nvalues(func, _, *__):            return ir_function_form_nvalues(func)
         def nth_value(n, orig, func, _, *__): return ir_function_form_nth_value_form(n, func, orig)
-        def lower(func, arg, *args):
+        def primitivise(func, arg, *args):
                 ## Unregistered Issue IMPROVEMENT-APPLY-COULD-VALIDATE-CALLS-OF-KNOWNS
                 fixed, rest = (((),                 arg)       if not args                  else
                                ((arg,) + args[:-1], args[-1]))
@@ -10167,7 +10167,7 @@ class apply(known):
 class quote(known):
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def lower(x):
+        def primitivise(x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if isinstance(x, symbol_t) and not constantp(x):
                         compiler_trace_known_choice(_quote, x, "NONCONSTANT-SYMBOL")
@@ -10198,7 +10198,7 @@ class multiple_value_call(known):
         ## once we get into the partial evaluation affairs..
         def nvalues(func, *_):            return ir_function_form_nvalues(func)
         def nth_value(n, orig, func, *_): return ir_function_form_nth_value_form(n, func, orig)
-        def lower(fn, *arg_forms):
+        def primitivise(fn, *arg_forms):
                 ## We have no choice, but to lower immediately, and by hand.
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
                 return p.apply(primitivise(fn),
@@ -10223,7 +10223,7 @@ class catch(known):
                                                     list_(_progn, tag, nil)  if ir_effects(tag) else
                                                     nil)
         ## Unregistered Issue DOUBT-WHETHER-LAMBDA-CAN-LOWER-PROLOGUESSLY-DUE-TO-C-L-A-N-T
-        def lower(tag, *body):
+        def primitivise(tag, *body):
                 return p.catch(primitivise(tag),
                                p.progn(*(primitivise(x) for x in body)))
         def effects(tag, *body):  return ir_effects(tag) or any(ir_effects(f) for f in body)
@@ -10238,7 +10238,7 @@ class throw(known):
         def nvalues(_, value):            return ir_nvalues(value)
         def nth_value(n, orig, _, value): return (list_(_progn, tag, ir_nth_value(value)) if ir_effects(tag) else
                                                   ir_nth_value(value))
-        def lower(tag, value):
+        def primitivise(tag, value):
                 return p.throw(primitivise(tag), primitivise(value))
         def effects(tag, value):          return ir_effects(tag) or ir_effects(value)
         def affected(tag, value):         return ir_affected(tag) or ir_affected(value)
@@ -10266,7 +10266,7 @@ class nth_value(known):
                         nil                        if n != form_n and not ir_effects(form)   else
                         list_(_progn, form, nil)   if n != form_n                            else
                         ir_nth_value(n, form)) ## We don't risk unbounded recursion here, so let's analyse further..
-        def lower(n, form):
+        def primitivise(n, form):
                 return p.funcall(p.impl_ref("values_frame_project"), primitivise(n), primitivise(form))
         def effects(n, form):   return ir_effects(n) or ir_effects(form)
         def affected(n, form):  return ir_affected(n) or ir_affected(form)
@@ -10288,7 +10288,7 @@ class progv(known):
                                                               if (ir_effects(names)
                                                                   or ir_effects(values)) else
                                                               nil)
-        def lower(vars, vals, *body):
+        def primitivise(vars, vals, *body):
                 return p.progv(tuple(primitivise(x) for x in vars), tuple(primitivise(x) for x in vals),
                                p.progn(*(primitivise(x) for x in body)))
         def effects(names, values, *body):            return any(ir_effects(f) for f in (names, values) + body)
@@ -10305,7 +10305,7 @@ class protoloop(known):
         ## Critical Issue PROTOLOOP-MULTIPLE-VALUES-NOT-IMPLEMENTED
         def nvalues(*_):            return not_implemented()
         def nth_value(n, *_):       return not_implemented()
-        def lower(*body):
+        def primitivise(*body):
                 return p.loop(p.progn(*(primitivise(x) for x in body)))
         def effects(*body):         return any(ir_effects(x)  for x in body)
         def affected(*body):        return any(ir_affected(x) for x in body)
@@ -10319,7 +10319,7 @@ class protoloop(known):
 class the(known):
         def nvalues(type, form):            not_implemented()
         def nth_value(n, orig, type, form): not_implemented()
-        def lower(type, form):              not_implemented()
+        def primitivise(type, form):              not_implemented()
         def effects(type, form):            return ir_effects(form)
         def affected(type, form):           return ir_affected(form)
 #+end_src
@@ -10332,7 +10332,7 @@ class the(known):
 class locally(known):
         def nvalues(*decls_n_body):            not_implemented()
         def nth_value(n, orig, *decls_n_body): not_implemented()
-        def lower(*decls_n_body):              not_implemented()
+        def primitivise(*decls_n_body):        not_implemented()
         def effects(*decls_n_body):            not_implemented()
         def affected(*decls_n_body):           not_implemented()
 #+end_src
@@ -10350,7 +10350,7 @@ class multiple_value_prog1(known):
                         (lambda sym: list__(_let, list_(list_(sym, ir_nth_value(n, first_form))),
                                             consify_linear(forms + (sym,))))
                         (gensym("MV-PROG1-VALUE-")))
-        def lower(first_form, *forms):              not_implemented()
+        def primitivise(first_form, *forms):        not_implemented()
         def effects(first_form, *forms):            return ir_effects(first_form) or any(ir_effects(f) for f in forms)
         def affected(first_form, *forms):           return ir_affected(first_form) or any(ir_affected(f) for f in forms)
 #+end_src
@@ -10362,7 +10362,7 @@ class multiple_value_prog1(known):
 class load_time_value(known):
         def nvalues(form, read_only_p):            not_implemented()
         def nth_value(n, orig, form, read_only_p): not_implemented()
-        def lower(form, read_only_p):              not_implemented()
+        def primitivise(form, read_only_p):        not_implemented()
         def effects(form, read_only_p):            not_implemented()
         def affected(form, read_only_p):           not_implemented()
 #+end_src
@@ -10610,9 +10610,9 @@ def primitivise(form, lexenv = nil) -> p.prim:
                                 if not known:
                                         error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
                                 compiler_maybe_note_inner(known.name, form)
-                                if not hasattr(known, "lower"):
-                                        error("It is not KNOWN to me, how to lower %s forms.", form[0])
-                                res = known.lower(*vectorise_linear(form[1]), **alist_hash_table(args))
+                                if not hasattr(known, "primitivise"):
+                                        error("It is not KNOWN to me, how to primitivise %s forms.", form[0])
+                                res = known.primitivise(*vectorise_linear(form[1]), **alist_hash_table(args))
                                 compiler_maybe_note_subprimitivisation(x, res)
                                 return res
                         else:
