@@ -3144,8 +3144,10 @@ SETF of MACRO-FUNCTION."""
                     nil) or the(symbol_t, symbol).macro_function
         if b_or_res and bindingp(b_or_res) and consp(b_or_res.value):
                lambda_list, body = b_or_res.value
-               b_or_res = compile_in_lexenv(list_(_lambda, lambda_list, *body),
-                                             lexenv = environment)
+               name = gensym(str(symbol))
+               f = list__(_lambda, lambda_list, body)
+               b_or_res = compile_in_lexenv(f, name = name,
+                                            lexenv = environment)
         return the((or_t, function_t, null_t),
                    (b_or_res.value if bindingp(b_or_res) else b_or_res) or nil)
 
