@@ -10101,7 +10101,7 @@ class prim(known):
 ******* APPLY
 
 #+begin_src python
-@defknown((_apply, " ", (_form,), " ", (_form,), [" ", (_form,)]))
+@defknown((_apply, " ", ".", (_form,), (_fill,), (_form,), [(_fill,), (_form,)]))
 class apply(known):
         def nvalues(func, _, *__):            return ir_function_form_nvalues(func)
         def nth_value(n, orig, func, _, *__): return ir_function_form_nth_value_form(n, func, orig)
