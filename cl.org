@@ -10544,11 +10544,12 @@ def primitivise(form, lexenv = nil) -> p.prim:
         # - scopes
         # - symbols not terribly clear
         # - proper quote processing
-        def compiler_maybe_note_subprimitivisation(x):
+        def compiler_maybe_note_subprimitivisation(x, res):
                 if (symbol_value(_compiler_trace_subprimitivisation_)
                     and not isinstance(x, (symbol_t, bool, int, str))
                     and not (consp(x) and x[0] in [_ref, _function, _quote])):
                         report(known = x, desc = "PRIMITIVISE", lexenv = coerce_to_lexenv(symbol_value(_lexenv_)))
+                        dprintf("%s", res)
         def compiler_maybe_note_inner(known_name, xs):
                 if symbol_value(_compiler_trace_inner_knowns_) and known_name is not _symbol:
                         dprintf("%s>>> %s\n%s%s", sex_space(), name,
@@ -10565,7 +10566,6 @@ def primitivise(form, lexenv = nil) -> p.prim:
                 ## XXX: what are the side-effects?
                 ## NOTE: we are going to splice unquoting processing here, as we must be able
                 ## to work in READ-less environment.
-                compiler_maybe_note_subprimitivisation(x)
                 if x is nil or isinstance(x, symbol_t) and not constantp(x):
                         ## Unregistered Issue SYMBOL-MODEL
                         return rec(list_(_ref, x))
@@ -10577,7 +10577,11 @@ def primitivise(form, lexenv = nil) -> p.prim:
                                 if not known:
                                         error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
                                 compiler_maybe_note_inner(known.name, form)
-                                return known.lower(*vectorise_linear(form[1]), **alist_hash_table(args))
+                                if not hasattr(known, "lower"):
+                                        error("It is not KNOWN to me, how to lower %s forms.", form[0])
+                                res = known.lower(*vectorise_linear(form[1]), **alist_hash_table(args))
+                                compiler_maybe_note_subprimitivisation(x, res)
+                                return res
                         else:
                                 error("Invalid form: %s.", pp_consly(x))
                 else:
