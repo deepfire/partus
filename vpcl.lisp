@@ -2,7 +2,7 @@
   `(progn
      (eval-when (:compile-toplevel)
        ;; -compile-and-load-function() expects the compiler-level part of function to be present.
-       (funcall (function (quote ("cl" "compiler_defun"))) ',name 'nil))
+       (funcall (function (quote ("cl" "compiler_defun"))) ',name nil))
      (eval-when (:load-toplevel :execute)
        (ir-args
         (lambda ,lambda-list
@@ -12,28 +12,32 @@
         ("globalp" . t)
         ("decorators" (apply (function (quote ("cl" "set_function_definition")))
                              (apply (function (quote ("globals"))) 'nil)
-                             ',name nil
+                             ',name '(lambda ,lambda-list ,@body)
                              'nil)))
-       ;; ',name '(lambda ,lambda-list ,@body))))
-                             
        'nil)))
-
 
 ;; (eval-when (:compile-toplevel)
 ;;   (funcall (function (quote ("cl" "dbgsetup")))))
 ;; (eval-when (:compile-toplevel)
 ;;   (setq (quote ("cl" "__enable_matcher_tracing__")) t))
 
-(defun %test-defun (&optional (basis 0) &key (x 1) y (z 3) &allow-other-keys &aux
-                    (fmtargs (list basis x y z)))
-  (apply (function format) t "Hello from DEFUN TEST basis:%s  x:%s  y:%s  z:%s" fmtargs)
+(defun %test-defun ()
+  (format t "Hello from %%TEST-DEFUN.")
   (terpri))
 
-(%test-defun 42 :y 2 :x 3.14159 :ignore "ignored")
 (%test-defun)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun not (x)
+    (primitive '("p" "not_") x)))
 
 (defmacro when (test &body body)
   `(if ,test
+       (progn ,@body)
+       nil))
+
+(defmacro unless (test &body body)
+  `(if (not ,test)
        (progn ,@body)
        nil))
 
@@ -43,14 +47,65 @@
       (error "SETF: not implemented: non-symbol target.")))
 
 (defmacro push (x xs)
-  (if (symbolp xs)
-      `(setq ,xs (cons ,x ,xs))
-      (error "PUSH: not implemented: non-symbol target.")))
+  `(setf ,xs (cons ,x ,xs)))
 
 (defmacro pop (xs)
   (let ((oldxs (gensym)))
-    (if (symbolp xs)
-        `(let ((,oldxs ,xs))
-           (setq ,xs (cdr ,oldxs))
-           (car ,oldxs))
-        (error "POP: not implemented: non-symbol target."))))
+    `(let ((,oldxs ,xs))
+       (setf ,xs (cdr ,oldxs))
+       (car ,oldxs))))
+
+(defmacro or (&rest forms)
+  (if (not (cdr forms)) ;; Handles the case of empty FORMS as well.
+      (first forms)
+      (let ((tn (gensym "OR-")))
+        `(let ((,tn ,(first forms)))
+           (if ,tn ,tn (or ,@(cdr forms)))))))
+
+(defmacro and (&rest forms)
+  (if (not forms)
+      t
+      (if (not (cdr forms))
+          (first forms)
+          `(if (not ,(first forms))
+               nil
+               (and ,@(cdr forms))))))
+
+(defmacro cond (&rest clauses)
+  (when clauses
+    (let ((clause (first clauses))
+          (rest (rest clauses)))
+      (when (or (not clause)
+                (cddr clause))
+        (error "Invalid COND form: %s" `(cond ,@clauses)))
+      (if (cdr clause)
+          `(if ,(first clause)
+               ,(second clause)
+               (cond ,@rest))
+          (let ((tn (gensym)))
+            `(let ((,tn ,(first clause)))
+               (if ,tn
+                   ,tn
+                   (cond ,@rest))))))))
+
+(defmacro define-condition (name super slots &rest rest)
+  `(progn
+     (eval-when (:compile-toplevel)
+       (format t "; ignoring definition for condition %s" ',name)
+       (terpri))
+     (format t "; ignoring definition for condition %s" ',name)
+     (terpri)))
+
+(defmacro defclass (name supers slots &body class-options)
+  `(progn
+     (eval-when (:compile-toplevel)
+       (format t "; ignoring definition for class %s" ',name)
+       (terpri))
+     (format t "; ignoring definition for class %s" ',name)
+     (terpri)))
+
+(defmacro defconstant (name &optional value documentation)
+  `(progn
+     (eval-when (:compile-toplevel)
+       (funcall '("cl" "compiler_defconstant") ',name ,value))
+     (funcall '("cl" "compiler_defconstant") ',name ,value)))
