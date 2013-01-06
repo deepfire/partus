@@ -4563,6 +4563,9 @@ def expand_quasiquotation(form):
                                         acc.append(process_qq(xi[1]) if xi[0] is _quasiquote else
                                                    xi[1])            #           comma
                                         break
+                                if not consp(ptr):
+                                        acc.append(ptr)
+                                        break
                                 xi = ptr[0]
                                 if isinstance(xi, tuple):
                                         if len(xi) != 2 or xi[0] not in (_quasiquote, _comma, _splice):
