@@ -4468,10 +4468,16 @@ def car(x):         return x[0] if x else nil
 @defun
 def cdr(x):         return x[1] if x else nil
 
+@defun
+def rest(x):        return x[1] if x else nil
+
 # CAAR
 # CADR
 # CDAR
-# CDDR
+
+@defun
+def cddr(x):        return x[1][1] if x and x[1] else nil
+
 # CAAAR
 # CAADR
 # CADAR
