@@ -4728,27 +4728,40 @@ When INPUT-STREAM is an echo stream, characters that are only peeked at are not 
 @__block__
 def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         ## Has not even a remote chance of conforming.
-        def read_char_maybe_eof(): return read_char(stream, nil, nil)
+        bufc = nil
+        def do_read_char(eof_error_p = t, eof_value = nil):
+                nonlocal bufc
+                if bufc:
+                        ret, bufc = bufc, nil
+                        return ret
+                else:
+                        return read_char(stream, eof_error_p, eof_value)
+        def do_unread_char(char):
+                nonlocal bufc
+                if bufc:
+                        error("Attempted to unread more than one character (new %s, already got %s)!", repr(bufc), repr(char))
+                bufc = char
+        def read_char_maybe_eof(): return do_read_char(nil, nil)
         def read_inner(allow_consing_dot = nil):
                 skip_whitespace()
-                char = read_char(stream)
-                unread_char(char, stream)
+                char = do_read_char()
+                do_unread_char(char)
                 if   char == chr(40):  obj = read_list() # Org is a bit too picky
                 elif char == "\"":     obj = read_string()
                 elif char == "'":
-                        read_char(stream)
+                        do_read_char()
                         obj = list_(_quote, read_inner())
                 elif char == "`":
-                        read_char(stream)
+                        do_read_char()
                         obj = (_quasiquote, read_list())
                 elif char == ",":
                         ## This is a simplified take, but it'll do for bootstrapping purposes.
-                        read_char(stream)
-                        char = read_char(stream)
+                        do_read_char()
+                        char = do_read_char()
                         if char == "@":
                                 obj = (_splice, read_inner())
                         else:
-                                unread_char(char, stream)
+                                do_unread_char(char)
                                 obj = (_comma, read_inner())
                 else:
                         # handle_short_read_if(pos > end)
@@ -4768,24 +4781,24 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                                 skip_until_eol()
                         elif c not in frozenset([" ", "\t", "\n"]):
                                 if c is not nil:
-                                        unread_char(c, stream)
+                                        do_unread_char(c)
                                 return
         def read_list():
                 ret = []
                 improper = nil
-                c = read_char(stream) # it's a #\(
+                c = do_read_char() # it's a #\(
                 while t:
                         skip_whitespace()
-                        char = read_char(stream)
+                        char = do_read_char()
                         if char == "\x29":
                                 break
                         else:
-                                unread_char(char, stream)
+                                do_unread_char(char)
                                 obj = read_inner(allow_consing_dot = t)
                                 if not listp(obj) and obj is find_symbol(".", __cl)[0]:
                                         improper = read_inner()
                                         skip_whitespace()
-                                        char = read_char(stream)
+                                        char = do_read_char()
                                         if char != "\x29":
                                                 error("Unexpected character %s, where a closing paren was expected.",
                                                       repr(char))
@@ -4795,13 +4808,13 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                 return consify_linear(tuple(ret), last_cdr = improper) ## Beacon DEBUG-RELATED-SLOWDOWN
         def read_string():
                 ret = ""
-                read_char(stream) # seek the opening double-quote
+                do_read_char() # seek the opening double-quote
                 while t:
-                        char = read_char(stream)
+                        char = do_read_char()
                         if char == "\"":
                                 break
                         elif char == "\\":
-                                char2 = read_char(stream)
+                                char2 = do_read_char()
                                 ret += (char2 if char2 in set(["\"", "\\"]) else
                                         error("READ-FROM-STRING: unrecognized escape character \"%s\".", char2))
                         else:
@@ -4828,7 +4841,7 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                         char = read_char_maybe_eof()
                         if char in set([nil, " ", "\t", "\n", "\x28", "\x29", "\"", "'"]):
                                 if char is not nil:
-                                        unread_char(char, stream)
+                                        do_unread_char(char)
                                 break
                         else:
                                 token += char
