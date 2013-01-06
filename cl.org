@@ -9238,7 +9238,7 @@ intern_and_bind_symbols("IR-ARGS", "FUNCALL", ("_let_", "LET*"),
                         "TAGBODY", "GO", "EVAL-WHEN",
                         "SETQ", "PROGN", "IF",
                         "LET", "FUNCTION", "UNWIND-PROTECT",
-                        "REF", "LAMBDA", "PRIM",
+                        "REF", "LAMBDA", "PRIMITIVE",
                         "APPLY", "QUOTE", "MULTIPLE-VALUE-CALL",
                         "CATCH", "THROW", "NTH-VALUE",
                         "PROGV", "PROTOLOOP", "THE",
@@ -9455,16 +9455,16 @@ def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
                  #   ("fixed:%s    optional:%s    rest:%s"
                  #    % (" %s"*len(fixed), " %s"*len(optional), (" %s" if need_rest else ""))),
                  #   *(fixed + opt_gsyms + ([rest_gsym] if need_rest else []))),
-                 l(_let_, a(consify_linear(l(name, l(_if, l(_prim, p.eq, gs.tn, p.name("None")),
+                 l(_let_, a(consify_linear(l(name, l(_if, l(_primitive, p.eq, gs.tn, p.name("None")),
                                                      def_expr,
                                                      gs))
                                            for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
                             (l(l(rest, ir_cl_call("consify_linear", rest_gsym)))
                              if rest else nil),
                             (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", rest_gsym)),
-                                  consify_linear(l(name, l(_if, l(_prim, p.not_in, ksym.tn, key_map_gsym.tn),
+                                  consify_linear(l(name, l(_if, l(_primitive, p.not_in, ksym.tn, key_map_gsym.tn),
                                                            def_expr,
-                                                           l(_prim, p.index, key_map_gsym.tn, ksym.tn)))
+                                                           l(_primitive, p.index, key_map_gsym.tn, ksym.tn)))
                                                for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
                              if clambda.keysp else nil),
                             (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
@@ -10162,16 +10162,29 @@ class lambda_(known):
 ******* PRIM
 
 #+begin_src python
-@defknown((_prim, " ", (_satisfies, p.prim_type_p), [" ", (_form,)]))
-class prim(known):
+@defknown((_primitive, " ", (_or, (_satisfies, p.prim_type_p), (_satisfies, pyref_p)), [" ", (_form,)]))
+class primitive(known):
         def rewrite(orig, prim, *args, **keys):
-                return nil, (ir(_prim, prim, *args,
-                                **keys) if keys else
+                prim, pyrefp = ((prim, nil)                    if not pyref_p(prim)               else
+                                error("Unknown PRIMITIVE: %s",
+                                      pp_consly(prim))         if (prim[1][0][0] != "p"
+                                                                   or not hasattr(p, prim[1][0][1][0])
+                                                                   or not issubclass(getattr(p, prim[1][0][1][0]),
+                                                                                     p.prim))     else
+                                (getattr(p, prim[1][0][1][0]), t))
+                return nil, (ir(_primitive, prim, *args, **keys) if keys   else
+                             list_(_primitive, prim, *args)      if pyrefp else
                              orig)
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
         def primitivise(prim, *args, **keys):
-                return prim(*args, **keys)
+                return prim(*(x         if isinstance(x, p.prim)       else
+                              (error("Invalid quoting within PRIMITIVE known form: %s", cons(prim, consify_linear(args)))
+                               if not consp(x[1]) else
+                               x[1][0]) if consp(x) and x[0] is _quote else
+                              primitivise(x)
+                              for x in args),
+                             **keys)
         def effects(*_):            return t
         def affected(*_):           return t
 
@@ -11264,10 +11277,10 @@ def run_tests_compiler():
         assert evaltest("PRIM-DEF-CALL",
                         l(_progn,
                           l(_ir_args,
-                            l(_prim, p.lambda_, ([], [], [], None, [], [], None),
-                                     p.integer(42)),
+                            l(_primitive, p.lambda_, l(_quote, ([], [], [], None, [], [], None)),
+                                p.integer(42)),
                             ["name", p.name("foo")]),
-                          l(_prim, p.funcall, p.name("foo"))),
+                          l(_primitive, p.funcall, p.name("foo"))),
                         42)
         ## FUNCTION
         assert evaltest("FUNCTION/PYREF",
@@ -11399,10 +11412,10 @@ def run_tests_compiler():
                                    l(_quote, l("counter")), 42),
                           l(_catch, l(_quote, _car),
                             l(_protoloop,
-                              l(_if, l(_prim, p.eq, p.name("counter"), p.integer(0)),
+                              l(_if, l(_primitive, p.eq, p.name("counter"), p.integer(0)),
                                 l(_throw, l(_quote, _car), l(_ref, l(_quote, l("acc"))))),
-                              l(_setq, l(_quote, l("acc")), l(_prim, p.add, p.name("acc"), p.integer(2)),
-                                       l(_quote, l("counter")), l(_prim, p.subtract, p.name("counter"), p.integer(1)))))),
+                              l(_setq, l(_quote, l("acc")), l(_primitive, p.add, p.name("acc"), p.integer(2)),
+                                       l(_quote, l("counter")), l(_primitive, p.subtract, p.name("counter"), p.integer(1)))))),
                         84)
         ## THE
         ## LOCALLY
@@ -11413,8 +11426,8 @@ def run_tests_compiler():
         assert evaltest("FUNCALL-PRIM",
                         l(_progn,
                           l(_ir_args,
-                            l(_prim, p.lambda_, ([], [], [], None, [], [], None),
-                                     p.integer(42)),
+                            l(_primitive, p.lambda_, l(_quote, ([], [], [], None, [], [], None)),
+                               p.integer(42)),
                             ["name", p.name("bar")]),
                           l(_funcall, l(_function, l(_quote, l("bar"))))),
                         42)
