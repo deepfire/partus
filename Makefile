@@ -9,6 +9,8 @@ TEST_COMPILER ?= nil
 REPORT ?= nil
 DEBUG  ?= nil
 
+RECOMPILE_VPCL ?= nil
+
 all: run
 
 repl:
@@ -25,7 +27,10 @@ clean:
 	rm -rf __pycache__
 
 test:
-	export CL_RUN_TESTS=$(TEST) CL_TEST_QQ=$(TEST_QQ) CL_TEST_METASEX=$(TEST_METASEX) CL_TEST_KNOWN=$(TEST_KNOWN) CL_TEST_PP=$(TEST_PP) CL_TEST_COMPILER=$(TEST_COMPILER); $(PYTHON) -c "from cl import *; in_package('CL'); load('../informatimago/common-lisp/lisp-reader/reader.lisp', verbose =t, print = t)"
+	export CL_RUN_TESTS=$(TEST) CL_TEST_QQ=$(TEST_QQ) CL_TEST_METASEX=$(TEST_METASEX) CL_TEST_KNOWN=$(TEST_KNOWN) CL_TEST_PP=$(TEST_PP) CL_TEST_COMPILER=$(TEST_COMPILER); \
+	$(PYTHON) -c \
+"from cl import *; in_package('CL'); load('vpcl.vpfas') if probe_file('vpcl.vpfas') and not $(RECOMPILE_VPCL) else load(compile_file('vpcl.lisp')); load('../informatimago/common-lisp/lisp-reader/reader.lisp', verbose = t, print = t)"
+
 smalltest:
 	$(PYTHON) cl-tests.py
 
