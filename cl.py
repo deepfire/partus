@@ -4640,7 +4640,7 @@ def run_tests_quasiquotation():
                                                   7))),
                         printer = pp_consly))
 
-if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_QQ") != "nil":
+if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_QQ") == "t":
         with progv({ _reader_trace_qqexpansion_: nil }):
                 run_tests_quasiquotation()
 
@@ -8316,7 +8316,7 @@ def run_tests_metasex():
                          list_(list_(_typep, t))),
                         printer = printer)
 
-if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_METASEX") != "nil":
+if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_METASEX") == "t":
         run_tests_metasex()
 
 # Form-based IR toolkit
@@ -9517,7 +9517,7 @@ def run_tests_known():
                          l(_lambda, l(_car, _cdr),
                            l(_funcall, l(_function, _cdr), _car))))
 
-if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_KNOWN") != "nil":
+if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_KNOWN") == "t":
         with matcher_pp_stack():
                 run_tests_known()
 
@@ -9659,7 +9659,7 @@ def run_tests_pp():
   NIL)""")
         # with traced_matcher(emt = True, immediate = True):
 
-if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_PP") != "nil":
+if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_PP") == "t":
         with matcher_pp_stack():
                 run_tests_pp()
 
@@ -10603,10 +10603,9 @@ def run_tests_compiler():
                           42),
                         42)
 
-if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_COMPILER") != "nil":
+if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_COMPILER") == "t":
         with matcher_pp_stack():
                 run_tests_compiler()
-        exit()
 
 # Auxiliary: FDEFINITION
 
