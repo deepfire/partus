@@ -7802,6 +7802,9 @@ Examples:
 
 ## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
 
+def undefined_function(name):
+        error("Function not defined: %s.", name)
+
 ### Global compiler state carry-over, and module state initialisation.
 def fop_make_symbol_available(globals, package_name, symbol_name,
                                function_pyname, symbol_pyname,
@@ -7813,12 +7816,13 @@ def fop_make_symbol_available(globals, package_name, symbol_name,
                 # dprintf("   c-t %%U-S-G-F-P %s FUN: %s  - %s, %s %s",
                 #               "G" if gfunp else "l", symbol_name, function_pyname, symbol.function, symbol.macro_function)
                 if gfunp:
+                        # dprintf("FOP-M-S-A gfun %s, definedp: %s", symbol, symbol.function or symbol.macro_function)
                         frost.setf_global((symbol_function(symbol)
-                                            if symbol.function or symbol.macro_function else
-                                            ## It is a valid situation, when the function is not defined at
-                                            ## the beginning of load-time for a given compilation unit.
-                                            lambda *_, **__: error("Function not defined: %s.", symbol)),
-                                           function_pyname, globals)
+                                           if symbol.function or symbol.macro_function else
+                                           ## It is a valid situation, when the function is not defined at
+                                           ## the beginning of load-time for a given compilation unit.
+                                           lambda *_, **__: undefined_function(symbol)),
+                                          function_pyname, globals)
         if gvarp:
                 if find_global_variable(symbol):
                         value = symbol_value(symbol)
@@ -9996,6 +10000,10 @@ def process_top_level(form) -> [ast.stmt]:
         def process_eval_when(compile_time_too, process, eval, _, situations, *body, toplevel = None):
                 parsed_situations = parse_eval_when_situations(situations)
                 new_ctt, new_process, new_eval = analyse_eval_when_situations(compile_time_too, *parsed_situations)
+                # dprintf("PROCESS-EVAL-WHEN: %s %s %s / %s -> %s %s %s\n  %s",
+                #         compile_time_too, process, eval, situations,
+                #         new_ctt, new_process, new_eval,
+                #         "\n  ".join(pp_consly(x) for x in body))
                 for f in body:
                         rec(new_ctt, process and new_process, new_eval, f)
         def default_processor(compile_time_too, process, eval, *form, toplevel = None):
