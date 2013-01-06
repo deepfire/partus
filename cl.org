@@ -9515,14 +9515,12 @@ class flet(known):
                 lexenv          = symbol_value(_lexenv_)
                 names, bindings = list(zip(*xmap_to_vector(lambda b: (b[0], b), bindings)))
                 clambdas        = [  compiler_lambda(b[0], b[1][0])                      for b in bindings ]
-                fbindings       = [ function_binding(b[0], _function, fn(b[0], b[1][0])) for b in bindings ]
-                for b in fbindings:
-                        b.allocate_tn()
-                # dprintf("fbindings: %s", fbindings)
-                return p.funcall(p.lambda_(([ b.tn for b in fbindings ], [], [], None, [], [], None),
-                                           with_lexenv(make_lexenv(lexenv, ## TNs were just preallocated.
-                                                                   name_funcframe = { b.name: b for b in fbindings }),
-                                                       lambda: p.progn(*(primitivise(x) for x in body)))),
+                body_name       = "FLET-" + ("-".join(symbol_name(x) for x in names))
+                return p.funcall(lower_lambda(lexenv, compiler_lambda(gensym(body_name + "-"),
+                                                                      list_(*names)),
+                                              names, body,
+                                              name = gensym(body_name),
+                                              function_namespace = t),
                                  *[ lower_lambda(lexenv, clambda,
                                                  lambda_list, vectorise_linear(body),
                                                  name = name)
