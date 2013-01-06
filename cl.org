@@ -11502,19 +11502,14 @@ def run_tests_compiler():
                           x),
                         0)
         ## EVAL-WHEN
-        dbgsetup( # forms = t,
-                  # subrewriting = t,
-                  # subprimitivisation = t,
-                  # macroexpanded = t,
-                  # rewritten = t,
-                  # primitives = t,
-                  # module_ast = t,
-                  )
-        # do_set(_compiler_validate_ast_, t, nil)
-        # assert evaltest("",
-        #                 l(),
-        #                 )
-        ## if-true, if-false, if-false-one-handed,
+        assert evaltest("EVAL-WHEN-COMPILE-LOAD-IGNORED",
+                        l(_eval_when, l(_compile_toplevel, _load_toplevel),
+                          42),
+                        nil)
+        assert evaltest("EVAL-WHEN-EXECUTE-EXECUTED",
+                        l(_eval_when, l(_execute),
+                          42),
+                        42)
 
 if getenv("CL_RUN_TESTS") != "nil" and getenv("CL_TEST_COMPILER") != "nil":
         with matcher_pp_stack():
