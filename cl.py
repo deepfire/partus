@@ -10319,6 +10319,21 @@ def run_tests_compiler():
         #           # primitives = t,
         #           # module_ast = t,
         #           )
+        assert evaltest("PRIMITIVE-QUOTATION/ATOM",
+                        l(_primitive, p.integer, l(_quote, 42)),
+                        42)
+        assert evaltest("PRIMITIVE-OP",
+                        l(_primitive, p.not_, 0),
+                        True)
+        assert evaltest("PRIMITIVE-QUOTED-OP",
+                        l(_primitive, l(_quote, l("p", "not_")), 0),
+                        True)
+        assert evaltest("PRIMITIVE-LAMBDA/FUNCALL",
+                        l(_primitive, p.funcall,
+                          l(_primitive, p.lambda_, l(_quote, ([p.name("x")], [], [], None, [], [], None)),
+                            l(_primitive, p.add, p.name("x"), 2)),
+                          2),
+                        4)
         assert evaltest("CONST-NIL",                nil,                       nil)
         assert evaltest("CONST-T",                  t,                         t)
         assert evaltest("CONST-42",                 42,                        42)
