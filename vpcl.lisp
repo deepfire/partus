@@ -2,22 +2,25 @@
   `(progn
      (eval-when (:compile-toplevel)
        ;; -compile-and-load-function() expects the compiler-level part of function to be present.
-       (apply (function (quote ("cl" "compiler_defun"))) ',name 'nil
-              'nil))
+       (funcall (function (quote ("cl" "compiler_defun"))) ',name 'nil))
      (eval-when (:load-toplevel :execute)
        (ir-args
         (lambda ,lambda-list
           (block ,name
             ,@body))
         ("name" . ,name)
+        ("globalp" . t)
         ("decorators" (apply (function (quote ("cl" "set_function_definition")))
                              (apply (function (quote ("globals"))) 'nil)
-                             ',name nil ;; '(lambda ,lambda-list ,@body)
+                             ',name nil
                              'nil)))
+       ;; ',name '(lambda ,lambda-list ,@body))))
+                             
        'nil)))
 
+
 ;; (eval-when (:compile-toplevel)
-;;   (apply (function (quote ("cl" "dbgsetup"))) 'nil))
+;;   (funcall (function (quote ("cl" "dbgsetup")))))
 ;; (eval-when (:compile-toplevel)
 ;;   (setq (quote ("cl" "__enable_matcher_tracing__")) t))
 
