@@ -4525,7 +4525,7 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
 ## If the backquote syntax is nested, the innermost backquoted form should be expanded first. This means that if several
 ## commas occur in a row, the leftmost one belongs to the innermost backquote.
 
-intern_and_bind_symbols("LIST", "APPEND", "QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
+intern_and_bind_symbols(("_cons_", "CONS"), "LIST", ("_list_", "LIST*"), "APPEND", "QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
 
 string_set("*READER-TRACE-QQEXPANSION*",        nil)
 
@@ -4578,9 +4578,17 @@ def expand_quasiquotation(form):
                                 ptr = ptr[1]
                         ## Simplify an obvious case of APPEND having only LIST subforms.
                         if all((consp(x) and x[0] is _list)
-                               for x in acc[1:]):
-                                new = (_list,) + tuple(x[1][0] for x in acc[1:])
-                                acc = new
+                               for x in acc[1:-1]):
+                                if consp(acc[-1]) and acc[-1][0] is _list:
+                                        new = (_list,) + tuple(x[1][0] for x in acc[1:])
+                                        acc = new
+                                elif len(acc) is 2:
+                                        return acc[1]
+                                elif len(acc) is 3:
+                                        acc = (_cons_, acc[1][1][0], acc[2])
+                                else:
+                                        new = (_list_,) + tuple(x[1][0] for x in acc[1:-1]) + (acc[-1],)
+                                        acc = new
                         return consify_linear(acc)
         result = process_form(form)
         if symbol_value(_reader_trace_qqexpansion_):
@@ -4604,7 +4612,7 @@ def run_tests_quasiquotation():
                         ##         (list (append (list 6) 7)) 8 9)
                         list_(_append, list_(_list, 1), list_(_list, 2),
                               list_(_list, 3), 4,
-                              list_(_list, 5), list_(_list, list_(_append, list_(_list, 6), 7)),
+                              list_(_list, 5), list_(_list, list_(_cons_, 6, 7)),
                               8, 9),
                         printer = pp_consly))
         
@@ -4822,7 +4830,7 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                            (end_of_file_t,
                             lambda c: error(c) if eof_error_p else
                                       return_from(cold_read, eof_value)))
-        # here("lastly %s" % (ret,))
+        # here("lastly %s" % (pp_consly(ret),))
         return expand_quasiquotation(ret)
 read = cold_read
 
