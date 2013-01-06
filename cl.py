@@ -10065,6 +10065,8 @@ def lisp(function):
         return read_function_as_toplevel_compile_and_load(function)
 
 def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = None, global_macro_p = None):
+        if name is None:
+                error("In COMPILE-IN-LEXENV: NAME must be provided.")
         if lexenv and globalp:
                 error("In %%COMPILE-IN-LEXENV: the provided non-NULL lexenv conflicts with GLOBALP.")
         form = ir(*vectorise_linear(lambda_expression),
