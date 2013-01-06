@@ -2682,7 +2682,7 @@ def gensymnames(**initargs): return gen(gen = gensymname, **initargs)
 
 #+begin_src python
 results_ = []
-def runtest(fn_spec, input, expected, printer = str, tabstop = 30,
+def runtest(fn_spec, input, expected, printer = str, tabstop = 55,
             known_failure = nil, catch_errors = nil):
         name, fn = ((fn_spec.__name__.upper().replace("_", "-"), fn_spec) if functionp(fn_spec)         else
                     fn_spec                                               if isinstance(fn_spec, tuple) else
