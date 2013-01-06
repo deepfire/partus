@@ -8446,6 +8446,122 @@ class let_(known):
 
 # FLET
 
+def ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macrop = nil):
+        ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
+        if not listp(orig_lambda_list):
+                error("In %s: lambda list must be a proper list, was: %s.", context, pp_consly(lambda_list))
+        lastcdr = last(orig_lambda_list)
+        improper = lastcdr and lastcdr[1] is not nil
+        ## Normalise:
+        lambda_list = ((vectorise_linear(butlast(orig_lambda_list)) + [lastcdr[0], _rest, lastcdr[1]]) if improper else
+                       vectorise_linear(orig_lambda_list))
+        if not macrop and improper:
+                error("Dotted lambda list provided where one is not allowed: %s", pp_consly(lambda_list))
+        ### 0. locate lambda list keywords
+        lambda_words = [_whole, _optional, _rest, _body, _key, _allow_other_keys, _aux, _environment]
+        wholepos, optpos,  restpos,  bodypos,  keypos, aokpos, auxpos, envpos = posns = \
+            [ (lambda_list.index(x) if x in lambda_list else None)
+              for x in lambda_words ]
+        # dprintf("%s %s,  %s %s,  %s %s,  %s %s,  %s %s,  %s %s,  %s %s,  %s %s",
+        #         _whole, _optional, _rest, _body, _key, _allow_other_keys, _aux, _environment,
+        #         wholepos, optpos,  restpos,  bodypos,  keypos, aokpos, auxpos, envpos)
+        wholeposp, optposp, restposp, bodyposp, keyposp, aokposp, auxposp, envposp = [ x is not None for x in posns ]
+        fixedpos  = 0 if not wholeposp else 2
+        nauxpos = len(lambda_list)
+        rbposp = restposp or bodyposp
+        rbpos = (restpos if restposp else
+                 bodypos if bodyposp else
+                 None)
+        ### 1. ensure proper order of provided lambda list keywords
+        twholepos   = wholepos or 0
+        toptpos     = optpos or twholepos
+        trbpos      = rbpos or toptpos
+        tkeypos     = keypos or trbpos
+        taokpos     = aokpos or tkeypos
+        tauxpos     = auxpos or taokpos
+        naokpos     = defaulted(auxpos, nauxpos)
+        nkeypos     = defaulted(aokpos, naokpos)
+        nrbpos      = defaulted(keypos, nkeypos)
+        noptpos     = defaulted(rbpos, nrbpos)
+        nwholepos   = defaulted(optpos, noptpos)
+        nfixpos     = nwholepos
+        if wholeposp and not macrop:
+                error("In %s: ordinary lambda list does not allow the &WHOLE keyword.", context)
+        if restposp and bodyposp:
+                error("In %s: &BODY and &REST cannot coexist in a single lambda list.", context)
+        if not twholepos <= toptpos <= trbpos <= tkeypos <= taokpos <= tauxpos:
+                error("In %s: %s, %s, %s, %s, %s, %s and %s must appear in the lambda list in that precise order, whenever specified.",
+                      context, *lambda_words[:-1])
+        if (wholeposp and nwholepos - wholepos < 2 or
+            rbposp    and nrbpos - rbpos != 2      or
+            aokposp   and naokpos - aokpos != 1):
+#                 dprintf(
+# """(wholeposp %s and wholepos %s - nwholepos %s %s < 2 or
+#  rbposp %s   and rbpos %s - nrbpos %s %s != 2      or
+#  aokposp %s  and aokpos %s - naokpos %s %s != 0)""",
+# wholeposp, wholepos, nwholepos, wholeposp and wholepos - nwholepos,
+# rbposp, rbpos, nrbpos, rbposp and rbpos - nrbpos,
+# aokposp, aokpos, naokpos, aokposp and aokpos - naokpos)
+                error("In %s: found garbage instead of a lambda list: %s", context, pp_consly(orig_lambda_list))
+        # locals_printf(locals(),
+        #                "optpos",  "restpos",  "keypos",
+        #                "optposp", "restposp", "keyposp",
+        #                "toptpos", "trestpos", "tkeypos")
+        ### 2. compute argument specifier sets, as determined by provided lambda list keywords
+        def parse_maybe_defaulted(xs):
+                return ([ x[0] if consp(x) else x
+                          for x in xs ],
+                        [ (second(x) if consp(x) else nil)
+                          for x in xs ])
+        whole  = lambda_list[wholepos + 1] if wholeposp else None
+        fixed = lambda_list[fixedpos:nfixpos]
+        optional, optdefs = parse_maybe_defaulted(lambda_list[optpos + 1:noptpos] if optposp else [])
+        rest_or_body  = lambda_list[rbpos + 1] if rbposp else None
+        keys, keydefs = parse_maybe_defaulted(lambda_list[keypos + 1:nkeypos] if keyposp else [])
+        if not all(isinstance(x, symbol_t) for x in fixed):
+                viola = [ x for x in fixed if not symbolp(x) ][0] ## find-if
+                error("In %s: fixed arguments must be symbols, but %s (of type %s) wasn't one.",
+                      context, viola, type(viola).__name__)
+        aux, auxforms = parse_maybe_defaulted(lambda_list[auxpos + 1:] if auxposp else [])
+        total = (([whole] if wholeposp else [])
+                 + fixed
+                 + optional
+                 + ([rest_or_body] if rbposp else [])
+                 + keys
+                 + aux)
+        ### 3. validate syntax of the provided individual argument specifiers
+        bad_paramspecs = [ x for x in total if not namep(x) ]
+        if bad_paramspecs:
+                error("In %s, lambda list %s: bad parameter specifiers: %s",
+                      context, pp_consly(orig_lambda_list), ", ".join(str(x) for x in bad_paramspecs))
+        ### 4. check for duplicate lambda list specifiers
+        if len(total) != len(set(total)):
+                error("In %s: duplicate parameter names in lambda list: %s.", context, orig_lambda_list)
+        return (total,
+                (whole, fixed, optional, rest_or_body, keys, aux),
+                (optdefs, keydefs, auxforms),
+                keyposp, aokposp)
+
+def lower_lambda_list(lexenv, fixed, optional, opt_defaults, rest, keys, key_defaults):
+        assert len(optional) == len(opt_defaults)
+        assert len(keys)     == len(key_defaults)
+        frames = [ getattr(lexenv, x)["name"] for x in ["varframe", "funcframe"]
+                   if getattr(lexenv, x) ]
+        def tnify(x):
+                for f in frames:
+                        if x in f:
+                                return f[x].tn
+        def to_names(xs): return [ tnify(x) for x in xs ]
+        return (to_names(fixed),
+                to_names(optional),
+                [ primitivise(x) if x is not None else p.name("None")
+                  for x in opt_defaults ],
+                tnify(rest) if rest else None,
+                to_names(keys),
+                [ primitivise(x) if x is not None else p.name("None")
+                  for x in key_defaults ],
+                None)
+
 def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
         # Unregistered Issue COMPLIANCE-MACRO-LAMBDA-LIST-DESTRUCTURING-AND-ENV
         (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
@@ -8496,26 +8612,35 @@ def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
                                            for name, form in zip(aux, auxforms))),
                    *body))
 
-def lower_lambda(lexenv, clambda, lam, body, name = nil, decorators = nil, self_binding = nil, globalp = nil):
+def lower_lambda(lexenv, clambda, lam, body, name = nil, decorators = nil, self_binding = nil, globalp = nil,
+                 function_namespace = nil):
         (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
             args, forms = clambda.args, clambda.forms
         assert not (whole or clambda.keysp or aux) ## &WHOLE is a piece of debt, currently.
         fnname_tn = function_tn(name, globalp = globalp) if name else None
         ## Things, that are needed:
         ##  - CLAMBDA passing
-        nonlocal_decl = ([ p.nonlocal_([ variable_tn(x)
-                                         for x in sorted(clambda.nonlocal_setqs, key = symbol_name) ]) ]
-                         if clambda.nonlocal_setqs else [])
-        varframe      = dict((b, variable_binding(b, _variable, None))
-                             for b in clambda.total)
-        with progv({ _lexenv_: make_lexenv(lexenv, clambda = clambda, allocate_tns = t,
-                                           name_varframe  = varframe,
-                                           name_funcframe = ({ name: self_binding }
-                                                             if self_binding else None)) }):
-                return p.lambda_(lower_lambda_list(fixed, optional, [None] * len(optional), rest or None, [], []),
+        varframe, funcframe = ((dict((b, variable_binding(b, _variable, None))
+                                     for b in clambda.total),
+                                dict([(name, self_binding)] if self_binding else []))
+                               if not function_namespace else
+                               (dict(),
+                                dictappend(dict((b, function_binding(b, _function, None))
+                                                for b in clambda.total),
+                                           dict([(name, self_binding)] if self_binding else []))))
+        fn_lexenv = make_lexenv(lexenv, clambda = clambda, allocate_tns = t,
+                                name_varframe  = varframe,
+                                name_funcframe = funcframe)
+        with progv({ _lexenv_: fn_lexenv }):
+                primitivised_body = [ primitivise(x) for x in body ]
+                ## _now_, that the body was primitivised, the clambda's nonlocal-SETQs were computed:
+                nonlocal_decl = ([ p.nonlocal_(*(variable_tn(x)
+                                                 for x in sorted(clambda.nonlocal_setqs, key = symbol_name) )) ]
+                                 if clambda.nonlocal_setqs else [])
+                return p.lambda_(lower_lambda_list(fn_lexenv, fixed, optional, [None] * len(optional), rest or None, [], []),
                                  p.progn(*nonlocal_decl
-                                         + [ primitivise(x) for x in body ]),
-                                 name = fnname_tn,
+                                         + primitivised_body),
+                                 name = fnname_tn, id = symbol_name(name) if name else nil,
                                  decorators = xmap_to_vector(primitivise, decorators))
 
 @defknown((_binder, _flet,
@@ -8877,6 +9002,7 @@ class setq(known):
                         return p.special_setq(p.name(unit_symbol_pyname(name)), primitivise(value))
                 compiler_trace_known_choice(_setq, name, "LEXICAL")
                 if cur_lexenv.clambda is not tgt_lexenv.clambda:
+                        # dprintf("NONLOCAL SETQ of %s from %s by %s", name, tgt_lexenv.clambda, cur_lexenv.clambda)
                         cur_lexenv.clambda.nonlocal_setqs.add(name)
                 return p.assign(lexical_binding.tn, primitivise(value))
         def effects(name, value):         return t
@@ -9096,116 +9222,6 @@ class compiler_lambda():
                 self.total, self.args, self.forms = total, args, forms
                 self.total_types, self.value_types = [t] * len(total), t
                 self.nonlocal_refs, self.nonlocal_setqs = set(), set()
-
-def ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macrop = nil):
-        ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
-        if not listp(orig_lambda_list):
-                error("In %s: lambda list must be a proper list, was: %s.", context, pp_consly(lambda_list))
-        lastcdr = last(orig_lambda_list)
-        improper = lastcdr and lastcdr[1] is not nil
-        ## Normalise:
-        lambda_list = ((vectorise_linear(butlast(orig_lambda_list)) + [lastcdr[0], _rest, lastcdr[1]]) if improper else
-                       vectorise_linear(orig_lambda_list))
-        if not macrop and improper:
-                error("Dotted lambda list provided where one is not allowed: %s", pp_consly(lambda_list))
-        ### 0. locate lambda list keywords
-        lambda_words = [_whole, _optional, _rest, _body, _key, _allow_other_keys, _aux, _environment]
-        wholepos, optpos,  restpos,  bodypos,  keypos, aokpos, auxpos, envpos = posns = \
-            [ (lambda_list.index(x) if x in lambda_list else None)
-              for x in lambda_words ]
-        # dprintf("%s %s,  %s %s,  %s %s,  %s %s,  %s %s,  %s %s,  %s %s,  %s %s",
-        #         _whole, _optional, _rest, _body, _key, _allow_other_keys, _aux, _environment,
-        #         wholepos, optpos,  restpos,  bodypos,  keypos, aokpos, auxpos, envpos)
-        wholeposp, optposp, restposp, bodyposp, keyposp, aokposp, auxposp, envposp = [ x is not None for x in posns ]
-        fixedpos  = 0 if not wholeposp else 2
-        nauxpos = len(lambda_list)
-        rbposp = restposp or bodyposp
-        rbpos = (restpos if restposp else
-                 bodypos if bodyposp else
-                 None)
-        ### 1. ensure proper order of provided lambda list keywords
-        twholepos   = wholepos or 0
-        toptpos     = optpos or twholepos
-        trbpos      = rbpos or toptpos
-        tkeypos     = keypos or trbpos
-        taokpos     = aokpos or tkeypos
-        tauxpos     = auxpos or taokpos
-        naokpos     = defaulted(auxpos, nauxpos)
-        nkeypos     = defaulted(aokpos, naokpos)
-        nrbpos      = defaulted(keypos, nkeypos)
-        noptpos     = defaulted(rbpos, nrbpos)
-        nwholepos   = defaulted(optpos, noptpos)
-        nfixpos     = nwholepos
-        if wholeposp and not macrop:
-                error("In %s: ordinary lambda list does not allow the &WHOLE keyword.", context)
-        if restposp and bodyposp:
-                error("In %s: &BODY and &REST cannot coexist in a single lambda list.", context)
-        if not twholepos <= toptpos <= trbpos <= tkeypos <= taokpos <= tauxpos:
-                error("In %s: %s, %s, %s, %s, %s, %s and %s must appear in the lambda list in that precise order, whenever specified.",
-                      context, *lambda_words[:-1])
-        if (wholeposp and nwholepos - wholepos < 2 or
-            rbposp    and nrbpos - rbpos != 2      or
-            aokposp   and naokpos - aokpos != 1):
-#                 dprintf(
-# """(wholeposp %s and wholepos %s - nwholepos %s %s < 2 or
-#  rbposp %s   and rbpos %s - nrbpos %s %s != 2      or
-#  aokposp %s  and aokpos %s - naokpos %s %s != 0)""",
-# wholeposp, wholepos, nwholepos, wholeposp and wholepos - nwholepos,
-# rbposp, rbpos, nrbpos, rbposp and rbpos - nrbpos,
-# aokposp, aokpos, naokpos, aokposp and aokpos - naokpos)
-                error("In %s: found garbage instead of a lambda list: %s", context, pp_consly(orig_lambda_list))
-        # locals_printf(locals(),
-        #                "optpos",  "restpos",  "keypos",
-        #                "optposp", "restposp", "keyposp",
-        #                "toptpos", "trestpos", "tkeypos")
-        ### 2. compute argument specifier sets, as determined by provided lambda list keywords
-        def parse_maybe_defaulted(xs):
-                return ([ x[0] if consp(x) else x
-                          for x in xs ],
-                        [ (second(x) if consp(x) else nil)
-                          for x in xs ])
-        whole  = lambda_list[wholepos + 1] if wholeposp else None
-        fixed = lambda_list[fixedpos:nfixpos]
-        optional, optdefs = parse_maybe_defaulted(lambda_list[optpos + 1:noptpos] if optposp else [])
-        rest_or_body  = lambda_list[rbpos + 1] if rbposp else None
-        keys, keydefs = parse_maybe_defaulted(lambda_list[keypos + 1:nkeypos] if keyposp else [])
-        if not all(isinstance(x, symbol_t) for x in fixed):
-                viola = [ x for x in fixed if not symbolp(x) ][0] ## find-if
-                error("In %s: fixed arguments must be symbols, but %s (of type %s) wasn't one.",
-                      context, viola, type(viola).__name__)
-        aux, auxforms = parse_maybe_defaulted(lambda_list[auxpos + 1:] if auxposp else [])
-        total = (([whole] if wholeposp else [])
-                 + fixed
-                 + optional
-                 + ([rest_or_body] if rbposp else [])
-                 + keys
-                 + aux)
-        ### 3. validate syntax of the provided individual argument specifiers
-        bad_paramspecs = [ x for x in total if not namep(x) ]
-        if bad_paramspecs:
-                error("In %s, lambda list %s: bad parameter specifiers: %s",
-                      context, pp_consly(orig_lambda_list), ", ".join(str(x) for x in bad_paramspecs))
-        ### 4. check for duplicate lambda list specifiers
-        if len(total) != len(set(total)):
-                error("In %s: duplicate parameter names in lambda list: %s.", context, orig_lambda_list)
-        return (total,
-                (whole, fixed, optional, rest_or_body, keys, aux),
-                (optdefs, keydefs, auxforms),
-                keyposp, aokposp)
-
-def lower_lambda_list(fixed, optional, opt_defaults, rest, keys, key_defaults):
-        assert len(optional) == len(opt_defaults)
-        assert len(keys)     == len(key_defaults)
-        def to_names(xs): return [ variable_tn(x) for x in xs ]
-        return (to_names(fixed),
-                to_names(optional),
-                [ primitivise(x) if x is not None else p.name("None")
-                  for x in opt_defaults ],
-                variable_tn(rest) if rest else None,
-                to_names(keys),
-                [ primitivise(x) if x is not None else p.name("None")
-                  for x in key_defaults ],
-                None)
 
 ## Welcome to the wonderful world of macros shadowed by a named lambda, within its arglist defaulting forms..
 ## ..also, to the wonderful world of %IR-ARGS being critically unhandled.
