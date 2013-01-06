@@ -8666,20 +8666,35 @@ class symbol_macrolet(known):
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))],)),
           name = _block)
 class block(known):
-        def rewrite(orig, name, *body):
+        def binder(exp, continuation):
+                ## We could avoid the need for this binder, if we could push a %BOUND pattern
+                ## directive around the rewritten CATCH form in REWRITE, figuratively speaking.
+                ## Unfortunately, as it stands, rewriting blasts the matcher pattern, and the
+                ## essential guts are never even considered.
+                if length(exp) < 2 or not isinstance(exp[1][0], symbol_t):
+                        error("Bad BLOCK form: %s", pp_consly(exp))
+                name = exp[1][0]
                 nonce = gensym("BLOCK-" + symbol_name(name) + "-")
-                catch_target = list__(_catch, list_(_quote, nonce), consify_linear(body))
-                has_return_from = nil
-                def update_has_return_from(sex, further):
-                        nonlocal has_return_from
-                        if consp(sex) and sex[0] is _return_from:
-                                has_return_from = t
-                        return further(sex)
-                map_sex(update_has_return_from, catch_target)
-                ## Unregistered Issue CATCH-22-WHILE-DOING-CONTENT-DEPENDENT-REWRITING
                 with progv({ _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
-                                                          name_blockframe = { name: block_binding(name, _block, None) }) }):
-                        return t, (catch_target if has_return_from else handle_linear_body(body))
+                                                          name_blockframe = { name: block_binding(name, _block, nonce) }) }):
+                        return continuation(exp)
+        def rewrite(orig, name, *body):
+                consbody = consify_linear(body)
+                block_used = nil
+                def compute_block_usage(sex, further):
+                        nonlocal block_used
+                        if consp(sex) and sex[0] is _return_from and sex[1][0] is name:
+                                ## Unregistered Issue EARLY-WALKER-TERMINATION
+                                block_used = t
+                        return further(sex)
+                ## Look ahead (inside, actually):
+                with progv({ _metasex_kind_: "metasex" }):
+                        map_sex(compute_block_usage, cons(_progn, consbody), )
+                binding, _ = symbol_value(_walker_lexenv_).lookup_block(the(symbol_t, name))
+                nonce = binding.value
+                ## Unregistered Issue CATCH-22-WHILE-DOING-CONTENT-DEPENDENT-REWRITING
+                return t, (list__(_catch, list_(_quote, nonce), consbody) if block_used else
+                           handle_linear_body(body))
 
 # RETURN-FROM
 
