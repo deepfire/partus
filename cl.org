@@ -3323,7 +3323,9 @@ def set_function_definition(globals, x, lambda_expression = None, check_redefini
         lambda_expression = defaulted(lambda_expression, [_lambda, [nil, nil]])
         identity_redef = compiler_defun(x, lambda_expression, check_redefinition = check_redefinition)
         def do_set_function_definition(function):
-                if not identity_redef and function:
+                if identity_redef:
+                        dprintf("; not identically redefining function %s", x)
+                if function and not identity_redef:
                         x.function, x.macro_function = function, nil
                         frost.make_object_like_python_function(x, function)
                         forigname = function.__name__
