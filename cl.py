@@ -10209,6 +10209,13 @@ def eval(form):
         # dprintf("; compiled %s ->\n; %s", pp_consly(form), code)
         return code()
 
+def configure_recursion_limit(new_limit):
+        dprintf("; current recursion limit is: %s;  setting it to %s",
+                      sys.getrecursionlimit(), new_limit)
+        sys.setrecursionlimit(new_limit)
+
+configure_recursion_limit(262144)
+
 def run_tests_compiler():
         def evaltest(name, form, expected, **keys):
                 return runtest((name, eval), form, expected, printer = pp_consly, tabstop = 55, **keys)
@@ -10724,13 +10731,6 @@ class stream_type_error_t(simple_condition_t, io.UnsupportedOperation):
 # LOAD-able things
 
 #     Cold boot complete, now we can LOAD vpcl.lisp.
-
-def configure_recursion_limit(new_limit):
-        dprintf("; current recursion limit is: %s;  setting it to %s",
-                      sys.getrecursionlimit(), new_limit)
-        sys.setrecursionlimit(new_limit)
-
-configure_recursion_limit(262144)
 
 # compiler_trap_function(intern("DEFPACKAGE")[0])
 
