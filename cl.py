@@ -10558,6 +10558,24 @@ def run_tests_compiler():
                           2.71),
                         42)
         ## TAGBODY/GO
+        a, b, c = [ intern(x)[0] for x in ["A", "B", "C"] ]
+        x = intern("X")[0]
+        assert evaltest("TAGBODY/GO",
+                        l(_let, l(l(x, 0)),
+                          l(_tagbody,
+                            l(_setq, x, l(_add, x, 2)),
+                            l(_go, b),
+                            a,
+                            l(_setq, x, l(_add, x, 10)),
+                            l(_go, c),
+                            b,
+                            l(_setq, x, l(_mult, x, 5)),
+                            l(_go, a),
+                            c,
+                            l(_setq, x, l(_sub, x, 20))),
+                          x),
+                        0)
+        ## EVAL-WHEN
         dbgsetup( # forms = t,
                   # subrewriting = t,
                   # subprimitivisation = t,
@@ -10567,10 +10585,6 @@ def run_tests_compiler():
                   # module_ast = t,
                   )
         # do_set(_compiler_validate_ast_, t, nil)
-        # assert evaltest("",
-        #                 l(),
-        #                 )
-        ## EVAL-WHEN
         # assert evaltest("",
         #                 l(),
         #                 )
