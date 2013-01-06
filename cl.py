@@ -9786,6 +9786,7 @@ def emit_ast(prim) -> [p.stmt]:
 def lower(form, lexenv = nil):
         "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
         ## Macroexpanded SEX -> MacIR
+        # with traced_matcher(emt = t, immediate = t):
         rewritten = rewrite_all(form, lexenv = lexenv)    ## No other high-level entry point to %REWRITE-ALL
         if symbol_value(_compiler_trace_rewritten_):
                 report(known = rewritten, form_id = id(form), desc = "%LOWER", lexenv = lexenv)
@@ -10505,7 +10506,6 @@ def run_tests_compiler():
                                        l(__cons, 42, _car))),
                           l(name, l(_list, 2.17))),
                         l(42, 2.17))
-
         name, acc, n, cur = [ gensym(x) for x in [ "FACT", "ACC", "N", "CUR" ] ]
         assert evaltest("LABELS-REC",
                         l(_labels, l(l(name, l(n, _optional, l(acc, 1), l(cur, n)),
@@ -10515,27 +10515,39 @@ def run_tests_compiler():
                           l(name, 5)),
                         120)
         ## MACROLET
+        name, x = gensym("MACRO"), intern("X")[0]
+        assert evaltest("MACROLET",
+                        l(_macrolet, l(l(name, l(x),
+                                         l(_list, l(_quote, _list), 42, x, 43))),
+                          l(name, 3.14)),
+                        l(42, 3.14, 43))
+        ## SYMBOL-MACROLET
+        name = gensym("SYMAC")
+        assert evaltest("SYMBOL-MACROLET",
+                        l(_symbol_macrolet, l(l(name, l(_progn,
+                                                        l(intern("FORMAT")[0], t, "; side effect, sumairu!\n"),
+                                                        l(_list, 42)))),
+                          name),
+                        l(42))
+        ## BLOCK/RETURN-FROM
+        inner, outer = gensym("INNER"), gensym("OUTER")
+        assert evaltest("BLOCK/RETURN-FROM",
+                        l(_block, outer,
+                          l(_block, inner,
+                            l(_return_from, outer, 42),
+                            3.14),
+                          2.71),
+                        42)
+        ## TAGBODY/GO
         dbgsetup( # forms = t,
-                  # macroexpanded = t,
                   # subrewriting = t,
-                  # rewritten = t,
                   # subprimitivisation = t,
+                  # macroexpanded = t,
+                  # rewritten = t,
                   # primitives = t,
                   # module_ast = t,
                   )
         # do_set(_compiler_validate_ast_, t, nil)
-        # assert evaltest("",
-        #                 l(),
-        #                 )
-        ## SYMBOL-MACROLET
-        # assert evaltest("",
-        #                 l(),
-        #                 )
-        ## BLOCK/RETURN-FROM
-        # assert evaltest("",
-        #                 l(),
-        #                 )
-        ## TAGBODY/GO
         # assert evaltest("",
         #                 l(),
         #                 )
