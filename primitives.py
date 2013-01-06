@@ -684,7 +684,7 @@ class literal_hash_table_expr(expr):
 class lambda_(indet):
         "NOTE: default value form evaluation is not delayed."
         "Must track nonlocality."
-        a_expr = defstrategy(test = (lambda pyargs, body, name = nil, decorators = []:
+        a_expr = defstrategy(test = (lambda pyargs, body, name = nil, id = nil, decorators = []:
                                              exprp(body) and not (name or decorators)),
                              keys = expr)
         b_stmt = defstrategy(keys = body)
@@ -705,8 +705,8 @@ class defun(body):
                                 body = help(return_(body))[0])
                          ], help_expr(nam)
         @defmethod(lambda_)
-        def lambda_(pyargs, expr, name = nil, decorators = []):
-                return defun(name or genname("DEFLAM-"), pyargs, decorators, expr)
+        def lambda_(pyargs, expr, name = nil, id = nil, decorators = []):
+                return defun(name or genname((id + "-") if id else "DEFLAM-"), pyargs, decorators, expr)
 
 @defprim(intern("LAMBDA-EXPR")[0],
          ((([name],),
@@ -714,7 +714,7 @@ class defun(body):
            ([name],), ([expr_spill],), (maybe, name)),
           expr))
 class lambda_expr(expr):
-        def help(pyargs, expr, name = nil, decorators = []):
+        def help(pyargs, expr, name = nil, id = nil, decorators = []):
                 assert not (name or decorators)
                 return ast.Lambda(help_args(*pyargs), help_expr(expr))
         lambda_ = identity_method()
