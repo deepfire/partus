@@ -10275,6 +10275,23 @@ def eval(form):
         # dprintf("; compiled %s ->\n; %s", pp_consly(form), code)
         return code()
 
+def repl(prompt = "VPCL> "):
+        @__block__
+        def repl_iteration():
+                write_string(prompt)
+                finish_output()
+                expr = read()
+                result = eval(expr)
+                write_line(pp_sex(result))
+                finish_output()
+        def repl_error_handler(cond):
+                terpri()
+                finish_output()
+                return_from(repl_iteration)
+        while t:
+                with progv({ _last_chance_handler_: repl_error_handler }):
+                        repl_iteration()
+
 def configure_recursion_limit(new_limit):
         dprintf("; current recursion limit is: %s;  setting it to %s",
                       sys.getrecursionlimit(), new_limit)
