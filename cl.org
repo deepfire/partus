@@ -1244,7 +1244,7 @@ def __catch_maybe_reenable_pytracer(ct):
 
 def throw(ball, value):
         "Stack this seeks, like mad, like the real one."
-        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = boundp(_signalling_frame_))
+        raise __catcher_throw__(ball = ball, value = value, reenable_pytracer = t)
 
 def __block__(fn):
         "An easy decorator-styled interface for block establishment."
