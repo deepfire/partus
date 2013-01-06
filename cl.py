@@ -4914,6 +4914,8 @@ __not_even_conditions__ = frozenset([GeneratorExit, SystemExit, __catcher_throw_
 
 intern_and_bind_globals("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")
 
+string_set("*LAST-CHANCE-HANDLER*", nil)
+
 def __cl_condition_handler__(condspec, frame):
         backtrace_printed = nil
         def continuation():
@@ -4949,10 +4951,7 @@ def __cl_condition_handler__(condspec, frame):
                                         with progv({_debugger_hook_: nil}):
                                                 debugger_hook(cond, debugger_hook)
                 return cond
-        signalling_frame = caller_frame(caller_relative = 1)
-        with progv({_stack_top_hint_: signalling_frame}):
-                cond = sys.call_tracing(continuation, ())
-        if type_of(cond) not in __not_even_conditions__:
+        def report_condition(cond):
                 if isinstance(cond, condition_t):
                         try:
                                 repr_str = princ_to_string(cond)
@@ -4960,22 +4959,31 @@ def __cl_condition_handler__(condspec, frame):
                                 dprintf("While printing condition, another condition was raised: %s", repr(sub_cond))
                                 # backtrace(frame = exception_frame())
                                 repr_str = "#<error printing condition>"
-                        here("In thread '%s': unhandled condition of type %s:\n\n%s%s",
+                        here("In thread '%s': unhandled condition of type %s:\n\n%s",
                               threading.current_thread().name, type_of(cond), repr_str,
-                              "\n; Disabling CL condition system.",
                               callers = 15, frame = signalling_frame)
                 else:
                         dprintf("In thread %s: a non-condition of type %s was raised: %s",
-                                      threading.current_thread().name, type_of(cond), repr(cond))
+                                threading.current_thread().name, type_of(cond), repr(cond))
+        signalling_frame = caller_frame(caller_relative = 1)
+        with progv({_stack_top_hint_: signalling_frame}):
+                cond = sys.call_tracing(continuation, ())
+        if type_of(cond) not in __not_even_conditions__:
+                if not isinstance(cond, error_t):
+                        return
+                report_condition(cond)
                 if not backtrace_printed:
                         backtrace(offset = 2) ## 2 = [ pytracer, __cl_condition_handler__ ]
-                frost.disable_pytracer()
+                last_chance_handler = symbol_value(_last_chance_handler_)
+                if last_chance_handler:
+                        last_chance_handler(cond)
+                dprintf("; Last chance handler declined, trying to enter the debugger.")
                 try:
                         invoke_debugger(cond)
                 except error_t as debugger_cond:
-                        dprintf("Failed to enter the debugger:\n%s\nHave a nice day!", debugger_cond)
+                        dprintf("; Failed to enter the debugger due to the following condition:\n%s\n; Disabling the CL condition system.\n; Have a nice day!", debugger_cond)
                         sys.stderr.flush()
-                        exit()
+                        frost.disable_pytracer()
         ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
