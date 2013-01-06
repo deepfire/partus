@@ -8675,6 +8675,7 @@ def DEFMACRO(name, lambda_list, *body):
                                                l(_quote, name),
                                                l(_quote, nil # l_(name, lambda_list, consify_linear(body))
                                                  ))),
+                   ["globalp", t],
                    ["name", name]))
 
 def do_macroexpand_1(form, env = nil, compilerp = nil):
