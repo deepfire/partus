@@ -8715,8 +8715,6 @@ class return_from(known):
 #         - THROW, plus bytecode patching, for jumps outward of a lexically contained function
 #           definition
 
-intern_and_bind_symbols("%NXT-LABEL")
-
 ## Unregistered Issue COMPLIANCE-TAGBODY-TAGS-EXEMPT-FROM-MACROEXPANSION
 @defknown(## No need for bindings and bound markers -- all done in the BINDER method.
           (_binder, _tagbody,
@@ -8774,10 +8772,10 @@ class tagbody(known):
                                    consify_linear(l(name, go_tag) for name in fun_names.values())),
                            l(_catch, return_tag,
                              l(_labels, funs,
-                               l(_let, l(l(_nxt_label, l(_function, funs[0][0]))),
+                               l(_let, l(l(nxt_label, l(_function, funs[0][0]))),
                                  l(_protoloop,
                                    l(_setq, nxt_label,
-                                           l(_catch, go_tag, l(_apply, nxt_label, l(_quote, nil))))))))))
+                                            l(_catch, go_tag, l(_apply, nxt_label, l(_quote, nil))))))))))
                 return t, form
 
 # GO
