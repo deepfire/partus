@@ -11735,55 +11735,26 @@ class stream_type_error_t(simple_condition_t, io.UnsupportedOperation):
 * Rest of Lisp
 *** LOAD-able things
 
-    Cold boot complete, now we can LOAD vpcl.lisp.
-
 #+begin_src python +n
-# compiler_trap_function(intern("DEFPACKAGE")[0])
-
-# @lisp
-# def LOOPTEST():
-#         (defun, looptest, (x,),
-#           (tagbody,
-#             re,
-#             (setq, x, (onemore, x)),
-#             (if_, (oddp, x),
-#                   (go, re),
-#                   (format, t, "x: %s\n", x)),
-#             (go, re)))
-
-# LOOPTEST(0)
-
-def fx():
-        dprintf("  fname: %s", caller_frame(11).f_code.co_name)
-        dprintf(" locals: %s", caller_frame(11).f_locals)
-        dprintf("  glsid: %x", id(caller_frame(11).f_globals))
-        dprintf("   coid: %x", id(caller_frame(11).f_code))
-        dprintf("DEFUN's: %x", id(find_symbol("DEFUN")[0].macro_function.__code__))
-
-# compiler_trap_function(intern("DEFUN")[0])
-
-intern_and_bind_names_in_module_specifically(
-        ("_a", "A"),
-        ("_b", "B"),
-        ("_c", "C"),
-        ("_d", "D"),
-        ("_e", "E"),
-        ("_f", "F"),
-        ("_g", "G"),
-        ("_h", "H"),
-        ("_i", "I"),
-        ("_j", "J"),
-        )
-__running_tests__ = True
-# __enable_matcher_tracing__ = True
-if not getenv("CL_NO_LISP"):
+def load_rest_of_lisp():
+        intern_and_bind_names_in_module_specifically(("_a", "A"),
+                                                     ("_b", "B"),
+                                                     ("_c", "C"),
+                                                     ("_d", "D"),
+                                                     ("_e", "E"),
+                                                     ("_f", "F"),
+                                                     ("_g", "G"),
+                                                     ("_h", "H"),
+                                                     ("_i", "I"),
+                                                     ("_j", "J"))
+        global __running_tests__, __enable_matcher_tracing__
+        __running_tests__ = True
+        # __enable_matcher_tracing__ = True
         with disabled_condition_system():
                 import cProfile, pstats
         def compile_vpcl():
                 return compile_file("vpcl.lisp")
         def compile_reader():
-                # global __enable_matcher_tracing__
-                # __enable_matcher_tracing__ = True
                 return compile_file("reader.lisp")
         ## Critical Issue EXTREME-INEFFICIENCY-OF-MATCHER
         # def slow_match():
@@ -11819,15 +11790,6 @@ if not getenv("CL_NO_LISP"):
                          sort = "time"
                          # sort = "cumulative"
                          )
-        # dprintf("result:\n%s", result)
-        # load(compile_file("reader.lisp"))
-        load(result)
-        exit(1)
-        # load(compile_file("reader.lisp"))
-
-# load(compile_file("reader.lisp"))
-
-# load("vpcl.lisp", verbose = t)
 #+end_src
 
 *** REQUIRE
