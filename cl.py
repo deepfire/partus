@@ -5188,7 +5188,7 @@ def restart_case(body, **restarts_args):
                       lambda: restart_bind(body, wrapped_restarts_args))
 
 def restart_case(body, **restart_specs):
-        return restart_case(body, **_specs_restarts_args(restart_specs))
+        return restart_case(body, **specs_restarts_args(restart_specs))
 
 def with_simple_restart(name, format_control_and_arguments, body):
         """
