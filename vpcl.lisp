@@ -88,6 +88,14 @@
                    ,tn
                    (cond ,@rest))))))))
 
+(defmacro defpackage (name &rest rest)
+  `(progn
+     (eval-when (:compile-toplevel)
+       (format t "; ignoring definition for package %s" ',name)
+       (terpri))
+     (format t "; ignoring definition for package %s" ',name)
+     (terpri)))
+
 (defmacro define-condition (name super slots &rest rest)
   `(progn
      (eval-when (:compile-toplevel)
