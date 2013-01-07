@@ -2,7 +2,7 @@
   `(progn
      (eval-when (:compile-toplevel)
        ;; -compile-and-load-function() expects the compiler-level part of function to be present.
-       (funcall (function (quote ("cl" "compiler_defun"))) ',name nil))
+       (funcall #''("cl" "compiler_defun") ',name nil))
      (eval-when (:load-toplevel :execute)
        (ir-args
         (lambda ,lambda-list
@@ -10,8 +10,8 @@
             ,@body))
         ("name" . ,name)
         ("globalp" . t)
-        ("decorators" (apply (function (quote ("cl" "set_function_definition")))
-                             (apply (function (quote ("globals"))) 'nil)
+        ("decorators" (apply #''("cl" "set_function_definition")
+                             (apply #''("globals") 'nil)
                              ',name '(lambda ,lambda-list ,@body)
                              'nil)))
        'nil)))
@@ -107,5 +107,5 @@
 (defmacro defconstant (name &optional value documentation)
   `(progn
      (eval-when (:compile-toplevel)
-       (funcall '("cl" "compiler_defconstant") ',name ,value))
-     (funcall '("cl" "compiler_defconstant") ',name ,value)))
+       (funcall #''("cl" "compiler_defconstant") ',name ,value))
+     (funcall #''("cl" "compiler_defconstant") ',name ,value)))
