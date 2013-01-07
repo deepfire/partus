@@ -10019,32 +10019,7 @@ def load_module_bytecode(bytecode, func_name = nil, filename = ""):
 
 # High-level drivers: %PROCESS-TOP-LEVEL, COMPILE-FILE, @LISP, COMPILE, EVAL
 
-def process_top_level(form) -> [ast.stmt]:
-        "A, hopefully, faithful implementation of CLHS 3.2.3.1."
-        if symbol_value(_compile_verbose_):
-                complex_named_p = (listp(form) and length(form) > 1
-                                   and (atom(form[1][0]) or form[1][0][0] is _setq))
-                kind, maybe_name = ((form[0], form[1][0]) if complex_named_p      else
-                                    (form[0], "")         if listp(form) and form else
-                                    (form, ""))
-                dprintf("; compiling (%s%s%s%s)",
-                              kind, " " if complex_named_p else "", maybe_name, " ..." if length(form) > 2 else "")
-        if symbol_value(_compiler_trace_forms_):
-                dprintf(";;;%s compiling:\n%s%s",
-                              sex_space(-3, ";"), sex_space(), pp(form))
-        ## Macro / compiler macro expansion, (the latter one unless disabled by a NOTINLINE declaration), SAME MODE
-        macroexpanded = compiler_macroexpand_all(form, lexenv = _null)
-        if symbol_value(_compiler_trace_macroexpanded_):
-                if form != macroexpanded:
-                        # dprintf("  MX  %s   --->\n%s", pp_consly(form), pp_consly(macroexpanded))
-                        report(macroexpanded = macroexpanded, desc = "PROCESS-TOP-LEVEL", lexenv = _null)
-                else:
-                        dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
-        ## Note, that at this point, the lexenv is discharged completely.
-        ## ..is it?  Macroexpansion is done, so what could it be?
-        ##
-        ## Accumulation of results arranged for the run time:
-        run_time_results = []
+def map_top_level(fn, form, compile_time_too = nil, process = t, eval = nil):
         def make_skipping_iterating_processor(skip_subforms, doc_and_decls):
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-IGNORES-DECLARATIONS
                 def skipping_iterating_processor(subforms, compile_time_too, process, eval, toplevel = None):
@@ -10064,7 +10039,48 @@ def process_top_level(form) -> [ast.stmt]:
                 #         pp_sex(body))
                 mapc(lambda f: rec(f, new_ctt, process and new_process, new_eval),
                      body[1][1])
-        def default_processor(form, compile_time_too, process, eval, toplevel = None):
+        actions = {
+                _progn:           make_skipping_iterating_processor(skip_subforms = 1, doc_and_decls = nil),
+                _locally:         make_skipping_iterating_processor(skip_subforms = 1, doc_and_decls = t),
+                _macrolet:        make_skipping_iterating_processor(skip_subforms = 2, doc_and_decls = t),
+                _symbol_macrolet: make_skipping_iterating_processor(skip_subforms = 2, doc_and_decls = t),
+                _eval_when:       process_eval_when,
+                }
+        def rec(form, compile_time_too, process, eval):
+                ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-HANDLING
+                if not consp(form):
+                        return
+                actions.get(form[0], fn)(form, compile_time_too, process, eval,
+                                         toplevel = t)
+        rec(form, compile_time_too, process, eval)
+
+def process_top_level(form, compile_time_too = nil, process = t, eval = nil) -> [ast.stmt]:
+        "A, hopefully, faithful implementation of CLHS 3.2.3.1."
+        if symbol_value(_compile_verbose_):
+                complex_named_p = (listp(form) and length(form) > 1
+                                   and (atom(form[1][0]) or form[1][0][0] is _setq))
+                kind, maybe_name = ((form[0], form[1][0]) if complex_named_p      else
+                                    (form[0], "")         if listp(form) and form else
+                                    (form, ""))
+                dprintf("; compiling (%s%s%s%s)",
+                        kind, " " if complex_named_p else "", maybe_name, " ..." if length(form) > 2 else "")
+        if symbol_value(_compiler_trace_forms_):
+                dprintf(";;;%s compiling:\n%s%s",
+                        sex_space(-3, ";"), sex_space(), pp(form))
+        ## Macro / compiler macro expansion, (the latter one unless disabled by a NOTINLINE declaration), SAME MODE
+        macroexpanded = compiler_macroexpand_all(form, lexenv = _null)
+        if symbol_value(_compiler_trace_macroexpanded_):
+                if form != macroexpanded:
+                        # dprintf("  MX  %s   --->\n%s", pp_consly(form), pp_consly(macroexpanded))
+                        report(macroexpanded = macroexpanded, desc = "PROCESS-TOP-LEVEL", lexenv = _null)
+                else:
+                        dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
+        ## Note, that at this point, the lexenv is discharged completely.
+        ## ..is it?  Macroexpansion is done, so what could it be?
+        ##
+        ## Accumulation of results arranged for the run time:
+        run_time_results = []
+        def file_compiler_processor(form, compile_time_too, process, eval, toplevel = None):
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-ARGUMENT-HANDLING
                 ## This is where LEXENV isn't true, as it's always empty.
                 ## ..but re-walking it.. who would care?  CLtL2 environments?
@@ -10090,20 +10106,10 @@ def process_top_level(form) -> [ast.stmt]:
                         broken_globals.update(good_globals)
                         # dprintf("; D-P: globals: %x, content: %s",
                         #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
-        actions = {
-                _progn:           make_skipping_iterating_processor(skip_subforms = 1, doc_and_decls = nil),
-                _locally:         make_skipping_iterating_processor(skip_subforms = 1, doc_and_decls = t),
-                _macrolet:        make_skipping_iterating_processor(skip_subforms = 2, doc_and_decls = t),
-                _symbol_macrolet: make_skipping_iterating_processor(skip_subforms = 2, doc_and_decls = t),
-                _eval_when:       process_eval_when,
-                }
-        def rec(form, compile_time_too, process, eval):
-                ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-HANDLING
-                if not consp(form):
-                        return
-                actions.get(form[0], default_processor)(form, compile_time_too, process, eval,
-                                                        toplevel = t)
-        rec(macroexpanded, nil, t, nil)
+        map_top_level(file_compiler_processor, macroexpanded,
+                      compile_time_too = nil,
+                      process          = t,
+                      eval             = nil)
         return run_time_results
 
 string_set("*COMPILE-PRINT*",         t)
