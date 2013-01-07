@@ -4651,8 +4651,26 @@ def member_if_not(test, xs):
         not_implemented()
 
 @defun
-def mapc(f, *xs):
-         not_implemented()
+def mapc(f, xs, *xss):
+        if not xss:
+                if not xs:
+                        return nil
+                car, cdr = xs[0], xs[1]
+                f(car)
+                while cdr:
+                        car, cdr = cdr[0], cdr[1]
+                        f(car)
+        else:
+                if not xs or not all(xss): ## This misfires when something is illegally not a list, but a pyfalse -- e.g. 0.
+                        return nil
+                caar, cars = xs[0], [ x[0] for x in xss ]
+                cadr, cdrs = xs[1], [ x[1] for x in xss ]
+                f(caar, *cars)
+                while cadr and all(cdrs):
+                        caar, cars = cadr[0], [ x[0] for x in cdrs ]
+                        cadr, cdrs = cadr[1], [ x[1] for x in cdrs ]
+                        f(caar, *cars)
+        return nil
 
 @defun
 def mapcar(f, xs, *xss):
