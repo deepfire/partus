@@ -5169,16 +5169,16 @@ def specs_restarts_args(restart_specs):
 ##
 # XXX: :TEST-FUNCTION is currently IGNORED!
 ##
-def restart_bind(body, restarts_args):
+def do_restart_bind(body, restarts_args):
         with progv({_restart_clusters_: (symbol_value(_restart_clusters_) +
                                            [_remap_hash_table(lambda _, restart_args: make_instance(restart_t, **restart_args), restarts_args)])}):
                 return body()
 
 def restart_bind(body, **restart_specs):
-        return restart_bind(body, specs_restarts_args(restart_specs))
+        return do_restart_bind(body, specs_restarts_args(restart_specs))
 
 __valid_restart_options__ = frozenset(["interactive", "report", "test", "function"])
-def restart_case(body, **restarts_args):
+def do_restart_case(body, **restarts_args):
         def validate_restart_options(options):
                 unknown = set(options.keys()) - __valid_restart_options__
                 return t if not unknown else simple_type_error("Acceptable restart options are: (%s), not (%s)",
@@ -5206,10 +5206,10 @@ def restart_case(body, **restarts_args):
                                                                    error(":REPORT argument to RESTART-CASE must be either a function, a string or NIL."))))))
                 for restart_name, restart_args in restarts_args.items () }
         return catch(nonce,
-                      lambda: restart_bind(body, wrapped_restarts_args))
+                      lambda: do_restart_bind(body, wrapped_restarts_args))
 
 def restart_case(body, **restart_specs):
-        return restart_case(body, **specs_restarts_args(restart_specs))
+        return do_restart_case(body, **specs_restarts_args(restart_specs))
 
 def with_simple_restart(name, format_control_and_arguments, body):
         """
