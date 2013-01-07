@@ -5171,7 +5171,7 @@ def specs_restarts_args(restart_specs):
 ##
 def do_restart_bind(body, restarts_args):
         with progv({_restart_clusters_: (symbol_value(_restart_clusters_) +
-                                           [_remap_hash_table(lambda _, restart_args: make_instance(restart_t, **restart_args), restarts_args)])}):
+                                           [remap_hash_table(lambda _, restart_args: make_instance(restart_t, **restart_args), restarts_args)])}):
                 return body()
 
 def restart_bind(body, **restart_specs):
