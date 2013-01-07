@@ -11,11 +11,35 @@ DEBUG  ?= nil
 
 RECOMPILE_VPCL ?= nil
 
+DUMP_FORM ?= nil
+DUMP_MX   ?= nil
+DUMP_RE   ?= nil
+DUMP_PRIM ?= nil
+DUMP_AST  ?= nil
+
 all: run
 
-repl:
-	$(PYTHON) -ic "from cl import *; repl()"
+vpcl.vpfas: vpcl.lisp
+	$(PYTHON) -c "from cl import *; compile_file('vpcl.lisp')"
 
+repl: vpcl.vpfas
+	$(PYTHON) -ic "from cl import *; load('vpcl.vpfas'); repl()"
+
+test: vpcl.vpfas
+	export CL_RUN_TESTS=$(TEST) CL_TEST_QQ=$(TEST_QQ) CL_TEST_METASEX=$(TEST_METASEX) CL_TEST_KNOWN=$(TEST_KNOWN) CL_TEST_PP=$(TEST_PP) CL_TEST_COMPILER=$(TEST_COMPILER); \
+	$(PYTHON) -c \
+"from cl import *; in_package('CL'); load('vpcl.vpfas'); dbgsetup(forms = $(DUMP_FORM), macroexpanded = $(DUMP_MX), rewritten = $(DUMP_RE), primitives = $(DUMP_PRIM), module_ast = $(DUMP_AST)); load('reader.lisp', verbose = t, print = t)"
+
+
+clean:
+	rm -rf __pycache__
+
+merge:
+	git diff HEAD^1 cl.py > d.diff
+	patch --merge cl.org d.diff; rm -f d.diff cl.org.orig
+
+
+## Undermaintained targets
 run:	clean
 # (lambda c, f, h: format(sys.stdout, 'Passing condition \'%s\' of type \'%s\' to frame:\n%s\n', c, type_of(c), cl._pp_frame(f, lineno = t)))
 	$(PYTHON) -c "from cl import *; import cl, partus, sys; setq('_presignal_hook_', (lambda c, h: cl._report_condition(c, backtrace = t)) if $(REPORT) else nil); setq('_prehandler_hook_', (cl._report_handling_handover) if $(REPORT) else nil); setq('_debug_on_swank_protocol_error_', $(DEBUG)); setq('_debug_swank_backend_', $(DEBUG)); partus.create_server()"
@@ -23,18 +47,5 @@ run:	clean
 swank:
 	sbcl --eval '(require :swank)' --eval '(swank:create-server :dont-close t)'
 
-clean:
-	rm -rf __pycache__
-
-test:
-	export CL_RUN_TESTS=$(TEST) CL_TEST_QQ=$(TEST_QQ) CL_TEST_METASEX=$(TEST_METASEX) CL_TEST_KNOWN=$(TEST_KNOWN) CL_TEST_PP=$(TEST_PP) CL_TEST_COMPILER=$(TEST_COMPILER); \
-	$(PYTHON) -c \
-"from cl import *; in_package('CL'); load('vpcl.vpfas') if probe_file('vpcl.vpfas') and not $(RECOMPILE_VPCL) else load(compile_file('vpcl.lisp')); load('../informatimago/common-lisp/lisp-reader/reader.lisp', verbose = t, print = t)"
-
 smalltest:
 	$(PYTHON) cl-tests.py
-
-merge:
-	git diff HEAD^1 cl.py > d.diff
-	patch --merge cl.org d.diff; rm -f d.diff cl.org.orig
-
