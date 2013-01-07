@@ -4748,6 +4748,10 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                 do_unread_char(char)
                 if   char == chr(40):  obj = read_list() # Org is a bit too picky
                 elif char == "\"":     obj = read_string()
+                elif char == "#":
+                        do_read_char()
+                        dchar = do_read_char()
+                        obj = read_dispatched(dchar)
                 elif char == "'":
                         do_read_char()
                         obj = list_(_quote, read_inner())
@@ -4770,6 +4774,15 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                                 error("Unexpected consing dot in stream %s, position %%s.", stream)
                         # here("< %s" % (obj,))
                 return obj
+        def read_dispatched(char):
+                if char == "'":
+                        return list_(_function, read_inner())
+                if char in ("b", "B"):
+                        return int(read_token(), 2)
+                if char in ("x", "X"):
+                        return int(read_token(), 16)
+                else:
+                        error("Unknown or invalid dispatch macro character: %s.", princ_to_string(c))
         def skip_until_eol():
                 c = read_char_maybe_eof()
                 while c and c != "\n":
