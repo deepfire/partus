@@ -20,7 +20,7 @@ DUMP_AST  ?= nil
 all: run
 
 vpcl.vpfas: vpcl.lisp
-	$(PYTHON) -c "from cl import *; compile_file('vpcl.lisp')"
+	$(PYTHON) -c "from cl import *; dbgsetup(forms = $(DUMP_FORM), macroexpanded = $(DUMP_MX), rewritten = $(DUMP_RE), primitives = $(DUMP_PRIM), module_ast = $(DUMP_AST)); compile_file('vpcl.lisp')"
 
 repl: vpcl.vpfas
 	$(PYTHON) -ic "from cl import *; load('vpcl.vpfas'); repl()"
