@@ -1,0 +1,1778 @@
+#+startup hidestars odd
+
+* Arithmetic
+*** Arithmetic/arithmetic.lisp
+***** defun binary-+
+***** defun +
+***** define-compiler-macro +
+***** defun binary--
+***** defun -
+***** define-compiler-macro -
+***** defun binary-*
+***** defun *
+***** define-compiler-macro *
+***** defun binary-/
+***** defun /
+***** define-compiler-macro /
+
+* Array
+*** Array/aref.lisp
+***** defun my-aref
+***** define-compiler-macro my-aref
+***** defun my-array-row-major-index
+***** define-compiler-macro my-array-row-major-index
+
+* CLOS
+*** CLOS/built-in-classes.lisp
+***** defun built-in-class-of
+*** CLOS/class-slots.lisp
+***** defparameter *direct-slots*
+***** defun find-direct-slots
+***** defun (setf
+***** defparameter *effective-slots*
+***** defun find-effective-slots
+***** defun (setf
+***** defun define-slots
+***** (define-slots 't '() '())
+***** (define-slots 'standard-object '(t)
+***** (define-slots 'function '()
+***** (define-slots 'funcallable-standard-object '()
+***** (define-slots 'metaobject '(standard-object)
+***** (define-slots 'generic-function '(metaobject funcallable-standard-object)
+***** (define-slots 'standard-generic-function '(generic-function)
+***** (define-slots 'method '(metaobject)
+***** (define-slots 'standard-method '(method)
+***** (define-slots 'standard-accessor-method '(standard-method)
+***** (define-slots 'standard-reader-method '(standard-accessor-method)
+***** (define-slots 'standard-writer-method '(standard-accessor-method)
+***** (define-slots 'method-combination '(metaobject)
+***** (define-slots 'slot-definition '(metaobject)
+***** (define-slots 'direct-slot-definition '(slot-definition)
+***** (define-slots 'effective-slot-definition '(slot-definition)
+***** (define-slots 'standard-slot-definition '(slot-definition)
+***** (define-slots 'standard-direct-slot-definition
+***** (define-slots 'standard-effective-slot-definition
+***** (define-slots 'specializer '(metaobject)
+***** (define-slots 'eql-specializer '(specializer)
+***** (define-slots 'class '(specializer)
+***** (define-slots 'built-in-class '(class)
+***** (define-slots 'forward-reference-class '(class)
+***** (define-slots 'standard-class '(class)
+***** (define-slots 'funcallable-standard-class '(class)
+*** CLOS/clos.lisp
+***** defparameter *classes*
+***** defun find-class
+***** defun (setf
+***** defun find-class-reverse
+***** defun s-m-primary-t
+***** defun slot-missing
+***** defun slot-value-using-class
+***** defun (setf
+***** defun slot-value
+***** defun (setf
+***** defun class-default-initargs
+***** defun (setf
+***** defun class-direct-default-initargs
+***** defun class-direct-slots
+***** defun (setf
+***** defun class-direct-subclasses
+***** defun (setf
+***** defun class-direct-superclasses
+***** defun (setf
+***** defun class-finalized-p
+***** defun (setf
+***** defun class-unique-number
+***** defun (setf
+***** defun class-name
+***** defun class-precedence-list
+***** defun (setf
+***** defun class-slots
+***** defun (setf
+***** defun slot-definition-name
+***** defun slot-definition-allocation
+***** defun slot-definition-type
+***** defun slot-definition-initargs
+***** defun slot-definition-initform
+***** defun slot-definition-initfunction
+***** defun slot-definition-readers
+***** defun slot-definition-writers
+***** defun generic-function-argument-precedence-order
+***** defun generic-function-declarations
+***** defun generic-function-lambda-list
+***** defun generic-function-method-combination
+***** defun generic-function-method-class
+***** defun generic-function-name
+***** defun (setf
+***** defun generic-function-discriminating-function
+***** defun (setf
+***** defun generic-function-methods
+***** defun (setf
+***** defun method-qualifiers
+***** defun method-lambda-list
+***** defun method-specializers
+***** defun method-function
+***** defun method-generic-function
+***** defun (setf
+***** defun accessor-method-slot-definition
+***** defparameter *secret-unbound-value*
+***** defun allocate-instance
+***** defun sd-initialize-instance-after-standard-class
+***** defun sd-initialize-instance-after-standard-generic-function
+***** defun sd-initialize-instance
+***** defun sd-make-instance
+***** defparameter *class-standard-direct-slot-definition*
+***** defun make-direct-slot-definition
+***** defparameter *class-standard-class*
+***** defun make-instance
+***** defun subclass-of-class-p
+***** defun classp
+***** defun process-direct-superclasses
+***** defun ensure-class-using-class-null
+***** defun ensure-class-using-class
+***** defun ensure-class
+***** defmacro defclass
+***** defun make-built-in-class
+***** defclass standard-object
+***** defclass metaobject
+***** defclass method
+***** defclass standard-method
+***** defclass standard-accessor-method
+***** defclass standard-reader-method
+***** defclass standard-writer-method
+***** defclass method-combination
+***** defclass slot-definition
+***** defclass direct-slot-definition
+***** defclass effective-slot-definition
+***** defclass standard-slot-definition
+***** defclass fake
+***** defclass standard-effective-slot-definition
+***** defclass specializer
+***** defclass eql-specializer
+***** defclass class
+***** defclass built-in-class
+***** defclass forward-reference-class
+***** defclass fake
+***** defclass funcallable-standard-class
+***** defclass funcallable-standard-object
+***** defclass generic-function
+***** defclass standard-generic-function
+***** defun print-object
+***** defun describe-object
+***** defun compute-relation
+***** defun compute-class-precedence-list-class
+***** defun compute-class-precedence-list
+***** defun direct-slot-definition-class
+***** defun effective-slot-definition-class
+***** defun compute-effective-slot-definition-aux
+***** defun compute-effective-slot-definition
+***** defun compute-slots
+***** defun finalize-inheritance
+***** defparameter *next-number*
+***** defun ensure-class-number
+***** defun test-structure
+*** CLOS/generic-functions.lisp
+***** defparameter *generic-functions*
+***** defparameter *call-next-method*
+***** defparameter *next-method-p*
+***** defun class-of
+***** defun extract-lambda-list
+***** defun extract-specizlier-names
+***** defun ensure-generic-function
+***** defmacro defgeneric
+***** defun make-method-lambda-standard
+***** defun make-method-lambda
+***** defun parse-defmethod
+***** defun add-method
+***** defun ensure-method
+***** defun canonicalize-specializers
+***** defmacro defmethod
+***** defun sub-specializer-p
+***** defun method-more-specific-p
+***** defun subclassp
+***** defun compute-applicable-methods-using-classes
+***** defun primary-method-p
+***** defun after-method-p
+***** defun before-method-p
+***** defun around-method-p
+***** defun compute-effective-method-function
+***** defun compute-real-lambda
+***** defun compute-discriminating-function
+***** defun sd-initialize-instance-after-standard-generic-function
+***** defun make-call-record
+***** defun call-record-profile
+***** defun call-record-effective-method
+***** defun generic-function-call-history
+***** defun (setf
+***** defun make-state
+***** defun state-name
+***** defun (setf
+***** defun state-info
+***** defun (setf
+***** defun state-transitions
+***** defun (setf
+***** defun make-transition
+***** defun transition-number
+***** defun transition-target
+***** defun (setf
+***** defun transitions-equal
+***** defun add-path
+***** defun states-equivalent-p
+***** defun compute-layers
+***** defun minimize-layer
+***** defun adjust-transition
+***** defun adjust-state
+***** defun adjust-layer
+***** defun minimize-automaton
+***** defun make-intervals
+***** defun compute-test-tree
+***** defun test-automaton
+*** CLOS/packages.lisp
+***** defpackage #:sicl-clos
+*** CLOS/single-dispatch.lisp
+***** defparameter *single-dispatch-table*
+***** defparameter *single-dispatch-flags*
+***** defclass class
+***** defclass generic-function
+*** CLOS/standard-instance.lisp
+***** defstruct standard-instance
+***** defun allocate-standard-instance
+***** defun allocate-slot-storage
+***** defun slot-contents
+***** defun (setf
+
+* Code-utilities
+*** Code-utilities/destructuring.lisp
+***** defun destructure-required
+***** defun destructure-optionals
+***** defun destructure-keys
+***** defun destructure-lambda-list
+***** defun destructure-pattern
+***** defun parse-macro
+*** Code-utilities/environment.lisp
+***** defclass environment
+***** defclass global-environment
+***** defparameter *compiler-environment*
+***** defvar *secret-unbound-value*
+***** defun boundp-in-table
+***** defun boundp-in-environment
+***** defun fboundp-in-environment
+***** defun makunbound-in-table
+***** defun makunbound-in-environment
+***** defun fmakunbound-in-environment
+***** defun value-in-table
+***** defun symbol-function-in-environment
+***** defun fdefinition-in-environment
+***** defun symbol-value-in-environment
+***** defun set-value-in-table
+***** defun (setf
+***** defclass delta-environment
+***** defclass binding-environment
+***** defclass declaration-environment
+***** defclass referencing-declaration-environment
+***** defclass pure-declaration-envirionment
+***** defclass allocating-environment-mixin
+***** defclass variable-environment
+***** defclass lexical-variable-environment
+***** defclass special-variable-environment
+***** defclass symbol-macro-environment
+***** defclass function-environment
+***** defclass lexical-function-environment
+***** defclass macro-environment
+***** defclass block-environment
+***** defclass tag-environment
+***** defun find-global-environment
+***** defun variable-information
+***** defun function-information
+***** defun block-information
+***** defun tag-information
+***** defun augment-environment
+*** Code-utilities/general.lisp
+***** defun list-structure
+***** defun proper-list-p
+***** defun proper-list-length
+***** defun dotted-list-p
+***** defun dotted-list-length
+***** defun proper-or-dotted-list-length
+***** defun circular-list-p
+*** Code-utilities/lambda-lists.lisp
+***** defparameter *lambda-list-keywords*
+***** defun potential-lambda-list-keyword-p
+***** defun check-lambda-list-not-circular
+***** defun check-lambda-list-proper
+***** defun check-lambda-list-keywords
+***** defclass lambda-list
+***** defun list-has-keyword-p
+***** defun check-tree
+***** defun parse-pattern
+***** defun parse-ordinary-required
+***** defun parse-destructuring-required
+***** defun parse-specialized-required
+***** defun parse-all-required
+***** defun parse-ordinary-optional
+***** defun parse-defgeneric-optional
+***** defun parse-destructuring/deftype-optional
+***** defun parse-destructuring-optional
+***** defun parse-deftype-optional
+***** defun parse-all-optionals
+***** defun parse-ordinary-key
+***** defun parse-defgeneric-key
+***** defun parse-destructuring/deftype-key
+***** defun parse-destructuring-key
+***** defun parse-deftype-key
+***** defun parse-all-keys
+***** defun parse-aux
+***** defun parse-all-aux
+***** defun parse-allow-other-keys
+***** defun parse-environment
+***** defun parse-rest/body
+***** defun parse-whole
+***** defun compute-keyword-positions
+***** defun parse-ordinary-lambda-list
+***** defun parse-generic-function-lambda-list
+***** defun parse-specialized-lambda-list
+***** defun parse-macro-lambda-list
+***** defun parse-destructuring-lambda-list
+***** defun parse-deftype-lambda-list
+***** defun parse-defsetf-lambda-list
+***** defun parse-define-modify-macro-lambda-list
+***** defun parse-define-method-combination-arguments-lambda-list
+***** defun congruent-required-p
+***** defun congruent-optionals-p
+***** defun congruent-key-rest-p
+***** defun same-keys-accepted-p
+***** defun lambda-lists-congruent-p
+***** defun generate-congruent-lambda-list
+*** Code-utilities/packages.lisp
+***** defpackage #:sicl-code-utilities
+
+* Compiler
+*** Compiler/intelligent-macroexpand.lisp
+***** defclass ast
+***** defparameter *example*
+***** defun transformer
+***** defun build-subform-table
+***** defun find-subforms-in-table
+***** defun access-subform
+***** defun replace-subform
+***** defun subpath-p
+***** defun fff
+***** defun find-compound-form-in-tree
+***** defun find-all-compound-forms-in-tree
+***** defun replace-causes-error
+***** defun filter-compound-forms
+*** Compiler/mir.lisp
+***** defclass mir-instruction
+***** defmethod print-object
+***** defclass mir-has-left-mixin
+***** defclass mir-operation-mixin
+***** defclass mir-binary-expression-mixin
+***** defclass mir-unary-expression-mixin
+***** defclass mir-list-expression-mixin
+***** defclass mir-no-expression-mixin
+***** defclass mir-transfer-mixin
+***** defclass mir-trap-mixin
+***** defclass mir-label
+***** defmethod print-object
+***** defclass mir-receive
+***** defmethod print-object
+***** defclass mir-binary-assign
+***** defmethod print-object
+***** defclass mir-unary-assign
+***** defmethod print-object
+***** defclass mir-value-assign
+***** defmethod print-object
+***** defclass mir-conditional-assign
+***** defmethod print-object
+***** defclass mir-cast-assign
+***** defmethod print-object
+***** defclass mir-indirect-assign
+***** defmethod print-object
+***** defclass mir-element-assign
+***** defmethod print-object
+***** defclass mir-indirect-element-assign
+***** defmethod print-object
+***** defclass mir-goto
+***** defmethod print-object
+***** defclass mir-binary-if
+***** defmethod print-object
+***** defclass mir-unary-if
+***** defmethod print-object
+***** defclass mir-value-if
+***** defmethod print-object
+***** defclass mir-binary-trap
+***** defmethod print-object
+***** defclass mir-unary-trap
+***** defmethod print-object
+***** defclass mir-value-trap
+***** defmethod print-object
+***** defclass mir-call
+***** defmethod print-object
+***** defclass mir-call-assign
+***** defmethod print-object
+***** defclass mir-return
+***** defmethod print-object
+***** defclass mir-return-value
+***** defmethod print-object
+***** defclass mir-sequence
+***** defmethod print-object
+***** defclass mir-operand
+***** defclass mir-variable
+***** defmethod print-object
+***** defclass mir-constant
+***** defmethod print-object
+***** defclass mir-parameter-type
+***** defmethod print-object
+***** defclass mir-operator
+***** defmethod print-object
+***** defmacro make-mir-operator
+***** defparameter +mir-type-t+
+***** defun compile-to-mir
+***** defclass basic-block
+***** defclass mir-program
+***** defun make-blocks
+***** defun make-program
+*** Compiler/phase1.lisp
+***** defpackage #:sicl-compiler-phase-1
+***** defclass compiler-object
+***** defmethod print-object
+***** define-condition compilation-program-error
+***** define-condition compilation-warning
+***** define-condition compilation-style-warning
+***** defclass ast
+***** defclass symbol-ast
+***** defclass constant-ast
+***** defclass compound-ast
+***** defun map-maybe-dotted-list
+***** defun make-ast
+***** defclass namespace
+***** defgeneric lookup-in-namespace
+***** defgeneric add-binding
+***** defclass alist-namespace
+***** defmethod lookup-in-namespace
+***** defmethod add-binding
+***** defclass hash-namespace
+***** defmethod lookup-in-namespace
+***** defmethod add-binding
+***** defclass environment
+***** defclass global-environment
+***** defclass host-global-environment
+***** defclass target-global-environment
+***** defclass lexical-environment
+***** defgeneric lookup-level
+***** defun lookup
+***** defmethod lookup-level
+***** defgeneric convert
+***** defmethod convert
+***** defun search-ast
+***** defun fixup
+***** define-condition form-must-be-a-proper-list
+***** defun proper-list-p
+***** defclass variable-ast
+***** defclass function-call-ast
+***** defgeneric convert-special
+***** defmethod convert
+***** defclass progn-ast
+***** defmethod convert-special
+***** defun convert-implicit-progn
+***** defclass block-ast
+***** define-condition block-must-have-at-least-one-argument
+***** define-condition block-name-must-be-a-symbol
+***** defmethod convert-special
+***** defclass return-from-ast
+***** define-condition return-from-must-have-one-or-two-arguments
+***** defmethod convert-special
+***** defclass setq-ast
+***** define-condition setq-must-have-even-number-of-arguments
+***** define-condition setq-variable-must-be-a-symbol
+***** define-condition setq-variable-does-not-exist
+***** defmethod convert-special
+***** defclass binding-ast
+***** defclass let-ast
+***** define-condition bindings-must-be-a-list
+***** define-condition binding-must-be-symbol-or-list
+***** define-condition binding-must-have-length-two
+***** define-condition variable-must-be-a-symbol
+***** defun check-bindings
+***** define-condition form-must-have-bindings
+***** defmethod convert-special
+***** define-condition quote-must-have-a-single-argument
+***** defmethod convert-special
+***** defclass if-ast
+***** define-condition if-must-have-three-or-four-arguments
+***** defmethod convert-special
+***** defclass catch-ast
+***** define-condition catch-must-have-at-least-one-argument
+***** defmethod convert-special
+***** defclass throw-ast
+***** define-condition throw-must-have-exactly-two-arguments
+***** defmethod convert-special
+***** defclass tag-ast
+***** defclass tagbody-ast
+***** define-condition go-tag-must-be-symbol-or-integer
+***** defmethod convert-special
+***** defclass go-tag-ast
+***** define-condition go-must-have-exactly-one-argument
+***** defmethod convert-special
+***** defclass eval-when-ast
+***** define-condition eval-when-must-have-at-least-one-argument
+***** define-condition situations-must-be-a-list
+***** define-condition invalid-eval-when-situation
+***** defmethod convert-special
+***** defclass the-ast
+***** define-condition the-must-have-exactly-two-arguments
+***** defmethod convert-special
+***** defclass unwind-protect-ast
+***** define-condition unwind-protect-must-have-at-leat-one-argument
+***** defmethod convert-special
+***** define-condition parameter-starting-with-ampersand
+***** define-condition misplaced-optional-in-lambda-list
+***** define-condition misplaced-rest-in-lambda-list
+***** define-condition misplaced-key-in-lambda-list
+***** define-condition misplaced-aux-in-lambda-list
+***** define-condition key-or-aux-expected
+***** defparameter *lambda-list-keywords*
+***** define-condition malformed-required-parameter
+***** defun parse-required
+***** define-condition empty-optional-parameter-list
+***** define-condition malformed-optional-parameter
+***** defun parse-optional
+***** define-condition rest-must-be-followed-by-a-prameter
+***** define-condition malformed-rest-parameter
+***** defun parse-rest
+***** define-condition empty-key-parameter-list
+***** define-condition key-parameter-must-be-a-symbol-or-a-proper-list
+***** define-condition key-parameter-list-must-have-length-between-one-and-three
+***** define-condition key-var-must-be-a-symbol-or-a-list-of-length-one-or-two
+***** define-condition key-supplied-p-parameter-must-be-a-symbol
+***** defun parse-key
+***** define-condition empty-aux-parameter-list
+***** define-condition malformed-aux-parameter
+***** defun parse-aux
+***** defclass ordinary-lambda-list
+***** define-condition ordinary-lambda-list-must-be-a-proper-list
+***** define-condition lambda-list-keyword-illegal-in-ordinary-lambda-list
+***** define-condition misplaced-lambda-list-keyword
+***** defun parse-ordinary-lambda-list
+*** Compiler/random-thoughts.lisp
+***** defpackage #:runtime
+***** defclass environment
+***** defclass code
+***** defclass function
+***** defclass lisp-function
+***** defclass closure
+***** defclass virtual-machine
+***** defparameter *virtual-machine*
+***** defun run-virtual-machine
+***** defun lookup-local
+***** defun save-local
+***** defun conditional
+***** defun pass-argument
+***** defun set-argument-count
+***** defun access-value
+***** defun call-function
+***** defparameter *example-1*
+
+* Conditionals
+*** Conditionals/conditionals.lisp
+***** define-condition name-mixin
+***** define-condition malformed-body
+***** define-condition malformed-cond-clauses
+***** define-condition malformed-cond-clause
+***** define-condition malformed-case-clauses
+***** define-condition malformed-case-clause
+***** define-condition otherwise-clause-not-last
+***** define-condition malformed-keys
+***** define-condition malformed-typecase-clauses
+***** define-condition malformed-typecase-clause
+***** define-condition ecase-type-error
+***** define-condition ccase-type-error
+***** define-condition etypecase-type-error
+***** define-condition ctypecase-type-error
+***** defmacro or
+***** defmacro and
+***** defmacro when
+***** defmacro unless
+***** defmacro cond
+***** defun eql-ify
+***** defun expand-case-clauses
+***** defmacro case
+***** defun collect-e/ccase-keys
+***** defun expand-e/ccase-clauses
+***** defmacro ecase
+***** defun compute-let*-bindings
+***** defmacro ccase
+***** defun expand-typecase-clauses
+***** defmacro typecase
+***** defun collect-e/ctypecase-keys
+***** defun expand-e/ctypecase-clauses
+***** defmacro etypecase
+***** defmacro ctypecase
+*** Conditionals/condition-reporters-en.lisp
+***** defparameter *language*
+***** defun name-package
+***** defgeneric report-condition
+***** defmethod print-object
+***** defmethod report-condition
+*** Conditionals/packages.lisp
+***** defpackage #:sicl-conditionals
+***** defpackage #:sicl-conditionals-test
+
+* Conditions
+*** Conditions/conditions.lisp
+***** define-condition condition
+***** defparameter *langauge*
+***** defgeneric report-condition
+***** defmethod print-object
+***** defmethod report-condition
+***** define-condition serious-condition
+***** defmethod report-condition
+***** define-condition storage-condition
+***** defmethod report-condition
+***** define-condition simple-condition
+***** defmethod report-condition
+***** define-condition error
+***** defmethod report-condition
+***** define-condition simple-error
+***** defmethod report-condition
+***** define-condition cell-error
+***** defmethod report-condition
+***** define-condition unbound-slot
+***** defmethod report-condition
+***** define-condition unbound-variable
+***** defmethod report-condition
+***** define-condition undefined-function
+***** defmethod report-condition
+***** define-condition parse-error
+***** defmethod report-condition
+***** define-condition reader-error
+***** defmethod report-condition
+***** define-condition arithmetic-error
+***** defmethod report-condition
+***** define-condition division-by-zero
+***** defmethod report-condition
+***** define-condition floating-point-inexact
+***** defmethod report-condition
+***** define-condition floating-point-invalid-operation
+***** defmethod report-condition
+***** define-condition floating-point-overflow
+***** defmethod report-condition
+***** define-condition floating-point-underflow
+***** defmethod report-condition
+***** define-condition control-error
+***** defmethod report-condition
+***** define-condition stream-error
+***** defmethod report-condition
+***** define-condition end-of-file
+***** defmethod report-condition
+***** define-condition file-error
+***** defmethod report-condition
+***** define-condition package-error
+***** defmethod report-condition
+***** define-condition print-not-readable
+***** defmethod report-condition
+***** define-condition program-error
+***** defmethod report-condition
+***** define-condition type-error
+***** defmethod report-condition
+***** define-condition simple-type-error
+***** defmethod report-condition
+***** define-condition warning
+***** defmethod report-condition
+***** define-condition simple-warning
+***** defmethod report-condition
+***** define-condition style-warning
+***** defmethod report-condition
+*** Conditions/signaling.lisp
+***** defpackage #:sicl-condition-signaling
+***** defparameter *break-on-signals*
+***** defparameter *handler-stack*
+***** defun find-handler
+***** defmacro handler-bind
+***** defun debugger
+***** defun invoke-debugger
+***** defun maybe-break-on-signals
+***** defun make-condition-from-datum-and-arguments
+***** defun find-and-invoke-handler
+***** defun signal
+***** defun error
+
+* Cons
+*** Cons-high/condition-reporters-en.lisp
+***** defparameter *language*
+***** defun name-package
+***** defgeneric report-condition
+***** defmethod print-object
+***** defmethod report-condition
+*** Cons-high/cons-high.lisp
+***** define-condition name-mixin
+***** define-condition must-be-nonnegative-integer
+***** define-condition must-be-cons
+***** define-condition must-be-list
+***** define-condition must-be-proper-list
+***** define-condition must-be-proper-or-circular-list
+***** define-condition must-be-proper-or-dotted-list
+***** define-condition must-be-property-list
+***** define-condition must-be-association-list
+***** define-condition both-test-and-test-not-given
+***** define-condition at-least-one-list-required
+***** define-condition at-least-one-argument-required
+***** define-condition lists-must-have-the-same-length
+***** define-condition setf-c*r-must-be-cons
+***** define-condition setf-nth-must-be-cons
+***** define-condition warn-both-test-and-test-not-given
+***** deftype null
+***** define-compiler-macro list
+***** defmacro push
+***** defmacro pop
+***** defun nconc
+***** defmacro define-c*r-function
+***** define-c*r-function caar "AA")
+***** define-c*r-function cadr "AD")
+***** define-c*r-function cdar "DA")
+***** define-c*r-function cddr "DD")
+***** define-c*r-function caaar "AAA")
+***** define-c*r-function caadr "AAD")
+***** define-c*r-function cadar "ADA")
+***** define-c*r-function caddr "ADD")
+***** define-c*r-function cdaar "DAA")
+***** define-c*r-function cdadr "DAD")
+***** define-c*r-function cddar "DDA")
+***** define-c*r-function cdddr "DDD")
+***** define-c*r-function caaaar "AAAA")
+***** define-c*r-function caaadr "AAAD")
+***** define-c*r-function caadar "AADA")
+***** define-c*r-function caaddr "AADD")
+***** define-c*r-function cadaar "ADAA")
+***** define-c*r-function cadadr "ADAD")
+***** define-c*r-function caddar "ADDA")
+***** define-c*r-function cadddr "ADDD")
+***** define-c*r-function cdaaar "DAAA")
+***** define-c*r-function cdaadr "DAAD")
+***** define-c*r-function cdadar "DADA")
+***** define-c*r-function cdaddr "DADD")
+***** define-c*r-function cddaar "DDAA")
+***** define-c*r-function cddadr "DDAD")
+***** define-c*r-function cdddar "DDDA")
+***** define-c*r-function cddddr "DDDD")
+***** define-c*r-function first   "A")
+***** define-c*r-function second  "AD")
+***** define-c*r-function third   "ADD")
+***** define-c*r-function fourth  "ADDD")
+***** define-c*r-function fifth   "ADDDD")
+***** define-c*r-function sixth   "ADDDDD")
+***** define-c*r-function seventh "ADDDDDD")
+***** define-c*r-function eighth  "ADDDDDDD")
+***** define-c*r-function ninth  "ADDDDDDDD")
+***** define-c*r-function tenth   "ADDDDDDDDD")
+***** define-setf-c*r-expander caar "AA")
+***** define-setf-c*r-expander cadr "AD")
+***** define-setf-c*r-expander cdar "DA")
+***** define-setf-c*r-expander cddr "DD")
+***** define-setf-c*r-expander caaar "AAA")
+***** define-setf-c*r-expander caadr "AAD")
+***** define-setf-c*r-expander cadar "ADA")
+***** define-setf-c*r-expander caddr "ADD")
+***** define-setf-c*r-expander cdaar "DAA")
+***** define-setf-c*r-expander cdadr "DAD")
+***** define-setf-c*r-expander cddar "DDA")
+***** define-setf-c*r-expander cdddr "DDD")
+***** define-setf-c*r-expander caaaar "AAAA")
+***** define-setf-c*r-expander caaadr "AAAD")
+***** define-setf-c*r-expander caadar "AADA")
+***** define-setf-c*r-expander caaddr "AADD")
+***** define-setf-c*r-expander cadaar "ADAA")
+***** define-setf-c*r-expander cadadr "ADAD")
+***** define-setf-c*r-expander caddar "ADDA")
+***** define-setf-c*r-expander cadddr "ADDD")
+***** define-setf-c*r-expander cdaaar "DAAA")
+***** define-setf-c*r-expander cdaadr "DAAD")
+***** define-setf-c*r-expander cdadar "DADA")
+***** define-setf-c*r-expander cdaddr "DADD")
+***** define-setf-c*r-expander cddaar "DDAA")
+***** define-setf-c*r-expander cddadr "DDAD")
+***** define-setf-c*r-expander cdddar "DDDA")
+***** define-setf-c*r-expander cddddr "DDDD")
+***** define-setf-c*r-expander first   "A")
+***** define-setf-c*r-expander second  "AD")
+***** define-setf-c*r-expander third   "ADD")
+***** define-setf-c*r-expander fourth  "ADDD")
+***** define-setf-c*r-expander fifth   "ADDDD")
+***** define-setf-c*r-expander sixth   "ADDDDD")
+***** define-setf-c*r-expander seventh "ADDDDDD")
+***** define-setf-c*r-expander eighth  "ADDDDDDD")
+***** define-setf-c*r-expander ninth   "ADDDDDDDD")
+***** define-setf-c*r-expander tenth   "ADDDDDDDDD")
+***** define-setf-c*r-function caar "AA")
+***** define-setf-c*r-function cadr "AD")
+***** define-setf-c*r-function cdar "DA")
+***** define-setf-c*r-function cddr "DD")
+***** define-setf-c*r-function caaar "AAA")
+***** define-setf-c*r-function caadr "AAD")
+***** define-setf-c*r-function cadar "ADA")
+***** define-setf-c*r-function caddr "ADD")
+***** define-setf-c*r-function cdaar "DAA")
+***** define-setf-c*r-function cdadr "DAD")
+***** define-setf-c*r-function cddar "DDA")
+***** define-setf-c*r-function cdddr "DDD")
+***** define-setf-c*r-function caaaar "AAAA")
+***** define-setf-c*r-function caaadr "AAAD")
+***** define-setf-c*r-function caadar "AADA")
+***** define-setf-c*r-function caaddr "AADD")
+***** define-setf-c*r-function cadaar "ADAA")
+***** define-setf-c*r-function cadadr "ADAD")
+***** define-setf-c*r-function caddar "ADDA")
+***** define-setf-c*r-function cadddr "ADDD")
+***** define-setf-c*r-function cdaaar "DAAA")
+***** define-setf-c*r-function cdaadr "DAAD")
+***** define-setf-c*r-function cdadar "DADA")
+***** define-setf-c*r-function cdaddr "DADD")
+***** define-setf-c*r-function cddaar "DDAA")
+***** define-setf-c*r-function cddadr "DDAD")
+***** define-setf-c*r-function cdddar "DDDA")
+***** define-setf-c*r-function cddddr "DDDD")
+***** define-setf-c*r-function first   "A")
+***** define-setf-c*r-function second  "AD")
+***** define-setf-c*r-function third   "ADD")
+***** define-setf-c*r-function fourth  "ADDD")
+***** define-setf-c*r-function fifth   "ADDDD")
+***** define-setf-c*r-function sixth   "ADDDDD")
+***** define-setf-c*r-function seventh "ADDDDDD")
+***** define-setf-c*r-function eighth  "ADDDDDDD")
+***** define-setf-c*r-function ninth   "ADDDDDDDD")
+***** define-setf-c*r-function tenth   "ADDDDDDDDD")
+***** defun rest
+***** defsetf rest
+***** defun (setf
+***** deftype list
+***** defun list*
+***** define-compiler-macro list*
+***** defun last
+***** defun last-1
+***** define-compiler-macro last
+***** defun copy-list
+***** defun list-length
+***** defun make-list
+***** defun nthcdr
+***** defun nth
+***** defsetf nth
+***** defun (setf
+***** defun copy-tree
+***** defun |tree-equal
+***** defun tree-equal
+***** defun endp
+***** define-compiler-macro mapcar
+***** defun mapc
+***** define-compiler-macro mapc
+***** defun maplist
+***** define-compiler-macro maplist
+***** defun mapl
+***** define-compiler-macro mapl
+***** defun mapcan
+***** define-compiler-macro mapcan
+***** defun mapcon
+***** define-compiler-macro mapcon
+***** defun revappend
+***** defun nreconc
+***** defun butlast
+***** defun nbutlast-1
+***** defun nbutlast
+***** defun |subst
+***** defun subst
+***** defun |subst-if
+***** defun subst-if
+***** defun |subst-if-not
+***** defun subst-if-not
+***** defun |nsubst
+***** defun nsubst
+***** defun |nsubst-if
+***** defun nsubst-if
+***** defun |nsubst-if-not
+***** defun nsubst-if-not
+***** defmacro with-alist-elements
+***** defun |assoc
+***** defun assoc
+***** defun |assoc-if
+***** defun assoc-if
+***** defun |assoc-if-not
+***** defun assoc-if-not
+***** defun |rassoc
+***** defun rassoc
+***** defun |rassoc-if
+***** defun rassoc-if
+***** defun |rassoc-if-not
+***** defun rassoc-if-not
+***** defun |sublis
+***** defun sublis
+***** defun |nsublis
+***** defun nsublis
+***** defmacro with-proper-list-rests
+***** defmacro with-proper-list-elements
+***** defun |member
+***** defun member
+***** defun |member
+***** defun |member-if
+***** defun member-if
+***** defun |member-if-not
+***** defun member-if-not
+***** defun acons
+***** defun pairlis
+***** defun copy-alist
+***** defun tailp
+***** defun ldiff
+***** defun |union
+***** defun union
+***** defun nunion
+***** defun |intersection
+***** defun intersection
+***** defun nintersection
+***** defun |set-difference
+***** defun set-difference
+***** defun nset-difference
+***** defun |adjoin
+***** defun adjoin
+***** defun |set-exclusive-or
+***** defun set-exclusive-or
+***** defun nset-exclusive-or
+***** defun |subsetp
+***** defun subsetp
+***** defun getf
+***** define-setf-expander getf
+***** defun get-properties
+***** defmacro remf
+***** defparameter *vars*
+***** defun make-bindings
+***** defmacro pushnew
+*** Cons-high/docstrings-en.lisp
+***** defun fundoc
+***** defmacro make-c*r-documentation
+***** defmacro make-nth-documentation
+*** Cons-high/packages.lisp
+***** Cons-high/packages.lisp  defpackage #:sicl-cons-high
+***** Cons-high/packages.lisp  defpackage #:sicl-cons-high-test
+*** Cons-low/cons-low.lisp
+***** defun cons
+***** defun null
+***** defun car
+***** defun cdr
+***** defun rplaca
+***** defun rplacd
+
+* Docstrings 
+*** Docstrings/docstrings-en.lisp
+***** defun fmt
+***** defun fundoc
+***** defmacro make-c*r-documentation
+***** defmacro make-nth-documentation
+
+* Documentation
+*** Documentation/documentation.lisp
+***** defpackage #:sicl-documentation
+***** defclass word
+***** defclass paragraph
+***** defun whitespacep
+***** defun split-string
+***** defmethod initialize-instance
+***** defclass reference
+***** defclass documentation
+***** defclass glossary-entry
+***** defclass section
+***** defclass style
+***** defclass text-style
+***** defclass enriched-stream
+***** defun output-string
+***** defun output-newlines
+***** defgeneric render
+***** defmethod render
+***** defparameter *documentation-readtable*
+***** defparameter *structured-variable-documentation-table*
+***** defparameter *variable-documentation-table*
+***** defparameter *structured-function-documentation-table*
+***** defparameter *function-documentation-table*
+***** defgeneric structured-documentation
+***** defgeneric (setf
+***** defgeneric documentation
+***** defgeneric (setf
+***** defmethod structured-documentation
+***** defmethod documentation
+***** defmethod (setf
+***** defun load-docstrings
+
+* Format
+*** Format/burger-dybvig.lisp
+***** defun successor
+***** defun predecessor
+***** defun test-all
+***** defun scale
+***** defun burger-dybvig-1
+***** defun generate-digits-using-fp-arithmetic
+***** defun int-1
+***** defun burger-dybvig-2
+***** defun test-dybvig-2
+*** Format/format.lisp
+***** define-condition format-error
+***** define-condition directive-parse-error
+***** defun report-control-string-and-directive-start-position
+***** define-condition end-of-control-string-error
+***** define-condition found-something-else-error
+***** define-condition expected-integer-error
+***** define-condition expected-parameter-start
+***** define-condition two-identical-modifiers
+***** define-condition more-than-two-modifiers
+***** define-condition unknown-format-directive
+***** defun parse-parameter
+***** defun parse-parameters
+***** defun parse-modifiers
+***** defun parse-format-directive
+***** defclass directive
+***** defclass named-parameters-directive
+***** defun split-control-string
+***** defgeneric directive-subclass-name
+***** define-condition directive-syntax-error
+***** defun report-control-string-and-directive-position
+***** define-condition unknown-directive-character
+***** defmethod directive-subclass-name
+***** defmacro define-directive
+***** define-condition directive-takes-no-modifiers
+***** define-condition directive-takes-only-colon
+***** define-condition directive-takes-only-at-sign
+***** define-condition directive-takes-at-most-one-modifier
+***** define-condition too-many-parameters
+***** defun type-name
+***** define-condition parameter-type-error
+***** defun specialize-directive
+***** defgeneric check-directive-syntax
+***** defmethod check-directive-syntax
+***** define-condition format-runtime-error
+***** define-condition no-more-arguments
+***** define-condition argument-type-error
+***** defvar *destination*
+***** defvar *arguments*
+***** defvar *next-argument-pointer*
+***** defvar *catch-tag*
+***** defun compute-parameter-value
+***** defgeneric interpret-format-directive
+***** defmethod interpret-format-directive
+***** defmacro define-format-directive-interpreter
+***** defun consume-next-argument
+***** defgeneric compile-format-directive
+***** defmacro define-format-directive-compiler
+***** defun compile-time-value
+***** defclass no-modifiers-mixin
+***** defmethod check-directive-syntax
+***** defclass only-colon-mixin
+***** defmethod check-directive-syntax
+***** defclass only-at-sign-mixin
+***** defmethod check-directive-syntax
+***** defclass at-most-one-modifier-mixin
+***** defmethod check-directive-syntax
+***** defclass structured-directive-mixin
+***** define-directive #\c
+***** define-format-directive-interpreter c-directive
+***** define-format-directive-compiler c-directive
+***** define-directive #\% percent-directive (named-parameters-directive no-modifiers-mixin)
+***** define-format-directive-interpreter percent-directive
+***** define-format-directive-compiler percent-directive
+***** define-directive #\& ampersand-directive (named-parameters-directive no-modifiers-mixin)
+***** define-format-directive-interpreter ampersand-directive
+***** define-format-directive-compiler ampersand-directive
+***** define-directive #\|
+***** define-format-directive-interpreter vertical-bar-directive
+***** define-format-directive-compiler vertical-bar-directive
+***** define-directive #\~ tilde-directive (named-parameters-directive no-modifiers-mixin)
+***** define-format-directive-interpreter tilde-directive
+***** define-format-directive-compiler tilde-directive
+***** defun print-radix-arg
+***** define-directive #\r
+***** defun print-as-roman
+***** defun print-as-old-roman
+***** defparameter *cardinal-ones*
+***** defparameter *cardinal-teens*
+***** defparameter *cardinal-tens*
+***** defparameter *groups-of-three*
+***** defun print-cardinal-tenths
+***** defun print-cardinal-hundreds
+***** defun print-cardinal-non-zero
+***** defun print-cardinal-number
+***** defparameter *ordinal-ones*
+***** defparameter *ordinal-teens*
+***** defparameter *ordinal-tens*
+***** defun print-ordinal-tenths
+***** defun print-ordinal-hundreds
+***** defun print-ordinal-non-zero
+***** defun print-ordinal-number
+***** define-format-directive-interpreter r-directive
+***** define-format-directive-compiler r-directive
+***** define-directive #\d
+***** define-format-directive-interpreter d-directive
+***** define-format-directive-compiler d-directive
+***** define-directive #\b
+***** define-format-directive-interpreter b-directive
+***** define-format-directive-compiler b-directive
+***** define-directive #\o
+***** define-format-directive-interpreter o-directive
+***** define-format-directive-compiler o-directive
+***** define-directive #\x
+***** define-format-directive-interpreter x-directive
+***** define-format-directive-compiler x-directive
+***** define-directive #\f
+***** define-format-directive-interpreter f-directive
+***** define-format-directive-compiler f-directive
+***** defun print-float-arg
+***** defun print-a-or-s
+***** define-directive #\a
+***** define-format-directive-interpreter a-directive
+***** define-format-directive-compiler a-directive
+***** define-directive #\s
+***** define-format-directive-interpreter s-directive
+***** define-format-directive-compiler s-directive
+***** define-directive #\w
+***** define-format-directive-interpreter w-directive
+***** define-format-directive-compiler w-directive
+***** define-directive #\_ underscore-directive (named-parameters-directive) ())
+***** define-format-directive-interpreter underscore-directive
+***** define-format-directive-compiler underscore-directive
+***** define-directive #\<
+***** define-directive #\i
+***** define-format-directive-interpreter i-directive
+***** define-format-directive-compiler i-directive
+***** define-directive #\/
+***** define-condition too-many-package-markers
+***** define-condition no-such-package
+***** define-condition no-such-symbol
+***** define-condition symbol-not-external
+***** defmethod check-directive-syntax
+***** defmethod interpret-format-directive
+***** defmethod compile-format-directive
+***** define-directive #\t
+***** define-format-directive-interpreter tabulate-directive
+***** define-format-directive-compiler tabulate-directive
+***** define-directive #\<
+***** define-directive #\>
+***** define-format-directive-interpreter greater-than-directive
+***** define-directive #\*
+***** define-condition go-to-out-of-bounds
+***** define-format-directive-interpreter go-to-directive
+***** define-format-directive-compiler go-to-directive
+***** define-directive #\; semicolon-directive (named-parameters-directive only-colon-mixin) ())
+***** define-directive #\[ conditional-directive
+***** define-condition modifier-and-parameter
+***** define-condition illegal-clause-separators
+***** define-condition clause-separator-with-colon-modifier-not-allowed
+***** define-condition at-least-one-item-required
+***** define-condition colon-modifier-requires-two-clauses
+***** define-condition at-sign-modifier-requires-one-clause
+***** defmethod check-directive-syntax
+***** define-format-directive-interpreter conditional-directive
+***** define-format-directive-compiler conditional-directive
+***** define-directive #\] right-bracket-directive (named-parameters-directive no-modifiers-mixin) ())
+***** define-format-directive-interpreter right-bracket-directive
+***** define-format-directive-compiler right-bracket-directive
+***** define-directive #\{ iteration-directive (named-parameters-directive structured-directive-mixin)
+***** define-format-directive-interpreter iteration-directive
+***** define-format-directive-compiler iteration-directive
+***** define-directive #\} right-brace-directive (named-parameters-directive only-colon-mixin) ())
+***** define-format-directive-interpreter right-brace-directive
+***** define-format-directive-compiler right-brace-directive
+***** define-directive #\?
+***** define-format-directive-interpreter recursive-processing-directive
+***** define-format-directive-compiler recursive-processing-directive
+***** define-directive #\(
+***** define-format-directive-interpreter case-conversion-directive
+***** define-format-directive-compiler case-conversion-directive
+***** define-directive #\) right-paren-directive (named-parameters-directive no-modifiers-mixin) ())
+***** define-format-directive-interpreter right-paren-directive
+***** define-format-directive-compiler right-paren-directive
+***** define-directive #\p
+***** define-format-directive-interpreter plural-directive
+***** define-format-directive-compiler plural-directive
+***** define-directive #\; semicolon-directive (named-parameters-directive only-colon-mixin) ())
+***** define-directive #\^ circumflex-directive (named-parameters-directive)
+***** define-condition parameter-omitted
+***** defmethod check-directive-syntax
+***** define-format-directive-interpreter circumflex-directive
+***** define-format-directive-compiler circumflex-directive
+***** define-directive #\Newline newline-directive (named-parameters-directive at-most-one-modifier-mixin) ())
+***** define-format-directive-interpreter newline-directive
+***** define-format-directive-compiler newline-directive
+***** define-condition unmatched-directive
+***** define-condition nesting-violation
+***** defun structure-items
+***** define-condition invalid-destination
+***** defun interpret-items
+***** defun format-with-runtime-arguments
+***** defun format
+***** defun compile-parameter-value
+***** defun compile-directive
+***** defun compile-item
+***** defun compile-items
+***** defun compile-control-string
+***** define-compiler-macro format
+*** Format/packages.lisp
+***** defpackage #:sicl-format
+***** defpackage #:sicl-format-test
+
+* Garbage-collector
+*** Garbage-collector/gc.lisp
+***** defconstant +word-size+
+***** defconstant +nursery-size+
+***** defvar *nursery*
+***** defvar *nursery-live*
+***** defun compute-sizes
+***** defun compute-cache
+***** defun find-free-position
+***** defun free-space-preceding-index
+***** defvar *nursery-address*
+***** defun slide-objects
+*** Garbage-collector/meters.lisp
+***** defparameter *number-of-nursery-gcs*
+***** defparameter *nursery-mark-time*
+***** defparameter *nursery-cache-build-time*
+***** defparameter *nursery-fixup-time*
+***** defparameter *nursery-slide-time*
+***** defparameter *nursery-recovered-space*
+***** defun reset-gc-meters
+*** Garbage-collector/packages.lisp
+***** defpackage #:sicl-gc
+***** defpackage #:sicl-gc-test
+
+* Hash-tables
+*** Hash-tables/hash-tables.lisp
+***** defpackage #:sicl-hash-tables
+***** defstruct (hash-table
+***** defun print-hash-table
+***** defun make-hash-table
+***** defmacro with-hash-table-iterator
+***** defun maphash
+***** defun grow-and-rehash
+***** defun maybe-grow-and-rehash
+***** defmacro with-entry
+***** defun puthash
+***** defun gethash
+***** defsetf gethash
+***** defun remhash
+***** defun clrhash
+
+* Internationalization
+*** Internationalization/locale.lisp
+***** defclass locale
+***** defparameter *locale*
+*** Internationalization/packages.lisp
+***** defpackage #:sicl-internationalization
+
+* Iteration
+*** Iteration/iteration.lisp
+***** defpackage #:sicl-iteration
+***** define-condition expected-symbol
+***** define-condition malformed-body
+***** define-condition malformed-variable-clauses
+***** define-condition malformed-variable-clause
+***** define-condition malformed-end-test
+***** defun split-body
+***** defun proper-list-p
+***** defun local-mapcar
+***** defmacro dolist
+***** defmacro dotimes
+***** defun check-variable-clauses
+***** defun extract-bindings
+***** defun extract-updates
+***** defmacro do
+***** defmacro do*
+
+* Loop
+*** Loop/loop.lisp
+***** define-condition loop-parse-error
+***** define-condition loop-parse-error-found
+***** define-condition expected-var-spec-but-end
+***** define-condition expected-var-spec-but-found
+***** define-condition expected-simple-var-but-end
+***** define-condition expected-simple-var-but-found
+***** define-condition expected-type-spec-but-end
+***** define-condition expected-type-spec-but-found
+***** define-condition expected-compound-form-but-end
+***** define-condition expected-compound-form-but-found
+***** define-condition expected-form-but-end
+***** define-condition expected-symbol-but-end
+***** define-condition expected-symbol-but-found
+***** define-condition expected-keyword-but-found
+***** define-condition expected-for/as-subclause-but-end
+***** define-condition expected-symbol-but-found
+***** define-condition expected-each/the-but-end
+***** define-condition expected-each/the-but-found
+***** define-condition expected-hash-or-package-but-end
+***** define-condition expected-hash-or-package-but-found
+***** define-condition expected-in/of-but-end
+***** define-condition expected-in/of-but-found
+***** define-condition expected-hash-key-but-end
+***** define-condition expected-hash-value-but-end
+***** define-condition expected-hash-key-but-found
+***** define-condition expected-hash-value-but-found
+***** define-condition expected-preposition-but-end
+***** define-condition too-many-prepositions-from-one-group
+***** defun symbol-equal
+***** defun parse-sequence
+***** defun parse-alternative
+***** defmacro define-elementary-parser
+***** defun parse-d-var-spec
+***** defun parse-type-spec
+***** defun parse-var-and-type-spec
+***** defun parse-form
+***** defclass clause
+***** defclass subclauses-mixin
+***** defclass var-and-type-spec-mixin
+***** defclass compound-forms-mixin
+***** defclass variable-clause-mixin
+***** defclass main-clause-mixin
+***** defclass name-clause
+***** define-elementary-parser parse-name-clause
+***** defclass with-clause
+***** defclass with-subclause
+***** define-elementary-parser parse-and-with-subclause
+***** defun parse-with-subclauses
+***** define-elementary-parser parse-with-clause
+***** defclass for/as-clause
+***** defclass for/as-subclause
+***** defclass for/as-arithmetic-subclause
+***** defclass for/as-arithmetic-up-subclause
+***** defclass for/as-arithmetic-downto-subclause
+***** defclass for/as-arithmetic-downfrom-subclause
+***** defclass preposition
+***** defclass preposition-first-group
+***** defclass preposition-second-group
+***** defclass preposition-third-group
+***** defclass preposition-from
+***** defclass preposition-downfrom
+***** defclass preposition-upfrom
+***** defclass preposition-to
+***** defclass preposition-downto
+***** defclass preposition-upto
+***** defclass preposition-below
+***** defclass preposition-above
+***** defclass preposition-by
+***** defclass for/as-in-on-list-subclause
+***** defclass for/as-in-list-subclause
+***** defclass for/as-on-list-subclause
+***** defclass for/as-equals-then-subclause
+***** defclass for/as-across-subclause
+***** defclass for/as-hash-subclause
+***** defclass for/as-hash-key-subclause
+***** defclass for/as-hash-value-subclause
+***** defclass for/as-package-subclause
+***** defclass for/as-package-symbols-subcause
+***** defclass for/as-package-present-symbols-subcause
+***** defclass for/as-package-external-symbols-subcause
+***** defun parse-for/as-in/on
+***** define-elementary-parser parse-for/as-in
+***** define-elementary-parser parse-for/as-on
+***** define-elementary-parser parse-for/as-equals-then
+***** define-elementary-parser parse-for/as-across
+***** define-elementary-parser parse-for/as-hash-keys
+***** define-elementary-parser parse-for/as-hash-values
+***** defun parse-for/as-package
+***** define-elementary-parser parse-for/as-package-symbols
+***** define-elementary-parser parse-for/as-package-present-symbols
+***** define-elementary-parser parse-for/as-package-external-symbols
+***** define-elementary-parser parse-for/as-hash/package
+***** define-elementary-parser parse-preposition-from
+***** define-elementary-parser parse-preposition-downfrom
+***** define-elementary-parser parse-preposition-upfrom
+***** define-elementary-parser parse-preposition-to
+***** define-elementary-parser parse-preposition-upto
+***** define-elementary-parser parse-preposition-below
+***** define-elementary-parser parse-preposition-above
+***** define-elementary-parser parse-preposition-by
+***** defun parse-preposition
+***** defun parse-prepositions
+***** defun parse-for/as-arithmetic
+***** define-elementary-parser parse-and-for/as-subclause
+***** define-elementary-parser parse-for/as-clause
+***** defun parse-compound-forms
+***** defun parse-nonempty-compound-forms
+***** defclass initially-clause
+***** define-elementary-parser parse-initially-clause
+***** defclass finally-clause
+***** define-elementary-parser parse-finally-clause
+***** defun parse-initial-final
+***** defclass do-clause
+***** define-elementary-parser parse-do-clause
+***** defclass return-clause
+***** define-elementary-parser parse-return-clause
+***** defun parse-unconditional
+***** defclass accumulation-clause
+***** defclass list-accumulation-clause
+***** defclass collect-clause
+***** defclass append-clause
+***** defclass nconc-clause
+***** defun parse-list-accumulation-clause
+***** define-elementary-parser parse-collect
+***** define-elementary-parser parse-append
+***** define-elementary-parser parse-nconc
+***** defclass numeric-accumulation-clause
+***** defclass count-clause
+***** defclass sum-clause
+***** defclass maximize-clause
+***** defclass minimize-clause
+***** defun parse-numeric-accumulation-clause
+***** define-elementary-parser parse-count-clause
+***** define-elementary-parser parse-sum-clause
+***** define-elementary-parser parse-maximize-clause
+***** define-elementary-parser parse-minimize-clause
+***** defun parse-numeric-accumulation
+***** defun parse-accumulation
+***** defclass conditional-clause
+***** defclass if/when-clause
+***** defclass unless-clause
+***** define-elementary-parser parse-and-selectable-clause
+***** defun parse-selectable-clauses
+***** defun parse-conditional-remaining
+***** define-elementary-parser parse-if/when
+***** define-elementary-parser parse-unless
+***** defun parse-conditional
+***** defclass termination-test
+***** defclass while-clause
+***** defclass until-clause
+***** defclass repeat-clause
+***** defclass always-clause
+***** defclass never-clause
+***** defclass thereis-clause
+***** defun parse-termination-test-remaining
+***** define-elementary-parser parse-while-clause
+***** define-elementary-parser parse-until-clause
+***** define-elementary-parser parse-repeat-clause
+***** define-elementary-parser parse-always-clause
+***** define-elementary-parser parse-never-clause
+***** define-elementary-parser parse-thereis-clause
+***** defun parse-termination-test
+***** defclass loop-body
+***** defun parse-any-clause
+***** defun parse-loop-body
+***** define-condition loop-syntax-error
+***** define-condition name-clause-not-first
+***** define-condition multiple-name-clauses
+***** define-condition invalid-clause-order
+***** define-condition loop-semantic-error
+***** defun verify-clause-order
+***** defun destructure-variables
+***** defun extract-variables
+***** defun progn-or-single-form
+***** defgeneric generate-bindings
+***** defmethod generate-bindings
+***** defgeneric generate-prologue
+***** defmethod generate-prologue
+***** defgeneric generate-epilogue
+***** defmethod generate-epilogue
+***** defgeneric generate-termination-check
+***** defmethod generate-termination-check
+***** defvar *body*
+***** defgeneric generate-main-code
+***** defmethod generate-main-code
+***** defun generate-body
+***** defun generate-accumulation-bindings-and-body
+***** defun generate-bindings-and-body
+***** defun initialize-accumulation
+***** defmacro loop
+*** Loop/packages.lisp
+***** defpackage #:sicl-loop
+***** defpackage #:sicl-loop-test
+
+* Reader
+*** Reader/float.lisp
+***** defparameter *most-positive-float-names*
+***** defvar *most-positive-float*
+***** defvar *upper-integer-float-bound*
+***** defvar *upper-decimal-exponent-bound*
+***** defvar *float-powers-of-ten*
+***** defvar *integer-powers-of-ten*
+***** defun fallback-decimal-to-float
+***** defun large-exponent-decimal-to-float
+***** defun decimal-to-float
+*** Reader/packages.lisp
+***** defpackage #:sicl-read
+***** defpackage #:sicl-read-test
+*** Reader/read.lisp
+***** defparameter *readtable*
+***** defun single-quote-function
+***** defun double-quote-function
+***** defun semicolon-function
+***** define-condition unmatched-right-parenthesis
+***** defun right-parenthesis-function
+***** define-condition only-dots-in-token
+***** define-condition single-dot-token
+***** define-condition no-object-preceding-dot
+***** define-condition multiple-objects-following-dot
+***** defun left-parenthesis-function
+***** defun backquote-function
+***** defun comma-function
+***** defun sharpsign-function
+***** define-condition no-parameter-allowed
+***** defun sharpsign-single-quote-function
+***** defparameter *character-names*
+***** define-condition unknown-character-name
+***** defun sharpsign-backslash-function
+***** defun sharpsign-left-parenthesis
+***** defparameter +invalid+
+***** defparameter +alphabetic+
+***** defparameter +alphadigit+
+***** defparameter +package-marker+
+***** defparameter +plus-sign+
+***** defparameter +minus-sign+
+***** defparameter +dot+
+***** defparameter +decimal-point+
+***** defparameter +ratio-marker+
+***** defparameter +float-exponent-marker+
+***** defparameter +short-float-exponent-marker+
+***** defparameter +single-float-exponent-marker+
+***** defparameter +double-float-exponent-marker+
+***** defparameter +long-float-exponent-marker+
+***** defgeneric readtablep
+***** defgeneric readtable-case
+***** defgeneric (setf
+***** defclass readtable
+***** defun syntax-type
+***** defun (setf
+***** defmethod readtablep
+***** defun has-constituent-trait-p
+***** defparameter *standard-readtable*
+***** defun copy-readtable
+***** defun get-macro-character
+***** defun set-macro-character
+***** defclass expression
+***** defmethod print-object
+***** defparameter *expression-stack*
+***** defun push-expression-stack
+***** defun pop-expression-stack
+***** defun combine-expression-stack
+***** defparameter *read-with-position*
+***** define-condition invalid-character
+***** defparameter *buffer*
+***** defparameter *ascii-upcase*
+***** defparameter *ascii-downcase*
+***** defparameter *ascii-preserve*
+***** defun read-upcase-downcase-preserve-decimal
+***** defun read
+***** defun read-with-position
+***** defparameter *initial-readtable*
+
+* Sequences
+*** Sequences/common.lisp
+***** define-condition name-mixin
+***** define-condition must-be-nonnegative-integer
+***** define-condition must-be-cons
+***** define-condition must-be-sequence
+***** define-condition must-be-list
+***** define-condition must-be-proper-list
+***** define-condition both-test-and-test-not-given
+***** define-condition warn-both-test-and-test-not-given
+***** define-condition invalid-sequence-index-type
+***** define-condition invalid-start-index-type
+***** define-condition invalid-end-index-type
+***** define-condition invalid-sequence-index
+***** define-condition invalid-bounding-index
+***** define-condition invalid-start-index
+***** define-condition invalid-end-index
+***** define-condition end-less-than-start
+*** Sequences/condition-reporters-en.lisp
+***** defparameter *language*
+***** defun name-package
+***** defgeneric report-condition
+***** defmethod print-object
+***** defmethod report-condition
+*** Sequences/docstrings-en.lisp
+***** defparameter *sequence*
+***** defparameter *index*
+***** defparameter *item-sequence*
+***** defparameter *predicate-sequence*
+***** defparameter *newitem-item-sequence*
+***** defparameter *newitem-predicate-sequence*
+***** defparameter *key*
+***** defparameter *test-test-not*
+***** defparameter *bounding-indexes*
+***** defparameter *count*
+***** defparameter *satisfy-a-two-argument-test*
+***** defparameter *satisfy-a-one-argument-positive-test*
+***** defparameter *satisfy-a-one-argument-negative-test*
+***** defparameter *from-end*
+***** defparameter *error-not-proper-sequence*
+***** defparameter *error-not-valid-index*
+***** defparameter *maybe-error-bounding-indexes*
+***** defparameter *definitely-error-bounding-indexes*
+***** defparameter *error-count*
+***** defparameter *find-description*
+***** defun fundoc
+***** defparameter *count-description*
+***** defparameter *position-description*
+***** defparameter *remove-description*
+***** defparameter *delete-description*
+***** defparameter *substitute-description*
+***** defparameter *nsubstitute-description*
+*** Sequences/packages.lisp
+***** defpackage #:sicl-sequences-common
+***** defpackage #:sicl-sequences
+***** defpackage #:sicl-sequences-test
+***** defpackage #:sicl-sequences-tiny
+*** Sequences/sequences.lisp
+***** defparameter *vars*
+***** defun make-bindings
+***** defun skip-to-start
+***** defun tail-must-be-proper-list
+***** defun tail-must-be-proper-list-with-end
+***** defun verify-bounding-indexes
+***** defun compute-length-from-remainder
+***** defun verify-end-index
+***** defparameter *max-recursion-depth*
+***** defun traverse-list
+***** defun copy-prefix
+***** defun |find
+***** defun find
+***** defun |find-if-list
+***** defun |find-if-vector
+***** defun |find-if
+***** defun find-if
+***** define-compiler-macro find-if
+***** defun |find-if-not-list
+***** defun |find-if-not-vector
+***** defun |find-if-not
+***** defun find-if-not
+***** define-compiler-macro find-if-not
+***** defun |position
+***** defun position
+***** defun |position-if
+***** defun position-if
+***** define-compiler-macro position-if
+***** defun |position-if-not
+***** defun position-if-not
+***** define-compiler-macro position-if-not
+***** defun length-of-proper-list
+***** defun length-of-proper-sequence
+***** defun length
+***** defun subseq
+***** defun |reduce
+***** defun reduce
+***** defun |fill
+***** defun |fill-vector|
+***** defun fill
+***** defun |remove
+***** defun copy-result-general
+***** defun |remove
+***** defun copy-result-simple
+***** defun |remove
+***** defun copy-result-simple-string
+***** defun |remove
+***** defun remove
+***** defun |remove-if
+***** defun remove-if
+***** defun |remove-if-not
+***** defun remove-if-not
+***** defun |delete
+***** defun delete
+***** defun |delete-if
+***** defun delete-if
+***** defun |delete-if-not
+***** defun delete-if-not
+***** defun copy-seq-aux
+***** defun copy-seq
+***** defun elt
+***** defun (setf
+***** defun |count
+***** defun count
+***** defun |count-if
+***** defun count-if
+***** defun |count-if-not
+***** defun count-if-not
+***** defun |merge
+***** defun merge
+***** defun |sort
+***** defun sort
+***** defun |nsubstitute
+***** defun nsubstitute
+***** defun |nsubstitute-if
+***** defun nsubstitute-if
+***** defun |nsubstitute-if-not
+***** defun nsubstitute-if-not
+***** defun |substitute
+***** defun substitute
+***** defun |substitute-if
+***** defun substitute-if
+***** defun |substitute-if-not
+***** defun substitute-if-not
+***** defun |reverse
+***** defun reverse
+***** defun |nreverse
+***** defun nreverse
+***** defun circular-list-p
+***** defun dotted-list-p
+***** defun proper-list-p
+***** defun convert-list-to-vector
+***** defun |mismatch
+***** defun mismatch
+
+* Setf-expanders
+*** Setf-expanders/setf-expanders.lisp
+***** defpackage #:sicl-setf
+***** define-setf-expander car
+***** define-setf-expander cdr
+***** defmacro define-car/cdr-expander
+***** define-car/cdr-expander caar
+***** define-car/cdr-expander cadr
+***** define-car/cdr-expander cdar
+***** define-car/cdr-expander cddr
+***** define-car/cdr-expander caaar
+***** define-car/cdr-expander caadr
+***** define-car/cdr-expander cadar
+***** define-car/cdr-expander caddr
+***** define-car/cdr-expander cdaar
+***** define-car/cdr-expander cdadr
+***** define-car/cdr-expander cddar
+***** define-car/cdr-expander cdddr
+***** define-setf-expander first
+***** defmacro define-nth-expander
+***** define-nth-expander second
+***** define-nth-expander third
+***** define-nth-expander fourth
+***** define-nth-expander fifth
+***** define-nth-expander sixth
+***** define-nth-expander seventh
+***** define-nth-expander eighth
+***** define-nth-expander ninth
+***** define-nth-expander tenth
+***** define-setf-expander the
+
+* Types
+*** Types/subtypep.lisp
+***** defparameter *permanent-atomic-types*
+***** defparameter *temporary-atomic-types*
+***** defparameter *temporary-objects*
+***** defparameter *type-counter*
+***** defun class-direct-superclasses
+***** defun find-type
+***** defun add-mask
+***** defun register-type
+***** defun register-permanent-type
+***** defun register-temporary-type
+***** defun register-types
+***** defun find-object
+***** defun register-object
+***** defun register-objects
+***** defclass type-descriptor
+***** defun make-type-descriptor
+***** defun successor
+***** defun predecessor
+***** defun not-float
+***** defun entirely-before
+***** defun and-float
+***** defun or-float
+*** Types/types.lisp
+***** deftype character-designator
+***** deftype keyfun
+***** deftype keyfun-designator
+***** deftype testfun1
+***** deftype testfun1-designator
+***** deftype testfun2
+***** deftype testfun2-designator
+***** deftype nonnegative-fixnum
+***** deftype function-designator
+***** deftype extended-function-designator
+***** deftype string-designator
+***** deftype pathname-designator
+***** deftype package-designator
+***** deftype byte-specifier
+***** deftype radix
