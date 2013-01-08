@@ -677,15 +677,9 @@ def intern(x, package = None):
                    None)
 
 @boot_defun
-def defpackage(name, use = [], export = []):
-        p = make_package(name, use = use)
-        for symname in export:
-                not_implemented("DEFPACKAGE: :EXPORT keyword") # XXX: populate the for-INTERN-time-export set of names
-        return p
-
-@boot_defun
-def in_package(name):
+def do_in_package(name):
         string_set("*PACKAGE*", coerce_to_package(name), force_toplevel = t)
+        return nil
 
 @boot_defun
 def export(symbols, package = None):
