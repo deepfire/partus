@@ -11754,7 +11754,7 @@ def load_as_source(stream, verbose = nil, print = nil):
         pathname = file_stream_name(stream)
         verbose and format(t, "; loading %s\n", repr(pathname))
         def with_abort_restart_body():
-                def eval_form(form, index):
+                def load_as_source_process_one_form(form, index):
                         spref = "; evaluating "
                         print and format(t, spref + "%s\n", pp(form, initial_depth = len(spref)))
                         def with_continue_restart_body():
@@ -11775,12 +11775,12 @@ def load_as_source(stream, verbose = nil, print = nil):
                         with progv({ _source_info_: nil # source_info_type(pathname = pathname)
                                      }):
                                 while form != stream:
-                                        eval_form(form, nil)
+                                        load_as_source_process_one_form(form, nil)
                                         form = next()
                 else:
                         with progv({ _source_info_: nil }):
                                 while form != stream:
-                                        eval_form(form, nil)
+                                        load_as_source_process_one_form(form, nil)
                                         form = next()
         return with_simple_restart("ABORT", ("Abort loading file %s.", file_stream_name(stream)),
                                    with_abort_restart_body)
