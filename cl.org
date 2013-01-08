@@ -1901,8 +1901,8 @@ Variable                     Value
 
 def set_settable_standard_globals():
         string_set("*READ-CASE*", make_keyword("UPCASE"))
-        string_set("*FEATURES*",  [])
-        string_set("*MODULES*",   [])
+        string_set("*FEATURES*",  nil)
+        string_set("*MODULES*",   nil)
         string_set("*STANDARD-INPUT*",  sys.stdin)
         string_set("*STANDARD-OUTPUT*", sys.stdout)
         string_set("*ERROR-OUTPUT*",    sys.stderr)
