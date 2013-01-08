@@ -8423,11 +8423,14 @@ def sub(*xs):
 def equals(x, y):
         return x == y
 
+def post_factum_defun(symbol, function):
+        set_function_definition(globals(), symbol,
+                                lambda_expression = nil, check_redefinition = nil)(function)
+
 def populate_compilation_environment_from_package(package):
         for sym in package.own:
                 if sym.function:
-                        set_function_definition(globals(), sym,
-                                                  lambda_expression = nil, check_redefinition = nil)(sym.function)
+                        post_factum_defun(sym, sym.function)
                 value, presentp = gethash(sym, __global_scope__)
                 if presentp:
                         compiler_defvar(sym, value)
