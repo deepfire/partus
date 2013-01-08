@@ -287,22 +287,15 @@ def global_pyname(name):
 def symbol_pyname(name):
         return "_" + name.replace("%", "_").replace("&", "_").replace("-", "_").strip("_%").lower()
 
-def intern_and_bind_symbols(*names, globals = None):
+def intern_and_bind(*specs, globals = None, gvarp = False):
         globals = defaulted(globals, py.globals())
-        for namespec in names:
-                pyname, name = namespec if isinstance(namespec, tuple) else (None, namespec)
-                pyimport_symbol(intern(name)[0], globals, pyname, symbol_pyname)
-
-def intern_and_bind_globals(*names, globals = None):
-        globals = defaulted(globals, py.globals())
-        for namespec in names:
-                pyname, name = namespec if isinstance(namespec, tuple) else (None, namespec)
-                pyimport_symbol(intern(name)[0], globals, pyname, global_pyname)
-
-def intern_and_bind_names_in_module_specifically(*name_specs, globals = None):
-        globals = defaulted(globals, py.globals())
-        for pyname, name in name_specs:
-                frost.setf_global(intern(name)[0], pyname, globals)
+        for namespec in specs:
+                pyname, name, value = ((None, namespec, None) if not isinstance(namespec, tuple) else
+                                       namespec + (None,)     if len(namespec) is 2              else
+                                       namespec)
+                pyimport_symbol(intern(name)[0], globals, pyname, global_pyname if gvarp else symbol_pyname)
+                if value is not None:
+                        do_set(name, value, force_toplevel = t)
 
 def boot_symbolicate_global_dynamic_scope():
         def upgrade_scope(xs):
@@ -923,7 +916,7 @@ def funcall_with_debug_io_syntax(function, *args, **keys):
         warn_not_implemented()
         return function(*args, **keys)
 
-intern_and_bind_globals("*DEBUG-CONDITION*", "*DEBUG-RESTARTS*", "*NESTED-DEBUG-CONDITION*")
+intern_and_bind("*DEBUG-CONDITION*", "*DEBUG-RESTARTS*", "*NESTED-DEBUG-CONDITION*", gvarp = t)
 
 def show_restarts(restarts, stream):
         warn_not_implemented()
@@ -1346,7 +1339,7 @@ class simple_package_error_t(simple_error_t, package_error_t):
 #     The implemented version of NTH-VALUES is a soft one, which doesn't fail on values not
 #     participating in the M-V frame protocol.
 
-intern_and_bind_symbols("%MV-MARKER")
+intern_and_bind("%MV-MARKER")
 
 @defun
 def values(*rest):
@@ -1411,13 +1404,13 @@ def copy_readtable(x):
 __standard_pprint_dispatch__ = make_hash_table()          # XXX: this is crap!
 __standard_readtable__       = make_instance(readtable_t) # XXX: this is crap!
 
-intern_and_bind_globals("*PRINT-ARRAY*", "*PRINT-BASE*", "*PRINT-CASE*", "*PRINT-CIRCLE*",
-                         "*PRINT-ESCAPE*", "*PRINT-GENSYM*", "*PRINT-LENGTH*", "*PRINT-LEVEL*",
-                         "*PRINT-LINES*", "*PRINT-MISER-WIDTH*", "*PRINT-PPRINT-DISPATCH*",
-                         "*PRINT-PRETTY*", "*PRINT-RADIX*", "*PRINT-READABLY*", "*PRINT-RIGHT-MARGIN*",
-                         "*READ-BASE*", "*READ-DEFAULT-FLOAT-FORMAT*", "*READ-EVAL*",
-                         "*READ-SUPPRESS*",
-                         "*READTABLE*")
+intern_and_bind("*PRINT-ARRAY*", "*PRINT-BASE*", "*PRINT-CASE*", "*PRINT-CIRCLE*",
+                 "*PRINT-ESCAPE*", "*PRINT-GENSYM*", "*PRINT-LENGTH*", "*PRINT-LEVEL*",
+                 "*PRINT-LINES*", "*PRINT-MISER-WIDTH*", "*PRINT-PPRINT-DISPATCH*",
+                 "*PRINT-PRETTY*", "*PRINT-RADIX*", "*PRINT-READABLY*", "*PRINT-RIGHT-MARGIN*",
+                 "*READ-BASE*", "*READ-DEFAULT-FLOAT-FORMAT*", "*READ-EVAL*",
+                 "*READ-SUPPRESS*",
+                 "*READTABLE*", gvarp = t)
 __standard_io_syntax__ = dict({_package_               : find_package("COMMON-LISP-USER"),
                                _print_array_           : t,
                                _print_base_            : 10,
@@ -3171,7 +3164,7 @@ class windows_host_t(pathname_host_t):
 system_pathname_host = make_instance(windows_host_t if platform.system() == 'Windows' else
                                       unix_host_t)
 
-intern_and_bind_globals("*DEFAULT-PATHNAME-DEFAULTS*")
+intern_and_bind("*DEFAULT-PATHNAME-DEFAULTS*", gvarp = t)
 
 @defclass
 class pathname_t():
@@ -4552,7 +4545,7 @@ and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty out
 ## If the backquote syntax is nested, the innermost backquoted form should be expanded first. This means that if several
 ## commas occur in a row, the leftmost one belongs to the innermost backquote.
 
-intern_and_bind_symbols(("_cons_", "CONS"), "LIST", ("_list_", "LIST*"), "APPEND", "QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
+intern_and_bind(("_cons_", "CONS"), "LIST", ("_list_", "LIST*"), "APPEND", "QUOTE", "QUASIQUOTE", "COMMA", "SPLICE")
 
 string_set("*READER-TRACE-QQEXPANSION*",        nil)
 
@@ -4944,7 +4937,7 @@ def maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
 __not_even_conditions__ = frozenset([GeneratorExit, SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
-intern_and_bind_globals("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*")
+intern_and_bind("*STACK-TOP-HINT*", "*TRACEBACK*", "*SIGNALLING-FRAME*", gvarp = t)
 
 string_set("*LAST-CHANCE-HANDLER*", nil)
 
@@ -6216,11 +6209,11 @@ matcher_pp_stack = defwith("_matcher_pp_stack",
 
 # Base class
 
-intern_and_bind_globals("*SEGMENT-ITERATION*")
+intern_and_bind("*SEGMENT-ITERATION*", gvarp = t)
 
-intern_and_bind_symbols("%SOME", "%MAYBE", "%OR", "%FUNCHER",
-                         "IR-ARGS",
-                         "LAMBDA")
+intern_and_bind("%SOME", "%MAYBE", "%OR", "%FUNCHER",
+                 "IR-ARGS",
+                 "LAMBDA")
 def segment_iteration():
         return symbol_value(_segment_iteration_)
 
@@ -6527,7 +6520,7 @@ def matcher_error(sex, r, f, desc = "matching"):
 
 # Preprocessing
 
-intern_and_bind_symbols(
+intern_and_bind(
         "%FORM",
         "%BASE", "%NEWLINE", "%FILL", "%NBSP",
         "%BINDER", "%BIND", "%BOUND",
@@ -6668,7 +6661,7 @@ def combine_append(f0, fR, originalp):
                 if fRr is not None:
                         return append(f0r, fRr)
 
-intern_and_bind_symbols("%SATISFIES", "%CONS", "%TYPEP")
+intern_and_bind("%SATISFIES", "%CONS", "%TYPEP")
 
 class metasex_matcher_t(matcher):
         def __init__(m):
@@ -6929,14 +6922,14 @@ def compiler_error(control, *args):
 def namep(x):
         return isinstance(x, symbol_t) and symbol_package(x) is not __keyword
 
-intern_and_bind_symbols("&WHOLE", "&OPTIONAL", "&REST", "&BODY", "&KEY", "&ALLOW-OTHER-KEYS", "&AUX", "&ENVIRONMENT")
+intern_and_bind("&WHOLE", "&OPTIONAL", "&REST", "&BODY", "&KEY", "&ALLOW-OTHER-KEYS", "&AUX", "&ENVIRONMENT")
 
 __lambda_words__ = { _whole, _optional, _rest, _body, _key, _allow_other_keys, _aux, _environment }
 
 def lambda_word_p(x):
         return isinstance(x, symbol_t) and x in __lambda_words__
 
-intern_and_bind_symbols("DECLARE")
+intern_and_bind("DECLARE")
 
 @defun
 def parse_body(body, doc_string_allowed = t):
@@ -7093,7 +7086,7 @@ def compiler_trace_known_choice(ir_name, id, choice):
 
 # Bindings
 
-intern_and_bind_symbols(
+intern_and_bind(
         "SYMBOL",
         "VARIABLE", "CONSTANT", "SPECIAL", "SYMBOL-MACRO",
         "MACRO", "COMPILER-MACRO", "FUNCTION", "BLOCK", "GOTAG")
@@ -7174,9 +7167,9 @@ def gotag_bindingp(x):    return isinstance(x, gotag_binding)
 
 # Lexenv
 
-intern_and_bind_globals("*LEXENV*")
-intern_and_bind_symbols("NULL")
-intern_and_bind_symbols("%BOOTSTRAP-NULL-LEXENV")
+intern_and_bind("*LEXENV*", gvarp = t)
+intern_and_bind("NULL")
+intern_and_bind("%BOOTSTRAP-NULL-LEXENV")
 
 def with_lexenv(lexenv, f):
         with progv({ _lexenv_: lexenv }):
@@ -7580,10 +7573,10 @@ declared to be the names of constant variables)."""
 
 # Action: populate global scope with pre-defined functions
 
-intern_and_bind_symbols(("_mult",   "*"),
-                        ("_add",    "+"),
-                        ("_sub",    "-"),
-                        ("_equals", "="))
+intern_and_bind(("_mult",   "*"),
+                ("_add",    "+"),
+                ("_sub",    "-"),
+                ("_equals", "="))
 
 @defun(_mult)
 def mult(*xs):
@@ -7622,7 +7615,7 @@ EmptySet = frozenset()
 
 # Compiler globals
 
-intern_and_bind_globals(
+intern_and_bind(
         "*COMPILER-ERROR-COUNT*",
         "*COMPILER-WARNINGS-COUNT*",
         "*COMPILER-STYLE-WARNINGS-COUNT*",
@@ -7634,7 +7627,7 @@ intern_and_bind_globals(
         "*UNIT-GFUNS*",
         "*UNIT-GVARS*",
         ##
-        "*TOP-COMPILATION-UNIT-P*")
+        "*TOP-COMPILATION-UNIT-P*", gvarp = t)
 
 # Dynamic scope -based Tracking of various IR properties (crude)
 
@@ -7922,7 +7915,7 @@ def validate_keyword_args(allowed_set, keymap):
 
 # Macroexpansion
 
-intern_and_bind_symbols("DEFMACRO", "EVAL-WHEN")
+intern_and_bind("DEFMACRO", "EVAL-WHEN")
 
 ensure_function_pyname(_defmacro) ## This is only needed due to the special definition of DEFMACRO.
 @set_macro_definition(globals(), _defmacro, nil)
@@ -8227,7 +8220,7 @@ def primitivise_constant(x):
                 error("Cannot primitivise value %s (of type %s).  Is it a literal?",
                       pp_consly(x), type(x).__name__))
 
-intern_and_bind_symbols("APPLY", "FUNCALL")
+intern_and_bind("APPLY", "FUNCALL")
 
 def ir_funcall(func, *args):
         ## Has the virtue of only being available pre-rewrite.
@@ -8261,7 +8254,7 @@ def dbgsetup(**keys):
         compiler_dbgconf(pretty_full = t,
                          **keys)
 
-intern_and_bind_symbols("CAR", "CDR", "LET", "&BODY")
+intern_and_bind("CAR", "CDR", "LET", "&BODY")
 def run_tests_metasex():
         printer = matcher_result_printer
         def do_run_test(input, matcher = metasex_pprinter):
@@ -8333,7 +8326,7 @@ def run_tests_metasex():
                          None),
                         printer = printer)
 
-        intern_and_bind_symbols("PI")
+        intern_and_bind("PI")
         assert runtest(simplex,
                         (list_(nil, _pi),
                          ({'head':[nil]}, {'tail':(_satisfies, namep)})),
@@ -8462,20 +8455,20 @@ def primitivise_pyref(x):
 
 # IR argument passing
 
-intern_and_bind_symbols("IR-ARGS", "FUNCALL", ("_let_", "LET*"),
-                        "FLET", "LABELS", "MACROLET",
-                        "SYMBOL-MACROLET", "BLOCK", "RETURN-FROM",
-                        "TAGBODY", "GO", "EVAL-WHEN",
-                        "SETQ", "PROGN", "IF",
-                        "LET", "FUNCTION", "UNWIND-PROTECT",
-                        "REF", "LAMBDA", "PRIMITIVE",
-                        "APPLY", "QUOTE", "MULTIPLE-VALUE-CALL",
-                        "CATCH", "THROW", "NTH-VALUE",
-                        "PROGV", "PROTOLOOP", "THE",
-                        "LOCALLY", "MULTIPLE-VALUE-PROG1", "LOAD-TIME-VALUE")
+intern_and_bind("IR-ARGS", "FUNCALL", ("_let_", "LET*"),
+                "FLET", "LABELS", "MACROLET",
+                "SYMBOL-MACROLET", "BLOCK", "RETURN-FROM",
+                "TAGBODY", "GO", "EVAL-WHEN",
+                "SETQ", "PROGN", "IF",
+                "LET", "FUNCTION", "UNWIND-PROTECT",
+                "REF", "LAMBDA", "PRIMITIVE",
+                "APPLY", "QUOTE", "MULTIPLE-VALUE-CALL",
+                "CATCH", "THROW", "NTH-VALUE",
+                "PROGV", "PROTOLOOP", "THE",
+                "LOCALLY", "MULTIPLE-VALUE-PROG1", "LOAD-TIME-VALUE")
 
-intern_and_bind_symbols("AREF", "VECTOR", "INLINE", ## For LABELS
-                        )
+intern_and_bind("AREF", "VECTOR", "INLINE", ## For LABELS
+                )
 
 @defknown((_ir_args, "\n", (_form, (_for_matcher_layers_skip_action, (rewriter, metasex_mapper))),
            ["\n", (_cons, (_typep, str), (_form, (_for_not_matchers_xform, identity, metasex_pprinter)))],))
@@ -10888,16 +10881,6 @@ class stream_type_error_t(simple_condition_t, io.UnsupportedOperation):
 # LOAD-able things
 
 def load_rest_of_lisp():
-        intern_and_bind_names_in_module_specifically(("_a", "A"),
-                                                     ("_b", "B"),
-                                                     ("_c", "C"),
-                                                     ("_d", "D"),
-                                                     ("_e", "E"),
-                                                     ("_f", "F"),
-                                                     ("_g", "G"),
-                                                     ("_h", "H"),
-                                                     ("_i", "I"),
-                                                     ("_j", "J"))
         global __running_tests__, __enable_matcher_tracing__
         __running_tests__ = True
         # __enable_matcher_tracing__ = True
