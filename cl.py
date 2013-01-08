@@ -7534,9 +7534,11 @@ def global_variable_constant_p(name):
 ## Unregistered Issue CONSTANTNESS-PERSISTENCE
 def compiler_defconstant(name, value):
         assert(value is not None)
-        if global_variable_constant_p(name):
+        if (global_variable_constant_p(name)
+            and variable_scope[name].value != value):
                 error("The constant %s is being redefined (from %s to %s).", name, variable_scope[name].value, value)
-        var = variable(the(symbol_t, name), _constant, value = value)
+        var = variable(the(symbol_t, name), _constant)
+        var.value = value
         variable_scope[name] = var
 
 def check_no_locally_rebound_constants(locals, use = "local variable"):
