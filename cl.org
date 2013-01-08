@@ -11289,12 +11289,13 @@ def do_exit(status = 0):
         frost.disable_pytracer()
         exit(status)
 
-def repl(prompt = "VPCL> "):
+def repl(prompt = "* "):
         @__block__
         def repl_iteration():
                 write_string(prompt)
                 finish_output()
-                expr = read()
+                expr = handler_case(read,
+                                    (EOFError, lambda _: do_exit()))
                 result = eval(expr)
                 write_line(pp_sex(result))
                 finish_output()
