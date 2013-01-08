@@ -150,7 +150,7 @@ def unboot_set(set):
                         error("In UNBOOT-SET \"%s\": %s has no 'unboot' attribute.", set, x)
                 x.unboot()
         del namespace["boot"][set]
-        dprintf("; unbooted function set %s, remaining boot sets: %s", repr(set), ", ".join(namespace["boot"].keys()))
+        # dprintf("; unbooted function set %s, remaining boot sets: %s", repr(set), ", ".join(namespace["boot"].keys()))
 
 def interpret_toplevel_value(name_or_obj, objness_predicate):
         name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj)           else
