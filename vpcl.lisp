@@ -16,16 +16,11 @@
                              'nil)))
        'nil)))
 
-;; (eval-when (:compile-toplevel)
-;;   (funcall (function (quote ("cl" "dbgsetup")))))
-;; (eval-when (:compile-toplevel)
-;;   (setq (quote ("cl" "__enable_matcher_tracing__")) t))
-
-(defun %test-defun ()
-  (format t "Hello from %%TEST-DEFUN.")
+(defun all-hail-vpcl ()
+  (format t "; Greetings, this is VPCL here..  You seem bothered?")
   (terpri))
 
-(%test-defun)
+(all-hail-vpcl)
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun not (x)
@@ -88,32 +83,50 @@
                    ,tn
                    (cond ,@rest))))))))
 
-(defmacro defpackage (name &rest rest)
-  `(progn
-     (eval-when (:compile-toplevel)
-       (format t "; ignoring definition for package %s" ',name)
-       (terpri))
-     (format t "; ignoring definition for package %s" ',name)
-     (terpri)))
-
-(defmacro define-condition (name super slots &rest rest)
-  `(progn
-     (eval-when (:compile-toplevel)
-       (format t "; ignoring definition for condition %s" ',name)
-       (terpri))
-     (format t "; ignoring definition for condition %s" ',name)
-     (terpri)))
-
-(defmacro defclass (name supers slots &body class-options)
-  `(progn
-     (eval-when (:compile-toplevel)
-       (format t "; ignoring definition for class %s" ',name)
-       (terpri))
-     (format t "; ignoring definition for class %s" ',name)
-     (terpri)))
-
 (defmacro defconstant (name &optional value documentation)
   `(progn
      (eval-when (:compile-toplevel)
        (funcall #''("cl" "compiler_defconstant") ',name ,value))
-     (funcall #''("cl" "compiler_defconstant") ',name ,value)))
+     (funcall #''("cl" "compiler_defconstant") ',name ,value)
+     nil))
+
+(defmacro defvar (name &optional value documentation)
+  `(progn
+     (eval-when (:compile-toplevel)
+       (funcall #''("cl" "compiler_defvar") ',name ,value))
+     (funcall #''("cl" "compiler_defvar") ',name ,value)
+     nil))
+
+(defmacro defparameter (name &optional value documentation)
+  `(progn
+     (eval-when (:compile-toplevel)
+       (funcall #''("cl" "compiler_defparameter") ',name ,value))
+     (funcall #''("cl" "compiler_defparameter") ',name ,value)
+     nil))
+
+;;;
+;;; Mockery
+;;;
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defun emit-entity-ignorator (kind name)
+    `(progn 
+       (eval-when (:compile-toplevel)
+         (format t "; ignoring definition for %s %s" ,kind ',name)
+         (terpri))
+       (format t "; ignoring definition for %s %s" ,kind ',name)
+       (terpri))))
+
+(defmacro defpackage (name &rest rest)
+  (emit-entity-ignorator "package" name))
+
+(defmacro deftype (name supers slots &body class-options)
+  (emit-entity-ignorator "type" name))
+
+(defmacro define-condition (name super slots &rest rest)
+  (emit-entity-ignorator "condition" name))
+
+(defmacro defclass (name supers slots &body class-options)
+  (emit-entity-ignorator "class" name))
+
+(defmacro declaim (&body declamations)
+  (emit-entity-ignorator "declamations" declamations))
