@@ -5352,7 +5352,7 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                 bufc = char
         def read_char_maybe_eof(): return do_read_char(nil, nil)
         def read_inner(allow_consing_dot = nil):
-                skip_whitespace()
+                skip_whitespace(eof_error_p = t)
                 char = do_read_char()
                 do_unread_char(char)
                 if   char == chr(40):  obj = read_list() # Org is a bit too picky
@@ -5390,15 +5390,41 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                         return int(read_token(), 2)
                 if char in ("x", "X"):
                         return int(read_token(), 16)
+                if char in ("+", "-"):
+                        def feature_eval(expr):
+                                features = symbol_value(_features_)
+                                def assertex(x):
+                                        x or error("Invalid feature expression: %s", pp_consly(expr))
+                                expr = vectorise(expr) if consp(expr) else expr
+                                def eval_atom(x):
+                                        assertex(isinstance(x, symbol_t))
+                                        return find(x, features)
+                                def eval_or(xs):  return any(rec(x) for x in xs)
+                                def eval_and(xs): return all(rec(x) for x in xs)
+                                def eval_not(x):  return not rec(x)
+                                def rec(x):
+                                        return (eval_atom(x)    if atom(x)      else
+                                                eval_or(x[1:])  if x[0] is _or  else
+                                                eval_and(x[1:]) if x[0] is _and else
+                                                eval_not(x[1])  if x[0] is _not else
+                                                assertex(atom(x) or x[0] in [_or, _and, _not]))
+                        feature_form = read_inner()
+                        successp = feature_eval(feature_form)
+                        successp = (successp and char == "+") or (not successp and char == "-")
+                        with progv({ _read_suppress_: not successp }):
+                                form = read_inner()
+                        # format(t, "FEX  %s%s  wrt  %s  -->  %s\n", char, pp_consly(feature_form), pp_consly(form), successp)
+                        return (form if successp else
+                                read_inner()) ## We're obliged to read something.
                 else:
-                        error("Unknown or invalid dispatch macro character: %s.", princ_to_string(c))
+                        error("Unknown or invalid dispatch macro character: %s.", princ_to_string(char))
         def skip_until_eol():
                 c = read_char_maybe_eof()
                 while c and c != "\n":
                         c = read_char_maybe_eof()
-        def skip_whitespace():
+        def skip_whitespace(eof_error_p = nil):
                 while t:
-                        c = read_char_maybe_eof()
+                        c = do_read_char(eof_error_p, nil)
                         if c == ";":
                                 skip_until_eol()
                         elif c not in frozenset([" ", "\t", "\n"]):
@@ -5445,6 +5471,8 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                 return ret
         def read_number_or_symbol():
                 token = read_token()
+                if symbol_value(_read_suppress_):
+                        return nil
                 if without_condition_system(lambda: re.match("^[0-9]+$", token),
                                              reason = "re.match"):
                         ret = int(token)
@@ -5473,7 +5501,7 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                            (end_of_file_t,
                             lambda c: error(c) if eof_error_p else
                                       return_from(cold_read, eof_value)))
-        # here("lastly %s" % (pp_consly(ret),))
+        # format(t, "lastly %s\n", pp_consly(ret))
         return expand_quasiquotation(ret)
 read = cold_read
 
