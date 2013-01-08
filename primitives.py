@@ -271,10 +271,11 @@ def help_ctx(writep):
 def prim_nil():
         return name(cl.unit_symbol_pyname(nil))
 
-__statement_value_None__ = nil
+cl.string_set("*VALUELESS-PRIMITIVE-STATEMENT-MUST-YIELD-NIL*", t, globals = globals())
 
 def help_nil():
-        return help(name("None") if __statement_value_None__ else prim_nil())[1]
+        return help(prim_nil() if symbol_value(_valueless_primitive_statement_must_yield_nil_) else
+                    name("None"))[1]
 
 def          fixed_ll(fixed):                    return (list(fixed), [],  [],     None, [], [], None)
 def      fixed_opt_ll(fixed, opt, optval):       return (list(fixed), list(opt), list(optval), None, [], [], None)
