@@ -10042,14 +10042,14 @@ def load_module_bytecode(bytecode, func_name = nil, filename = ""):
 def map_top_level(fn, form, compile_time_too = nil, process = t, eval = nil):
         def make_skipping_iterating_processor(skip_subforms, doc_and_decls):
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-IGNORES-DECLARATIONS
-                def skipping_iterating_processor(subforms, compile_time_too, process, eval, toplevel = None):
+                def skipping_iterating_processor(subforms, compile_time_too, process, eval):
                         "Ignore some SUBFORMS, and dispatch the rest through REC, as top-levels."
                         relevant = nthcdr(skip_subforms, subforms)
                         body = values_frame_project(0, parse_body(relevant))
                         mapc(lambda f: rec(f, compile_time_too, process, eval),
                              body)
                 return skipping_iterating_processor
-        def process_eval_when(body, compile_time_too, process, eval, toplevel = None):
+        def process_eval_when(body, compile_time_too, process, eval):
                 situations = body[1][0]
                 parsed_situations = parse_eval_when_situations(situations)
                 new_ctt, new_process, new_eval = analyse_eval_when_situations(compile_time_too, *parsed_situations)
@@ -10067,11 +10067,12 @@ def map_top_level(fn, form, compile_time_too = nil, process = t, eval = nil):
                 _eval_when:       process_eval_when,
                 }
         def rec(form, compile_time_too, process, eval):
+                # dprintf("REC: %s", pp_consly(form))
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-HANDLING
                 if not consp(form):
+                        fn(form, compile_time_too, process, eval)
                         return
-                actions.get(form[0], fn)(form, compile_time_too, process, eval,
-                                         toplevel = t)
+                actions.get(form[0], fn)(form, compile_time_too, process, eval)
         rec(form, compile_time_too, process, eval)
 
 def process_top_level(form, compile_time_too = nil, process = t, eval = nil) -> [ast.stmt]:
