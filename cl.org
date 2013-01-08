@@ -11843,6 +11843,9 @@ def load(pathspec, verbose = None, print = None,
                        lambda stream: load_stream(stream, nil),
                        external_format = external_format)
 
+intern_and_bind(("_load", "LOAD", load))
+post_factum_defun(_load, load)
+
 @defclass
 class stream_type_error_t(simple_condition_t, io.UnsupportedOperation):
         pass
