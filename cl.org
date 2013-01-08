@@ -11320,8 +11320,8 @@ def repl(prompt = "* "):
                         repl_iteration()
 
 def configure_recursion_limit(new_limit):
-        dprintf("; current recursion limit is: %s;  setting it to %s",
-                      sys.getrecursionlimit(), new_limit)
+        # dprintf("; current recursion limit is: %s;  setting it to %s",
+        #               sys.getrecursionlimit(), new_limit)
         sys.setrecursionlimit(new_limit)
 
 configure_recursion_limit(262144)
