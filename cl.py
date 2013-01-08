@@ -9972,30 +9972,28 @@ def compilation_unit_prologue(funs, syms, gfuns, gvars):
                 def wrap(x):
                         return defaulted(x, consify_star(_ref, (_quote, ("None",))))
                 with progv(compiler_debugless_traceless_frame):
+                 l = list_
                  symbols = sorted(funs | syms, key = str)
-                 prologue = list_(_progn,
-                                  ir_cl_call(
-                                  "fop_make_symbol_available",
-                                  ir_apply("globals"),
-                                  "COMMON-LISP", "VECTOR", ensure_function_pyname(_vector),
-                                  list_(_ref, list_(_quote, list_("None"))),
-                                  True, False),
-                                  ir_cl_call(
-                                  "fop_make_symbols_available",
-                                  ir_apply("globals"),
-                                  ir_apply(_vector, *tuple(package_name(symbol_package(sym)) if symbol_package(sym) else consify_star(_ref, (_quote, ("None",)))
-                                                             for sym in symbols )),
-                                  ir_apply(_vector, *tuple(symbol_name(sym)          for sym in symbols )),
-                                  ir_apply(_vector, *tuple(wrap(sym.function_pyname) for sym in symbols )),
-                                  ir_apply(_vector, *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                                  ir_apply(_vector, *tuple(sym in gfuns              for sym in symbols )),
-                                  ir_apply(_vector, *tuple(sym in gvars              for sym in symbols ))))
+                 prologue = l(_progn,
+                              ir_cl_call(
+                              "fop_make_symbols_available",
+                              ir_apply("globals"),
+                              ir_apply(l("cl", "vector"), *tuple(package_name(symbol_package(sym))
+                                                                if symbol_package(sym) else
+                                                                consify_star(_ref, (_quote, ("None",)))
+                                                                for sym in symbols )),
+                              ir_apply(l("cl", "vector"), *tuple(symbol_name(sym)          for sym in symbols )),
+                              ir_apply(l("cl", "vector"), *tuple(wrap(sym.function_pyname) for sym in symbols )),
+                              ir_apply(l("cl", "vector"), *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
+                              ir_apply(l("cl", "vector"), *tuple(sym in gfuns              for sym in symbols )),
+                              ir_apply(l("cl", "vector"), *tuple(sym in gvars              for sym in symbols ))))
                  # dprintf("prologue:\n%s", pp_consly(prologue))
                  return lower(prologue,
-                               ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
-                               lexenv = the_null_lexenv())
-        return (import_prologue() +
-                symbol_prologue())
+                              ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
+                              lexenv = the_null_lexenv())
+        with progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
+                return (import_prologue() +
+                        symbol_prologue())
 
 def with_symbol_unit_magic(body, standalone = nil, id = "UNIT-"):
         "Ensure symbol availability, for the code emitted by BODY, by prepending it with name initialisers."
