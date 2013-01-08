@@ -11281,9 +11281,21 @@ and true otherwise."""
                                  global_macro_p = name and not not macro_function(name))
 
 def eval(form):
-        code = compile(nil, list_(_lambda, nil, form))
-        # dprintf("; compiled %s ->\n; %s", pp_consly(form), code)
-        return code()
+        macroexpanded = compiler_macroexpand_all(form, lexenv = _null)
+        result = nil
+        def evaluator_processor(form, compile_time_too, process, eval, toplevel = None):
+                nonlocal result
+                ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-ARGUMENT-HANDLING
+                ## This is where LEXENV isn't true, as it's always empty.
+                ## ..but re-walking it.. who would care?  CLtL2 environments?
+                ## Additional note: this is %PROCESS, split in half, due to cases.
+                if eval:
+                        result = compile(nil, list_(_lambda, nil, form))()
+        map_top_level(evaluator_processor, macroexpanded,
+                      compile_time_too = nil,
+                      process          = nil,
+                      eval             = t)
+        return result
 
 def do_exit(status = 0):
         frost.disable_pytracer()
