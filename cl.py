@@ -10358,6 +10358,10 @@ def eval(form):
         # dprintf("; compiled %s ->\n; %s", pp_consly(form), code)
         return code()
 
+def do_exit(status = 0):
+        frost.disable_pytracer()
+        exit(status)
+
 def repl(prompt = "VPCL> "):
         @__block__
         def repl_iteration():
