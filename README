@@ -1,0 +1,11 @@
+VPCL stands for Venus Project[1] Common Lisp, a partial implementation of ANSI Common Lisp.
+
+To try it out, edit vpcl.py to make the vpcl_install_root variable (at the very top) to point to
+the source directory of VPCL, and launch it.
+
+Core primitives should work, but not much else would.
+
+---
+Footnotes:
+
+1. A reference to the project to advance humanity via technology: http://www.thevenusproject.com/
