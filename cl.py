@@ -8257,7 +8257,8 @@ def ir_apply(func, *args):
         ## Has the virtue of being available even post-rewrite.
         l, l_ = list_, list__
         return l(_apply, l(_function, (l(_quote, l(func)) if isinstance(func, str) else
-                                         func)),
+                                       l(_quote, func)    if pyrefname_p(func)     else
+                                       func)),
                  *(args + (l(_quote, nil),)))
 
 def ir_cl_call(name, *args):
@@ -8469,9 +8470,12 @@ def handle_constant_linear_body(xs):
 
 # Raw python references
 
+def pyrefname_p(x):
+        return consp(x) and isinstance(x[0], str)
+
 def pyref_p(x):
         return (consp(x) and x[0] is _quote and consp(x[1])
-                and consp(x[1][0]) and isinstance(x[1][0][0], str))
+                and pyrefname_p(x[1][0]))
 
 def primitivise_pyref(x):
         return p.prim_attr_chain([ p.name(x[1][0][0]) ]
