@@ -25,6 +25,10 @@ vpcl.vpfas: cl.py vpcl.lisp
 repl: vpcl.vpfas
 	$(PYTHON) -ic "from cl import *; load('vpcl.vpfas'); repl()"
 
+ansi-test:
+	reset
+	cd ~/src/ansi-tests;                                                                                                          export DUMP_FORM=$(DUMP_FORM) DUMP_MX=$(DUMP_MX) DUMP_RE=$(DUMP_RE) DUMP_PRIM=$(DUMP_PRIM) DUMP_AST=$(DUMP_AST);              make test LISP=/home/deepfire/src/partus/vpcl.py
+
 test: vpcl.vpfas
 	export CL_RUN_TESTS=$(TEST) CL_TEST_QQ=$(TEST_QQ) CL_TEST_METASEX=$(TEST_METASEX) CL_TEST_KNOWN=$(TEST_KNOWN) CL_TEST_PP=$(TEST_PP) CL_TEST_COMPILER=$(TEST_COMPILER); \
 	$(PYTHON) -c \
