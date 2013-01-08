@@ -8038,7 +8038,14 @@ def macroexpand_all(sex, lexenv = nil):
 
 def compiler_macroexpand_all(form, lexenv = nil):
         with progv({ _macroexpander_compilerp_: t }):
-                return macroexpand_all(form, lexenv = lexenv)
+                expanded = macroexpand_all(form, lexenv = lexenv)
+        if symbol_value(_compiler_trace_macroexpanded_):
+                if form != expanded:
+                        # dprintf("  MX  %s   --->\n%s", pp_consly(form), pp_consly(macroexpanded))
+                        report(macroexpanded = expanded, desc = "PROCESS-TOP-LEVEL", lexenv = _null)
+                else:
+                        dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
+        return expanded
 
 # Known IR
 
@@ -10090,12 +10097,6 @@ def process_top_level(form, compile_time_too = nil, process = t, eval = nil) -> 
                         sex_space(-3, ";"), sex_space(), pp(form))
         ## Macro / compiler macro expansion, (the latter one unless disabled by a NOTINLINE declaration), SAME MODE
         macroexpanded = compiler_macroexpand_all(form, lexenv = _null)
-        if symbol_value(_compiler_trace_macroexpanded_):
-                if form != macroexpanded:
-                        # dprintf("  MX  %s   --->\n%s", pp_consly(form), pp_consly(macroexpanded))
-                        report(macroexpanded = macroexpanded, desc = "PROCESS-TOP-LEVEL", lexenv = _null)
-                else:
-                        dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
         ## Note, that at this point, the lexenv is discharged completely.
         ## ..is it?  Macroexpansion is done, so what could it be?
         ##
