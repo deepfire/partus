@@ -2289,9 +2289,10 @@ def frame_id(f):
         return hashlib.new("md5", ("%x" % id(f)).encode()).hexdigest()
 
 def here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr, frame = None, print_fun_line = None, all_pretty = None, offset = 0):
+        stream = defaulted(stream, t)
         def do_format(x, args):
                 try:
-                        return x % (tuple(args))
+                        return x % args
                 except cold_error_type as cond:
                         return "#<error formatting %s into %s: %s>" % (args.__repr__(), note.__repr__(), cond)
         def format_args():
@@ -2299,15 +2300,15 @@ def here(note = None, *args, callers = 5, stream = None, default_stream = sys.st
                         " - " + note if not args else
                         # Unregistered Issue IDEA-MAPXFORM-IF
                         do_format(note, args))
-        return dprintf("    (%s)  %s:\n      %s",
-                             threading.current_thread().name.upper(),
-                             pp_chain_of_frame(defaulted(frame, caller_frame(offset)),
-                                                callers = callers - 1,
-                                                print_fun_line = print_fun_line,
-                                                all_pretty = all_pretty),
-                             without_condition_system(format_args),
-                             # defaulted(stream, default_stream)
-                             )
+        return format(stream, "    (%s)  %s:\n      %s\n",
+                      threading.current_thread().name.upper(),
+                      pp_chain_of_frame(defaulted(frame, caller_frame(offset)),
+                                        callers = callers - 1,
+                                        print_fun_line = print_fun_line,
+                                        all_pretty = all_pretty),
+                      without_condition_system(format_args),
+                      # defaulted(stream, default_stream)
+                      )
 
 def locals_printf(locals, *local_names):
         # Unregistered Issue NEWLINE-COMMA-SEPARATION-NOT-PRETTY
