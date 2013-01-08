@@ -11009,16 +11009,24 @@ def map_top_level(fn, form, compile_time_too = nil, process = t, eval = nil):
                 actions.get(form[0], fn)(form, compile_time_too, process, eval)
         rec(form, compile_time_too, process, eval)
 
-def process_top_level(form, compile_time_too = nil, process = t, eval = nil) -> [ast.stmt]:
+def process_top_level(form) -> [ast.stmt]:
         "A, hopefully, faithful implementation of CLHS 3.2.3.1."
         if symbol_value(_compile_verbose_):
-                complex_named_p = (listp(form) and length(form) > 1
-                                   and (atom(form[1][0]) or form[1][0][0] is _setq))
-                kind, maybe_name = ((form[0], form[1][0]) if complex_named_p      else
-                                    (form[0], "")         if listp(form) and form else
+                def mini_pp(kind, id, named_p, long_p):
+                        return "(%s%s%s%s)" % (kind, " " if named_p else "", id, " ..." if long_p else "")
+                def named_p(x):
+                        return (listp(x) and length(x) >= 2
+                                and (atom(x[1][0]) or x[1][0][0] is _setq))
+                nested_eval_when_p = consp(form) and form[0] is _eval_when and consp(form[1]) and consp(form[1][1]) and consp(form[1][1][0]) and consp(form[1][1][0][1])
+                kind, maybe_name = (("%s %s " % (form[0], pp_consly(form[1][0])),
+                                     mini_pp(form[1][1][0][0], form[1][1][0][1][0] if named_p(form[1][1][0]) else "", named_p(form[1][1][0]), length(form[1][1][0]) > 2))
+                                                                   if nested_eval_when_p   else
+                                    (form[0], form[1][0])          if named_p(form) else
+                                    (form[0], "")                  if consp(form)   else
                                     (form, ""))
-                dprintf("; compiling (%s%s%s%s)",
-                        kind, " " if complex_named_p else "", maybe_name, " ..." if length(form) > 2 else "")
+                dprintf("; compiling %s", mini_pp(kind, maybe_name, named_p(form), length(form) > (3 if nested_eval_when_p and named_p(form[1][1][0]) else
+                                                                                                   2 if named_p(form)                                 else
+                                                                                                   1)))
         if symbol_value(_compiler_trace_forms_):
                 dprintf(";;;%s compiling:\n%s%s",
                         sex_space(-3, ";"), sex_space(), pp(form))
