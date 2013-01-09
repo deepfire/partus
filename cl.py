@@ -88,33 +88,6 @@ def fprintf(stream, format_control, *format_args):
 def dprintf(format_control, *format_args):
         fprintf(sys.stderr, format_control + "\n", *format_args)
 
-# First-class namespaces
-
-class namespace(collections.UserDict):
-        def __str__(self):
-                return "#<NAMESPACE %s>" % (repr(self.name),)
-        def __init__(self, name, data_constructor = dict):
-                self.name, self.data, self.properties = name, data_constructor(), collections.defaultdict(dict)
-        def __getitem__(self, x):               return self.data.__getitem__(x)
-        def __hasitem__(self, x):               return self.data.__hasitem__(x)
-        def names(self):                        return set(self.data.keys())
-        def intersect(self, with_):             return [x for x in with_ if x in self.data] if len(self) > len(with_) else [x for x in self.data if x in with_]
-        def has(self, name):                    return name in self.data
-        def get(self, name):                    return self.data[name]
-        def access(self, name, default = None): return (default, None) if name not in self.data else (self.data[name], True)
-        def set(self, value, name):             self.data[name] = value; return value
-        def grow(self, name, **keys):           self.data[name] = namespace_type_and_constructor(name, **keys); self.setf_property(True, name, "NAMESPACEP")
-        def properties(self, name):             return self.properties[name]
-        def has_property(self, name, pname):    return pname in self.properties[name]
-        def property(self, name, pname, default = None):
-                cell = self.properties[name]
-                return cell[pname] if pname in cell else default
-        def setf_property(self, value, name, pname):
-                self.properties[name] = value
-                return value
-namespace_type_and_constructor = namespace
-namespace = namespace_type_and_constructor("")
-
 # Meta-boot
 
 def global_(x, globals = globals()):
@@ -128,7 +101,7 @@ def boot_defun(fn):     __boot_defunned__.add(fn);    return fn
 def boot_defclass(cls): __boot_defclassed__.add(cls); return cls
 
 ## 2. tagged switchables
-namespace.grow("boot", data_constructor = lambda: collections.defaultdict(set))
+boot_sets = collections.defaultdict(set)
 
 def boot(set, boot, on_unboot = None):
         def definer(orig):
@@ -140,17 +113,17 @@ def boot(set, boot, on_unboot = None):
                         return boot(orig, *args, **keys)
                 boot.unboot = unboot
                 boot.name = orig.__name__
-                namespace["boot"][set].add(boot)
+                boot_sets[set].add(boot)
                 return linkage
         return definer
 
 def unboot_set(set):
-        for x in sorted(namespace["boot"][set], key = lambda x: x.name):
+        for x in sorted(boot_sets[set], key = lambda x: x.name):
                 if not hasattr(x, "unboot"):
                         error("In UNBOOT-SET \"%s\": %s has no 'unboot' attribute.", set, x)
                 x.unboot()
-        del namespace["boot"][set]
-        # dprintf("; unbooted function set %s, remaining boot sets: %s", repr(set), ", ".join(namespace["boot"].keys()))
+        del boot_sets[set]
+        # dprintf("; unbooted function set %s, remaining boot sets: %s", repr(set), ", ".join(boot_sets.keys()))
 
 def interpret_toplevel_value(name_or_obj, objness_predicate):
         name, obj = ((name_or_obj.__name__, name_or_obj) if objness_predicate(name_or_obj)           else
@@ -400,24 +373,23 @@ def symbols_not_accessible_error(package, syms):
 
 # Package system classes
 
-namespace.grow("PACKAGES")
+packages = dict()
 
 @boot_defclass
 class package_t(collections.UserDict):
         def __repr__ (self): return "#<PACKAGE \"%s\">" % self.name # Cold PRINT-UNREADABLE-OBJECT
         def __bool__(self):  return True                            # Non-false even if empty.
         def __hash__(self):  return hash(id(self))
-        def __init__(self, name, use = [], nicknames = [], internal_symbols = 10, external_symbols = 10,
+        def __init__(self, name, use = [], nicknames = [],
                      filename = "", ignore_python = False, python_exports = True, boot = False):
-                internal_symbols = external_symbols = "IGNORE"
                 ## DEPENDENCY: USE-PACKAGE
                 ## DEPENDENCY: INTERN
                 def validate_requested_package_names(name, nicknames):
-                        # Unregistered Issue COMPLIANCE-PACKAGE-REDEFINITION
-                        name = "IGNORE"
-                        nickname_conflicts = namespace["PACKAGES"].intersect(nicknames)
+                        if name in packages:
+                                error("Refusing to redefine package %s.", name)
+                        nickname_conflicts = set(packages) & set(nicknames)
                         for n_c in nickname_conflicts:
-                                p = namespace["PACKAGES"][n_c]
+                                p = packages[n_c]
                                 if p.name == n_c: error("\"%s\" is a package name, so it cannot be a nickname for \"%s\".", n_c, name)
                                 else:             error("\"%s\" is already a nickname for \"%s\".", n_c, p.name)
                 def setup_package_usage(p, used):
@@ -450,9 +422,9 @@ class package_t(collections.UserDict):
 
                 ## Hit the street.
                 self.data          = self.accessible
-                namespace["PACKAGES"].set(self, name)
+                packages[name] = self
                 for nick in nicknames:
-                        namespace["PACKAGES"].set(self, nick)
+                        packages[nick] = self
 
 @boot("symbol", lambda _, name, **keys: package_t(name, **keys))
 @boot_defun
@@ -468,8 +440,8 @@ def package_name(x): return x.name
 
 @boot_defun
 def find_package(name):
-        return (name if packagep(name) else
-                namespace["PACKAGES"].access(name if isinstance(name, str) else symbol_name(name))[0] or nil)
+        return name if packagep(name) else packages.get(name if isinstance(name, str) else symbol_name(name),
+                                                        nil)
 
 @boot_defun
 def package_used_by_list(package):
