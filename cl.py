@@ -4184,9 +4184,7 @@ def aref(x, *indices):
 
 # Accessor SVREF
 
-@defun("VECTOR")
-def vector(*xs):
-        return [nil, nil] + list(xs)
+# Function VECTOR
 
 # Function VECTOR-POP
 
@@ -4283,11 +4281,6 @@ def notany(f, xs, *xss):
 # Function VALUES-LIST
 
 # Function GET-SETF-EXPANSION
-
-# Arrays
-
-@defun
-def vector(*xs):    return [len(xs), t] + list(xs)
 
 # Cold printer
 
@@ -7895,9 +7888,9 @@ def fop_make_symbol_available(globals, package_name, symbol_name,
 def fop_make_symbols_available(globals, package_names, symbol_names,
                                 function_pynames, symbol_pynames,
                                 gfunps, gvarps):
-        for fop_msa_args in zip(package_names[2:], symbol_names[2:],
-                                function_pynames[2:], symbol_pynames[2:],
-                                gfunps[2:], gvarps[2:]):
+        for fop_msa_args in zip(package_names, symbol_names,
+                                function_pynames, symbol_pynames,
+                                gfunps, gvarps):
                 fop_make_symbol_available(globals, *fop_msa_args)
 
 # Call support
@@ -9954,27 +9947,29 @@ _vector = intern("VECTOR")[0]
 
 def compilation_unit_prologue(funs, syms, gfuns, gvars):
         """Emit a prologue for a standalone unit referring to SYMBOLS."""
+        l = list_
         def import_prologue():
                 return p.help(p.import_(p.name("cl")))[0]
+        def ir_literal_pylist(xs):
+                return l(_primitive, l(_quote, l("p", "pylist")), *xs)
         def symbol_prologue():
                 def wrap(x):
                         return defaulted(x, consify_star(_ref, (_quote, ("None",))))
                 with progv(compiler_debugless_traceless_frame):
-                 l = list_
                  symbols = sorted(funs | syms, key = str)
                  prologue = l(_progn,
                               ir_cl_call(
                               "fop_make_symbols_available",
                               ir_apply("globals"),
-                              ir_apply(l("cl", "vector"), *tuple(package_name(symbol_package(sym))
-                                                                if symbol_package(sym) else
-                                                                consify_star(_ref, (_quote, ("None",)))
-                                                                for sym in symbols )),
-                              ir_apply(l("cl", "vector"), *tuple(symbol_name(sym)          for sym in symbols )),
-                              ir_apply(l("cl", "vector"), *tuple(wrap(sym.function_pyname) for sym in symbols )),
-                              ir_apply(l("cl", "vector"), *tuple(wrap(sym.symbol_pyname)   for sym in symbols )),
-                              ir_apply(l("cl", "vector"), *tuple(sym in gfuns              for sym in symbols )),
-                              ir_apply(l("cl", "vector"), *tuple(sym in gvars              for sym in symbols ))))
+                              ir_literal_pylist(tuple( package_name(symbol_package(sym))
+                                                       if symbol_package(sym) else
+                                                       l(_ref, l(_quote, l("None")))
+                                                       for sym in symbols )),
+                              ir_literal_pylist(tuple( symbol_name(sym)          for sym in symbols )),
+                              ir_literal_pylist(tuple( wrap(sym.function_pyname) for sym in symbols )),
+                              ir_literal_pylist(tuple( wrap(sym.symbol_pyname)   for sym in symbols )),
+                              ir_literal_pylist(tuple( sym in gfuns              for sym in symbols )),
+                              ir_literal_pylist(tuple( sym in gvars              for sym in symbols ))))
                  # dprintf("prologue:\n%s", pp_consly(prologue))
                  return lower(prologue,
                               ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
