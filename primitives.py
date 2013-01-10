@@ -1069,7 +1069,7 @@ class rplacd(expr):
 ### Iterators
 ###
 @defprim(intern("GENERATOR")[0],
-         (expr, [(name, expr, [expr])]))
+         (expr, [(expr, expr, [expr])]))
 class generator(expr):
         def help(result, *comps):
                 return ast.GeneratorExp(help_expr(result),
