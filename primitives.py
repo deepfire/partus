@@ -428,7 +428,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                     or isinstance(arg, stmt))): # - the argument is not an expression
                                 return ([],
                                         arg)
-                        tn = genname("EXP-") ## Temporary Name.
+                        tn = genname("EXP") ## Temporary Name.
                         spill = [ assign(tn, arg) ]
                         # if spill:
                         #         dprintf("process spills for %s, to:\n%s\n due to:"
@@ -528,13 +528,13 @@ class name(expr):
                 return ast.Name(x, help_ctx(writep))
 
 def genname(x = "#:G"):
-        return name(gensymname(x))
+        return name(gensymname(x + "_"))
 
 @defprim(intern("ASSIGN")[0],
          (expr, prim))
 class assign(stmt):
         def help(place, value, tn = nil, spills = []):
-                the_tn = tn or genname("TARGET-")
+                the_tn = tn or genname("TARGET")
                 p, v = help(value)
                 simple_val_p = isinstance(value, (name, const))
                 statem_val_p = not not p
@@ -736,7 +736,7 @@ class defun(body):
                          ], help_expr(nam)
         @defmethod(lambda_)
         def lambda_(pyargs, expr, name = nil, id = nil, decorators = []):
-                return defun(name or genname((id + "-") if id else "DEFLAM-"), pyargs, decorators, expr)
+                return defun(name or genname((id) if id else "DEFLAM"), pyargs, decorators, expr)
 
 @defprim(intern("LAMBDA-EXPR")[0],
          ((([name],),
@@ -788,7 +788,7 @@ class let_thunk(body):
         "The most universal, yet bulky kind of LET."
         def help(bindings, body):
                 ns, vs = list(zip(*bindings))
-                tn = genname("LET-THUNK-")
+                tn = genname("LET_THUNK")
                 return help(progn(defun(tn, fixed_ll(ns), [],
                                         body),
                                   funcall(tn, *vs)))
@@ -872,7 +872,7 @@ class let__stmt(body):
           prim))
 class progv(body):
         def help(vars, vals, body):
-                tn = genname("VALUE-")
+                tn = genname("VALUE")
                 return [ ast.With(help_expr(funcall(impl_ref("progv"),
                                                     literal_hash_table_expr(*zip(vars, vals)))),
                                   None,
@@ -923,7 +923,7 @@ class if_expr(expr):
 class if_stmt(body):
         def help(*tca):
                 (_, tv), (cp, cv), (ap, av) = [ help(x) for x in tca ]
-                tn = genname("IFVAL-")
+                tn = genname("IFVAL")
                 return [ ast.If(tv,
                                 cp + [ ast.Assign([ help_expr(tn) ], cv)],
                                 ap + [ ast.Assign([ help_expr(tn) ], av)]
@@ -956,7 +956,7 @@ class unwind_protect(body):
         def help(protected_form, body):
                 # need a combinator for PRIM forms
                 if body:
-                        tn = genname("UWP-VALUE-")
+                        tn = genname("UWP_VALUE")
                         return [ ast.TryFinally(help(assign(tn, protected_form))[0],
                                                 help_prog([body])
                                                 ) ], help_expr(tn)
@@ -989,7 +989,7 @@ class resignal(stmt):
 class catch(body):
         ## Lift this to a known?
         def help(tag, body):
-                val_tn, ex_tn = genname("BODY-VALUE-"), genname("EX")
+                val_tn, ex_tn = genname("BODY_VALUE"), genname("EX")
                 return [ ast.TryExcept(
                                 help(assign(val_tn, body))[0],
                                 [ ast.ExceptHandler(help_expr(impl_ref("__catcher_throw__")),
@@ -1057,13 +1057,13 @@ class cdr(expr):
 class rplaca(expr):
         def help(cons, value):
                 return help(assign(index(cons, integer(0), writep = t),
-                                   value, tn = genname("CAR-")))
+                                   value, tn = genname("CAR")))
 
 @defprim(intern("RPLACD")[0], (expr_spill, expr_spill))
 class rplacd(expr):
         def help(cons, value):
                 return help(assign(index(cons, integer(1), writep = t),
-                                   value, tn = genname("CDR-")))
+                                   value, tn = genname("CDR")))
 
 ###
 ### Iterators
