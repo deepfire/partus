@@ -219,7 +219,7 @@ def help(x) -> ([stmt], expr):
                 ## list(r) if isinstance(r, tuple) else
                 ## Unregistered Issue SLOW-CHECK
                 r if typep(r, (pytuple_t, (pylist_t, ast.stmt), ast.expr)) else
-                error("Invalid output from lowerer for %s -- %s.", x, r))
+                error("Invalid output from lowerer for %s (%s/%s)\n-- %s.", x, x.help, defun.help, r))
         if not isinstance(x, name) and symbol_value(cl._compiler_trace_subastification_):
                 ssp = sex_space()
                 dprintf("%s---- helpery %s --->\n"
