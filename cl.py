@@ -6077,7 +6077,13 @@ def ast_validate(_ast):
                 args = [ (field, getattr(x, field))
                          for field in x._fields
                          if hasattr(x, field) ]
-                ast_info_check_args_type(find_ast_info(type(x)), [ fval for _, fval in args ])
+                missing_args = [ field for field in x._fields
+                                 if not hasattr(x, field) ]
+                info = find_ast_info(type(x))
+                if missing_args:
+                        error("Argument field %s of AST '%s' is missing.",
+                              repr(missing_args[0]), info.type.__name__)
+                ast_info_check_args_type(info, [ fval for _, fval in args ])
                 for field, ixs in args:
                         for ix in ixs if isinstance(ixs, list) else [ixs]:
                                 rec(ix, "ast.%s.%s" % (type(x).__name__, field))
