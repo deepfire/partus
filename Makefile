@@ -5,7 +5,7 @@ TEST_QQ       ?= nil
 TEST_METASEX  ?= nil
 TEST_KNOWN    ?= nil
 TEST_PP       ?= nil
-TEST_COMPILER ?= nil
+TEST_COMPILER ?= t
 REPORT ?= nil
 DEBUG  ?= nil
 
