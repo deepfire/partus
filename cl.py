@@ -6203,13 +6203,13 @@ matcher_pp_stack = defwith("_matcher_pp_stack",
 
 # Base class
 
-intern_and_bind("*SEGMENT-ITERATION*", gvarp = t)
+intern_and_bind("*KINDA-POSITION*", gvarp = t)
 
 intern_and_bind("%SOME", "%MAYBE", "%OR", "%FUNCHER",
-                 "IR-ARGS",
-                 "LAMBDA")
-def segment_iteration():
-        return symbol_value(_segment_iteration_)
+                "IR-ARGS",
+                "LAMBDA")
+def kinda_position():
+        return symbol_value(_kinda_position_)
 
 __funchers__ = dict()
 
@@ -6401,7 +6401,7 @@ class matcher():
                                      subseq(exp, end))
                 trace_args = [("orifst", orifst), seg_exp, end, rest_exp, ("pat", pat), ("exp", exp), ("aux", origaux), ("first", firstp)]
                 with match_level(trace_args):
-                 with progv({ _segment_iteration_: (0 if firstp else (symbol_value(_segment_iteration_) + 1)) }):
+                 with progv({ _kinda_position_: (0 if firstp else (symbol_value(_kinda_position_) + 1)) }):
                         ## 5. Try match at the chosen split -- the rest part first, then the segment part.
                         brf_0 = m.crec([exp, pat],
                                        lambda:
@@ -6481,27 +6481,28 @@ class matcher():
                 def pp_binding(x):
                         return repr(list(x.keys())[0]) + "::" + pp_consly(list(x.values())[0])
                 with match_level([exp, ("pat", pat), ("first", orifst[1])], name = name):
-                 return \
-                     r(m.test(exp == pat, "atom match", bound, bname, exp, lambda: m.prod(exp, orifst[0]), pat)
-                                                                                                 if not consp(pat)       else
-                        m.simplex(bound, bname, exp,        pat,        (consp(exp), orifst[1])) if m.simplex_pat_p(pat) else
-                        m.complex(bound, bname, list_(exp), list_(pat), orifst, None, limit)     if m.complex_pat_p(pat) else
-                        m.fail(bound, exp, pat)                                                  if not listp(exp)       else
-                        (lambda pat0name, pat0, pat0simplexp, patR, clean_pat:
-                                 (m.equo(bname, exp,
-                                         m.complex(bound, pat0name, exp, clean_pat, orifst, aux, limit))
-                                                                   if m.complex_pat_p(pat0) else
-                                  m.fail(bound, exp, pat)          if not consp(exp)        else
-                                  m.equo(bname, exp,
-                                         m.crec([exp, pat],
-                                                lambda:        m.match(bound, pat0name, exp[0], pat0, (listp(exp[0]),
-                                                                                                       orifst[1]),
-                                                                       None, -1),
-                                                (lambda b0und: m.match(b0und, None,     exp[1], patR, (False, orifst[1]), aux, limit,
-                                                                       name = "CDR-MATCH")),
-                                                m.comr,
-                                                originalp = orifst[0]))))
-                        (*maybe_get0Rname(pat)))
+                 with progv({ _kinda_position_: 0 if orifst[0] else (symbol_value(_kinda_position_) + 1)}):
+                  return \
+                      r(m.test(exp == pat, "atom match", bound, bname, exp, lambda: m.prod(exp, orifst[0]), pat)
+                                                                                                  if not consp(pat)       else
+                         m.simplex(bound, bname, exp,        pat,        (consp(exp), orifst[1])) if m.simplex_pat_p(pat) else
+                         m.complex(bound, bname, list_(exp), list_(pat), orifst, None, limit)     if m.complex_pat_p(pat) else
+                         m.fail(bound, exp, pat)                                                  if not listp(exp)       else
+                         (lambda pat0name, pat0, pat0simplexp, patR, clean_pat:
+                                  (m.equo(bname, exp,
+                                          m.complex(bound, pat0name, exp, clean_pat, orifst, aux, limit))
+                                                                    if m.complex_pat_p(pat0) else
+                                   m.fail(bound, exp, pat)          if not consp(exp)        else
+                                   m.equo(bname, exp,
+                                          m.crec([exp, pat],
+                                                 lambda:        m.match(bound, pat0name, exp[0], pat0, (listp(exp[0]),
+                                                                                                        orifst[1]),
+                                                                        None, -1),
+                                                 (lambda b0und: m.match(b0und, None,     exp[1], patR, (False, orifst[1]), aux, limit,
+                                                                        name = "CDR-MATCH")),
+                                                 m.comr,
+                                                 originalp = orifst[0]))))
+                         (*maybe_get0Rname(pat)))
         def default(m, exp, pat, name = None, orifst = (True, False)):
                 return m.match(dict(), name, exp, pat, orifst, None, -1)
 
@@ -6817,7 +6818,7 @@ class metasex_pprinter_t(metasex_matcher_t):
                         return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: (" " * n) + r)
         def poscase(m, bound, name, exp, pat, orifst, aux, limit):
-                segpos = segment_iteration()
+                segpos = kinda_position()
                 for pos, casepat in xmap_to_vector(lambda x: (x[0], x[1][0]), pat[0][1]):
                         if pos in (segpos, t):
                                 return m.match(bound, name, exp, [casepat, pat[1]], orifst, aux, limit)
@@ -7375,7 +7376,7 @@ class lexenv_walker(metasex_mapper_t):
                 ## For the sake of proper pre-lexenv maintenance for the value subform of this binding form,
                 ## bust all the bindings accumulated from previous unsuccessful matches:
                 binder = the(lexenv_walker.binder, symbol_value(_walker_binder_))
-                position = segment_iteration()
+                position = kinda_position()
                 if isinstance(binder.args, int):
                         binder.args = position + 1
                 for i, (posn, _, __, ___) in tuple(binder.positionally.items()):
