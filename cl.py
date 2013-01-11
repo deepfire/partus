@@ -10006,8 +10006,8 @@ def assemble(_ast: [ast.stmt], form: cons_t, filename = "") -> "code":
                 report(bytecode = bytecode, form_id = id(form), desc = "%ASSEMBLE")
         return bytecode
 
-def process_as_loadable(processor, form, lexenv = nil, id = "PROCESSED-"):
-        stmts, *_ = with_symbol_unit_magic(lambda: processor(form, lexenv = lexenv),
+def process_as_loadable(processor, form, lexenv = nil, id = "PROCESSED-", **keys):
+        stmts, *_ = with_symbol_unit_magic(lambda: processor(form, lexenv = lexenv, **keys),
                                            standalone = t, id = id)
         return assemble(stmts, form)
 
