@@ -11671,7 +11671,7 @@ def run_tests_compiler():
         name = gensym("SYMAC")
         evaltest("SYMBOL-MACROLET",
                  l(_symbol_macrolet, l(l(name, l(_progn,
-                                                 l(intern("FORMAT")[0], t, "; side effect, sumairu!\n"),
+                                                 l(intern("FORMAT")[0], intern("*ERROR-OUTPUT*")[0], " side effect, sumairu!  "),
                                                  l(_list, 42)))),
                    name),
                  l(42))
