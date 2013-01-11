@@ -9648,14 +9648,17 @@ class labels(known):
                 all((length(x) >= 2 and
                      listp(second(x)))
                     for x in bindings) or fail(form)
-                env = symbol_value(_walker_lexenv_)
+                env    = symbol_value(_walker_lexenv_)
+                binder = lexenv_walker.binder(0, "Labels.")
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
                 with progv({ _walker_lexenv_:
                               make_lexenv(env, allocate_tns = symbol_value(_walker_allocate_tns_),
                                           name_funcframe = { name: function_binding(name, _function, fn(name, lam))
                                                              for name, (lam, body) in bindings }),
+                             _walker_binder_: binder,
                              _walker_binder_args_: nil } if bindings else
-                           { _walker_binder_args_: nil }):
+                           { _walker_binder_: binder,
+                             _walker_binder_args_: nil }):
                         return further(exp)
         def rewrite(_, bindings, *body):
                 l = list_
@@ -9749,7 +9752,8 @@ class block(known):
                         error("Bad BLOCK form: %s", pp_consly(exp))
                 name = exp[1][0]
                 nonce = gensym("BLOCK-" + symbol_name(name) + "-")
-                with progv({ _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
+                with progv({ _walker_binder_: lexenv_walker.binder(0, "Block."),
+                             _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
                                                           name_blockframe = { name: block_binding(name, _block, nonce) }) }):
                         return continuation(exp)
         def rewrite(orig, name, *body):
