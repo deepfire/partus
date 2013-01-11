@@ -6600,10 +6600,10 @@ def form_metasex(form, kind = "metasex"):
         ## Unregistered Issue FORM-METASEX-SHOULD-COMPUTE-METASEX-OF-DEFINED-MACROS
         ## Unregistered Issue FORM-METASEX-TOO-RELAXED-ON-ATOMS
         ## Unregistered Issue FORM-METASEX-STATICALLY-PRECLUDES-MULTILINE-FORMS
-        return (preprocess_metasex((_typep, t))          if not consp(form)                                         else
-                getattr(find_known(form[0]), kind)       if isinstance(form[0], symbol_t) and find_known(form[0])   else
+        return (preprocess_metasex((_typep, t))          if not consp(form)                                    else
+                getattr(find_known(form[0]), kind)    if isinstance(form[0], symbol_t) and find_known(form[0]) else
                 preprocess_metasex((_cons,
-                                    (_form,), (_form,))) if not listp(form[1])                                      else
+                                    (_form,), (_form,))) if not listp(form[1])                                 else
                 preprocess_metasex((([(_notlead, " "), (_form,)] if kind == "metasex_pp" else
                                      [                 (_form,)]),)))
 
