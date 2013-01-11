@@ -84,7 +84,6 @@
         - vpcl, for:
           - values: values_frame_project, values_frame
       - IR for python calls (APPLY, (typep (or string (tuple string))), ...)
-
 ***** Symbols
 
       - symbols denoting constants (keywords, t, nil, pi, etc.): fully printed symbol names
@@ -96,7 +95,6 @@
         - symbols as symbols are, technically, a different namespace, so separation
       - bound names in the function namespace: global symbol -> gensym map, based off symbol name
         - an obvious way to do namespace separation
-
 ***** Multiple values
 ******* Early thoughts
 
@@ -140,6 +138,21 @@
         - GET-VALUE :: aka (NTH-VALUE 0 ...)
           - unpack the first value from value frame, in the generic case
           - identity, in cases something special is known
+***** Bindery
+******* Establishers of *WALKER-BINDER*
+********* known.binder
+********* labels.binder
+********* block.binder
+********* tagbody.binder
+********* function.binder
+******* Knowns defining their own BINDER method
+********* LABELS
+********* BLOCK
+********* TAGBODY
+********* FUNCTION
+******* Users of *WALKER-BINDER*
+********* lexenv_walker: add_binding (BINDING), setup_lexenv (BOUND)
+********* tagbody.rewrite
 ***** FAIL Variable-width metasex matching (aka "complex" matchers)
 ******* Can match any part of the expression at the current level of nesting, including nothing at all
 ******* How did we end up needing a standalone complex pattern subexpression to cover binders?
