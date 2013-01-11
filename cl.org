@@ -7542,6 +7542,7 @@ class metasex_pprinter_t(metasex_matcher_t):
                         return m.post(m.match(m.bind(new_depth, bound, name), None, exp, tail, orifst, aux, -1),
                                       lambda r: (" " * n) + r)
         def poscase(m, bound, name, exp, pat, orifst, aux, limit):
+                ## Unregistered Issue POSCASE-BECAME-UGLY-SINCE-SEGMENT-ITERATION-BECAME-SORTA-POSITION
                 segpos = kinda_position()
                 for pos, casepat in xmap_to_vector(lambda x: (x[0], x[1][0]), pat[0][1]):
                         if pos in (segpos, t):
@@ -9969,8 +9970,8 @@ when EVAL-WHEN appears as a top level form."""
 
 #+begin_src python
 @defknown((_setq, [(_poscase,
-                    (0, " "),
-                    (1, 5),
+                    (1, " "),
+                    (3, 5),
                     (t, "\n")), (_or, (_satisfies, namep), (_satisfies, pyref_p)), " ", (_form,)]))
 class setq(known):
         def rewrite(orig, *args):
