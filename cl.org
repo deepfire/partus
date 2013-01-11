@@ -8750,7 +8750,7 @@ def validate_keyword_args(allowed_set, keymap):
 *** Macroexpansion
 
 #+begin_src python +n
-intern_and_bind("DEFMACRO", "EVAL-WHEN")
+intern_and_bind("DEFMACRO", "EVAL-WHEN", "DEFVAR")
 
 ensure_function_pyname(_defmacro) ## This is only needed due to the special definition of DEFMACRO.
 @set_macro_definition(globals(), _defmacro, nil)
@@ -8769,6 +8769,13 @@ def DEFMACRO(name, lambda_list, *body):
                                                  ))),
                    ["globalp", t],
                    ["name", name]))
+
+@set_macro_definition(globals(), _defvar, nil)
+def DEFVAR(name, value = nil, documentation = nil):
+        l, l_ = list_, list__
+        return l(_progn,
+                 l(_eval_when, l(_compile_toplevel, _load_toplevel, _execute),
+                   l(_funcall, l(_function, l(_quote, l("cl", "compiler_defvar"))), l(_quote, name), value)))
 
 def do_macroexpand_1(form, env = nil, compilerp = nil):
         """This handles:
