@@ -10471,11 +10471,14 @@ def run_tests_compiler():
         evaltest("EMPTY-PROGN",                   l(_progn),                                nil)
         evaltest("SIMPLE-PROGN",                  l(_progn, 1, 0),                          0)
         evaltest("SETQ-SIMPLE/REF",               l(_progn,
+                                                    l(_defvar, _car, nil),
                                                     l(_setq, _car, 42),
                                                     _car),                                  42)
         evaltest("SETQ-COMPLEX/REF/APPLY-SIMPLE", l(_progn,
+                                                    l(_defvar, _car, nil),
+                                                    l(_defvar, _cdr, nil),
                                                     l(_setq, _car, 42,
-                                                      _cdr, 3.14),
+                                                             _cdr, 3.14),
                                                     l(_list, _car, _cdr)),                  l(42, 3.14))
         evaltest("SETQ/REF-PYREF",                l(_progn,
                                                     l(_setq, l(_quote, l("foo")), "bar"),
@@ -10484,6 +10487,7 @@ def run_tests_compiler():
                                                   ## The above is broken by the new (correct) EVAL model,
                                                   ## and the issue is in Lisp/Pyworld impedance mismatch.
         evaltest("LET/SETQ/REF-LEXICAL",          l(_progn,
+                                                    l(_defvar, _car, nil),
                                                     l(_setq, _car, "bar"),
                                                     l(_let, l(_car,
                                                               l(_cdr, 42),
@@ -10506,6 +10510,7 @@ def run_tests_compiler():
                  0)
         evaltest("LET-NO-BODY",
                  l(_progn,
+                   l(_defvar, _cdr, nil),
                    l(_list,
                      l(_let, l(l(_car, l(_setq, _cdr, 42)))),
                      _cdr)),
