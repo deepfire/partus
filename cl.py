@@ -10057,10 +10057,8 @@ def map_top_level(fn, form, compile_time_too = nil, process = t, eval = nil):
         def rec(form, compile_time_too, process, eval):
                 # dprintf("REC: %s", pp_consly(form))
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-WACKY-LEXENV-HANDLING
-                if not consp(form):
-                        fn(form, compile_time_too, process, eval)
-                        return
-                actions.get(form[0], fn)(form, compile_time_too, process, eval)
+                (actions.get(form[0], fn) if consp(form) and atom(form[0]) else
+                 fn) (form, compile_time_too, process, eval)
         rec(form, compile_time_too, process, eval)
 
 def process_top_level(form) -> [ast.stmt]:
