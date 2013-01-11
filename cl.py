@@ -7396,6 +7396,8 @@ class lexenv_walker(metasex_mapper_t):
                 def further():
                         return m.default(exp, pat[1][0], name = name, orifst = orifst)
                 binder = symbol_value(_walker_binder_)
+                if not binder:
+                        error("While setting up a lexenv for %s: no binder available.", pp_consly(exp))
                 if not binder.positionally:
                         return further()
                 items = list(sorted(binder.positionally.values()))
