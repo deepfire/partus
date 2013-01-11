@@ -24,7 +24,7 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun not (x)
-    (primitive '("p" "not_") x)))
+    (primitive '("not_") x)))
 
 (defmacro when (test &body body)
   `(if ,test

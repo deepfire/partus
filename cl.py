@@ -9364,11 +9364,10 @@ class primitive(known):
         def rewrite(orig, prim, *args, **keys):
                 prim, pyrefp = ((prim, nil)                    if not pyref_p(prim)               else
                                 error("Unknown PRIMITIVE: %s",
-                                      pp_consly(prim))         if (prim[1][0][0] != "p"
-                                                                   or not hasattr(p, prim[1][0][1][0])
-                                                                   or not issubclass(getattr(p, prim[1][0][1][0]),
+                                      pp_consly(prim))         if (   not hasattr(p, prim[1][0][0])
+                                                                   or not issubclass(getattr(p, prim[1][0][0]),
                                                                                      p.prim))     else
-                                (getattr(p, prim[1][0][1][0]), t))
+                                (getattr(p, prim[1][0][0]), t))
                 return nil, (ir(_primitive, prim, *args, **keys) if keys   else
                              list_(_primitive, prim, *args)      if pyrefp else
                              orig)
@@ -9957,7 +9956,7 @@ def compilation_unit_prologue(funs, syms, gfuns, gvars):
         def import_prologue():
                 return p.help(p.import_(p.name("cl")))[0]
         def ir_literal_pylist(xs):
-                return l(_primitive, l(_quote, l("p", "pylist")), *xs)
+                return l(_primitive, p.pylist, *xs)
         def symbol_prologue():
                 def wrap(x):
                         return defaulted(x, consify_star(_ref, (_quote, ("None",))))
