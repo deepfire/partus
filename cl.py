@@ -10085,7 +10085,7 @@ def process_top_level(form) -> [ast.stmt]:
                 dprintf(";;;%s compiling:\n%s%s",
                         sex_space(-3, ";"), sex_space(), pp(form))
         ## Macro / compiler macro expansion, (the latter one unless disabled by a NOTINLINE declaration), SAME MODE
-        macroexpanded = compiler_macroexpand_all(form, lexenv = _null)
+        macroexpanded = compiler_macroexpand_all(form, lexenv = _null, desc = "PROCESS-TOP-LEVEL")
         ## Note, that at this point, the lexenv is discharged completely.
         ## ..is it?  Macroexpansion is done, so what could it be?
         ##
@@ -10192,7 +10192,7 @@ def read_function_as_toplevel_compile_and_load(body):
 def lisp(function):
         return read_function_as_toplevel_compile_and_load(function)
 
-def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = None, global_macro_p = None):
+def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = None, global_macro_p = None, macroexpand = t):
         if name is None:
                 error("In COMPILE-IN-LEXENV: NAME must be provided.")
         if lexenv and globalp:
@@ -10206,7 +10206,8 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
                                             ir_cl_call("set_function_definition",
                                                         ir_apply("globals"), name, lambda_expression))}
                       if globalp else {}))
-        bytecode = process_as_loadable(process_to_ast, form, lexenv = lexenv, id = "COMPILED-LAMBDA-")
+        bytecode = process_as_loadable(process_to_ast, form, lexenv = lexenv, macroexpand = macroexpand,
+                                       id = "COMPILED-LAMBDA-")
         function, bad_gls, good_gls = load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
         ## Doesn't this make %READ-FUNCTION-AS-TOPLEVEL-COMPILE-AND-LOAD somewhat of an excess?
@@ -10256,7 +10257,7 @@ FUNCTION."""
                                               ("closure_p",         t),
                                               ("name",              nil)]))
 
-def compile(name, definition = None):
+def compile(name, definition = None, macroexpand = t):
         """compile name &optional definition => FUNCTION, WARNINGS-P, FAILURE-P
 
 Arguments and Values:
@@ -10329,10 +10330,16 @@ and true otherwise."""
                                  lexenv         = the_null_lexenv(),
                                  name           = final_name,
                                  globalp        = not not name,
-                                 global_macro_p = name and not not macro_function(name))
+                                 global_macro_p = name and not not macro_function(name),
+                                 macroexpand    = macroexpand)
 
 def eval(form):
-        macroexpanded = compiler_macroexpand_all(form, lexenv = _null)
+        if symbol_value(_compiler_trace_forms_):
+                dprintf(";;;%s evaluating:\n%s%s",
+                              sex_space(-3, ";"), sex_space(), pp(form))
+        ## We need to fully (?) macroexpand, before we can walk the top level form.
+        # with traced_matcher(emt = t, immediate = t):
+        macroexpanded = compiler_macroexpand_all(form, lexenv = _null, desc = "EVAL")
         result = nil
         def evaluator_processor(form, compile_time_too, process, eval, toplevel = None):
                 nonlocal result
@@ -10341,7 +10348,7 @@ def eval(form):
                 ## ..but re-walking it.. who would care?  CLtL2 environments?
                 ## Additional note: this is %PROCESS, split in half, due to cases.
                 if eval:
-                        result = compile(nil, list_(_lambda, nil, form))()
+                        result = compile(nil, list_(_lambda, nil, form), macroexpand = nil)()
         map_top_level(evaluator_processor, macroexpanded,
                       compile_time_too = nil,
                       process          = nil,
