@@ -8842,13 +8842,13 @@ def macroexpander_xform(form, further):
 def macroexpand_all(sex, lexenv = nil):
         return walk_with_lexenv(macroexpander_xform, sex, lexenv)
 
-def compiler_macroexpand_all(form, lexenv = nil):
+def compiler_macroexpand_all(form, lexenv = nil, desc = "COMPILER-MACROEXPAND-ALL"):
         with progv({ _macroexpander_compilerp_: t }):
                 expanded = macroexpand_all(form, lexenv = lexenv)
         if symbol_value(_compiler_trace_macroexpanded_):
                 if form != expanded:
                         # dprintf("  MX  %s   --->\n%s", pp_consly(form), pp_consly(macroexpanded))
-                        report(macroexpanded = expanded, desc = "PROCESS-TOP-LEVEL", lexenv = _null)
+                        report(macroexpanded = expanded, desc = desc, lexenv = _null)
                 else:
                         dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
         return expanded
