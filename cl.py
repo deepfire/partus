@@ -85,8 +85,8 @@ def fprintf(stream, format_control, *format_args):
         except UnicodeEncodeError:
                 neutrality.do_write_string((format_control % format_args).encode("utf-8"), stream)
 
-def dprintf(format_control, *format_args):
-        fprintf(sys.stderr, format_control + "\n", *format_args)
+def dprintf(format_control, *format_args, trailing_newline = True):
+        fprintf(sys.stderr, format_control + ("\n" if trailing_newline else ""), *format_args)
 
 # Meta-boot
 
