@@ -8095,9 +8095,10 @@ def rewrite_1(preform) -> "(Bool ({} Form Bool))":
         validate_function_keys(form[0], rewrite_method, keys)
         argspec = inspect.getfullargspec(rewrite_method)
         args = vectorise_linear(form[1])
-        if not argspec.varargs and len(args) != len(argspec.args) - 1:
-                error("Invalid form: %s -- %d arguments provided, but %s.REWRITE expects only %d.",
-                      pp_consly(form), len(args), known.__name__.upper(), known.rewrite.__code__.co_argcount - 2)
+        fixed_args_nr = len(argspec.args) - (len(argspec.defaults) if argspec.defaults else 0)
+        if not argspec.varargs and len(args) != fixed_args_nr - 1:
+                error("Invalid form: %s -- %d arguments provided, but %s.REWRITE expects exactly %d.",
+                      pp_consly(form), len(args), known.__name__.upper(), fixed_args_nr)
         ## 5. Invoke the rewrite method.
         ret = _, r = rewrite_method(form, *args, **keys)
         if (symbol_value(_compiler_trace_subrewriting_)
