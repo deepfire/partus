@@ -10852,19 +10852,14 @@ def lower(form, lexenv = nil):
                 report(ast = ast, form_id = id(form), desc = "%LOWER")
         return ast
 
-def process_to_ast(form, lexenv = nil):
+def process_to_ast(form, lexenv = nil, macroexpand = t):
         "Same as %LOWER, but also macroexpand.  Requires %WITH-SYMBOL-UNIT-MAGIC context all the same."
         check_type(lexenv, (or_t, null_t, lexenv_t))
         if symbol_value(_compiler_trace_forms_):
                 dprintf(";;;%s compiling:\n%s%s",
                               sex_space(-3, ";"), sex_space(), pp(form))
-        macroexpanded = compiler_macroexpand_all(form, lexenv = lexenv)
-        if symbol_value(_compiler_trace_macroexpanded_):
-                if form != macroexpanded:
-                        report(macroexpanded = macroexpanded, desc = "PROCESS-AST", lexenv = lexenv)
-                else:
-                        dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
-        return lower(macroexpanded, lexenv = lexenv)
+        return lower(compiler_macroexpand_all(form, lexenv = lexenv, desc = "PROCESS-TO-AST") if macroexpand else form,
+                     lexenv = lexenv)
 
 #+END_SRC
 
