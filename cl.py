@@ -6967,11 +6967,16 @@ def parse_eval_when_situations(situ_form):
                  for new, legacy in zip(eval_when_ordered_keywords,
                                         eval_when_ordered_legacy_keywords) ]
 
-def analyse_eval_when_situations(compile_time_too, ct, lt, e):
+def further_eval_when_eval(_, __, eval, ct, lt, e):
+        return nil, nil, eval and e
+
+def further_eval_when_file_compiler(compile_time_too, _, __, ct, lt, e):
         "Implement the EVAL-WHEN chart of section #5 of CLHS 3.2.3.1."
         process = lt
         eval = ct or (compile_time_too and e)
         new_compile_time_too = lt and eval
+        # dprintf("\nA-E-W-S:  CTT CT:LT:E   %s  %s %s %s   ->   NCTT %s, PROC %s, EVAL %s",
+        #         compile_time_too, ct, lt, e, new_compile_time_too, process, eval)
         return new_compile_time_too, process, eval
 
 def process_decls(decls, vars, fvars):
@@ -10027,7 +10032,7 @@ def load_module_bytecode(bytecode, func_name = nil, filename = ""):
 
 # High-level drivers: %PROCESS-TOP-LEVEL, COMPILE-FILE, @LISP, COMPILE, EVAL
 
-def map_top_level(fn, form, compile_time_too = nil, process = t, eval = nil):
+def map_top_level(fn, form, eval_when_computer, compile_time_too = nil, process = t, eval = nil):
         def make_skipping_iterating_processor(skip_subforms, doc_and_decls):
                 ## Unregistered Issue TOPLEVEL-PROCESSOR-IGNORES-DECLARATIONS
                 def skipping_iterating_processor(subforms, compile_time_too, process, eval):
@@ -10040,8 +10045,8 @@ def map_top_level(fn, form, compile_time_too = nil, process = t, eval = nil):
         def process_eval_when(body, compile_time_too, process, eval):
                 situations = body[1][0]
                 parsed_situations = parse_eval_when_situations(situations)
-                new_ctt, new_process, new_eval = analyse_eval_when_situations(compile_time_too, *parsed_situations)
-                # dprintf("PROCESS-EVAL-WHEN: %s %s %s / %s:%s -> %s %s %s\n%s",
+                new_ctt, new_process, new_eval = eval_when_computer(compile_time_too, process, eval, *parsed_situations)
+                # dprintf("\nPROCESS-EVAL-WHEN: %s %s %s / %s:%s -> %s %s %s\n%s",
                 #         compile_time_too, process, eval, situations, parsed_situations,
                 #         new_ctt, new_process, new_eval,
                 #         pp_sex(body))
@@ -10115,7 +10120,7 @@ def process_top_level(form) -> [ast.stmt]:
                         broken_globals.update(good_globals)
                         # dprintf("; D-P: globals: %x, content: %s",
                         #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
-        map_top_level(file_compiler_processor, macroexpanded,
+        map_top_level(file_compiler_processor, macroexpanded, further_eval_when_file_compiler,
                       compile_time_too = nil,
                       process          = t,
                       eval             = nil)
@@ -10347,7 +10352,7 @@ def eval(form):
                 ## Additional note: this is %PROCESS, split in half, due to cases.
                 if eval:
                         result = compile(nil, list_(_lambda, nil, form), macroexpand = nil)()
-        map_top_level(evaluator_processor, macroexpanded,
+        map_top_level(evaluator_processor, macroexpanded, further_eval_when_eval,
                       compile_time_too = nil,
                       process          = nil,
                       eval             = t)
@@ -10752,16 +10757,14 @@ def run_tests_compiler():
                    x),
                  0)
         ## EVAL-WHEN
-        evaltest("EVAL-WHEN-COMPILE-LOAD-IGNORED",
+        evaltest("EVAL-EVAL-WHEN-COMPILE-LOAD-IGNORED",
                  l(_eval_when, l(_compile_toplevel, _load_toplevel),
                    42),
-                 nil,
-                 known_failure = t)
-        evaltest("EVAL-WHEN-EXECUTE-EXECUTED",
+                 nil)
+        evaltest("EVAL-EVAL-WHEN-EXECUTE-EXECUTED",
                  l(_eval_when, l(_execute),
                    42),
-                 42,
-                 known_failure = t)
+                 42)
 
 if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_COMPILER") == "t":
         with matcher_pp_stack():
