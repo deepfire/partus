@@ -2170,20 +2170,21 @@ def runtest(fn_spec, input, expected, printer = str, tabstop = 55,
         def handler(cond):
                 nonlocal caught
                 caught = t
-                dprintf(pref + "s:  EXCEPTION%s\n;  caught%s:\n%s",
-                        name, "  (known)" if known_failure else "", " (this is normal)" if known_failure else "",
+                dprintf("EXCEPTION%s\n;  caught%s:\n%s",
+                        "  (known)" if known_failure else "", " (this is normal)" if known_failure else "",
                         cond)
+        dprintf(pref + "s:  ", name, trailing_newline = nil)
         result = fn(input) if not catch_errors else handler_case(lambda: fn(input),
                                                                  (Exception, handler))
         if caught:
                 return known_failure
         if result != expected:
-                dprintf(pref + "s:  FAILED%s\n;  input:\n%s\n;  expected:\n%s\n;  actual:\n%s",
-                        name, "  (known)" if known_failure else "", printer(input), printer(expected), printer(result))
+                dprintf("FAILED%s\n;  input:\n%s\n;  expected:\n%s\n;  actual:\n%s",
+                        "  (known)" if known_failure else "", printer(input), printer(expected), printer(result))
         results_.append((fn, result))
         successp = result == expected
         if successp:
-                dprintf(pref + "s:  ok%s", name, "  (unexpected!)" if known_failure else "")
+                dprintf("ok%s", "  (unexpected!)" if known_failure else "")
         return (successp if not known_failure else
                 t)
 
