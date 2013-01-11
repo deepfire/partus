@@ -281,7 +281,7 @@ def boot_symbolicate_global_dynamic_scope():
         assert not __tls__.dynamic_scope
         upgrade_scope(__global_scope__)
 
-def do_set(name, value, force_toplevel):
+def do_set(name, value, force_toplevel = True):
         dynamic_frame_for_set(name, force_toplevel = force_toplevel)[name] = value
         return value
 
@@ -293,7 +293,7 @@ def string_set(symbol_name, value, force_toplevel = None, symbolicp = True, glob
         isinstance(symbol_name, str) or \
                  error("The first argument to %%STRING-SET must be a string, was: %s.", symbol_name.__repr__())
         name = intern(symbol_name)[0] if symbolicp else symbol_name
-        do_set(name, value, force_toplevel)
+        do_set(name, value, force_toplevel = force_toplevel)
         symbolicp and pyimport_symbol(name, globals = globals)
         return value
 
