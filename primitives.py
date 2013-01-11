@@ -637,10 +637,10 @@ class nonlocal_(stmt):
                                       ) ], help_nil()
 
 @defprim(intern("IMPORT")[0],
-         ([name],))
+         ([string_t],))
 class import_(stmt):
         def help(*xs):
-                return [ ast.Import([ ast.alias(x.value(), None) for x in xs ]
+                return [ ast.Import([ ast.alias(x, None) for x in xs ]
                                     ) ], help_nil()
 
 ###

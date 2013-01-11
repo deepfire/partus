@@ -10888,7 +10888,7 @@ def compilation_unit_prologue(funs, syms, gfuns, gvars):
         """Emit a prologue for a standalone unit referring to SYMBOLS."""
         l = list_
         def import_prologue():
-                return p.help(p.import_(p.name("cl")))[0]
+                return p.help(p.import_("cl"))[0]
         def ir_literal_pylist(xs):
                 return l(_primitive, p.pylist, *xs)
         def symbol_prologue():
