@@ -8498,6 +8498,8 @@ def destructure_possible_ir_args(x):
 def ir(*ir, **keys):
         "A syntactic sugar for convenient IR-ARGS specification."
         known = find_known(the(symbol_t, ir[0]))
+        if not known:
+                error("Unknown form being passed IR arguments: %s", pp_consly(consify_linear(ir)))
         validate_function_keys("IR %s primitivise method" % known.name, known.primitivise, keys)
         return (list__(_ir_args, consify_linear(ir), consify_linear([ [k, v] for k, v in keys.items() ])) if keys else
                 consify_linear(ir))
