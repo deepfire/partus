@@ -7484,7 +7484,7 @@ def map_sex(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
                 return ret
 
 def xform_ir(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
-              sex, matcher = metasex_mapper, start_inside = nil) -> "Form":
+             sex, matcher = metasex_mapper, start_inside = nil) -> "Form":
         with matcher_pp_stack():
                 _, r, f = map_sex(fn, sex, matcher, start_inside)
         if f is not None:
@@ -8141,28 +8141,15 @@ class lexenv_walker(metasex_mapper_t):
                 m.register_simplex_matcher(_binder,        m.establish_binder)
                 m.register_simplex_matcher(_bind,          m.add_binding)
                 m.register_simplex_matcher(_bound,         m.setup_lexenv)
-                m.register_simplex_matcher(_form,          m.form)
-        def form(m, bound, name, form, pat, orifst):
-                def lexenv_walker_continuation(form):
-                        return metasex_mapper_t.form(m, bound, name, form, pat, orifst)
-                handled, ret = m.process_formpat_arguments(lexenv_walker, form, pat)
-                if handled:
-                        return m.succ(bound, ret)
-                ## Hmm.. BINDER patterns..
-                peek_pat = form_metasex(form_real(form), kind = symbol_value(_metasex_kind_))
-                if consp(peek_pat) and peek_pat[0] is _binder:
-                        return peek_pat[1][0].known.binder(form, lexenv_walker_continuation)
-                else:
-                        return lexenv_walker_continuation(form)
         def establish_binder(m, bound, name, exp, pat, orifst):
-                # def continuation(exp):
-                #         return m.match(bound, name, exp, pat[1], orifst, aux, limit)
-                # return pat[0][1][0].known.binder(exp, continuation)
+                ## Skip over -- it's handled by WALK-WITH-LEXENV itself.
                 return m.match(bound, name, exp, pat[1][1][0], orifst, None, -1)
         def add_binding(m, bound, name, exp, pat, orifst):
                 ## For the sake of proper pre-lexenv maintenance for the value subform of this binding form,
                 ## bust all the bindings accumulated from previous unsuccessful matches:
                 binder = the(lexenv_walker.binder, symbol_value(_walker_binder_))
+                if not binder:
+                        error("While adding a binding from %s: no binder available.", pp_consly(exp))
                 position = kinda_position()
                 if isinstance(binder.args, int):
                         binder.args = position + 1
@@ -8207,11 +8194,29 @@ class lexenv_walker(metasex_mapper_t):
 lexenv_walker = lexenv_walker()
 
 def walk_with_lexenv(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
-                      sex, lexenv = nil, allocate_tns = nil, matcher = lexenv_walker) -> "Form":
-        with progv({ _walker_lexenv_: coerce_to_lexenv(lexenv),
-                     _walker_allocate_tns_: allocate_tns,
-                     _metasex_kind_:  "metasex_bind" }):
-                return xform_ir(fn, sex, matcher = matcher)
+                     sex, lexenv = nil, allocate_tns = nil, matcher = lexenv_walker, bind_after_fn = t) -> "Form":
+        with progv({ _walker_lexenv_:         coerce_to_lexenv(lexenv),
+                     _walker_allocate_tns_:   allocate_tns,
+                     _metasex_kind_:         "metasex_bind" }):
+                def fn_then_binder(form, further: "Form -> ({} Form Bool)") -> "({} Form Bool)":
+                        def continuation(form) -> "({} Form Bool)":
+                                peek_pat = form_metasex(form_real(form), kind = "metasex_bind")
+                                if consp(peek_pat) and peek_pat[0] is _binder:
+                                        return peek_pat[1][0].known.binder(form, further)
+                                else:
+                                        return further(form)
+                        return fn(form, continuation)
+                def binder_then_fn(form, further: "Form -> ({} Form Bool)") -> "({} Form Bool)":
+                        def continuation(form) -> "({} Form Bool)":
+                                return fn(form, further)
+                        peek_pat = form_metasex(form_real(form), kind = "metasex_bind")
+                        if consp(peek_pat) and peek_pat[0] is _binder:
+                                return peek_pat[1][0].known.binder(form, continuation)
+                        else:
+                                return continuation(form)
+                return xform_ir((    fn_then_binder if bind_after_fn else
+                                 binder_then_fn),
+                                sex, matcher = matcher)
 
 def walker_lexenv():
         return symbol_value(_walker_lexenv_)
@@ -8821,7 +8826,7 @@ def do_macroexpand_1(form, env = nil, compilerp = nil):
         ret = mxed, xformp = ((form, nil) if not expander else
                               (expander(*vectorise_linear(args)), t))
         if (xformp and symbol_value(_compiler_trace_subexpansion_)):
-                dprintf(";;; %s - macroexpanded ............%s   -->\n%s\n",
+                dprintf(";;; %s - macroexpanded ............\n%s   -->\n%s\n",
                         "DO-MACROEXPAND-1", pp_consly(form), pp(mxed))
         return ret
 
@@ -8857,7 +8862,7 @@ def macroexpander_xform(form, further):
         return ret
 
 def macroexpand_all(sex, lexenv = nil):
-        return walk_with_lexenv(macroexpander_xform, sex, lexenv)
+        return walk_with_lexenv(macroexpander_xform, sex, lexenv, bind_after_fn = t)
 
 def compiler_macroexpand_all(form, lexenv = nil, desc = "COMPILER-MACROEXPAND-ALL"):
         with progv({ _macroexpander_compilerp_: t }):
@@ -8970,7 +8975,7 @@ def rewriter_xform(form, further: "Form -> ({} Form Bool)") -> "({} Form Bool)":
         return further(rewrite(form))
 
 def rewrite_all(sex, lexenv = nil):
-        return walk_with_lexenv(rewriter_xform, sex, lexenv = lexenv, matcher = rewriter)
+        return walk_with_lexenv(rewriter_xform, sex, lexenv = lexenv, matcher = rewriter, bind_after_fn = nil)
 
 def ir_lambda_p(x):
         return consp(x) and x[0] is _lambda
