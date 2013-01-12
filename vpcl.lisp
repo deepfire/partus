@@ -93,6 +93,7 @@
      (funcall #''("cl" "compiler_defconstant") ',name ,value)
      nil))
 
+#+nil
 (defmacro defvar (name &optional value documentation)
   `(progn
      (eval-when (:compile-toplevel)
