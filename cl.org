@@ -9115,6 +9115,21 @@ def dbgsetup(**keys):
         compiler_dbgconf(pretty_full = t,
                          **keys)
 
+def full_debug():
+        dbgsetup(forms = t,
+                 
+                 subexpansion = t,
+                 macroexpanded = t,
+                 
+                 subrewriting = t,
+                 rewritten = t,
+                 
+                 subprimitivisation = t,
+                 primitives = t,
+                 
+                 subastification = t,
+                 module_ast = t)
+
 intern_and_bind("CAR", "CDR", "LET", "&BODY")
 def run_tests_metasex():
         printer = matcher_result_printer

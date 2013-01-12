@@ -19,6 +19,9 @@
                              'nil)))
        'nil)))
 
+;; (eval-when (:compile-toplevel)
+;;   (funcall #''("cl" "full_debug")))
+
 (defun all-hail-vpcl ()
   (format t "; Greetings, this is VPCL here..  You seem bothered?")
   (terpri))
