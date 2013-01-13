@@ -4142,12 +4142,7 @@ def setf_getf(value, xs, key):
 
 # Function ADJUSTABLE-ARRAY-P
 
-@defun
-def aref(x, *indices):
-        ## Let's not forget the first two non-elements within arrays.
-        return (x[indices[0] + 2] if len(indices) is 1 else
-                x                if not indices       else
-                aref(x[indices[0]], *indices[1:]))
+# Function AREF
 
 # Function ARRAY-DIMENSION
 
@@ -8517,7 +8512,7 @@ intern_and_bind("IR-ARGS", "FUNCALL", ("_let_", "LET*"),
                 "PROGV", "PROTOLOOP", "THE",
                 "LOCALLY", "MULTIPLE-VALUE-PROG1", "LOAD-TIME-VALUE")
 
-intern_and_bind("AREF", "VECTOR", "INLINE", ## For LABELS
+intern_and_bind("INLINE", ## For LABELS
                 )
 
 @defknown((_ir_args, "\n", (_form, (_for_matcher_layers_skip_action, (rewriter, metasex_mapper))),
