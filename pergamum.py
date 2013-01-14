@@ -1,13 +1,12 @@
 ###
 ### Some utilities, in the spirit of Common Lisp.
 ###
-from cl           import typep, functionp, zerop, plusp, stringp, mapcar, mapc, identity, remove_if, null, every, some, t
-from cl           import evenp
+from cl           import typep, functionp, stringp, mapcar, mapc, identity, remove_if, null, every, some, t
 from functools    import reduce, partial
 from cl           import of_type, setp, frozensetp
 from cl           import if_let, when_let, lret
 from cl           import prefix_suffix_if, prefix_suffix_if_not
-from cl           import map_into_hash, remap_hash_table
+from cl           import map_into_hash
 from cl           import not_implemented_error, not_implemented
 from cl           import curry, compose
 from cl           import mapset, mapsetn
