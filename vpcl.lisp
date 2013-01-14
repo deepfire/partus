@@ -1,7 +1,53 @@
 (defmacro lambda (lambda-list &body body)
   `(function (lambda ,lambda-list ,@body)))
 
+(defmacro when (test &body body)
+  `(if ,test
+       (progn ,@body)
+       nil))
+
+(defmacro unless (test &body body)
+  `(if ,test
+       nil
+       (progn ,@body)))
+
+(defmacro or (&rest forms)
+  (if (cdr forms) ;; Handles the case of empty FORMS as well.
+      (let ((tn (gensym "OR-")))
+        `(let ((,tn ,(first forms)))
+           (if ,tn ,tn (or ,@(cdr forms)))))
+      (first forms)))
+
+(defmacro and (&rest forms)
+  (if forms
+      (if (cdr forms)
+          `(if ,(first forms)
+               (and ,@(cdr forms))
+               nil)
+          (first forms))
+      t))
+
+(defmacro cond (&rest clauses)
+  (when clauses
+    (let ((clause (first clauses))
+          (rest (rest clauses)))
+      (unless (and clause
+                   (eq (cddr clause) nil))
+        (error "Invalid COND form: %s" `(cond ,@clauses)))
+      (if (cdr clause)
+          `(if ,(first clause)
+               ,(second clause)
+               (cond ,@rest))
+          (let ((tn (gensym)))
+            `(let ((,tn ,(first clause)))
+               (if ,tn
+                   ,tn
+                   (cond ,@rest))))))))
+
 (defmacro defun (name lambda-list &body body)
+  (unless (or (symbolp name)
+              (and (consp name) (eq (car name) 'setf) (symbolp (car (cdr name)))))
+    (error "In DEFUN: invalid function name: %s -- symbolp %s." name (symbolp name)))
   `(progn
      (eval-when (:compile-toplevel)
        ;; -compile-and-load-function() expects the compiler-level part of function to be present.
@@ -9,7 +55,9 @@
      (eval-when (:load-toplevel :execute)
        (ir-args
         (lambda ,lambda-list
-          (block ,name
+          (block ,(if (symbolp name)
+                      name
+                      (car (cdr name)))
             ,@body))
         ("name" . ,name)
         ("globalp" . t)
@@ -28,98 +76,40 @@
 
 (all-hail-vpcl)
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (defun not (x)
-    (primitive '("not_") x)))
-
-(defmacro when (test &body body)
-  `(if ,test
-       (progn ,@body)
-       nil))
-
-(defmacro unless (test &body body)
-  `(if (not ,test)
-       (progn ,@body)
-       nil))
-
-(defmacro setf (target value)
-  (if (symbolp target)
-      `(setq target value)
-      (error "SETF: not implemented: non-symbol target.")))
-
-(defmacro push (x xs)
-  `(setf ,xs (cons ,x ,xs)))
-
-(defmacro pop (xs)
-  (let ((oldxs (gensym)))
-    `(let ((,oldxs ,xs))
-       (setf ,xs (cdr ,oldxs))
-       (car ,oldxs))))
-
-(defmacro or (&rest forms)
-  (if (not (cdr forms)) ;; Handles the case of empty FORMS as well.
-      (first forms)
-      (let ((tn (gensym "OR-")))
-        `(let ((,tn ,(first forms)))
-           (if ,tn ,tn (or ,@(cdr forms)))))))
-
-(defmacro and (&rest forms)
-  (if (not forms)
-      t
-      (if (not (cdr forms))
-          (first forms)
-          `(if (not ,(first forms))
-               nil
-               (and ,@(cdr forms))))))
-
-(defmacro cond (&rest clauses)
-  (when clauses
-    (let ((clause (first clauses))
-          (rest (rest clauses)))
-      (when (or (not clause)
-                (cddr clause))
-        (error "Invalid COND form: %s" `(cond ,@clauses)))
-      (if (cdr clause)
-          `(if ,(first clause)
-               ,(second clause)
-               (cond ,@rest))
-          (let ((tn (gensym)))
-            `(let ((,tn ,(first clause)))
-               (if ,tn
-                   ,tn
-                   (cond ,@rest))))))))
+;;;
+;;; The world begins.
+;;;
+(defun not-implemented (x)
+  (error "%s: not implemented." x))
 
 (defmacro defconstant (name &optional value documentation)
-  `(progn
-     (eval-when (:compile-toplevel)
-       (funcall #''("cl" "compiler_defconstant") ',name ,value))
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
      (funcall #''("cl" "compiler_defconstant") ',name ,value)
      nil))
 
 #+nil
 (defmacro defvar (name &optional value documentation)
-  `(progn
-     (eval-when (:compile-toplevel)
-       (funcall #''("cl" "compiler_defvar") ',name ,value))
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
      (funcall #''("cl" "compiler_defvar") ',name ,value)
      nil))
 
 (defmacro defparameter (name &optional value documentation)
-  `(progn
-     (eval-when (:compile-toplevel)
-       (funcall #''("cl" "compiler_defparameter") ',name ,value))
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
      (funcall #''("cl" "compiler_defparameter") ',name ,value)
      nil))
+
+;;
+(defun not (x)
+  (if (primitive '("in_") x (primitive '("pytuple") nil (ref '("None"))))
+      t
+      nil))
 
 ;;;
 ;;; Mockery
 ;;;
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun emit-entity-ignorator (kind name)
-    `(progn 
-       (eval-when (:compile-toplevel)
-         (format t "; ignoring definition for %s %s" ,kind ',name)
-         (terpri))
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
        (format t "; ignoring definition for %s %s" ,kind ',name)
        (terpri))))
 
