@@ -880,6 +880,13 @@ class progv(body):
                                   help(assign(tn, body))[0])
                          ], help_expr(tn)
 
+@defprim(intern("DEL")[0],
+         ([expr],))
+class delete(stmt):
+        def help(*exprs):
+                return [ ast.Delete([ help_expr(x) for x in exprs ])
+                         ], help_nil()
+
 ###
 ### Control
 ###
