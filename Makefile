@@ -22,8 +22,14 @@ all: run
 vpcl.vpfas: cl.py vpcl.lisp
 	$(PYTHON) -c "from cl import *; dbgsetup(forms = $(DUMP_FORM), macroexpanded = $(DUMP_MX), rewritten = $(DUMP_RE), primitives = $(DUMP_PRIM), module_ast = $(DUMP_AST)); compile_file('vpcl.lisp')"
 
-repl: vpcl.vpfas
+tiny-repl:
+	$(PYTHON) -ic "from cl import *; repl()"
+
+small-repl: vpcl.vpfas
 	$(PYTHON) -ic "from cl import *; load('vpcl.vpfas'); repl()"
+
+repl:
+	$(PYTHON) -i vpcl.py
 
 ansi-test:
 	reset
