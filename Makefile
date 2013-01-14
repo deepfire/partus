@@ -44,7 +44,7 @@ clean:
 	rm -rf __pycache__
 
 merge:
-	git diff HEAD^1 cl.py > d.diff
+	git diff cl.py > d.diff
 	patch --merge cl.org d.diff; rm -f d.diff cl.org.orig
 
 
