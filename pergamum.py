@@ -1,7 +1,7 @@
 ###
 ### Some utilities, in the spirit of Common Lisp.
 ###
-from cl           import typep, functionp, zerop, plusp, stringp, mapcar, mapc, identity, remove_if, null, every, some, aref, t
+from cl           import typep, functionp, zerop, plusp, stringp, mapcar, mapc, identity, remove_if, null, every, some, t
 from cl           import evenp
 from functools    import reduce, partial
 from cl           import of_type, setp, frozensetp
