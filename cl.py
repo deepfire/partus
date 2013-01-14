@@ -167,11 +167,11 @@ check_type = cold_check_type
 # As-of-yet -homeless type predicates..
 
 @boot_defun
-def stringp(x):        return isinstance(x, cold_string_type)
+def stringp(x):        return t if isinstance(x, cold_string_type) else nil
 @boot("symbol", lambda _, o: (isinstance(o, _cold_function_type) or
                               isinstance(o, symbol_t) and o.function))
 @boot_defun ## Unregistered Issue COMPLIANCE-EVALUATION-MODEL-FUNCTIONP
-def functionp(o):      return isinstance(o, cold_function_type)
+def functionp(o):      return t if isinstance(o, cold_function_type) else nil
 
 def symbol_type_specifier_p(x):
         return hasattr(x, "python_type")
@@ -307,7 +307,7 @@ def string_set(symbol_name, value, force_toplevel = None, symbolicp = True, glob
 @boot_defun
 def boundp(symbol):
         # Unregistered Issue COMPLIANCE-BOUNDP-ACCEPTS-STRINGS
-        return find_dynamic_frame(the(symbol_t, symbol)) and t
+        return t if find_dynamic_frame(the(symbol_t, symbol)) else nil
 
 # Boot conditions: WARN, ERROR
 
@@ -433,7 +433,7 @@ def make_package(name, **keys):
 
 @boot("symbol", lambda _, x: isinstance(x, package_t))
 @boot_defun
-def packagep(x): return isinstance(x, package_t)
+def packagep(x): return t if isinstance(x, package_t) else nil
 
 @boot_defun
 def package_name(x): return x.name
@@ -475,10 +475,10 @@ def make_symbol(name, **keys):
 
 @boot("symbol", lambda _, x: isinstance(x, symbol_t))
 @boot_defun
-def symbolp(x):  return isinstance(x, symbol_t)
+def symbolp(x): return t if isinstance(x, symbol_t) else nil
 
 @boot_defun
-def keywordp(x): return isinstance(x, symbol_t) and symbol_package(x) is __keyword
+def keywordp(x): return t if isinstance(x, symbol_t) and symbol_package(x) is __keyword else nil
 
 @boot_defun
 def symbol_name(x):            return x.name
@@ -1019,7 +1019,7 @@ negative boolean value is returned."""
 
 @boot_defun
 def typep(x, type):
-        return not type_mismatch(x, type)
+        return nil if type_mismatch(x, type) else t
 
 def deftype(type_name_or_fn, globals = None):
         def do_deftype(fn, type_name = type_name_or_fn):
@@ -1053,6 +1053,7 @@ def the(type, x):
 @boot_defun
 def check_type(x, type):
         the(type, x)
+        return nil
 
 def of_type(x):
         return lambda y: typep(y, x)
@@ -2202,11 +2203,7 @@ def eql(x, y):
         # True
         # >>> 257 is (256 + 1)
         # False
-        return (x is y) if not isinstance(x, int) else x == y
-
-@defun
-def equal(x, y):
-        return x == y
+        return t if ((x is y) if not isinstance(x, int) else x == y) else nil
 
 def seek(n, iterator):
         for i in range(n):
@@ -2799,9 +2796,9 @@ class base_char_t(): pass
 # Early-earlified streaming
 
 @defun
-def streamp(x):                     return isinstance(x, stream_t)
+def streamp(x):                    return t if isinstance(x, stream_t) else nil
 
-def file_stream_p(x):              return isinstance(x, (_io._TextIOBase, _io._BufferedIOBase))
+def file_stream_p(x):              return t if isinstance(x, (_io._TextIOBase, _io._BufferedIOBase)) else nil
 
 @defun
 def with_open_stream(stream, f):
@@ -3144,7 +3141,7 @@ class pathname_t():
                 return self.__str__()
 
 @defun
-def pathnamep(x): return isinstance(x, pathname_t)
+def pathnamep(x): return t if isinstance(x, pathname_t) else nil
 
 ## Unregistered Issue COMPLIANCE-HOST-TYPE-WRONG
 @defun
@@ -3833,11 +3830,10 @@ initial_element = make_keyword("INITIAL-ELEMENT")
 def cons(x, y):     return [x, y]
 
 @defun
-def consp(x):       return isinstance(x, list) and len(x) is 2
-def consp_fast(x): return isinstance(x, list)
+def consp(x):       return t if isinstance(x, list) and len(x) is 2 else nil
 
 @defun
-def atom(x):        return not isinstance(x, list) or len(x) != 2
+def atom(x):        return t if not isinstance(x, list) or len(x) != 2 else nil
 
 # RPLACA
 # RPLACD
@@ -3906,7 +3902,7 @@ def list__(*xs):
 # LIST-LENGTH
 
 @defun
-def listp(x):       return x is nil or isinstance(x, list) and len(x) is 2
+def listp(x):       return t if x is nil or isinstance(x, list) and len(x) is 2 else nil
 
 @defun("MAKE-LIST")
 def make_list(length, *rest):
@@ -7571,10 +7567,10 @@ Affected By:
 
 The state of the global environment (e.g., which symbols have been
 declared to be the names of constant variables)."""
-        return (isinstance(form, (int, float, complex, str))                       or
-                keywordp(form)                                                     or
-                (isinstance(form, symbol_t) and global_variable_constant_p(form)) or
-                (isinstance(form, list) and len(form) is 2 and form[0] is _quote))
+        return t if (isinstance(form, (int, float, complex, str))                       or
+                     keywordp(form)                                                     or
+                     (isinstance(form, symbol_t) and global_variable_constant_p(form))  or
+                     (isinstance(form, list) and len(form) is 2 and form[0] is _quote)) else nil
 
 # Action: populate global scope with pre-defined functions
 
@@ -7599,7 +7595,7 @@ def sub(*xs):
 
 @defun(_equals)
 def equals(x, y):
-        return x == y
+        return t if x == y else nil
 
 def post_factum_defun(symbol, function):
         set_function_definition(globals(), symbol,
