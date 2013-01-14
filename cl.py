@@ -209,7 +209,7 @@ def map_into_hash(f, xs,
 
 # Boot dynamic scope
 
-__global_scope__ = make_hash_table() ## To be replaced later, by VARDB.
+__global_scope__ = dict() ## To be replaced later, by VARDB.
 
 class thread_local_storage(threading.local):
         def __init__(self):
@@ -414,7 +414,7 @@ class package_t(collections.UserDict):
                 self.imported    = set()                         # sym
               # self.present     = own + imported
                 self.inherited   = collections.defaultdict(set) # sym -> set(pkg) ## mapsetn(slotting("external"), used_packages) -> source_package
-                self.accessible  = make_hash_table()             # str -> sym          ## accessible = present + inherited
+                self.accessible  = dict()                        # str -> sym          ## accessible = present + inherited
                 self.external    = set()                         # sym                 ## subset of accessible
               # self.internal    = accessible - external
 
@@ -707,7 +707,7 @@ def symbolicate(x, name, slot, globals):
 def init_package_system_0():
         global __packages__
         global t, T, make_symbol, make_package
-        __packages__ = make_hash_table()
+        __packages__ = dict()
         T = t              = intern("T", __cl)[0]     # Nothing much works without this.
         nil.__contains__   = lambda _: False
         nil.__getitem__    = lambda _, __: nil
@@ -1122,8 +1122,8 @@ def eql(x, type):
 
 @deftype
 def unsigned_byte(x, type):
-        return (((x, type, False) if not isinstance(x, int) or minusp(x) else nil)                        if len(type) is 1 else
-                ((x, type, False) if not isinstance(x, int) or minusp(x) or (x >= 1 << type[1]) else nil) if len(type) is 2 else
+        return (((x, type, False) if not isinstance(x, int) or x < 0 else nil)                        if len(type) is 1 else
+                ((x, type, False) if not isinstance(x, int) or x < 0 or (x >= 1 << type[1]) else nil) if len(type) is 2 else
                 (x, type, True))
 
 ## Non-standard
@@ -1326,19 +1326,6 @@ def values_frame_project(n, values_form):
 
 # Early object system
 
-@defun
-def find_class(x, errorp = t):
-        not_implemented()
-
-@defun
-def make_instance(class_or_name, **initargs):
-        return (class_or_name             if isinstance(class_or_name, cold_class_type) else
-                class_or_name.python_type if isinstance(class_or_name, symbol_t)         else
-                error("In MAKE-INSTANCE %s: first argument must be a class specifier.", class_or_name))(**initargs)
-
-def make_missing_method(cls, name):
-        return lambda *_, **_k: error("Missing method %s in class %%s." % name.upper(), cls)
-
 # PRINT-UNREADABLE-OBJECT, sort of
 
 def print_unreadable_object(object, stream, body, identity = None, type = None):
@@ -1357,7 +1344,7 @@ class readtable_t(collections.UserDict):
         def __init__(self, case = make_keyword("upcase")):
                 self.case = the((member_t, make_keyword("upcase"), make_keyword("downcase"), make_keyword("preserve"), make_keyword("invert")),
                                 case)
-                self.data = make_hash_table()
+                self.data = dict()
 
 def readtablep(x):     return isinstance(x, readtable_t)
 def readtable_case(x): return the(readtable_t, x).case
@@ -1365,11 +1352,11 @@ def readtable_case(x): return the(readtable_t, x).case
 def copy_readtable(x):
         check_type(x, readtable_t)
         new = readtable(case = readtable_case(x))
-        new.dict = make_hash_table()
+        new.dict = dict()
         return new
 
-__standard_pprint_dispatch__ = make_hash_table()          # XXX: this is crap!
-__standard_readtable__       = make_instance(readtable_t) # XXX: this is crap!
+__standard_pprint_dispatch__ = dict()        # XXX: this is crap!
+__standard_readtable__       = readtable_t() # XXX: this is crap!
 
 intern_and_bind("*PRINT-ARRAY*", "*PRINT-BASE*", "*PRINT-CASE*", "*PRINT-CIRCLE*",
                  "*PRINT-ESCAPE*", "*PRINT-GENSYM*", "*PRINT-LENGTH*", "*PRINT-LEVEL*",
@@ -1546,19 +1533,10 @@ def string_downcase(x):   return x.lower()
 @defun
 def string_capitalize(x): return x.capitalize()
 
-@defun
-def char_upcase(x):       return x.upper()
-@defun
-def char_downcase(x):     return x.lower()
-@defun
-def upper_case_p(x):      return x.isupper()
-@defun
-def lower_case_p(x):      return x.islower()
-
 case_attribute_map = dict(UPCASE     = string_upcase,
-                               DOWNCASE   = string_downcase,
-                               CAPITALIZE = string_capitalize,
-                               PRESERVE   = identity)
+                          DOWNCASE   = string_downcase,
+                          CAPITALIZE = string_capitalize,
+                          PRESERVE   = identity)
 def case_xform(type_, s):
         if not (isinstance(type_, symbol_t) and type_.package.name == "KEYWORD"):
                 error("In CASE-XFORM: case specifier must be a keyword, was a %s: %s.", type(type_), print_symbol(type_))
@@ -2143,13 +2121,12 @@ class withless():
 class servile():
         def __repr__(self):
                 return "#%s(%s)" % (type(self).__name__,
-                                    ", ".join(maphash(lambda k, v: "%s = %s" % (k, v),
-                                                       self.__dict__)))
+                                    ", ".join([ "%s = %s" % (k, v) for k, v in self.__dict__.items() ]))
         def __init__(self, **keys):
                 self.__dict__.update(keys)
 
 def gen(n = 1, x = "G", gen = gensym):
-        if zerop(n):
+        if n == 0:
                 error("_GEN: we are very very much against this, please stop!")
         return tuple(gen(x)
                for i in range(n))
@@ -2239,32 +2216,6 @@ def some_fast_2(f, xs, ys):
 def xorf(x, y):
         return (x or y) and not (x and y)
 
-def nxorf(x, y):
-        return (x and y) or not (x or y)
-
-# Predicates
-
-@defun
-def evenp(x):         return not (x % 2)
-@defun
-def oddp(x):          return not not (x % 2)
-@defun
-def zerop(x):         return x == 0
-@defun
-def plusp(x):         return x > 0
-@defun
-def minusp(x):        return x < 0
-
-# Functions
-
-@defun
-def complement(f):
-        return lambda x: not f(x)
-
-@defun
-def constantly (x):
-        return lambda *args: x
-
 # Sequences
 
 @defun
@@ -2287,41 +2238,6 @@ adjacent elements of XS."""
                 acc.append(xs[-1])
         return acc
 
-# String functions
-
-@defun
-def string_equal(xs, ys):            return xs == ys
-@defun
-def string_greater(xs, ys):          return xs > ys
-@defun
-def string_greater_or_equal(xs, ys): return xs >= ys
-@defun
-def string_less(xs, ys):             return xs < ys
-@defun
-def string_less_or_equal(xs, ys):    return xs <= ys
-
-@defun
-def string_right_trim(cs, s):
-        return s.rstrip("".join(cs))
-
-@defun
-def string_left_trim(cs, s):
-        return s.lstrip("".join(cs))
-
-@defun
-def string_trim(cs, s):
-        return s.strip("".join(cs))
-
-# Sets
-
-@defun
-def union(x, y):
-        return x | y
-
-@defun
-def intersection(x, y):
-        return x & y
-
 # Dicts
 
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
@@ -2338,16 +2254,10 @@ def dict_select_keys(dict_, *keys):
                         acc[k] = dict_[k]
         return acc
 
-def maphash(f, dict) -> list:
-        return [ f(k, v) for k, v in dict.items() ]
-
-def remap_hash_table(f, xs: dict) -> dict:
-        return { k: f(k, v) for k, v in xs.items() }
-
 def map_into_hash_star(f, xs,
                         key_test = lambda k: k is not None,
                         value_test = lambda _: t) -> dict:
-        acc = make_hash_table()
+        acc = dict()
         for x in xs:
                 k, v = f(*x)
                 if key_test(k) and value_test(v):
@@ -2448,27 +2358,6 @@ Returns true if NAME is fbound; otherwise, returns false."""
         return t if (the(symbol_t, name).function or
                      name.macro_function) else nil
 
-@defun
-def fmakunbound(name):
-        """fmakunbound name => name
-
-Pronunciation:
-
-[,ef'makuhn,band] or [,ef'maykuhn,band]
-
-Arguments and Values:
-
-NAME---a function name.
-
-Description:
-
-Removes the function or macro definition, if any, of NAME in the
-global environment."""
-        (the(symbol_t, name).function,
-         name.macro_function,
-         name.compiler_macro_function) = nil, nil, nil
-        return name
-
 ## @defun def function was moved lower, due to dependency on @defun and CL:T
 
 @defun
@@ -2565,14 +2454,6 @@ def compiler_macro_function(symbol, environment = nil, check_shadow = t):
                      the(symbol_t, symbol).compiler_macro_function) if not shadow else
                 nil)
 
-@defun
-def setf_compiler_macro_function(new_function, symbol, environment = nil):
-        "<See documentation for COMPILER-MACRO-FUNCTION>"
-        ## Ensure compliance.
-        check_type(environment, null_t)
-        symbol.compiler_macro_function = the(function_t, new_function)
-        return new_function
-
 def symbol_macro_expander(sym, environment = None):
         ## -> (-> expansion) | None
         lexical = environment and the(lexenv_t, environment).lookup_var_kind(_symbol_macro, sym)
@@ -2589,44 +2470,6 @@ def warn_incompatible_redefinition(symbol, tons, fromns):
 def warn_possible_redefinition(x, type):
         if x:
                 style_warn("In %s: %s is being redefined.", type, x)
-
-@defun
-def setf_macro_function(new_function, symbol, environment = nil):
-        "<See documentation for MACRO-FUNCTION>"
-        ## Ensure compliance.
-        check_type(environment, null_t)
-        if symbol.function:
-                warn_incompatible_redefinition(symbol, "macro", "function")
-                symbol.function = nil
-        warn_possible_redefinition(symbol.macro_function, _defmacro)
-        symbol.macro_function = the(function_t, new_function)
-        return new_function
-
-@defun
-def setf_fdefinition(new_definition, function_name):
-        """fdefinition function-name => definition
-
-(setf (fdefinition function-name) new-definition)
-
-Arguments and Values:
-
-FUNCTION-NAME---a function name. In the non-SETF case, the name must be fbound in the global environment.
-
-DEFINITION---Current global function definition named by FUNCTION-NAME.
-
-NEW-DEFINITION---a function.
-
-Description:
-
-FDEFINITION accesses the current global function definition named by
-FUNCTION-NAME.  The definition may be a function or may be an object
-representing a special form or macro.  The value returned by
-FDEFINITION when FBOUNDP returns true but the FUNCTION-NAME denotes a
-macro or special form is not well-defined, but FDEFINITION does not
-signal an error."""
-        the(symbol_t, function_name).function = new_definition
-        compiler_defun(function_name, nil, check_redefinition = nil)
-        return new_definition
 
 @defun
 def special_operator_p(symbol):
@@ -3018,9 +2861,6 @@ For details on how the CONTROL-STRING is interpreted, see Section 22.3
 # Earlified streaming
 
 @defun
-def stream_external_format(stream): return make_keyword(stream.encoding)
-
-@defun
 def make_string_output_stream():
         return io.StringIO()
 
@@ -3034,20 +2874,8 @@ def with_output_to_string(f):
                 close(x)
 
 @defun
-def with_input_from_string(s, f):
-        x = make_string_input_stream(s)
-        try:
-                return f(x)
-        finally:
-                close(x)
-
-@defun
 def get_output_stream_string(x):
         return x.getvalue()
-
-@defun
-def make_string_input_stream(x):
-        return io.StringIO(x)
 
 @defun
 def close(x):
@@ -3056,10 +2884,6 @@ def close(x):
 @defun
 def file_position(x):
         return x.seek(0, 1)
-
-@defun
-def setf_file_position(posn, x):
-        return x.seek(posn)
 
 def stream_as_string(stream):
         return stream.read()
@@ -3125,8 +2949,8 @@ class windows_host_t(pathname_host_t):
         localise_case              = identity
         customiser, anticustomiser = str.lower, str.upper
 
-system_pathname_host = make_instance(windows_host_t if platform.system() == 'Windows' else
-                                      unix_host_t)
+system_pathname_host = (windows_host_t if platform.system() == 'Windows' else
+                        unix_host_t)()
 
 intern_and_bind("*DEFAULT-PATHNAME-DEFAULTS*", gvarp = t)
 
@@ -3889,10 +3713,6 @@ def cddr(x):        return x[1][1] if x and x[1] else nil
 # NSUBST-IF-NOT
 # TREE-EQUAL
 
-@defun
-def copy_list(xs):
-        return copy_list_with_lastcdr(xs, nil)
-
 @defun("LIST")
 def list_(*xs):     return consify_linear(xs)
 
@@ -4108,14 +3928,6 @@ def assoc(x, xs, *rest):
 # RASSOC-IF
 # RASSOC-IF-NOT
 # GET-PROPERTIES
-
-@defun
-def getf(xs, key, default = nil):
-         not_implemented()
-
-@defun
-def setf_getf(value, xs, key):
-         not_implemented()
 
 # REMF
 # INTERSECTION
@@ -5163,10 +4975,10 @@ def restart_name(x):
 
 def specs_restarts_args(restart_specs):
         # format (t, "_s_r: %s", restart_specs)
-        restarts_args = make_hash_table()
+        restarts_args = dict()
         for name, spec in restart_specs.items():
                 function, options = ((spec[0], spec[1]) if isinstance(spec, tuple) else
-                                     (spec, make_hash_table()))
+                                     (spec, dict()))
                 restarts_args[name.upper()] = updated_dict(options, dict(function = function)) # XXX: name mangling!
         return restarts_args
 
@@ -5175,7 +4987,8 @@ def specs_restarts_args(restart_specs):
 ##
 def do_restart_bind(body, restarts_args):
         with progv({_restart_clusters_: (symbol_value(_restart_clusters_) +
-                                           [remap_hash_table(lambda _, restart_args: make_instance(restart_t, **restart_args), restarts_args)])}):
+                                           [{ name: restart_t(**restart_args)
+                                              for name, restart_args in restart_args.items() }])}):
                 return body()
 
 def restart_bind(body, **restart_specs):
@@ -5444,7 +5257,7 @@ def ast_funcall(name, args = [], keys = {}, starargs = None, kwargs = None):
         check_type(args, (pylist_t, (or_t, ast.AST, NoneType, (satisfies_t, astifiable_p))))
         return ast.Call(func = (ast_name(name) if isinstance(name, str) else name),
                         args = [ coerce_to_ast(x) for x in args ],
-                        keywords = maphash(ast_keyword, keys),
+                        keywords = [ ast_keyword(k, v) for k, v in keys.items() ],
                         starargs = starargs or None,
                         kwargs = kwargs or None)
 
@@ -7661,7 +7474,7 @@ string_set("*COMPILER-LAMBDA*", nil)
 
 ## Critical Issue COALESCE-FNS-WITH-FUNCTION-SCOPE
 ## Critical Issue FIGURE-OUT-WHAT-IS-COMPILE-TIME-AND-WHAT-IS-LOAD-TIME
-fns = make_hash_table()
+fns = dict()
 
 @defclass
 class fn():
@@ -7691,8 +7504,8 @@ class fn():
                 attrify_args(self, locals(), "name",
                               "arglist", "args_types", "values_types",
                               "effects", "affected")
-                self.dependents, self.dependencies = (make_hash_table(default_constructor = set),
-                                                      make_hash_table(default_constructor = set))
+                self.dependents, self.dependencies = (collections.defaultdict(set),
+                                                      collections.defaultdict(set))
         def add_dependent(self, reason, depee):
                 self.dependents[reason].add(depee)
                 depee.dependencies[reason].add(self)
@@ -7727,7 +7540,7 @@ def ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
                         prop_vals = []
                         for prop_test in prop_test_pairs:
                                 prop, test = (prop_test if isinstance(prop_test, tuple) else
-                                              (prop_test, constantly(t)))
+                                              (prop_test, lambda *_: t))
                                 val = getattr(fn, prop)
                                 if val is None or not test(val):
                                         return None
@@ -10923,7 +10736,7 @@ def load(pathspec, verbose = None, print = None,
                 if not stream:
                         return_from(load, nil)
                 real = probe_file(stream)
-                should_be_fasl_p = real and string_equal(pathname_type(real), symbol_value(_fasl_file_type_))
+                should_be_fasl_p = real and pathname_type(real) == symbol_value(_fasl_file_type_)
                 if ((should_be_fasl_p or file_length(stream)) and
                     fasl_header_p(stream, errorp = should_be_fasl_p)):
                         return_from(load, load_stream(stream, t))
@@ -11743,8 +11556,8 @@ the specified initialization has taken effect."""
         # list of applicable methods without calling
         # COMPUTE-APPLICABLE-METHODS-USING-CLASSES again provided that:
         # (ii) the generic function has not been reinitialized,
-        generic_function.__applicable_method_cache__ = make_hash_table() # (_list, type) -> list
-        generic_function.__methods__ = make_hash_table()
+        generic_function.__applicable_method_cache__ = dict() # (_list, type) -> list
+        generic_function.__methods__ = dict()
         filename, lineno = (defaulted(filename, "<unknown>"),
                             defaulted(lineno,   0))
         update_generic_function_and_dependents(
@@ -11788,7 +11601,7 @@ def generic_function_methods(x):                   return x.__methods__.values()
 
 # DEFINE-METHOD-COMBINATION
 
-__method_combinations__ = make_hash_table()
+__method_combinations__ = dict()
 
 def define_method_combination(name, method_group_specifiers, body,
                               arguments = None, generic_function = None):
@@ -12149,7 +11962,7 @@ executed."""
                                            "description",
                                            "most_specific_first",
                                            "required")
-        groups = make_hash_table()
+        groups = dict()
         for mgspec in method_group_specifiers:
                 gname, qualifier_spec = mgspec[:2]
                 options = mgspec[2:]
@@ -12947,7 +12760,7 @@ GENERIC-FUNCTION argument is then returned."""
                 # specified by the :GENERIC-FUNCTION-CLASS argument is created by
                 # calling MAKE-INSTANCE with the previously computed initialization arguments.
                 # The function name FUNCTION-NAME is set to name the generic function.
-                generic_function = make_instance(generic_function_class_t, **initargs)
+                generic_function = generic_function_class_t(**initargs)
                 # standard_generic_function_shared_initialize is called by s-g-f.__init__
                 frost.setf_global(generic_function, function_name, globals = defaulted(globals, py.globals()))
         else:
@@ -13238,7 +13051,7 @@ object2). Otherwise P1,i and P2,i do not agree.
                              and eql(ms[1], s[1])))
                         for m, ms in
                         zip(method_specializers(method), specializers))
-                and equal(method_qualifiers(method), qualifiers))
+                and method_qualifiers(method) == qualifiers)
 
 def generic_function_lambda_list_incongruent_with_method_list_p(generic_function_lambda_list,
                                                                  method_lambda_list):
@@ -13971,7 +13784,7 @@ def make_eval_context():
         return get, set
 __evget__, __evset__ = make_eval_context()
 
-__eval_source_cache__ = make_hash_table() # :: code_object -> string
+__eval_source_cache__ = dict() # :: code_object -> string
 
 def evaluated_code_source(co):
         return gethash(co, __eval_source_cache__)
