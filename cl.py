@@ -8090,6 +8090,13 @@ def dbgsetup(**keys):
         compiler_dbgconf(pretty_full = t,
                          **keys)
 
+def summary_debug():
+        dbgsetup(forms = t,
+                 macroexpanded = t,
+                 rewritten = t,
+                 primitives = t,
+                 module_ast = t)
+
 def full_debug():
         dbgsetup(forms = t,
                  
