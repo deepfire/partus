@@ -11702,7 +11702,8 @@ def load(pathspec, verbose = None, print = None,
                        lambda stream: load_stream(stream, nil),
                        external_format = external_format)
 
-for symname, name, fun in [("_load",         "LOAD",         load),
+for symname, name, fun in [("_macroexpand",  "MACROEXPAND",  macroexpand),
+                           ("_load",         "LOAD",         load),
                            ("_compile_file", "COMPILE-FILE", compile_file)]:
         intern_and_bind((symname, name, fun))
         post_factum_defun(globals()[symname], fun)
