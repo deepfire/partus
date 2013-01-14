@@ -25,10 +25,16 @@ def lcf(locator, file):
 
 # print("This is VPCL %s, a piece of code mockingly approaching to an implementation of ANSI Common Lisp.\n" % version)
 
-lcf(VPCL, "vpcl.lisp")
-
-# lcf(SICL, "Reader/float.lisp")
-# lcf(SICL, "Reader/read.lisp")
+for kind, s in [(VPCL, "vpcl.lisp"),
+                (VPCL, "src/array.lisp"),
+                (VPCL, "src/defstruct.lisp"),
+                (VPCL, "src/hash-table.lisp"),
+                (VPCL, "src/package.lisp"),
+                (VPCL, "src/setf.lisp"),
+                # (SICL, "Reader/float.lisp"),
+                # (SICL, "Reader/read.lisp"),
+                ]:
+        lcf(kind, s)
 
 dprintf("; *PACKAGE* is %s", symbol_value(cl._package_))
 
