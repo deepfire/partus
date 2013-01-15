@@ -19,6 +19,9 @@ DUMP_AST  ?= nil
 
 all: run
 
+clean:
+	rm -f *.vpfas src/*.vpfas __pycache__/*.pyc
+
 vpcl.vpfas: cl.py vpcl.lisp
 	$(PYTHON) -c "from cl import *; dbgsetup(forms = $(DUMP_FORM), macroexpanded = $(DUMP_MX), rewritten = $(DUMP_RE), primitives = $(DUMP_PRIM), module_ast = $(DUMP_AST)); compile_file('vpcl.lisp')"
 
@@ -39,9 +42,6 @@ test:
 	export CL_RUN_TESTS=$(TEST) CL_TEST_QQ=$(TEST_QQ) CL_TEST_METASEX=$(TEST_METASEX) CL_TEST_KNOWN=$(TEST_KNOWN) CL_TEST_PP=$(TEST_PP) CL_TEST_COMPILER=$(TEST_COMPILER); \
 	$(PYTHON) -c \
 "from cl import *"
-
-clean:
-	rm -rf __pycache__
 
 merge:
 	git diff cl.py > d.diff
