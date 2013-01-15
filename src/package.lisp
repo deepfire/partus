@@ -41,8 +41,6 @@
                           name)))
     package))
 
-XXX: requires DOLIST and CASE
-
 (defmacro defpackage (name &rest options)
   (let (nicknames
         documentation
