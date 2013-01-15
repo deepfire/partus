@@ -54,6 +54,9 @@
       - a boolean, T in doubt
 
 * Issues
+*** Technopieces
+    - Technopiece :: a piece of unavodable non-generic logic, a /solution/.
+    - Per-fasl environment setup :: compilation_unit_prologue()
 *** Facts
 ***** Loops
 ******* DEFMACRO
@@ -68,12 +71,13 @@
 
         Solution: 1. two-stage primitivisation, or 2. known macros.
 
-
 ***** Who cares about non-symbol function name
-      - compiler_defun() -> find_global_function()
-      - FUNCTION.rewrite() -> compiler_lambda()
-      - FUNCTION.primitivise() -> fn()
-      - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_pyname()
+      - compiler_defun() -> {find,set}_global_function(+)
+      - FUNCTION.rewrite() -> compiler_lambda(+)
+      - FUNCTION.primitivise() -> fn(+)
+      - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_pyname(+)
+      - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_pyname() -> ensure_function_pyname(+)
+      - FUNCTION.primitivise() -> lower_lambda()
 *** Models
 ***** Runtime
 
