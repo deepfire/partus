@@ -7732,7 +7732,7 @@ def validate_keyword_args(allowed_set, keymap):
 
 # Macroexpansion
 
-intern_and_bind("DEFMACRO", "EVAL-WHEN", "DEFVAR")
+intern_and_bind("DEFMACRO", "EVAL-WHEN", "DEFVAR", "IMPL-REF", "IMPL-CALL")
 
 ensure_function_pyname(_defmacro) ## This is only needed due to the special definition of DEFMACRO.
 @set_macro_definition(globals(), _defmacro, nil)
@@ -7758,6 +7758,20 @@ def DEFVAR(name, value = nil, documentation = nil):
         return l(_progn,
                  l(_eval_when, l(_compile_toplevel, _load_toplevel, _execute),
                    l(_funcall, l(_function, l(_quote, l("cl", "compiler_defvar"))), l(_quote, name), value)))
+
+@set_macro_definition(globals(), _impl_ref, nil)
+def IMPL_REF(x):
+        l, l_ = list_, list__
+        if not stringp(x):
+                error("In IMPL-REF %s: argument must be a single string.", pp_consly(x))
+        return l(_ref, l(_quote, l("cl", x)))
+
+@set_macro_definition(globals(), _impl_call, nil)
+def IMPL_CALL(x, *args):
+        l, l_ = list_, list__
+        if not stringp(x):
+                error("In IMPL-CALL: argument must be a single string.", pp_consly(x))
+        return l_(_funcall, l(_function, l(_quote, l("cl", x))), consify_linear(args))
 
 def do_macroexpand_1(form, env = nil, compilerp = nil):
         """This handles:
