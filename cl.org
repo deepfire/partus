@@ -8602,6 +8602,12 @@ def IMPL_CALL(x, *args):
                 error("In IMPL-CALL: argument must be a single string.", pp_consly(x))
         return l_(_funcall, l(_function, l(_quote, l("cl", x))), consify_linear(args))
 
+
+class macroexpander_t(type(lexenv_walker)):
+        pass
+
+macroexpander = macroexpander_t()
+
 def do_macroexpand_1(form, env = nil, compilerp = nil):
         """This handles:
              - macro expansion, and,
@@ -8681,7 +8687,7 @@ def macroexpander_xform(form, further):
         return ret
 
 def macroexpand_all(sex, lexenv = nil):
-        return walk_with_lexenv(macroexpander_xform, sex, lexenv, bind_after_fn = t)
+        return walk_with_lexenv(macroexpander_xform, sex, lexenv = lexenv, matcher = macroexpander, bind_after_fn = t)
 
 def compiler_macroexpand_all(form, lexenv = nil, desc = "COMPILER-MACROEXPAND-ALL"):
         with progv({ _macroexpander_compilerp_: t }):
@@ -9966,7 +9972,7 @@ class let(known):
 @defknown((_binder, _function,
            (_function, " ", (_or,
                              (_lambda, (_funcher, _lambda)),
-                             (_form,)))))
+                             (_form, (_for_matchers_xform, identity, macroexpander, rewriter))))))
 class function(known):
         def binder(exp, further, name = nil, decorators = nil, globalp = nil):
                 form = form_real(exp)
