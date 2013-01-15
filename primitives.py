@@ -1076,6 +1076,35 @@ class rplacd(expr):
 ###
 ### Iterators
 ###
+@defprim(intern("FILTERMAP")[0],
+         (name, expr_spill, prim, (maybe, prim)))
+class filtermap(indet):
+        a_expr = defstrategy(test = lambda name, iter, body, condition = None: (exprp(body)
+                                                                                and (exprp(condition) or condition is None)),
+                             keys = expr)
+        b_stmt = defstrategy(keys = body)
+
+@defprim(intern("FILTERMAP-EXPR")[0],
+         (name, expr_spill, expr, (maybe, expr)))
+class filtermap_expr(expr):
+        def help(var, iter, body, condition):
+                conditional = isinstance(condition, name) and condition.value == "None"
+                return ast.ListComp(help_expr(body),
+                                    [ ast.comprehension(help_expr(var), help_expr(iter),
+                                                        [ help_expr(condition) ] if conditional else
+                                                        []) ] )
+        filtermap = identity_method()
+
+@defprim(intern("FILTERMAP-STMT")[0],
+         (name, expr_spill, prim, (maybe, prim)))
+class filtermap_prim(body):
+        def help(name, iter, body, condition = None):
+                tn = genname("FILTERMAP_THUNK")
+                return help(progn(defun(tn, fixed_ll(name), [],
+                                        body),
+                                  filtermap(name, iter, funcall(tn, name), condition)))
+        filtermap = identity_method()
+
 @defprim(intern("GENERATOR")[0],
          (expr, [(expr, expr, [expr])]))
 class generator(expr):
