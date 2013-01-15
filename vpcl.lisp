@@ -1,3 +1,7 @@
+(defmacro debug (&optional (enable t))
+  `(eval-when (:compile-toplevel)
+     (impl-call ,(if enable "full_debug" "no_debug"))))
+
 (defmacro lambda (lambda-list &body body)
   `(function (lambda ,lambda-list ,@body)))
 

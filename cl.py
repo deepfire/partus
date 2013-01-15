@@ -8090,6 +8090,21 @@ def dbgsetup(**keys):
         compiler_dbgconf(pretty_full = t,
                          **keys)
 
+def no_debug():
+        dbgsetup(forms = nil,
+                 
+                 subexpansion = nil,
+                 macroexpanded = nil,
+                 
+                 subrewriting = nil,
+                 rewritten = nil,
+                 
+                 subprimitivisation = nil,
+                 primitives = nil,
+                 
+                 subastification = nil,
+                 module_ast = nil)
+        
 def summary_debug():
         dbgsetup(forms = t,
                  macroexpanded = t,
