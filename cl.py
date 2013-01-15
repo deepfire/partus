@@ -10793,7 +10793,7 @@ def load(pathspec, verbose = None, print = None,
         with_open_stream(((pathspec                 if streamp(pathspec)                          else
                            py.open(pathspec, "rb") if stringp(pathspec) and probe_file(pathspec) else
                            nil) or
-                          (null(pathname_type(pathspec)) and typeless_pathname_branch()) or
+                          (pathname_type(pathspec) is nil and typeless_pathname_branch()) or
                           (if_does_not_exist and
                            error(simple_file_error_t, pathname = pathspec,
                                  format_control = "Couldn't load %s: file does not exist.",
