@@ -5598,7 +5598,7 @@ def specs_restarts_args(restart_specs):
 ##
 # XXX: :TEST-FUNCTION is currently IGNORED!
 ##
-def do_restart_bind(body, restarts_args):
+def do_restart_bind(body, restart_args):
         with progv({_restart_clusters_: (symbol_value(_restart_clusters_) +
                                            [{ name: restart_t(**restart_args)
                                               for name, restart_args in restart_args.items() }])}):
