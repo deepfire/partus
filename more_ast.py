@@ -530,6 +530,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         ast.Pass:        make_trivial_pper("pass"),
                         ast.Raise:       make_trivial_pper("raise", slots = ["exc", "cause"]),
                         ast.Return:      make_trivial_pper("return"),
+                        ast.Delete:      make_trivial_pper("delete"),
                         ast.Global:      make_trivial_pper("global", slots = ["names"]),
                         ast.Nonlocal:    make_trivial_pper("nonlocal", slots = ["names"]),
                         ast.Import:      pp_import,
