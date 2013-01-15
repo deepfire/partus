@@ -35,7 +35,11 @@
   (primitive '("delete") (primitive '("index") hash-table key)))
 
 (defun maphash (fn hash-table)
-  (not-implemented 'maphash))
+  (let ((x (gensym "X")))
+    (primitive '("filtermap") x (funcall (primitive '("attr") hash-table "items"))
+               (funcall fn (primitive '("index") x 0) (primitive '("index") x 1))
+               (ref '("None")))
+    nil))
 
 (defmacro with-hash-table-iterator (&body body)
   (not-implemented 'with-hash-table-iterator))
