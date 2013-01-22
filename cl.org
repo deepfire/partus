@@ -1736,6 +1736,9 @@ class simple_condition_t(condition_t):
                 return self.__str__()
 
 @defclass
+class warning_t(condition_t):                                              pass
+
+@defclass
 class simple_error_t(simple_condition_t, error_t):
         pass
 @defclass
@@ -1744,6 +1747,33 @@ class package_error_t(error_t):
 @defclass
 class simple_package_error_t(simple_error_t, package_error_t):
         pass
+
+@defclass
+class simple_warning_t(simple_condition_t, warning_t):                     pass
+
+@defclass
+class not_implemented_condition(condition_t):
+        def __init__(*args):
+                self, name = args[0], args[1]
+                self.name = name
+        def __str__(self):
+                return "Not implemented: " + self.name.upper()
+        def __repr__(self):
+                return self.__str__()
+@defclass
+class not_implemented_error(not_implemented_condition, error_t):     pass
+@defclass
+class not_implemented_warning(not_implemented_condition, warning_t): pass
+
+def not_implemented(x = None):
+        error(not_implemented_error,
+              x if x is not None else
+              caller_name())
+
+def warn_not_implemented(x = None):
+        warn(not_implemented_warning,
+              x if x is not None else
+              caller_name())
 #+end_src
 
 ******* Rudimentary multiple values
@@ -5464,11 +5494,6 @@ def ignore_errors(body):
 
 #+begin_src python
 @defclass
-class warning_t(condition_t):                                              pass
-@defclass
-class simple_warning_t(simple_condition_t, warning_t):                     pass
-
-@defclass
 class style_warning_t(warning_t):                                          pass
 @defclass
 class simple_style_warning_t(simple_warning_t, style_warning_t):           pass
@@ -5500,30 +5525,6 @@ class undefined_function_t(error_t):
                 return "The function %s is undefined." % (self.name,)
         def __repr__(self):
                 return self.__str__()
-
-@defclass
-class not_implemented_condition(condition_t):
-        def __init__(*args):
-                self, name = args[0], args[1]
-                self.name = name
-        def __str__(self):
-                return "Not implemented: " + self.name.upper()
-        def __repr__(self):
-                return self.__str__()
-@defclass
-class not_implemented_error(not_implemented_condition, error_t):     pass
-@defclass
-class not_implemented_warning(not_implemented_condition, warning_t): pass
-
-def not_implemented(x = None):
-        error(not_implemented_error,
-              x if x is not None else
-              caller_name())
-
-def warn_not_implemented(x = None):
-        warn(not_implemented_warning,
-              x if x is not None else
-              caller_name())
 #+end_src
 
 ***** Restarts
