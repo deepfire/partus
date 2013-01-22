@@ -7779,9 +7779,9 @@ def DEFMACRO(name, lambda_list, *body):
 @set_macro_definition(globals(), _defvar, nil)
 def DEFVAR(name, value = nil, documentation = nil):
         l, l_ = list_, list__
-        return l(_progn,
-                 l(_eval_when, l(_compile_toplevel, _load_toplevel, _execute),
-                   l(_funcall, l(_function, l(_quote, l("cl", "compiler_defvar"))), l(_quote, name), value)))
+        return l(_eval_when, l(_compile_toplevel, _load_toplevel, _execute),
+                 l(_funcall, l(_function, l(_quote, l("cl", "compiler_defvar"))), l(_quote, name), value),
+                 nil)
 
 @set_macro_definition(globals(), _impl_ref, nil)
 def IMPL_REF(x):
