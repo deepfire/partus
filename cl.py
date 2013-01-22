@@ -2880,7 +2880,7 @@ string or output to destination.
 For details on how the CONTROL-STRING is interpreted, see Section 22.3
 (Formatted Output)."""
         string = control_string % args
-        if  streamp(destination) or listp(destination) or destination is t:
+        if  streamp(destination) or destination is t:
                 # XXX: python strings are immutable, so lists will serve as adjustable arrays..
                 # Issue ADJUSTABLE-CHARACTER-VECTORS-NOT-IMPLEMENTED
                 write_string(string, destination)
