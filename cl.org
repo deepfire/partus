@@ -7352,7 +7352,7 @@ def map_sex(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
         with progv({ _mapper_fn_: fn }):
                 ret = _, r, f = match(matcher, sex, form_metasex(sex, kind = symbol_value(_metasex_kind_)) if start_inside else list_(_form))
                 if f is not None and error_if_fail:
-                        matcher_error(sex, r, f, desc = "mapping")
+                        matcher_error(sex, r, f, desc = "mapping with %s using %s" % (fn.__name__, type(matcher).__name__))
                 return ret
 
 def xform_ir(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
