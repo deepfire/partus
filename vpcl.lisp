@@ -38,7 +38,7 @@
           (rest (rest clauses)))
       (unless (and clause
                    (eq (cddr clause) nil))
-        (error "Invalid COND form: %s" `(cond ,@clauses)))
+        (error "Invalid COND form: %s" (impl-call "pp_consly" `(cond ,@clauses))))
       (if (cdr clause)
           `(if ,(first clause)
                ,(second clause)
