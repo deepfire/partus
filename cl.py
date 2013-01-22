@@ -2616,6 +2616,8 @@ def set_function_definition(globals, x, lambda_expression = None, check_redefini
 def set_macro_definition(globals, x, lambda_expression):
         identity_redef = compiler_defmacro(x, lambda_expression)
         def do_set_macro_definition(function):
+                if identity_redef:
+                        style_warn("not identically redefining macro %s", x)
                 if not identity_redef and function:
                         x.function, x.macro_function = nil, function
                         frost.make_object_like_python_function(x, function)
