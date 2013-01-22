@@ -4487,6 +4487,29 @@ def mapc(f, xs, *xss):
         return nil
 
 @defun
+def mapcari(f, xs, fixup = nil):
+        """Same as MAPCAR, but:
+        1. Accept only one list argument
+        2. Process improper lists, by handing the CDR of non-list cons in the 'natural' way,
+           yielding either an improper list, or a proper one (if FIXUP is non-NIL) as a result.
+        3. F receives two arguments, the second designating whether the improper tail is being handled."""
+        if not xs:
+                return nil
+        car, cdr = xs[0], xs[1]
+        acc = ptr = [f(car, nil), nil]
+        improperp = nil
+        while cdr:
+                if not listp(cdr):
+                        if fixup:
+                                cdr, improperp = [cdr, nil], t
+                        else:
+                                ptr[1] = f(cdr, t)
+                                break
+                car, cdr = cdr[0], cdr[1]
+                ptr[1] = ptr = [f(car, improperp), nil]
+        return acc
+
+@defun
 def mapcar(f, xs, *xss):
         if not xss:
                 if not xs:
