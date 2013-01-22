@@ -4973,65 +4973,63 @@ string_set("*READER-TRACE-QQEXPANSION*",        nil)
 ## Unregistered Issue COMPLIANCE-BACKQUOTE-EXPANSION-DOTTED-LIST-HANDLING
 
 def expand_quasiquotation(form):
-        """Expand quasiquotation abbreviations in FORM (in a simple, yet suboptimal way)."""
-        def process_atom(x):
-                return (x if constantp(x) else
-                        list_(_quote, x))
-        def process_form(x):
-                return ((error("Invalid form: %s - %s not inside a backquote.", x, x[0]) if x[0] is not _quasiquote else # The toplevel must be a QQ.
-                         error("Internal reader error: %s is invalid.")                  if len(x) != 2             else
-                         process_qq(x[1]))        if isinstance(x, tuple)   else
-                        x                         if atom(x)                else
-                        mapcar(process_form, x))
-        def process_qq(x):
-                if atom(x):
-                        return process_atom(x)
+        "Direct translation of src/quasiquotation.lisp, modulo the python-specific intermarker representation."
+        l, l_ = list_, list__
+        def len_is_2(x):    return t if len(x) is 2 else error("Invalid intermarker: %s.", x)
+        def commap(x):      return isinstance(x, tuple) and len_is_2(x) and x[0] is _comma
+        def splicep(x):     return isinstance(x, tuple) and len_is_2(x) and x[0] is _splice
+        def quasiquotep(x): return isinstance(x, tuple) and len_is_2(x) and x[0] is _quasiquote
+        def simplify_append(x):
+                def append_insulated_p(x):
+                        return consp(x) and x[0] is _list and consp(x[1]) and x[1][1] is nil
+                def try_simplify_list_(xs, tail):
+                        return (list_(_cons_, second(xs[0]), tail) if xs[1] is nil else
+                                list_(_list_, *([ x[1][0] for x in vectorise_linear(xs) ] + [tail])))
+                pieces   = x[1]
+                butlast_ = butlast(pieces)
+                last_    = last(x)
+                lastcar  = last_[0]
+                if x[1][1] is nil:
+                        ret =  x[1][0]
+                elif not every(append_insulated_p, butlast_):
+                        ninsulated = position_if_not(append_insulated_p, butlast_)
+                        ret = (x if ninsulated == 0 else
+                               try_simplify_list_(subseq(butlast_, 0, ninsulated),
+                                                  list_(_append,
+                                                        *(vectorise_linear(subseq(butlast_, ninsulated))
+                                                          + [lastcar]))))
+                elif append_insulated_p(lastcar):
+                        ret = list_(_list, *[ x[1][0] for x in vectorise_linear(pieces) ])
                 else:
-                        acc = [_append]
-                        ptr = x
-                        while ptr:
-                                ## Check for a qq marker at the end of an improper list:
-                                def do_one(x):
-                                        return list_(_list,
-                                                     (process_atom(x) if atom(x) else
-                                                      process_qq(x)))
-                                if isinstance(ptr, tuple):
-                                        xi = ptr
-                                        if len(xi) != 2 or xi[0] not in (_quasiquote, _comma, _splice):
-                                                error("Invalid reader output, bad tuple intermarker: %s", pp_consly(form))
-                                        if xi[0] is _splice:
-                                                error(",@ after dot in %s", pp_consly(form))
-                                        acc.append(process_qq(xi[1]) if xi[0] is _quasiquote else
-                                                   xi[1])            #           comma
-                                        break
-                                if not consp(ptr):
-                                        acc.append(ptr)
-                                        break
-                                xi = ptr[0]
-                                if isinstance(xi, tuple):
-                                        if len(xi) != 2 or xi[0] not in (_quasiquote, _comma, _splice):
-                                                error("Invalid reader output, bad tuple intermarker: %s", pp_consly(form))
-                                        acc.append(do_one(process_qq(xi[1])) if xi[0] is _quasiquote else
-                                                   list_(_list, xi[1])      if xi[0] is _comma      else
-                                                   xi[1])                    #           splice
-                                else:
-                                        acc.append(do_one(xi))
-                                ptr = ptr[1]
-                        ## Simplify an obvious case of APPEND having only LIST subforms.
-                        if all((consp(x) and x[0] is _list)
-                               for x in acc[1:-1]):
-                                if consp(acc[-1]) and acc[-1][0] is _list:
-                                        new = (_list,) + tuple(x[1][0] for x in acc[1:])
-                                        acc = new
-                                elif len(acc) is 2:
-                                        return acc[1]
-                                elif len(acc) is 3:
-                                        acc = (_cons_, acc[1][1][0], acc[2])
-                                else:
-                                        new = (_list_,) + tuple(x[1][0] for x in acc[1:-1]) + (acc[-1],)
-                                        acc = new
-                        return consify_linear(acc)
-        result = process_form(form)
+                        ret = try_simplify_list_(butlast_, lastcar)
+                return ret
+        def self_evaluating_p(x):
+                return isinstance(x, (int, float, complex, str)) or x in (t, nil)
+        def quote_around_intermarkers_and_insulate(x):
+                def rec(x):
+                        ret = (x             if self_evaluating_p(x) else
+                               x[1]          if commap(x)            else
+                               x[1]          if splicep(x)           else
+                               l(_quote, x)  if atom(x)              else
+                               simplify_append(l_(_append, mapcari(lambda x, improperp:
+                                                                           (identity            if not improperp else
+                                                                            error("Invalid form: %s.", pp_consly(form))
+                                                                                                if splicep(x)    else
+                                                                            second)(rec(x)),
+                                                                   x, fixup = t))))
+                        return ret if splicep(x) else l(_list, ret)
+                return rec(x)[1][0]
+        def rec(x, depth):
+                if quasiquotep(x):
+                        rec_ret = rec(x[1], depth + 1)
+                        qaiai_ret = quote_around_intermarkers_and_insulate(rec_ret)
+                        return qaiai_ret
+                return (      # if quasiquotep(x)          else
+                        ((x[0], rec(x[1], depth - 1)) if depth > 0 else
+                         error("Comma outside of a backquote in: %s.", pp_consly(form)))  if commap(x) or splicep(x) else
+                        x                                                                 if atom(x)                 else
+                        mapcari(lambda x, _: rec(x, depth), x))
+        result = rec(form, 0)
         if symbol_value(_reader_trace_qqexpansion_):
                 if form != result:
                         dprintf(";;;%s quasiquotation expanded to:\n%s%s",
@@ -5041,39 +5039,82 @@ def expand_quasiquotation(form):
         return result
 
 def run_tests_quasiquotation():
-        def quasiquotation_simple(x): return expand_quasiquotation(x)
-        def quasiquotation_nested(x): return expand_quasiquotation(x)
         dprintf("; testing the quasiquotation rewriter:")   ## Quirky stuff reference mode ON!  Go go Arachna!
-        assert(runtest(quasiquotation_simple,
-                        ## `(1 ,2 3 ,@4 5 (,6 ,@7) ,@8 ,@9)
-                        (_quasiquote, list_(1, (_comma, 2), 3, (_splice, 4), 5,
-                                             list_((_comma, 6), (_splice, 7)),
-                                             (_splice, 8), (_splice, 9))),
-                        ## (append (list (_quote 1)) (list 2) (list (_quote 3)) 4 (list (_quote 5))
-                        ##         (list (append (list 6) 7)) 8 9)
-                        list_(_append, list_(_list, 1), list_(_list, 2),
-                              list_(_list, 3), 4,
-                              list_(_list, 5), list_(_list, list_(_cons_, 6, 7)),
-                              8, 9),
-                        printer = pp_consly))
+        l, l_ = list_, list__
+        a, b, c, d, e, f, g, h, i = (intern("%s" % x)[0] for x in "ABCDEFGHI")
+        assert(runtest(("QUASIQUOTATION-IDENTITY", expand_quasiquotation),
+                       l(a, l(b), c),
+                       l(a, l(b), c),
+                       printer = pp_consly))
+        assert(runtest(("QUASIQUOTATION-VERY-SIMPLE", expand_quasiquotation),
+                       ## `(a `,b)
+                       (_quasiquote, l(a, (_comma, b))),
+                       ## (list 'a b)
+                       l(_list, l(_quote, a), b),
+                       printer = pp_consly))
+        assert(runtest(("QUASIQUOTATION-SIMPLE", expand_quasiquotation),
+                       ## (a `((b) ,(c) ,@(d)))
+                       l(a, (_quasiquote, l(l(b), (_comma, l(c)), (_splice, l(d))))),
+                       ## (a (append (list '(b)) (list (c)) (d)))  or, equivalently
+                       ## (a (list* '(b) (c) (d)))
+                       l(a, l(_list_, l(_list, l(_quote, b)), l(c), l(d))),
+                       printer = pp_consly))
+        assert(runtest(("QUASIQUOTATION-LARGE", expand_quasiquotation),
+                       ## `(a ,b c ,@d e (,f ,@g) ,@h ,@i)
+                       (_quasiquote, l(a, (_comma, b), c, (_splice, d), e,
+                                       l((_comma, f), (_splice, g)),
+                                       (_splice, h), (_splice, i))),
+                       ## (list* 'a b 'c (append d (list 'e) (list (cons f g)) h i)
+                       l(_list_, l(_quote, a), b, l(_quote, c),
+                         l(_append, d, l(_list, l(_quote, e)),
+                           l(_list, l(_cons_, f, g)), h, i)),
+                       printer = pp_consly))
         
-        assert(runtest(quasiquotation_nested,
-                        ## `(a ,b ,@c `(d ,,e ,@f ,@,g)) -- numbers don't do, as CONSTANTP is used for simplification.
+        assert(runtest(("QUASIQUOTATION-NESTED-SIMPLE", expand_quasiquotation),
+                       ## ``(a)
+                       (_quasiquote, (_quasiquote, l(a))),
+                       ## (list 'list (list 'quote 'a))
+                       ## where inner is: (list 'a)
+                       l(_list, l(_quote, _list), l(_list, l(_quote, _quote), l(_quote, a))),
+                       printer = pp_consly))
+        assert(runtest(("QUASIQUOTATION-NESTED", expand_quasiquotation),
+                       ## ``(,a ,,b ,@c ,@,d)
+                       (_quasiquote,
                         (_quasiquote,
-                         list_(1, (_comma, 2), (_splice, 3),
-                               (_quasiquote, list_(4, (_comma, (_comma, 5)),
-                                                       (_splice, 6), (_splice, (_comma, 7)))))),
-                        list_(_append,
-                              list_(_list, 1), list_(_list, 2), 3,
-                              ## The first pass ought to be:
-                              ## (_append, (_list, (_quote, 4)), (_list, (_comma, 5)), 6, (_comma, 7))
-                              list_(_list, list_(_list,
-                                                  list_(_quote, _append),
-                                                  list_(_list, list_(_quote, _list), 4),
-                                                  list_(_list, list_(_quote, _list), 5),
-                                                  6,
-                                                  7))),
-                        printer = pp_consly))
+                         l((_comma, a), (_comma, (_comma, b)), (_splice, c), (_splice, (_comma, d))))),
+                       ## (list 'list* 'a b (list 'append 'c d))
+                       ## where inner is: (list* a ,b (append c ,d))
+                       l(_list, l(_quote, _list_), l(_quote, a), b, l(_list, l(_quote, _append), l(_quote, c), d)),
+                       printer = pp_consly))
+        assert(runtest(("QUASIQUOTATION-WOVEN", expand_quasiquotation),
+                       ## `(a ,b ,@c (d ,(e `(f ,@(g`h)))))
+                       (_quasiquote,
+                        l(a, (_comma, b), (_splice, c),
+                          l(d, (_comma, l(e, (_quasiquote, l(f, (_splice, l(g, (_quasiquote, h)))))))))),
+                       ## (list* 'a b (append c (list (list 'd (e (cons 'f (g h)))))))
+                       l(_list_, l(_quote, a), b,
+                         l(_append, c,
+                           l(_list, l(_list, l(_quote, d),
+                                      l(e, l(_cons_, l(_quote, f), l(g, l(_quote, h)))))))),
+                       printer = pp_consly))
+        assert(runtest(("QUASIQUOTATION-IDENTITY-DOTTED", expand_quasiquotation),
+                       cons(a, b),
+                       cons(a, b),
+                       printer = pp_consly))
+        assert(runtest(("QUASIQUOTATION-DOTTED", expand_quasiquotation),
+                       ## ``(a ,b . ,c)
+                       (_quasiquote, l_(a, (_comma, b), (_comma, c))),
+                       ## (list* 'a b c)
+                       l(_list_, l(_quote, a), b, c),
+                       printer = pp_consly))
+        assert(runtest(("QUASIQUOTATION-NESTED-DOTTED", expand_quasiquotation),
+                       ## ``(a ,,b . ,,c)
+                       (_quasiquote,
+                        (_quasiquote, l_(a, (_comma, (_comma, b)), (_comma, (_comma, c))))),
+                       ## (list 'list* (list 'quote 'a) b  c)
+                       ## where the inner is: (list* 'a ,b ,c)
+                       l(_list, l(_quote, _list_), l(_list, l(_quote, _quote), l(_quote, a)), b, c),
+                       printer = pp_consly))
 
 if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_QQ") == "t":
         with progv({ _reader_trace_qqexpansion_: nil }):
