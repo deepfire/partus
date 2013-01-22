@@ -8566,6 +8566,11 @@ Examples:
 def undefined_function(name):
         error("Function not defined: %s.", name)
 
+def make_undefined_function_stub(name):
+        stub = lambda *_, **__: undefined_function(name)
+        stub.__name__ = "undefined_function_stub_%s" % name
+        return stub
+
 ### Global compiler state carry-over, and module state initialisation.
 def fop_make_symbol_available(globals, package_name, symbol_name,
                                function_pyname, symbol_pyname,
@@ -8582,7 +8587,8 @@ def fop_make_symbol_available(globals, package_name, symbol_name,
                                            if symbol.function or symbol.macro_function else
                                            ## It is a valid situation, when the function is not defined at
                                            ## the beginning of load-time for a given compilation unit.
-                                           lambda *_, **__: undefined_function(symbol)),
+                                           ## Unregistered Issue ABSURD-NOT-YET-DEFINED-FUNCTION-WITHIN-COMPILATION-UNIT
+                                           or make_undefined_function_stub(symbol)),
                                           function_pyname, globals)
         if gvarp:
                 if find_global_variable(symbol):
