@@ -7771,8 +7771,7 @@ def DEFMACRO(name, lambda_list, *body):
                    l(_function, l_(_lambda, lambda_list, consify_linear(body))),
                    l("decorators", ir_cl_call("set_macro_definition", ir_apply("globals"),
                                                l(_quote, name),
-                                               l(_quote, nil # l_(name, lambda_list, consify_linear(body))
-                                                 ))),
+                                               l(_quote, l_(_lambda, lambda_list, consify_linear(body))))),
                    ["globalp", t],
                    ["name", name]))
 
