@@ -184,25 +184,7 @@ class maybe(): pass
 
 ## to consider: no-return
 
-###
-### Toolkit
-###
 def exprp(x):         return isinstance(x, expr)
-def suite_expr_p(xs): return len(xs) is 1 and exprp(xs[0])
-
-def ast_to_expr(x):
-        return (x.value if isinstance(x, ast.Expr) else
-                x       if isinstance(x, ast.expr) else
-                error("%s cannot be coerced to an expression." % x))
-
-def ast_to_Expr(x):
-        return (ast.Expr(x) if isinstance(x, ast.expr) else
-                x           if isinstance(x, ast.Expr) else
-                error("%s cannot be coerced to an expression." % x))
-
-def coerce_to_stmt(x):
-        return (x if isinstance(x, ast.stmt) else
-                ast.Expr(x))
 
 TheEmptyList = list()
 _compiler_trace_primitives_ = cl._compiler_trace_primitives_
@@ -463,9 +445,6 @@ def simplify_progns(children: [prim]) -> (prim, bool):
                   if not isinstance(x, efless) ]
         efful.append(flattened[-1])
         return efful, len(efful) is 1
-
-def process(p):
-        ...
 
 ###
 ### (current) (not so very) grand scheme of things
