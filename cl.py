@@ -7446,7 +7446,8 @@ declared to be the names of constant variables)."""
 intern_and_bind(("_mult",   "*"),
                 ("_add",    "+"),
                 ("_sub",    "-"),
-                ("_equals", "="))
+                ("_equals", "="),
+                ("_gt",     ">"))
 
 @defun(_mult)
 def mult(*xs):
@@ -7465,6 +7466,22 @@ def sub(*xs):
 @defun(_equals)
 def equals(x, y):
         return t if x == y else nil
+
+@defun(_gt)
+def gt(x, y):
+        return t if x > y else nil
+
+@defun
+def evenp(x):
+        return nil if x % 2 else t
+
+@defun
+def plusp(x):
+        return t if x > 0 else nil
+
+@defun
+def zerop(x):
+        return t if x == 0 else nil
 
 def post_factum_defun(symbol, function):
         set_function_definition(globals(), symbol,
