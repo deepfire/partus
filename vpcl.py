@@ -28,6 +28,7 @@ def lcf(locator, file):
 for kind, s in [(VPCL, "vpcl.lisp"),
                 (VPCL, "src/array.lisp"),
                 (VPCL, "src/defstruct.lisp"),
+                (VPCL, "src/multiple-values.lisp"),
                 (VPCL, "src/hash-table.lisp"),
                 # (VPCL, "src/package.lisp"),
                 (VPCL, "src/setf.lisp"),
