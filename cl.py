@@ -2599,7 +2599,6 @@ def set_function_definition(globals, x, lambda_expression = None, check_redefini
                         forigname = function.__name__
                         function.name = x
                         ## Unregistered Issue NAMESPACE-POLLUTION-SEEMS-FRIVOLOUS
-                        define_global_sym_for_pyname(globals, forigname, x)
                         frost.setf_global(function, ensure_function_pyname(x), globals, force = True)
                 return function
         return do_set_function_definition
@@ -2611,7 +2610,6 @@ def set_macro_definition(globals, x, lambda_expression):
                         style_warn("not identically redefining macro %s", x)
                 if not identity_redef and function:
                         x.function, x.macro_function = nil, function
-                        frost.make_object_like_python_function(x, function)
                         function.name = x
                         frost.setf_global(function, ensure_function_pyname(x), globals, force = True)
                 return x
