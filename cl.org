@@ -1663,18 +1663,12 @@ def subtypep(sub, super):
 
 #+begin_src python +n
 doit = False
-def make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
+def make_cold_definer(definer_name, predicate, slot, preprocess):
         def cold_definer(name_or_obj):
                 obj, sym, name = interpret_toplevel_value(name_or_obj, predicate)
                 def do_cold_def(o):
                         setattr(sym, slot, o)
-                        # symbol = (intern(defaulted(name, frost.python_name_lisp_symbol_name(o.__name__)))[0]
-                        #           if isinstance(name, str) else
-                        #           name if symbolp(name) else
-                        #           error("In %s: bad name %s for a cold object.", definer_name))
-                        o = preprocess(o)
-                        mimicry(sym, o)
-                        return o
+                        return preprocess(o)
                 return (do_cold_def(obj) if obj                                      else
                         do_cold_def      if isinstance(name_or_obj, (str, symbol_t)) else
                         error("In %s: argument must be either satisfy %s or be a string;  was: %s.",
@@ -1685,12 +1679,9 @@ def make_cold_definer(definer_name, predicate, slot, preprocess, mimicry):
 del boot_defun
 del boot_defclass
 
-defun            = cold_defun    = make_cold_definer("%COLD-DEFUN",    functionp,
-                                                       "function",    identity, frost.make_object_like_python_function)
-defclass         = cold_defclass = make_cold_definer("%COLD-DEFCLASS", lambda x: isinstance(x, type),
-                                                       "python_type", identity,  frost.make_object_like_python_class)
-defun_with_block = cold_defun_with_block = make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp,
-                                                               "function", __block__, frost.make_object_like_python_function)
+defun            = cold_defun    = make_cold_definer("%COLD-DEFUN",    functionp, "function",    identity)
+defclass         = cold_defclass = make_cold_definer("%COLD-DEFCLASS", lambda x: isinstance(x, type), "python_type", identity)
+defun_with_block = cold_defun_with_block = make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp, "function", __block__)
 for fn  in __boot_defunned__:   frost.setf_global(defun(fn),     fn.__name__,  globals(), force = t)
 for cls in __boot_defclassed__: frost.setf_global(defclass(cls), cls.__name__, globals(), force = t)
 doit = True
