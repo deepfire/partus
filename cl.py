@@ -457,14 +457,16 @@ class symbol_t(): # Turned to a symbol, during the package system bootstrap.
         def __init__(self, name):
                 (self.name, self.package,
                  (self.function,
+                  self.setf_function,
                   self.macro_function,
                   self.compiler_macro_function,
                   self.symbol_macro_expansion,
-                  self.known)) = name, nil, (None, nil, nil, None, nil)
+                  self.known)) = name, nil, (nil, nil, nil, nil, None, nil)
                 ## Critically, the compiler must never produce two symbols with the same
                 ## package and name.
-                self.function_pyname = None
-                self.symbol_pyname   = None
+                self.function_pyname      = None
+                self.setf_function_pyname = None
+                self.symbol_pyname        = None
         def __bool__(self):
                 return self is not nil
 
@@ -583,11 +585,12 @@ def cold_make_nil():
         (nil.name,
          nil.package,
          nil.function,
+         nil.setf_function,
          nil.macro_function,
          nil.compiler_macro_function,
          nil.symbol_macro_expansion,
-         nil.known) = "NIL", __cl, nil, nil, nil, None, nil
-        nil.symbol_pyname, nil.function_pyname = None, None
+         nil.known) = "NIL", __cl, nil, nil, nil, nil, None, nil
+        nil.symbol_pyname, nil.function_pyname, nil.setf_function_pyname = None, None, None
         return do_intern_symbol(nil, __cl)
 
 NIL = nil = cold_make_nil()
@@ -2485,12 +2488,12 @@ def symbol_macro_expander(sym, environment = None):
 def style_warn(control, *args):
         warn(simple_style_warning_t, format_control = control, format_arguments = args)
 
-def warn_incompatible_redefinition(symbol, tons, fromns):
-        style_warn("%s is being redefined as a %s when it was previously defined to be a %s.", symbol, tons, fromns)
+def warn_incompatible_redefinition(x, tons, fromns):
+        style_warn("%s is being redefined as a %s when it was previously defined to be a %s.", pp_consly(x), tons, fromns)
 
-def warn_possible_redefinition(x, type):
+def warn_possible_redefinition(type, x):
         if x:
-                style_warn("In %s: %s is being redefined.", type, x)
+                style_warn("In %s: %s is being redefined.", type, pp_consly(x))
 
 @defun
 def special_operator_p(symbol):
@@ -2553,17 +2556,23 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 
 # Namespace separation.
 
-def new_function_pyname(symbol):
-        return gensymname("FUN_" + str(symbol) + "-")
+def new_function_pyname(name):
+        return gensymname("FUN_" + (str(name) if symbolp(name) else
+                                    ("SETF_" + str(name[1][0]))) + "-")
 
 def new_symbol_pyname(symbol):
         return gensymname("SYM_" + str(symbol) + "-")
 
-def ensure_function_pyname(symbol):
-        if the(symbol_t, symbol).function_pyname is not None:
-                return symbol.function_pyname
-        symbol.function_pyname = new_function_pyname(symbol)
-        return symbol.function_pyname
+def ensure_function_pyname(name):
+        check_type(name, (or_t, symbol_t, cons_t))
+        slot, sym = ("function_pyname", name) if isinstance(name, symbol_t) else ("setf_function_pyname", name[1][0])
+        if getattr(sym, slot) is not None:
+                # dprintf("ensure_function_pyname: slot %s, sym %s, existing name: %s", slot, sym, getattr(sym, slot))
+                return getattr(sym, slot)
+        setattr(sym, slot, new_function_pyname(name))
+        # dprintf("ensure_function_pyname: slot %s, sym %s, new name: %s", slot, sym, getattr(sym, slot))
+        return getattr(sym, slot)
+
 def ensure_symbol_pyname(symbol):
         if the(symbol_t, symbol).symbol_pyname is not None:
                 return symbol.symbol_pyname
@@ -2573,10 +2582,13 @@ def ensure_symbol_pyname(symbol):
 def ensure_variable_pyname(x):
         return frost.full_symbol_name_python_name(x)
 
-def get_function_pyname(symbol):
-        if the(symbol_t, symbol).function_pyname is None:
-                error("Function %s has no mapping to a python name.", symbol)
-        return symbol.function_pyname
+def get_function_pyname(name):
+        check_type(name, (or_t, symbol_t, cons_t))
+        slot, sym = ("function_pyname", name) if isinstance(name, symbol_t) else ("setf_function_pyname", name[1][0])
+        if getattr(sym, slot) is None:
+                error("Function %s has no mapping to a python name.", pp_consly(name))
+        return getattr(sym, slot)
+
 def get_symbol_pyname(symbol):
         if the(symbol_t, symbol).symbol_pyname is None:
                 error("Symbol %s has no mapping to a python name.", symbol)
@@ -2592,14 +2604,20 @@ def set_function_definition(globals, x, lambda_expression = None, check_redefini
         identity_redef = compiler_defun(x, lambda_expression, check_redefinition = check_redefinition)
         def do_set_function_definition(function):
                 if identity_redef:
-                        dprintf("; not identically redefining function %s", x)
+                        style_warn("not identically redefining function %s", x)
                 if function and not identity_redef:
-                        x.function, x.macro_function = function, nil
-                        frost.make_object_like_python_function(x, function)
-                        forigname = function.__name__
+                        pyfname = pythonise_function_name(x)
+                        setfp = isinstance(pyfname, tuple)
+                        sym = pythonised_function_name_symbol(pyfname)
+                        slot = ("setf_function" if setfp else "function")
+                        setattr(sym, slot, function)
+                        if not setfp:
+                                sym.macro_function = nil
                         function.name = x
                         ## Unregistered Issue NAMESPACE-POLLUTION-SEEMS-FRIVOLOUS
-                        frost.setf_global(function, ensure_function_pyname(x), globals, force = True)
+                        pyname = ensure_function_pyname(x)
+                        # dprintf("S-F-D: %15s %25s %20s %15s%s <- %s", pyname, function, sym, slot, " SETF" * setfp, x)
+                        frost.setf_global(function, pyname, globals, force = True)
                 return function
         return do_set_function_definition
 
@@ -7154,7 +7172,7 @@ class lexenv_t():
                                 dprintf("---  %s", frame)
                                 scope = rest # COLD-CDR
         def lookup_var(self, x, default = None):          return self.do_lookup_scope(self.varscope, x, default)
-        def lookup_func(self, x, default = None):         return self.do_lookup_scope(self.funcscope, x, default)
+        def lookup_func(self, x, default = None):         return self.do_lookup_scope(self.funcscope, pythonise_function_name(x), default)
         def lookup_block(self, x, default = None):        return self.do_lookup_scope(self.blockscope, x, default)
         def lookup_gotag(self, x, default = None):        return self.do_lookup_scope(self.gotagscope, x, default)
         def funcscope_binds_p(self, x):   return self.lookup_func(x)[0]  is not None
@@ -7162,7 +7180,7 @@ class lexenv_t():
         def blockscope_binds_p(self, x):  return self.lookup_block(x)[0] is not None
         def gotagscope_binds_p(self, x):  return self.lookup_gotag(x)[0] is not None
         def lookup_func_kind(self, kind, x, default = None):
-                b = self.do_lookup_scope(self.funcscope, x, None)[0]
+                b = self.do_lookup_scope(self.funcscope, pythonise_function_name(x), None)[0]
                 return (b and b.kind is kind and b) or default
         def lookup_var_kind(self, kind, x, default = None):
                 b = self.do_lookup_scope(self.varscope, x, None)[0]
@@ -7302,6 +7320,16 @@ def walker_lexenv():
 
 # Global scope
 
+intern_and_bind(("_setf", "SETF"))
+
+def pythonise_function_name(x):
+        return (x if isinstance(x, symbol_t) else
+                (_setf, x[1][0]))
+
+def pythonised_function_name_symbol(x):
+        return (x if isinstance(x, symbol_t) else
+                x[1])
+
 class scope(): pass
 class variable_scope(scope, collections.UserDict):
         def __hasattr__(self, name): return name in self.data
@@ -7318,8 +7346,8 @@ variable_scope = variable_scope()
 function_scope = function_scope()
 
 def find_global_variable(name):     return gethash(name, variable_scope)[0]
-def find_global_function(name):     return gethash(name, function_scope)[0]
-def  set_global_function(name, x): function_scope[name] = the(function, x)
+def find_global_function(name):     return gethash(pythonise_function_name(name), function_scope)[0]
+def  set_global_function(name, x): function_scope[pythonise_function_name(name)] = the(function, x)
 def  set_global_variable(name, x): variable_scope[name] = the(variable, x)
 
 def compiler_defparameter(name, value):
@@ -7332,18 +7360,18 @@ def compiler_defvar(name, value):
         if not find_global_variable(name):
                 compiler_defparameter(name, value)
 
-def compiler_defun(name: symbol_t, lambda_expression: cons_t, check_redefinition = t) -> bool:
+def compiler_defun(name, lambda_expression: cons_t, check_redefinition = t) -> bool:
         """Manipulate the compiler's idea of a function's definition.
            Return a boolean, which denotes whether the situation is an identity redefinition."""
         check_type(name, (or_t, symbol_t, cons_t))
         oldef = find_global_function(name)
         if oldef and oldef.lambda_expression == lambda_expression:
                 return t
-        if check_redefinition and isinstance(name, symbol_t):
+        if check_redefinition:
                 if oldef and oldef.kind is _macro: ## XXX: WTF does oldef mean as a function object attribute?
                         warn_incompatible_redefinition(name, "function", "macro")
                 elif oldef and oldef.kind is _function:
-                        warn_possible_redefinition(oldef.name, name)
+                        warn_possible_redefinition("DEFUN", name)
         set_global_function(name, function(name, _function, lambda_expression = lambda_expression))
         return nil
 
@@ -7358,7 +7386,7 @@ def compiler_defmacro(name, lambda_expression, check_redefinition = t):
                 if oldef and oldef.kind is _function:
                         warn_incompatible_redefinition(name, "macro", "function")
                 elif oldef and oldef.kind is _macro: ## XXX: WTF does oldef mean as a function object attribute?
-                        warn_possible_redefinition(oldef.name, name)
+                        warn_possible_redefinition("DEFMACRO", name)
         set_global_function(name, function(name, _macro, lambda_expression = lambda_expression))
         return nil
 
@@ -7569,11 +7597,12 @@ class fn():
                      effects = None, affected = None):
                 check_type(arglist, list_t)
                 args_types = [t] * length(arglist)
-                if the(symbol_t, name): ## Not anonymous LAMBDA?
+                if name: ## Not anonymous LAMBDA?
+                        pyfname = pythonise_function_name(the((or_t, symbol_t, cons_t), name))
                         if globalp:
                                 if name in fns:
-                                        error("Asked to overwrite FN record %s.", name)
-                                fns[name] = self
+                                        error("Asked to overwrite FN record %s.", pp_consly(name))
+                                fns[pyfname] = self
                 attrify_args(self, locals(), "name",
                               "arglist", "args_types", "values_types",
                               "effects", "affected")
@@ -7636,14 +7665,15 @@ def unit_symbol(x):
 def unit_variable_pyname(x):
         return frost.full_symbol_name_python_name(x)
 def unit_function_pyname(x):
-        symbol_value(_unit_functions_).add(x)
+        pyfname = pythonise_function_name(x)
+        symbol_value(_unit_functions_).add(pyfname)
         return ensure_function_pyname(x)
 def unit_symbol_pyname(x):
         symbol_value(_unit_symbols_).add(x)
         return ensure_symbol_pyname(x)
 
 def unit_note_gfun_reference(x):
-        symbol_value(_unit_gfuns_).add(x)
+        symbol_value(_unit_gfuns_).add(pythonise_function_name(x))
 def unit_note_gvar_reference(x):
         symbol_value(_unit_gvars_).add(x)
 
@@ -7753,20 +7783,28 @@ def make_undefined_function_stub(name):
         return stub
 
 ### Global compiler state carry-over, and module state initialisation.
-def fop_make_symbol_available(globals, package_name, symbol_name,
+def fop_make_symbol_available(globals, package_name, symbol_name, setfp,
                                function_pyname, symbol_pyname,
                                gfunp, gvarp):
+        # dprintf("FOP-M-S-A: %11s:%17s%5s %25s%25s%s%s",
+        #         package_name, symbol_name, " SETF" * setfp, function_pyname, symbol_pyname,
+        #         " gfun" * gfunp, " gvar" * gvarp)
         symbol = (intern(symbol_name, find_package(package_name))[0] if package_name is not None else
                   make_symbol(symbol_name))
         if function_pyname is not None:
-                symbol.function_pyname = function_pyname
+                fslot, slot, fname = (("setf_function", "setf_function_pyname", list_(_setf, symbol)) if setfp else
+                                      ("function",      "function_pyname",      symbol))
+                setattr(symbol, slot, function_pyname)
                 # dprintf("   c-t %%U-S-G-F-P %s FUN: %s  - %s, %s %s",
                 #               "G" if gfunp else "l", symbol_name, function_pyname, symbol.function, symbol.macro_function)
                 if gfunp:
-                        # dprintf("FOP-M-S-A gfun %s, definedp: %s", symbol, symbol.function or symbol.macro_function)
-                        frost.setf_global((symbol_function(symbol)
-                                           if symbol.function or symbol.macro_function else
-                                           ## It is a valid situation, when the function is not defined at
+                        # dprintf("FOP-M-S-A symbol %s, fslot %s, value %s, pyname %s",
+                        #         symbol, fslot, (getattr(symbol, fslot)
+                        #                         or (symbol.macro_function and not setfp)
+                        #                         or (lambda *_, **__: undefined_function(symbol))), function_pyname)
+                        frost.setf_global((getattr(symbol, fslot)
+                                           or (symbol.macro_function and not setfp)
+                                           ## It is NOT a valid situation, when the function is not defined at
                                            ## the beginning of load-time for a given compilation unit.
                                            ## Unregistered Issue ABSURD-NOT-YET-DEFINED-FUNCTION-WITHIN-COMPILATION-UNIT
                                            or make_undefined_function_stub(symbol)),
@@ -7783,10 +7821,10 @@ def fop_make_symbol_available(globals, package_name, symbol_name,
                 symbol.symbol_pyname = symbol_pyname
                 frost.setf_global(symbol, symbol_pyname, globals)
 
-def fop_make_symbols_available(globals, package_names, symbol_names,
+def fop_make_symbols_available(globals, package_names, symbol_names, setfps,
                                 function_pynames, symbol_pynames,
                                 gfunps, gvarps):
-        for fop_msa_args in zip(package_names, symbol_names,
+        for fop_msa_args in zip(package_names, symbol_names, setfps,
                                 function_pynames, symbol_pynames,
                                 gfunps, gvarps):
                 fop_make_symbol_available(globals, *fop_msa_args)
@@ -7826,7 +7864,8 @@ def DEFMACRO(name, lambda_list, *body):
                    l(_function, l_(_lambda, lambda_list, consify_linear(body))),
                    l("decorators", ir_cl_call("set_macro_definition", ir_apply("globals"),
                                                l(_quote, name),
-                                               l(_quote, l_(_lambda, lambda_list, consify_linear(body))))),
+                                               l(_quote, l_(_lambda, lambda_list, l(gensym("FAKE-BODY")) # consify_linear(body)
+                                                            )))),
                    ["globalp", t],
                    ["name", name]))
 
@@ -8511,7 +8550,7 @@ class compiler_lambda():
         def __init__(self, name, lambda_list):
                 total, args, forms, keysp, aokp = ir_parse_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 check_no_locally_rebound_constants(total)
-                self.name, self.lambda_list = the(symbol_t, name), the(list_t, lambda_list)
+                self.name, self.lambda_list = the((or_t, symbol_t, cons_t), name), the(list_t, lambda_list)
                 (self.whole, self.fixed, self.optional, self.rest, self.keys, self.aux), \
                     (self.optdefs, self.keydefs, self.auxforms), \
                     self.aokp, self.keysp = args, forms, aokp, keysp
@@ -8693,14 +8732,15 @@ def lower_lambda(lexenv, clambda, lam, body, name = nil, decorators = nil, self_
         fnname_tn = function_tn(name, globalp = globalp) if name else None
         ## Things, that are needed:
         ##  - CLAMBDA passing
+        pyfname = pythonise_function_name(name)
         varframe, funcframe = ((dict((b, variable_binding(b, _variable, None))
                                      for b in clambda.total),
-                                dict([(name, self_binding)] if self_binding else []))
+                                dict([(pyfname, self_binding)] if self_binding else []))
                                if not function_namespace else
                                (dict(),
                                 dictappend(dict((b, function_binding(b, _function, None))
                                                 for b in clambda.total),
-                                           dict([(name, self_binding)] if self_binding else []))))
+                                           dict([(pyfname, self_binding)] if self_binding else []))))
         fn_lexenv = make_lexenv(lexenv, clambda = clambda, allocate_tns = t,
                                 name_varframe  = varframe,
                                 name_funcframe = funcframe)
@@ -8710,10 +8750,11 @@ def lower_lambda(lexenv, clambda, lam, body, name = nil, decorators = nil, self_
                 nonlocal_decl = ([ p.nonlocal_(*(variable_tn(x)
                                                  for x in sorted(clambda.nonlocal_setqs, key = symbol_name) )) ]
                                  if clambda.nonlocal_setqs else [])
+                # dprintf("emitting LAMBDA primitive, name: %s, pyfname: %s, fnname_tn: %s", name, pyfname, fnname_tn)
                 return p.lambda_(lower_lambda_list(fn_lexenv, fixed, optional, [None] * len(optional), rest or None, [], []),
                                  p.progn(*nonlocal_decl
                                          + primitivised_body),
-                                 name = fnname_tn, id = symbol_name(name) if name else nil,
+                                 name = fnname_tn, id = pp_consly(name) if name else nil,
                                  decorators = xmap_to_vector(primitivise, decorators))
 
 @defknown((_binder, _flet,
@@ -9169,7 +9210,9 @@ class let(known):
 @defknown((_binder, _function,
            (_function, " ", (_or,
                              (_lambda, (_funcher, _lambda)),
-                             (_form, (_for_matchers_xform, identity, macroexpander, rewriter))))))
+                             (_satisfies, namep),
+                             (_satisfies, pyref_p),
+                             (_setf, (_satisfies, namep))))))
 class function(known):
         def binder(exp, further, name = nil, decorators = nil, globalp = nil):
                 form = form_real(exp)
@@ -9219,7 +9262,7 @@ class function(known):
                                             name = name, decorators = decorators,
                                             globalp = globalp,
                                             self_binding = function_binding(name, _function, fn(name, lambda_list)))
-                lexical_binding, lexenv = symbol_value(_lexenv_).lookup_func(the(symbol_t, x))
+                lexical_binding, lexenv = symbol_value(_lexenv_).lookup_func(x)
                 if not lexical_binding:
                         ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
                         if not find_global_function(x):
@@ -9918,20 +9961,23 @@ def compilation_unit_prologue(funs, syms, gfuns, gvars):
                 def wrap(x):
                         return defaulted(x, consify_star(_ref, (_quote, ("None",))))
                 with progv(compiler_debugless_traceless_frame):
-                 symbols = sorted(funs | syms, key = str)
+                 names = sorted(funs | syms, key = lambda x: str(x if isinstance(x, symbol_t) else x[1]))
+                 names = [ (pythonised_function_name_symbol(x), x, isinstance(x, tuple)) for x in names]
                  prologue = l(_progn,
                               ir_cl_call(
                               "fop_make_symbols_available",
                               ir_apply("globals"),
-                              ir_literal_pylist(tuple( package_name(symbol_package(sym))
-                                                       if symbol_package(sym) else
-                                                       l(_ref, l(_quote, l("None")))
-                                                       for sym in symbols )),
-                              ir_literal_pylist(tuple( symbol_name(sym)          for sym in symbols )),
-                              ir_literal_pylist(tuple( wrap(sym.function_pyname) for sym in symbols )),
-                              ir_literal_pylist(tuple( wrap(sym.symbol_pyname)   for sym in symbols )),
-                              ir_literal_pylist(tuple( sym in gfuns              for sym in symbols )),
-                              ir_literal_pylist(tuple( sym in gvars              for sym in symbols ))))
+                              ir_literal_pylist(( package_name(symbol_package(sym))
+                                                  if symbol_package(sym) else
+                                                  l(_ref, l(_quote, l("None")))
+                                                  for sym, x, _ in names )),
+                              ir_literal_pylist(( symbol_name(sym)          for sym, x, _     in names )),
+                              ir_literal_pylist(( setfp                     for _, __, setfp  in names )),
+                              ir_literal_pylist(( wrap(sym.setf_function_pyname if setfp else
+                                                       sym.function_pyname) for sym, x, setfp in names )),
+                              ir_literal_pylist(( wrap(sym.symbol_pyname)   for sym, x, _     in names )),
+                              ir_literal_pylist((   x in gfuns              for sym, x, _     in names )),
+                              ir_literal_pylist(( sym in gvars              for sym, x, _     in names ))))
                  # dprintf("prologue:\n%s", pp_consly(prologue))
                  return lower(prologue,
                               ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
