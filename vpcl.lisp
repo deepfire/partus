@@ -132,3 +132,6 @@
 
 (defmacro declaim (&body declamations)
   (emit-entity-ignorator "declamations" declamations))
+
+(defmacro declare (&rest declarations)
+  (emit-entity-ignorator "declaration" declarations))
