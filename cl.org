@@ -188,6 +188,14 @@
 ********* IR-BINDS ignores declarations
 *** Possibilities
 ***** If only we could manage a proper walking/evaluation order in LOWER, we would be able to factor lexenv maintenance.
+***** CLHS explicit extension permissions
+******* 5.1.1 Overview of Places and Generalized Reference
+
+#+begin_quote
+The concept of binding a place is not defined in Common Lisp, but an implementation is
+permitted to extend the language by defining this concept.
+#+end_quote
+
 *** Tentativities
 ***** Multiple values -- as a rewrite stage
 ***** Liveness analysis and correspondent rewrites -- as the last rewrite
