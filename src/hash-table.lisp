@@ -22,11 +22,11 @@
 (defun hash-table-test (x)
   (not-implemented 'hash-table-test))
 
-(defun gethash (key hash-table)
+(defun gethash (key hash-table &optional default-value)
   ;; Unregistered Issue COMPLIANCE-GETHASH-VALUES-MULTIPLE
   (if (primitive '("in_") key hash-table)
       (primitive '("index") hash-table key)
-      nil))
+      default-value))
 
 (defun (setf gethash) (value key hash-table)
   (puthash value key hash-table))
