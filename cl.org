@@ -186,6 +186,15 @@
 ******* LAMBDA is not a macro
 ******* Declarations
 ********* IR-BINDS ignores declarations
+***** LLVM
+******* Types
+********* Tags for untyped stuff
+******* TN generation
+******* PHI node computation
+******* Basic blocks
+******* Varargs
+******* Closures
+******* GC
 *** Possibilities
 ***** If only we could manage a proper walking/evaluation order in LOWER, we would be able to factor lexenv maintenance.
 ***** CLHS explicit extension permissions
