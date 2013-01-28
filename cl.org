@@ -192,12 +192,7 @@
 *********** Live range splitting
 ************* Proper CFG construction
 *************** Basic block generation
-*************** Lowering
-***************** Constants
-***************** Closures
-***************** Varargs
-*************** Types
-***************** Tags for untyped stuff
+***************** Initial TN generation
 ************* Terminology
               - def-use chains :: Data structures that provide for the single definition of a
                                   variable the set of all its uses
@@ -253,6 +248,10 @@
               - dominance frontier over set S, DF(S) :: union of DF(s): s in S
               - iterated dominance frontier, DF+(S) :: transitive closure of DF(S)
 ********* Variable renaming
+******* Types
+********* Tags for untyped stuff
+******* Varargs
+******* Closures
 ******* GC
 *** Possibilities
 ***** If only we could manage a proper walking/evaluation order in LOWER, we would be able to factor lexenv maintenance.
