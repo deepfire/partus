@@ -379,29 +379,14 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                 #                          " ".join(str(x) for x in args),
                 #                          "\n".join(str(x) for x in spills))
                 return r
-        def options_spills(spec, arg, force_spill = nil):
-                for option in spec:
-                        try:
-                                return process(option, arg, force_spill = force_spill)
-                        except primitive_mismatch as _:
-                                pass
-                raise primitive_mismatch("no option matched",
-                                         prim = primitive, pspec = primitive.form_specifier, spec = spec, form = arg)
-        def map_spills(spec, arg, force_spill = nil):
-                for result, option in spec:
-                        if typep(arg, option):
-                                return process(result, arg, force_spill = force_spill)
-                raise primitive_mismatch("no option matched",
-                                         prim = primitive, pspec = primitive.form_specifier, spec = spec, form = arg)
         def type_check(spec, arg, force_spill = nil):
                 check_prim_type(arg, spec)
                 return ([],
                         arg)
         processors = { tuple: tuple_spills,
                        list:  lambda misspec, *_, **__: error("List type specifier (%s), outside of appropriate context.",
-                                                              misspec),
-                       set:   options_spills,
-                       dict:  map_spills }
+                                                              misspec)
+                       }
         def process(spec, arg, force_spill = nil):
                 if spec in (expr_spill, maybe_expr_spill):
                         maybe = spec is maybe_expr_spill
