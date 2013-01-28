@@ -5920,10 +5920,13 @@ def ast_keyword(arg:   string_t,
 def ast_alias(name:    string_t,
                asname: (maybe_t, string_t) = None): ...
 
-if neutrality.py3minor_atleast(3):
-        import ast_since33
-else:
-        import ast_until33
+def import_rest_of_ast():
+        if neutrality.py3minor_atleast(3):
+                import ast_since33
+        else:
+                import ast_until33
+
+without_condition_system(import_rest_of_ast)
 
 # Validation: %AST-VALIDATE
 
