@@ -322,7 +322,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                                  prim = primitive, pspec = primitive.form_specifier,
                                                  spec = type, form = arg)
         ###
-        def tuple_spills(spec, args, force_spill = nil, strict_segment = nil):
+        def tuple_spills(spec, args, force_spill = nil):
                 # if isinstance(primitive, defun):
                 #         dprintf("DEFUN args: %s", primitive.args)
                 specialp = spec and spec[0] in [maybe]
@@ -332,7 +332,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                         return [], None
                                 return process(spec[1], args, force_spill = force_spill)
                 segmentp = spec and isinstance(spec[-1], list)
-                check_prim_type(args, list if segmentp and strict_segment else (or_t, tuple, list))
+                check_prim_type(args, (or_t, tuple, list))
                 nspec, nargs = len(spec), len(args)
                 if not (segmentp and nargs >= (nspec - 1)
                         or nspec is nargs):
@@ -427,7 +427,7 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
         if isinstance(primitive, nospill):
                 return primitive
         # unspilled = str(primitive)
-        spills, primitive.args  = tuple_spills(primitive.form_specifier, primitive.args, strict_segment = nil)
+        spills, primitive.args  = tuple_spills(primitive.form_specifier, primitive.args)
         if spills:
                 spilled = progn(*spills + [primitive])
         #         dprintf("\nspilled:\n%s\n     ------>\n%s\n", unspilled, spilled)
