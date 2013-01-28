@@ -187,13 +187,72 @@
 ******* Declarations
 ********* IR-BINDS ignores declarations
 ***** LLVM
-******* Types
-********* Tags for untyped stuff
-******* TN generation
-******* PHI node computation
-******* Basic blocks
-******* Varargs
-******* Closures
+******* SSA conversion
+********* φ-function insertion
+*********** Live range splitting
+************* Proper CFG construction
+*************** Basic block generation
+*************** Lowering
+***************** Constants
+***************** Closures
+***************** Varargs
+*************** Types
+***************** Tags for untyped stuff
+************* Terminology
+              - def-use chains :: Data structures that provide for the single definition of a
+                                  variable the set of all its uses
+              - use-def chain :: Consists of a single name, in turn, uniquely specifies the
+                                 definition that reaches the use
+              - definition reach :: A definition D of variable v reaches a point p in the CFG
+                   if there exists a path from D to p that does not pass through another
+                   definition of v
+              - single reaching-definition property :: (SBCD 2.3) No program point can be
+                   reached by two definitions of the same variable
+              - minimality property :: minimality of the number of inserted φ-functions (under
+                   SRDP, see above)
+              - join node :: Let *n1* and *n2* be distinct basic blocks in a CFG. A basic block
+                             *n3*, which may or may not be distinct from *n1* or *n2*, is a
+                             join node of *n1* and *n2* if there exist at least two non-empty
+                             paths, i.e., paths containing at least one CFG edge, from *n1* to
+                             *n3* and from *n2* to *n3*, respectively, such that *n3* is the
+                             only basic block that occurs on both of the paths. In other words,
+                             the two paths converge at *n3* and no other CFG node.
+              - join set :: For a given set of nodes S in a CFG, the join set J(S) is the set
+                            of join nodes of S, i.e. nodes in the CFG that can be reached by
+                            two (or more) distinct elements of S using disjoint
+                            paths. Intuitively, a join set corresponds to the placement of
+                            φ-functions.  In other words, if *n1* and *n2* are basic blocks
+                            that both contain the definition of a variable *v*, then we ought
+                            to instantiate φ-functions for *v* at every basic block in J(*n1*,
+                            *n2*).  Generalizing this statement, if *Dv* is the set of basic
+                            blocks containing definitions of *v*, then φ-functions should be
+                            instantiated in every basic block in *J(Dv)*.  As inserted
+                            φ-functions are themselves definition points, some new φ-functions
+                            should be inserted at *J(Dv ∪ J(Dv))*.  Actually it turns out that
+                            *J(S ∪ J(S))* = *J(S)*, so the join set of the set of definition
+                            points of a variable in the original program characterizes exactly
+                            the minimum set of program points where φ-functions should be
+                            inserted.
+              - procedure strictness :: A procedure is defined to be *strict* if every variable
+                   is defined before it is used along every path from the entry to exit point;
+                   otherwise, it is *non-strict*.
+              - block dominance :: In a CFG, basic block *n1* dominates basic block *n2* if
+                   every path in the CFG from the entry point to *n2* includes *n1*.  Basic
+                   block *n1* strictly dominates *n2* if *n1* dominates *n2* and *n1* != *n2*.
+              - immediate dominator :: The immediate dominator (or idom) of a node *n* is the
+                   unique node that strictly dominates *n* but does not strictly dominate any
+                   other node that strictly dominates *n*. All nodes but the entry node have
+                   immediate dominators.
+              - dominator tree :: A tree where each node’s children are those nodes it
+                                  immediately dominates.
+              - dominance frontier :: The dominance frontier of a node *n*, *DF(n)*, is the
+                   border of the CFG region that is dominated by *n*.  More formally,
+                - node *a* strictly dominates node *b* if a dominates *b* and *a* != *b*
+                - the set of nodes *DF(a)* contains all nodes *n* such that *a* dominates a
+                  predecessor of *n* but *a* does not strictly dominate *n*.
+              - dominance frontier over set S, DF(S) :: union of DF(s): s in S
+              - iterated dominance frontier, DF+(S) :: transitive closure of DF(S)
+********* Variable renaming
 ******* GC
 *** Possibilities
 ***** If only we could manage a proper walking/evaluation order in LOWER, we would be able to factor lexenv maintenance.
