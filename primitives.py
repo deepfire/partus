@@ -667,11 +667,13 @@ class literal_list(literal):
                               reversed(xs + (help_nil(),)))
 
 @defprim(intern("LITERAL-HASH-TABLE-EXPR")[0],
-         ([(expr_spill, expr_spill)],))
+         ([expr_spill],))
 ## Unregistered Issue EXTREME-NICETY-OF-AUTOMATIC-RECLASSIFICATION-TO-A-NARROWER-TYPE
 class literal_hash_table_expr(expr):
-        def help(*kvs):
-                keys, vals = zip(*kvs)
+        def help(*ksvs):
+                if len(ksvs) % 2:
+                        error("In LITERAL-HASH-TABLE-EXPR: odd number of arguments: %s", pp_consly(ksvs))
+                keys, vals = ksvs[0::2], ksvs[1::2]
                 return ast.Dict(help_exprs(keys), help_exprs(vals))
 
 ###
@@ -845,7 +847,7 @@ class progv(body):
         def help(vars, vals, body):
                 tn = genname("VALUE")
                 return [ ast.With(help_expr(funcall(impl_ref("progv"),
-                                                    literal_hash_table_expr(*zip(vars, vals)))),
+                                                    literal_hash_table_expr(*reduce(operator.add, zip(vars, vals))))),
                                   None,
                                   help(assign(tn, body))[0])
                          ], help_expr(tn)
