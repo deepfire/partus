@@ -437,50 +437,49 @@ def simplify_progns(children: [prim]) -> (prim, bool):
         efful.append(flattened[-1])
         return efful, len(efful) is 1
 
-###
-### (current) (not so very) grand scheme of things
-###
-## 1. Init-time:
-##  - calculation of spills for determinates
-##  - indeterminates dispatch to strategies
-## 2. Help-time
-##  - lowering
-## ... ?
-
-### Core TODO
-##
-# ? M-V-CALL
-# ? M-V-PROG1
-# ? NTH-VALUE
-# ?? TAGBODY, GO
-# Later: PROGV
-##
-
 ## Registry:
-## - NAME
-## - ASSIGN
-## - ATTR, CONST-ATTR, VAR-ATTR
-## - INDEX, SLICE, PYLIST
-## - STRING, INTEGER, FLOAT-NUM, LITERAL-LIST, LITERAL-HASH-TABLE-EXPR
-## - LAMBDA, DEFUN, LAMBDA-EXPR
-## - LET, LET-EXPR, LET-THUNK
-## - LET*, LET*-SETQ, LET*-EXPR, LET*-STMT
-## - PROGV
-## - FLET, FLET-EXPR, FLET-STMT
-## - LABELS
-## - PROGN
-## - IF, IF-EXPR, IF-STMT
-## - FUNCALL, APPLY
-## - UNWIND-PROTECT
-## - LOOP
-## - RESIGNAL
-## - SPECIAL-{REF,SETQ}
-## - IMPL-REF, BUILTIN-REF
-## - CONS, CAR, CDR, RPLACA, RPLACD
-## - AND, OR
-## - +, -, *, /, MOD, POW, <<, >>, LOGIOR, LOGXOR, LOGAND, FLOOR
-## - NOT, LOTNOT
-## - EQ, NEQ, EQUAL, NOT-EQUAL, <, <=, >, >=, IN, NOT-IN
+# STRING
+# NAME
+# ASSIGN
+# ATTR    -- CONST_ATTR VAR_ATTR
+# INDEX SLICE
+# PYLIST PYTUPLE PYSET
+# RETURN_
+# GLOBAL_ NONLOCAL_
+# IMPORT_
+# RAW     -- RAW_EXPR RAW_STMT
+# INTEGER FLOAT_NUM
+# SYMBOL
+# LITERAL_LIST
+# LITERAL_HASH_TABLE_EXPR
+# LAMBDA_ -- DEFUN LAMBDA_EXPR
+# LET     -- LET_EXPR LET_THUNK
+# LET_    -- LET__SETQ LET__EXPR LET__STMT
+# PROGV
+# DELETE
+# PROGN   -- PROGN_STMT
+# IF_     -- IF_EXPR IF_STMT
+# FUNCALL
+# APPLY
+# UNWIND_PROTECT
+# LOOP
+# ASSERT_
+# RESIGNAL
+# CATCH THROW
+# SPECIAL_REF SPECIAL_SETQ
+# IMPL_REF BLIN_REF
+# CONS CAR CDR RPLACA RPLACD
+# AND_ OR_
+# ADD SUBTRACT MULTIPLY DIVIDE MOD EXPT
+# LSHIFT RSHIFT LOGIOR LOGXOR LOGAND
+# FLOOR
+# NOT_
+# LOGNOT
+# EQ NEQ EQUAL NEQUAL LTHAN LOREQUAL GTHAN GOREQUAL
+# IN_ NOT_IN
+## Too high-level?
+# GENERATOR
+# FILTERMAP -- FILTERMAP_EXPR FILTERMAP_PRIM
 
 ###
 ### Spycials
@@ -489,6 +488,7 @@ def simplify_progns(children: [prim]) -> (prim, bool):
          (string_t,))
 class string(literal):
         def help(name): return ast.Str(name)
+
 
 @defprim(intern("NAME")[0],
          (string_t,))
