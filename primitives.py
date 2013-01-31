@@ -92,6 +92,8 @@ class primclass(type):
                 self.methods         = collections.defaultdict(set) ## tag -> { method }
                 ## An ordered list of explicitly guarded methods.
                 self.help_strategies = list()
+        def __instancecheck__(cls, x):
+                return issubclass(type(x), cls) or (cls == maybe_expr_spill and x is nil)
 
 def print_primitive(x):
         return ('"%s"' % x                                             if     isinstance(x, str)      else
