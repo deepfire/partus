@@ -317,6 +317,9 @@ class primitive_mismatch(error_t):
                      self.spec,
                      self.mesg)
 
+## The identity for below is:
+#
+#  p.map_primitives(lambda f, x: type(x)(*f(x)), prim)
 def map_primitives(fn, p):
         def rec_tuple(xs, spec):
                 if spec and spec[0] in [maybe]:
