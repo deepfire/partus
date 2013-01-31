@@ -317,22 +317,46 @@ class primitive_mismatch(error_t):
                      self.spec,
                      self.mesg)
 
-def prim_check_and_spill(primitive) -> (prim, list(dict())):
-        def check_prim_type(arg, type):
+def map_primitives(fn, p):
+        def rec_tuple(xs, spec):
+                if spec and spec[0] in [maybe]:
+                        return xs if xs is None else rec(xs, spec[1])
+                segmentp = spec and isinstance(spec[-1], list)
+                check_type(xs, (or_t, tuple, list))
+                nspec, nxs = len(spec), len(xs)
+                if not (segmentp and nxs >= (nspec - 1)
+                        or nspec is nxs):
+                        error("Invalid primitive %s: subform %s has %d elements, but %s was/were expected.",
+                              primitive, xs, nxs,
+                              ("at least %s" % (nspec - 1)) if segmentp else
+                              ("exactly %d" % nspec))
+                a_fixed, a_segment, s_spec = ((xs[:nspec - 1], xs[nspec - 1:], spec[-1][0]) if segmentp else
+                                              (xs,             [],             None))
+                f_spec = spec[:-1] if segmentp else spec
+                return (tuple(rec(x, s)
+                                 for x, s in zip(a_fixed, f_spec)) +
+                        tuple(rec(x, s_spec)
+                              for x in a_segment))
+        def rec(x, spec = None):
+                return (fn(lambda x: rec_tuple(x.args, x.form_specifier), x) if isinstance(x, prim)     else
+                        rec_tuple(x, spec)                                   if isinstance(spec, tuple) else
+                        the(spec, x))
+        ret = rec(p)
+        return ret
+
+def prim_check_and_spill(primitive) -> prim:
+        def check_prim_type(arg, type) -> bool:
                 if not typep(arg, type):
                         raise primitive_mismatch("type mismatch",
                                                  prim = primitive, pspec = primitive.form_specifier,
                                                  spec = type, form = arg)
-        ###
-        def tuple_spills(spec, args, force_spill = nil):
-                # if isinstance(primitive, defun):
-                #         dprintf("DEFUN args: %s", primitive.args)
+        def tuple_spills(spec, args, force_spill) -> ([stmt], [expr]):
                 specialp = spec and spec[0] in [maybe]
                 if specialp:
                         if spec[0] is maybe:
                                 if args is None:
                                         return [], None
-                                return process(spec[1], args, force_spill = force_spill)
+                                return process(spec[1], args, force_spill)
                 segmentp = spec and isinstance(spec[-1], list)
                 check_prim_type(args, (or_t, tuple, list))
                 nspec, nargs = len(spec), len(args)
@@ -344,18 +368,13 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                               ("exactly %d" % nspec))
                 a_fixed, a_segment, s_spec = ((args[:nspec - 1], args[nspec - 1:], spec[-1][0]) if segmentp else
                                               (args,             [],               None))
-                # isinstance(primitive, defun) and dprintf("tuple %s, spec %s,  af %s, as %s",
-                #                                                   args, spec, a_fixed, a_segment)
                 def expr_tuple_spill_partition(spec, args):
                         pre_spills = []
                         for s, a in zip(spec, a_fixed):
-                                pre_spills.append(process(s,      a, force_spill = force_spill))
+                                pre_spills.append(process(s,      a, force_spill))
                         for a in a_segment:
-                                pre_spills.append(process(s_spec, a, force_spill = force_spill))
-                        # isinstance(primitive, defun) and dprintf("presp %s",
-                        #                                                   pre_spills)
+                                pre_spills.append(process(s_spec, a, force_spill))
                         ## only allowable spills will land here
-                        # dprintf("pre-spills of %s: %s", primitive, pre_spills)
                         last_spilled_posns = [ i
                                                for i, x in reversed(list(enumerate(pre_spills)))
                                                if x[0] ]
@@ -369,57 +388,40 @@ def prim_check_and_spill(primitive) -> (prim, list(dict())):
                                            spec[:n_spilled]), unspilled
                 for_spill_as, for_spill_ss, unspilled = expr_tuple_spill_partition(spec, args)
                 ## Re-collecting spills, while forcing spill for unspilled spillables.
-                spills, forms = [], []
+                spills, subforms = [], []
                 for s, a in zip(for_spill_ss, for_spill_as):
-                        spill, form = process(s, a, force_spill = for_spill_as)
+                        spill, subform = process(s, a, for_spill_as)
                         spills.extend(spill)
-                        forms.append(form)
-                r = (spills,
-                     tuple(forms) + tuple(unspilled))
-                # if spills:
-                #         dprintf("spilled tuple %s, into:\n%s",
-                #                          " ".join(str(x) for x in args),
-                #                          "\n".join(str(x) for x in spills))
-                return r
-        def type_check(spec, arg, force_spill = nil):
+                        subforms.append(subform)
+                return (spills,
+                        tuple(subforms) + tuple(unspilled))
+        def maybe_spill(spec, arg, force_spill) -> ([stmt], prim):
+                maybep = spec is maybe_expr_spill
+                check_prim_type(arg, ((or_t, (eql_t, nil), expr, stmt) if maybep else
+                                      (or_t, expr, stmt)))
+                # Debug this: if (isinstance(arg, expr) and (not force_spill or (maybep and arg is nil))):
+                ## Spill, iff any of the conditions hold:
+                if (maybep and arg is nil
+                    or not (force_spill
+                            or isinstance(arg, stmt))):
+                        return ([],
+                                arg)
+                tn = genname("EXP") ## Temporary Name.
+                return ([ assign(tn, arg) ],
+                        tn)
+        def type_check(spec, arg, force_spill) -> ([stmt], t):
                 check_prim_type(arg, spec)
                 return ([],
                         arg)
-        processors = { tuple: tuple_spills,
-                       list:  lambda misspec, *_, **__: error("List type specifier (%s), outside of appropriate context.",
-                                                              misspec)
-                       }
-        def process(spec, arg, force_spill = nil):
-                if spec in (expr_spill, maybe_expr_spill):
-                        maybe = spec is maybe_expr_spill
-                        check_prim_type(arg, ((or_t, (eql_t, nil), expr, stmt) if maybe else
-                                              (or_t, expr, stmt)))
-                        ## Spill, iff any of the conditions hold:
-                        if (maybe and arg is nil                # - no spilling for an optional, non-provided prim arg
-                            or not (force_spill                 # - spilling is required
-                                    or isinstance(arg, stmt))): # - the argument is not an expression
-                                return ([],
-                                        arg)
-                        tn = genname("EXP") ## Temporary Name.
-                        spill = [ assign(tn, arg) ]
-                        # if spill:
-                        #         dprintf("process spills for %s, to:\n%s\n due to:"
-                        #                          "\n  forc %s" "\n  stmt %s" "\n  aspi %s",
-                        #                          arg,
-                        #                          ", ".join(str(x) for x in spill),
-                        #                          force_spill, isinstance(arg, stmt), spill)
-                        return (spill,
-                                tn)
-                return processors.get(type(spec), type_check)(spec, arg, force_spill = force_spill)
+        def process(spec, arg, force_spill) -> ([stmt], (or_t, prim, [expr])):
+                isinstance(spec, list) and error("List type specifier (%s), outside of appropriate context.", spec)
+                return (maybe_spill  if spec in (expr_spill, maybe_expr_spill) else
+                        tuple_spills if isinstance(spec, tuple)                else
+                        type_check)(spec, arg, force_spill)
         if isinstance(primitive, nospill):
                 return primitive
-        # unspilled = str(primitive)
-        spills, primitive.args  = tuple_spills(primitive.form_specifier, primitive.args)
-        if spills:
-                spilled = progn(*spills + [primitive])
-        #         dprintf("\nspilled:\n%s\n     ------>\n%s\n", unspilled, spilled)
-        #         sys.exit()
-        return (spilled if spills else
+        spills, primitive.args  = tuple_spills(primitive.form_specifier, primitive.args, nil)
+        return (progn(*spills + [primitive]) if spills else
                 primitive)
 
 def simplify_progns(children: [prim]) -> (prim, bool):
