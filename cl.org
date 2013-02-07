@@ -532,13 +532,24 @@ def defaulted_keys(**keys):
         return dict((key, (default if value is None else value))
                     for key, (value, default) in keys.items())
 
+def validate_function_args(desc, f, args):
+        argspec = inspect.getfullargspec(f)
+        nfixed    = len(argspec.args)
+        nrequired = nfixed - (len(argspec.defaults) if argspec.defaults else 0)
+        if len(args) < nrequired:
+                error("Not enough arguments for %s %s: at least %d are required, but %d were provided -- the argspec is %s, the args were %s.",
+                      desc, f, nrequired, len(args), argspec, args)
+        if len(args) > nfixed and not argspec.varargs:
+                error("Too many arguments for %s %s: at most %d are accepted, but %d were provided -- the argspec is %s, the args were %s.",
+                      desc, f, nfixed, len(args), argspec, args)
+
 def validate_function_keys(desc, f, keys):
         argspec = inspect.getfullargspec(f)
         invalid = (nil if argspec.varkw else
                    (set(keys.keys()) - set(argspec.args) - set(argspec.kwonlyargs)))
         if invalid:
-                error("Invalid arguments for %s: %s does not expect keyword arguments %s -- the argspec is %s.",
-                      desc, f, ", ".join("'%s'" % x for x in invalid), argspec)
+                error("Invalid arguments for %s: %s does not expect keyword arguments %s -- the argspec is %s, the keys were %s.",
+                      desc, f, ", ".join("'%s'" % x for x in invalid), argspec, keys)
 #+end_src
 
 ******* Boot messaging
@@ -8960,13 +8971,9 @@ def rewrite_1(preform) -> "(Bool ({} Form Bool))":
                 error("Unknown form encountered at rewrite stage: %s, form[0]: %s/%x", pp_consly(form), form[0], id(form[0]))
         ## 4. Check known parameter/argument count correspondence.
         rewrite_method = known.rewrite
-        validate_function_keys(form[0], rewrite_method, keys)
-        argspec = inspect.getfullargspec(rewrite_method)
         args = vectorise_linear(form[1])
-        fixed_args_nr = len(argspec.args) - (len(argspec.defaults) if argspec.defaults else 0)
-        if not argspec.varargs and len(args) != fixed_args_nr - 1:
-                error("Invalid form: %s -- %d arguments provided, but %s.REWRITE expects exactly %d.",
-                      pp_consly(form), len(args), known.__name__.upper(), fixed_args_nr)
+        validate_function_keys(form[0], rewrite_method, keys)
+        validate_function_args(form[0], rewrite_method, [form] + args)
         ## 5. Invoke the rewrite method.
         ret = _, r = rewrite_method(form, *args, **keys)
         if (symbol_value(_compiler_trace_subrewriting_)
