@@ -11558,6 +11558,10 @@ def run_tests_compiler():
                                                     l(_defvar, _car, nil),
                                                     l(_setq, _car, 42),
                                                     _car),                                  42)
+        evaltest("SPILL-SETQ",                    l(_progn,
+                                                    l(_defvar, _car, nil),
+                                                    l(_setq, _car, l(_setq, _car, 42)),
+                                                    _car),                                  42)
         evaltest("SETQ-COMPLEX/REF/APPLY-SIMPLE", l(_progn,
                                                     l(_defvar, _car, nil),
                                                     l(_defvar, _cdr, nil),
