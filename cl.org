@@ -6869,11 +6869,14 @@ class matcher():
                         nonlocal b0, fx0, fp0
                         b0, fx0, fp0 = l0()
                         if fp0 is None: return fx0
+                        return Fail
                 def try_R():
                         nonlocal bR, fxR, fpR
                         bR, fxR, fpR = lR(b0)
                         if fpR is None: return fxR
+                        return Fail
                 result = combine(try_0, try_R, originalp)
+                # result = None if result is Fail else result
                 return (m.succ(bR, result)      if fp0 is None and fpR is None else
                         m.fail(*((b0, fx0, fp0) if fp0 is not None             else
                                  (bR, fxR, fpR))))
@@ -7299,12 +7302,19 @@ def form_real(x):
         return (x if not (consp(x) and x[0] is _ir_args) else
                 x[1][0])
 
-def combine_t_or_None(f0, fR, originalp):
+class Fail_t():
+        def __str__(_):  return "<Fail>"
+        def __repr__(_): return "<Fail>"
+        def __bool__(_): return False
+Fail = Fail_t()
+# Fail = None
+
+def combine_t_or_Fail(f0, fR, originalp):
         f0r = f0()
-        if f0r is not None:
-                fRr = fR()
-                if fRr is not None:
-                        return t
+        if f0r is Fail: return Fail
+        fRr = fR()
+        if fRr is Fail: return Fail
+        return t
 
 def combine_pp(f0, fR, originalp, consdotp):
         def orig_tuple_comb(body):
@@ -7313,10 +7323,10 @@ def combine_pp(f0, fR, originalp, consdotp):
                 with progv({ _pp_base_depth_: new_base,
                              _pp_depth_     : new_base }):
                         ret = body(new_base)
-                        return None if ret is None else ("\x28" + ret + "\x29")
+                        return Fail if ret is Fail else ("\x28" + ret + "\x29")
         def body(base):
                 f0r = f0()
-                if f0r is None: return
+                if f0r is Fail: return Fail
                 insertion = (" . " if consdotp else "")
                 lines = f0r.split("\n")
                 new_depth = ((base + len(f0r)) if len(lines) is 1 else len(lines[-1])) + len(insertion)
@@ -7325,24 +7335,23 @@ def combine_pp(f0, fR, originalp, consdotp):
                 #         new_depth, base, len(f0r.split("\n")[-1]), len(insertion))
                 with progv({ _pp_depth_: new_depth }):
                         fRr = fR()
-                        if fRr is None: return
-                        return f0r + insertion + fRr
+                        return Fail if fRr is Fail else f0r + insertion + fRr
         return (orig_tuple_comb if originalp else
                 lambda f: f(pp_depth()))(body)
 
 def combine_cons(f0, fR, originalp):
         f0r = f0()
-        if f0r is not None:
-                fRr = fR()
-                if fRr is not None:
-                        return [f0r, fRr]
+        if f0r is Fail: return Fail
+        fRr = fR()
+        if fRr is Fail: return Fail
+        return [f0r, fRr]
 
 def combine_append(f0, fR, originalp):
         f0r = f0()
-        if f0r is not None:
-                fRr = fR()
-                if fRr is not None:
-                        return append(f0r, fRr)
+        if f0r is Fail: return Fail
+        fRr = fR()
+        if fRr is Fail: return Fail
+        return append(f0r, fRr)
 
 intern_and_bind("%SATISFIES", "%CONS", "%TYPEP")
 
@@ -7356,11 +7365,11 @@ class metasex_matcher_t(matcher):
         @staticmethod
         def prod(x, originalp):      return t
         @staticmethod
-        def comh(f0, fR, originalp): return combine_t_or_None(f0, fR, originalp)
+        def comh(f0, fR, originalp): return combine_t_or_Fail(f0, fR, originalp)
         @staticmethod
-        def comr(f0, fR, originalp): return combine_t_or_None(f0, fR, originalp)
+        def comr(f0, fR, originalp): return combine_t_or_Fail(f0, fR, originalp)
         @staticmethod
-        def comc(f0, fR, originalp): return combine_t_or_None(f0, fR, originalp)
+        def comc(f0, fR, originalp): return combine_t_or_Fail(f0, fR, originalp)
         def process_formpat_arguments(m, layer, form, pat, continuation = None):
                 ## Handlers are called with the REST of the matched OP form.
                 handlers = { _for_matchers_xform:             (lambda _, *ms:         m in ms,
