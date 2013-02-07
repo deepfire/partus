@@ -186,13 +186,66 @@
 ******* LAMBDA is not a macro
 ******* Declarations
 ********* IR-BINDS ignores declarations
+***** The tag model for immediate values
+
+      Some information could also be encoded in the high bits of address -- i.e. allocate cons
+      cells in a separate pool.  We'd need an allocator to determine possibilities in this area.
+
+      The problem with current encoding is that absent the pointer, the information pointed at
+      becomes unintelligible.  The hell with that?
+
+    Type      6 5 4 3 2 1 0  Wdth Algn Size Dead  Target semantics               Additional notes
+
+    Fixnum    x x x x x 0 0  ---- ---- ---- ----  Immediate integer              Zero LSBs allow transparent operations.
+    Bignum    x x x x x 1 0    3    8   8b+ 0-3   Big integer                    4:...
+
+    Bitvector x x x x 0 0 1    3    8   4b+ 0-3   Bit vector                     4:size...
+    Double    x x x x 1 0 1    3    8   8b        Double float                   8:ieee754-float
+
+    Cons      x x x 0 0 1 1    4   16  16b        Cons cell                      8:car, 8:cdr
+    Struct    x x x 1 0 1 1    4   16  16b+       Structure                      8:type, 8:size+meta...
+
+    Vector    x x 0 0 1 1 1    5   32  16b+ 0-16  Vector                         8:et, 8:dim...
+    String    x x 0 1 1 1 1    5   32   8b+ 0-24  String, regardless of content  8:enc+dim...
+    Symbol    x x 1 0 1 1 1    5   32  16b  16    Symbol descriptor structure    8:pkg, b2:meta, 8-b2:string or inline
+
+    Char      0 0 1 1 1 1 1    7  128   4b  124   Character, 32bit               4:UCS-32
+    Array     1 0 1 1 1 1 1    7  128  16b+ -108  Array                          8:et+arity, 8*arity:dims...
+
+    Instance  0 1 1 1 1 1 1    7  128  ???        Object instance                8:type
+    Code      1 1 1 1 1 1 1    7  128  ???        Funcallable instance           8:type
+
+      Types serviceable as structures, or objects:
+
+       - Hash-table
+       - Readtable
+       - Package
+       - Pathname
+       - Stream
+       - Random-state
+       - Condition
+       - Restart
+
 ***** LLVM
 ******* SSA conversion
 ********* φ-function insertion
 *********** Live range splitting
 ************* Proper CFG construction
-*************** Basic block generation
-***************** Initial TN generation
+*************** Types
+***************** Tags for untyped stuff
+*************** Lowering
+***************** Models for:
+******************* TAGS !!
+******************* Closure
+******************* Array
+******************* Dynamic scope
+******************* Unwind
+******************* Exception
+******************* Cons cell
+***************** APPLY, varargs
+***************** BLOCK/RETURN-FROM for LOOP
+***************** Target-dependend REWRITE
+******************* BLOCK/RETURN-FROM
 ************* Terminology
               - def-use chains :: Data structures that provide for the single definition of a
                                   variable the set of all its uses
@@ -248,11 +301,25 @@
               - dominance frontier over set S, DF(S) :: union of DF(s): s in S
               - iterated dominance frontier, DF+(S) :: transitive closure of DF(S)
 ********* Variable renaming
-******* Types
-********* Tags for untyped stuff
-******* Varargs
-******* Closures
 ******* GC
+******* Abandoned primitives
+********* No chance for CFG, ever
+*********** RAW, RAW-EXPR, RAW-STMT
+*********** For reformulation using above
+************* IMPORT, DELETE, GLOBAL, NONLOCAL
+*********** Backend service stuff
+************* IMPL-REF, BLIN-REF
+************* ATTR, CONST-ATTR, VAR-ATTR
+********* To be done in REWRITE
+*********** AND, OR
+********* LLVM intrinsics
+*********** EXPT
+********* Too high-level
+*********** FILTERMAP, FILTERMAP-EXPR, FILTERMAP-PRIM
+*********** GENERATOR
+*********** EQUAL, NEQUAL
+*********** IN, NOT-IN
+*********** ASSERT
 *** Possibilities
 ***** If only we could manage a proper walking/evaluation order in LOWER, we would be able to factor lexenv maintenance.
 ***** CLHS explicit extension permissions
