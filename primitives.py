@@ -140,6 +140,8 @@ def prim_type_p(x):
 
 def determine(cls, args, keys):
         for name, test, xform_or_keys in cls.help_strategies:
+                validate_function_args("applicability predicate for method %s.%s" % (cls.__name__.upper(), name), test, args)
+                validate_function_keys("applicability predicate for method %s.%s" % (cls.__name__.upper(), name), test, keys)
                 if test(*args, **keys):
                         ## Simplify.
                         xf = (xform_or_keys if not isinstance(xform_or_keys, list) else
