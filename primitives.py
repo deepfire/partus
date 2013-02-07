@@ -186,7 +186,8 @@ class literal(const):
         def value(self):
                 return self.args[0]
 
-class maybe(): pass
+class maybe():     pass
+class satisfies(): pass
 
 ## to consider: no-return
 
@@ -324,8 +325,14 @@ class primitive_mismatch(error_t):
 #  p.map_primitives(lambda f, x: type(x)(*f(x)), prim)
 def map_primitives(fn, p):
         def rec_tuple(xs, spec):
-                if spec and spec[0] in [maybe]:
-                        return xs if xs is None else rec(xs, spec[1])
+                if spec and spec[0] in [maybe, satisfies]:
+                        if spec[0] is maybe:
+                                return xs if xs is None else rec(xs, spec[1])
+                        if spec[0] is satisfies:
+                                if not spec[1](xs):
+                                        error("In primitive %s: element %s does not match (SATISFIES %s).",
+                                              p, xs, spec[0])
+                                return check_type(xs, (satisfies_t, spec[1]))
                 segmentp = spec and isinstance(spec[-1], list)
                 check_type(xs, (or_t, tuple, list))
                 nspec, nxs = len(spec), len(xs)
@@ -356,12 +363,14 @@ def prim_check_and_spill(primitive) -> prim:
                                                  prim = primitive, pspec = primitive.form_specifier,
                                                  spec = type, form = arg)
         def tuple_spills(spec, args, force_spill) -> ([stmt], [expr]):
-                specialp = spec and spec[0] in [maybe]
+                specialp = spec and spec[0] in [maybe, satisfies]
                 if specialp:
                         if spec[0] is maybe:
                                 if args is None:
                                         return [], None
                                 return process(spec[1], args, force_spill)
+                        if spec[0] is satisfies:
+                                return type_check((satisfies_t, spec[1]), args, None)
                 segmentp = spec and isinstance(spec[-1], list)
                 check_prim_type(args, (or_t, tuple, list))
                 nspec, nargs = len(spec), len(args)
