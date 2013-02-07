@@ -15,6 +15,8 @@ import collections
 
 from more_ast import pp_ast_as_code
 
+NoneType = type(None)
+
 ###
 __primitives__           = dict()
 __primitives_by_pyname__ = dict()
@@ -64,7 +66,7 @@ def defprim(name, form_specifier):
                 help_stdmethod = cls.__dict__.get("help", None)
                 for n, method_spec in cls.__dict__.items():
                         if (n in ("__module__", "__locals__", "__doc__", "__new__",
-                                  "methods", "help_strategies", "form_specifier", "help", "value") or
+                                  "methods", "help_strategies", "form_specifier", "help", "value", "cfg") or
                             maybe_process_as_strategy(cls, n, method_spec)):
                                 if n is "help":
                                         # decorating all the stuff into staticmethod in-text would be a real shame
@@ -196,17 +198,17 @@ _compiler_trace_primitives_ = cl._compiler_trace_primitives_
 
 def help(x) -> ([stmt], expr):
         if not isinstance(x, prim):
-                error("A non-primitive leaked to the HELP phase: %s", x)
+                return [], x
         with cl.progv({ cl._pp_base_depth_: cl.pp_base_depth() + 3 }):
                 def handler(cond):
                         error("While calling %s.%s, caught:\n%s", type(x).__name__.upper(), x.help, cond)
                 r = x.help(*x.args, **x.keys)
                 # r = cl.handler_bind(lambda: x.help(*x.args, **x.keys),
                 #                     (Exception, handler))
-        p, v = (([], r) if isinstance(r, ast.expr)                         else
+        p, v = (([], r) if not isinstance(r, ast.stmt) and isinstance(r, ast.AST) else
                 ## list(r) if isinstance(r, tuple) else
                 ## Unregistered Issue SLOW-CHECK
-                r if typep(r, (pytuple_t, (pylist_t, ast.stmt), ast.expr)) else
+                r if typep(r, (pytuple_t, (pylist_t, ast.stmt), ast.expr))        else
                 error("Invalid output from lowerer for %s (%s/%s)\n-- %s.", x, x.help, defun.help, r))
         if not isinstance(x, name) and symbol_value(cl._compiler_trace_subastification_):
                 ssp = sex_space()
@@ -267,11 +269,6 @@ cl.string_set("*VALUELESS-PRIMITIVE-STATEMENT-MUST-YIELD-NIL*", t, globals = glo
 def help_nil():
         return help(prim_nil() if symbol_value(_valueless_primitive_statement_must_yield_nil_) else
                     name("None"))[1]
-
-def          fixed_ll(fixed):                    return (list(fixed), [],  [],     None, [], [], None)
-def      fixed_opt_ll(fixed, opt, optval):       return (list(fixed), list(opt), list(optval), None, [], [], None)
-def     fixed_rest_ll(fixed, rest):              return (list(fixed), [],  [],     rest, [], [], None)
-def fixed_opt_rest_ll(fixed, opt, optval, rest): return (list(fixed), list(opt), list(optval), rest, [], [], None)
 
 ###
 ### Spill theory
@@ -494,87 +491,72 @@ def simplify_progns(children: [prim]) -> (prim, bool):
 # FILTERMAP -- FILTERMAP_EXPR FILTERMAP_PRIM
 
 ###
-### Spycials
+### CFG-able primitive IR
+###
+def genname(x = "#:G"):
+        return name(gensymname(x + "_"))
+
+###
+### Handled by non-immediate constant separation pass.
 ###
 @defprim(intern("STRING")[0],
          (string_t,))
 class string(literal):
         def help(name): return ast.Str(name)
 
-
-@defprim(intern("NAME")[0],
+@defprim(intern("SYMBOL")[0],
          (string_t,))
-class name(expr):
-        def value(self, writep = nil):
-                return self.args[0]
+class symbol(literal):
+        def value(x, writep = nil):
+                return x
         def help(x, writep = nil):
                 return ast.Name(x, help_ctx(writep))
 
-def genname(x = "#:G"):
-        return name(gensymname(x + "_"))
+@defprim(intern("LITERAL-LIST")[0],
+         ([literal],))
+class literal_list(literal):
+        def help(*xs):
+                return reduce(lambda cdr, car: ast.List([help_expr(car), cdr], help_ctx(nil)),
+                              ## Namespace separation leak:
+                              reversed(xs + (help_nil(),)))
 
-@defprim(intern("ASSIGN")[0],
-         (expr, prim))
-class assign(stmt):
-        def help(place, value, tn = nil, spills = []):
-                the_tn = tn or genname("TARGET")
-                p, v = help(value)
-                simple_val_p = isinstance(value, (name, const))
-                statem_val_p = not not p
-                simple_tgt_p = isinstance(place, name)
-                ret =  (p + ([ ast.Assign([ help_expr(the_tn) ], v) ] if p else [])
-                        ) + [ ast.Assign([ help_expr(place) ], help_expr(value if not statem_val_p else the_tn))
-                              ], help_expr(place if simple_tgt_p else ## There is a higher chance, that tgt will be simple.
-                                           value if simple_val_p else
-                                           the_tn)
-                # dprintf("ASSIGN:\nsimp-val-p  %s\nstmt-val-p  %s\nsimp-tgt-p  %s",
-                #                  simple_val_p,
-                #                  statem_val_p,
-                #                  simple_tgt_p)
-                # dprintf("ASSIGN gets:\n%s  =  %s\nASSIGN yields P:\n%s\nV:\n%s",
-                #                  place, value,
-                #                  "\n".join(pp_ast_as_code(x) for x in ret[0]),
-                #                  pp_ast_as_code(ret[1]))
-                return ret
+###
+### Immediate values
+###
+@defprim(intern("NAME")[0],
+         (string_t,))
+class name(expr):
+        def value(self, writep = nil, globalp = nil):
+                return self.args[0]
+        def help(x, writep = nil, globalp = nil):
+                return ast.Name(x, help_ctx(writep))
 
-@defprim(intern("ATTR-REF")[0],
-         (prim, prim))
-class attr(indet):
-        a_const = defstrategy(test = lambda _, attr: isinstance(attr, string),
-                              keys = "const attr")
-        b_var   = defstrategy(keys = efless)
+@defprim(intern("INTEGER")[0],
+         (int,))
+class integer(literal):
+        def help(x): return ast.Num(x)
 
-@defprim(intern("CONST-ATTR-REF")[0],
-         (expr_spill, string))
-class const_attr(efless):
-        ## We assume, that within the domain of emitted code, objects do not have accessors defined.  So, efless.
-        def help(x, attr, writep = nil): return ast.Attribute(help_expr(x), attr.value(), help_ctx(writep))
-        attr = identity_method("const attr")
+@defprim(intern("FLOAT-NUM")[0],
+         (float,))
+class float_num(literal):
+        def help(x): return ast.Num(x)
 
-@defprim(intern("VAR-ATTR-REF")[0],
-         (expr_spill, expr_spill))
-class var_attr(efless):
-        def help(x, attr):
-                return help(funcall(name("getattr"), help_expr(x), help_expr(attr)))
-        attr = identity_method()
+###
+### Constants
+###
+@defprim(intern("LITERAL-HASH-TABLE-EXPR")[0],
+         ([expr_spill],))
+## Unregistered Issue EXTREME-NICETY-OF-AUTOMATIC-RECLASSIFICATION-TO-A-NARROWER-TYPE
+class literal_hash_table_expr(expr):
+        def help(*ksvs):
+                if len(ksvs) % 2:
+                        error("In LITERAL-HASH-TABLE-EXPR: odd number of arguments: %s", pp_consly(ksvs))
+                keys, vals = ksvs[0::2], ksvs[1::2]
+                return ast.Dict(help_exprs(keys), help_exprs(vals))
 
-@defprim(intern("INDEX")[0],
-         (expr_spill, expr_spill))
-class index(expr):
-        def help(x, index, writep = nil):
-                return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
-
-@defprim(intern("SLICE")[0],
-         (expr_spill, expr_spill, maybe_expr_spill, maybe_expr_spill))
-class slice(expr):
-        def help(x, start, end, step, writep = nil):
-                return ast.Subscript(help_expr(x), ast.Slice(help_expr(start),
-                                                             help_expr(end if end is not nil else
-                                                                       name("None")),
-                                                             help_expr(step if step is not nil else
-                                                                       name("None"))),
-                                     help_ctx(writep))
-
+###
+### Data structures
+###
 @defprim(intern("PYLIST")[0],
          ([expr_spill],))
 class pylist(expr):
@@ -593,10 +575,23 @@ class pyset(expr):
         def help(*xs):
                 return ast.Set([ help_expr(x) for x in xs ])
 
-def prim_attr_chain(xs, writep = nil):
-        return reduce((lambda acc, attr: const_attr(acc, attr, writep = writep)),
-                      xs[1:],
-                      xs[0])
+@defprim(intern("INDEX")[0],
+         (expr_spill, expr_spill))
+class index(expr):
+        def help(x, index, writep = nil):
+                return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
+
+###
+### Control
+###
+@defprim(intern("ASSIGN")[0],
+         (name, prim))
+class assign(stmt):
+        def help(name, value):
+                p, v = help(value)
+                return (p
+                        + [ ast.Assign([ help_expr(name) ], v) ]
+                        ), help_expr(name)
 
 @defprim(intern("RETURN")[0],
          (expr_spill,))
@@ -604,135 +599,52 @@ class return_(stmt):
         def help(x):
                 return [ ast.Return(help_expr(x)) ], help_nil()
 
-@defprim(intern("GLOBAL")[0],
-         ([name],))
-class global_(stmt):
-        def help(*xs):
-                return [ ast.Global([ x.value() for x in xs ]
-                                  ) ], help_nil()
-
-@defprim(intern("NONLOCAL")[0],
-         ([name],))
-class nonlocal_(stmt):
-        def help(*xs):
-                return [ ast.Nonlocal([ x.value() for x in xs ]
-                                      ) ], help_nil()
-
-@defprim(intern("IMPORT")[0],
-         ([string_t],))
-class import_(stmt):
-        def help(*xs):
-                return [ ast.Import([ ast.alias(x, None) for x in xs ]
-                                    ) ], help_nil()
-
-###
-### Raw AST wrappers
-###
-## We cannot spill these, so they need to be treated specially.
-## 
-@defprim(intern("RAW")[0],
-         (ast.AST,))
-class raw(indet, nospill):
-        a_expr = defstrategy(test = lambda x: isinstance(x, ast.expr),
-                             keys = expr)
-        b_stmt = defstrategy(keys = stmt)
-
-@defprim(intern("RAW-EXP")[0],
-         (ast.expr,))
-class raw_expr(expr, nospill):
-        def help(val): return val
-        raw = identity_method()
-
-@defprim(intern("RAW-STMT")[0],
-         (ast.stmt,))
-class raw_stmt(stmt, nospill):
-        def help(pro): return [pro], help_nil()
-        raw = identity_method()
-
-###
-### Constants
-###
-@defprim(intern("INTEGER")[0],
-         (int,))
-class integer(literal):
-        def help(x): return ast.Num(x)
-
-@defprim(intern("FLOAT-NUM")[0],
-         (float,))
-class float_num(literal):
-        def help(x): return ast.Num(x)
-
-@defprim(intern("SYMBOL")[0],
-         (string_t,))
-class symbol(literal):
-        def value(x, writep = nil):
-                return x
-        def help(x, writep = nil):
-                return ast.Name(x, help_ctx(writep))
-
-@defprim(intern("LITERAL-LIST")[0],
-         ([literal],))
-class literal_list(literal):
-        def help(*xs):
-                return reduce(lambda cdr, car: ast.List([help_expr(car), cdr], help_ctx(nil)),
-                              ## Namespace separation leak:
-                              reversed(xs + (help_nil(),)))
-
-@defprim(intern("LITERAL-HASH-TABLE-EXPR")[0],
-         ([expr_spill],))
-## Unregistered Issue EXTREME-NICETY-OF-AUTOMATIC-RECLASSIFICATION-TO-A-NARROWER-TYPE
-class literal_hash_table_expr(expr):
-        def help(*ksvs):
-                if len(ksvs) % 2:
-                        error("In LITERAL-HASH-TABLE-EXPR: odd number of arguments: %s", pp_consly(ksvs))
-                keys, vals = ksvs[0::2], ksvs[1::2]
-                return ast.Dict(help_exprs(keys), help_exprs(vals))
-
 ###
 ### Functions
 ###
-@defprim(intern("LAMBDA")[0],
-         ((([name],),
-          ([name],), ([prim],), (maybe, name),
-          ([name],), ([prim],), (maybe, name)),
+# @defprim(intern("ARGUMENTS")[0],
+#          (([name],),
+#           ([name],), ([prim],), (maybe, name),
+#           ([name],), ([prim],), (maybe, name)))
+# class arguments(expr):
+#         ...
+@defprim(intern("FUNCTION")[0],
+         (name, ((maybe, name), [name]),
           prim))
-class lambda_(indet):
+class function(indet):
         "NOTE: default value form evaluation is not delayed."
-        "Must track nonlocality."
-        a_expr = defstrategy(test = (lambda pyargs, body, name = nil, id = nil, decorators = []:
-                                             exprp(body) and not (name or decorators)),
+        a_expr = defstrategy(test = (lambda name, args, body, id = nil, pydecorators = []:
+                                             exprp(body) and not (name or pydecorators)),
                              keys = expr)
         b_stmt = defstrategy(keys = body)
 
 @defprim(intern("DEFUN")[0],
-         (name, (([name],),
-                 ([name],), ([expr],), (maybe, name),
-                 ([name],), ([expr],), (maybe, name)),
-          ([expr],),
+         (name, ((maybe, name), [name]),
           prim))
 class defun(body):
-        def help(nam, pyargs, decorators, body):
+        def help(name, args, body, pydecorators = []):
+                maybe_rest, *fixed_args = args
                 return [ ast.FunctionDef(
-                                name = nam.value(),
-                                args = help_args(*pyargs),
-                                decorator_list = help_exprs(decorators),
+                                name = name.value(),
+                                args = help_args(fixed_args, [], [], maybe_rest, [], [], None),
+                                decorator_list = help_exprs(pydecorators),
                                 returns = None,
                                 body = help(return_(body))[0])
-                         ], help_expr(nam)
-        @defmethod(lambda_)
-        def lambda_(pyargs, expr, name = nil, id = nil, decorators = []):
-                return defun(name or genname((id) if id else "DEFLAM"), pyargs, decorators, expr)
+                         ], help_expr(name)
+        @defmethod(function)
+        def function(name, args, expr, id = nil, pydecorators = []):
+                return defun(name or genname((id) if id else "DEFLAM"), args, expr, pydecorators = pydecorators)
 
 @defprim(intern("LAMBDA-EXPR")[0],
-         ((([name],),
-           ([name],), ([expr_spill],), (maybe, name), ## It's not a bug -- it's a tool -- use with care!
-           ([name],), ([expr_spill],), (maybe, name)),
+         (NoneType, ((maybe, name), [name]),
           expr))
 class lambda_expr(expr):
-        def help(pyargs, expr, name = nil, id = nil, decorators = []):
-                assert not (name or decorators)
-                return ast.Lambda(help_args(*pyargs), help_expr(expr))
-        lambda_ = identity_method()
+        def help(name, args, expr, id = nil, pydecorators = []):
+                assert not (name or pydecorators)
+                maybe_rest, *fixed_args = args
+                return ast.Lambda(help_args(fixed_args, [], [], maybe_rest, [], [], None),
+                                  help_expr(expr))
+        function = identity_method()
 
 ###
 ### Binding
@@ -761,7 +673,7 @@ class let(indet):
 class let_expr(expr):
         def help(bindings, expr):
                 ns, vs = list(zip(*bindings))
-                return help(funcall(lambda_expr(fixed_ll(ns),
+                return help(funcall(lambda_expr(None, (None,) + ns,
                                                 expr),
                                     *vs))
         let = identity_method()
@@ -774,7 +686,7 @@ class let_thunk(body):
         def help(bindings, body):
                 ns, vs = list(zip(*bindings))
                 tn = genname("LET_THUNK")
-                return help(progn(defun(tn, fixed_ll(ns), [],
+                return help(progn(defun(tn, (None,) + ns,
                                         body),
                                   funcall(tn, *vs)))
         let = identity_method()
@@ -863,13 +775,6 @@ class progv(body):
                                   None,
                                   help(assign(tn, body))[0])
                          ], help_expr(tn)
-
-@defprim(intern("DEL")[0],
-         ([expr],))
-class delete(stmt):
-        def help(*exprs):
-                return [ ast.Delete([ help_expr(x) for x in exprs ])
-                         ], help_nil()
 
 ###
 ### Control
@@ -963,12 +868,6 @@ class loop(body):
                                    help_prog([body]),
                                    []) ], help_nil()
 
-@defprim(intern("ASSERT")[0], (expr_spill, expr_spill))
-class assert_(stmt):
-        def help(condition, description):
-                return [ ast.Assert(help_expr(condition), help_expr(description)
-                                    ) ], help_nil()
-
 @defprim(intern("RESIGNAL")[0], ())
 class resignal(stmt):
         def help():
@@ -1017,18 +916,6 @@ class special_setq(expr):
         def help(nom, value):
                 return help(funcall(impl_ref("do_set"), nom, value, name("None")))
 
-@defprim(intern("IMPL-REF")[0],
-         (str,))
-class impl_ref(expr):
-        def help(x):
-                return cl.ast_attribute_chain(["cl", x])
-
-@defprim(intern("BUILTIN-REF")[0],
-         (string_t,))
-class blin_ref(expr):
-        def help(x):
-                return help_expr(name(x))
-
 ###
 ### Lists
 ###
@@ -1049,17 +936,179 @@ class cdr(expr):
 class rplaca(expr):
         def help(cons, value):
                 return help(assign(index(cons, integer(0), writep = t),
-                                   value, tn = genname("CAR")))
+                                   value))
 
 @defprim(intern("RPLACD")[0], (expr_spill, expr_spill))
 class rplacd(expr):
         def help(cons, value):
                 return help(assign(index(cons, integer(1), writep = t),
-                                   value, tn = genname("CDR")))
+                                   value))
 
 ###
-### Iterators
+### Operations
 ###
+def help_unop(op, x):        return ast.UnaryOp(op(), help_expr(x))
+def help_binop(op, x, y):    return ast.BinOp(help_expr(x), op(), help_expr(y))
+def help_compare(op, x, ys): return ast.Compare(help_expr(x), [op()] * len(ys), [ help_expr(y) for y in ys ])
+
+def help_binop_seq(args, type, one):
+        init, rest = ((args[0], args[1:]) if args else (one, args))
+        return reduce(lambda x, y: ast.BinOp(x, type(), help_expr(y)),
+                      rest, help_expr(init))
+
+## + - * / MOD POW << >> LOGIOR LOGXOR LOGAND FLOOR
+@defprim(intern("+")[0], ([expr_spill],))
+class add(potconst):
+        def help(*xs):           return help_binop_seq(xs, ast.Add, 0)
+
+@defprim(intern("-")[0], ([expr_spill],))
+class sub(potconst):
+        def help(*xs):           return help_binop_seq(xs, ast.Sub, 0)
+
+@defprim(intern("*")[0], ([expr_spill],))
+class mul(potconst):
+        def help(*xs):           return help_binop_seq(xs, ast.Mult, 1)
+
+@defprim(intern("/")[0], ([expr_spill],))
+class div(potconst):
+        def help(*xs):           return help_binop_seq(xs, ast.Div, 1)
+
+@defprim(intern("MOD")[0], (expr_spill, expr_spill))
+class mod(potconst):
+        def help(x, y):          return help_binop(ast.Mod, x, y)
+
+@defprim(intern("<<")[0], (expr_spill, expr_spill))
+class shl(potconst):
+        def help(x, y):          return help_binop(ast.LShift, x, y)
+
+@defprim(intern(">>")[0], (expr_spill, expr_spill))
+class shr(potconst):
+        def help(x, y):          return help_binop(ast.RShift, x, y)
+
+@defprim(intern("LOGIOR")[0], (expr_spill, expr_spill))
+class logior(potconst):
+        def help(x, y):          return help_binop(ast.BitOr, x, y)
+
+@defprim(intern("LOGXOR")[0], (expr_spill, expr_spill))
+class logxor(potconst):
+        def help(x, y):          return help_binop(ast.BitXor, x, y)
+
+@defprim(intern("LOGAND")[0], (expr_spill, expr_spill))
+class logand(potconst):
+        def help(x, y):          return help_binop(ast.BitAnd, x, y)
+
+@defprim(intern("LOGNOT")[0], (expr_spill,))
+class lognot(potconst):
+        def help(x):             return help_unop(ast.Invert, x)
+
+@defprim(intern("FLOOR")[0], (expr_spill, expr_spill))
+class floor(potconst):
+        def help(x, y):          return help_binop(ast.FloorDiv, x, y)
+
+## EQ < <= > >=
+
+@defprim(intern("EQ")[0], (expr_spill, expr_spill))
+class eq(potconst):
+        def help(x, y):          return help_compare(ast.Is, x, [y])
+
+@defprim(intern("<")[0], (expr_spill, [expr_spill]))
+class lt(potconst):
+        def help(x, y):          return help_compare(ast.Lt, x, [y])
+
+@defprim(intern("<=")[0], (expr_spill, [expr_spill]))
+class le(potconst):
+        def help(x, y):          return help_compare(ast.LtE, x, [y])
+
+@defprim(intern(">")[0], (expr_spill, [expr_spill]))
+class gt(potconst):
+        def help(x, y):          return help_compare(ast.Gt, x, [y])
+
+@defprim(intern(">=")[0], (expr_spill, [expr_spill]))
+class ge(potconst):
+        def help(x, y):          return help_compare(ast.GtE, x, [y])
+
+## NOT
+
+@defprim(intern("NOT")[0], (expr_spill,))
+class not_(potconst):
+        ## Optimisation: fold (NOT (EQ X Y)) to ast.IsNot
+        def help(x): return help_unop(ast.Not, x)
+
+###
+### Non-CFG-able, Python-only primitive IR
+###
+def help_boolop(op, xs):     return ast.BoolOp(op(), [ help_expr(x) for x in xs ])
+
+@defprim(intern("AND")[0], ([expr_spill],))
+class and_(potconst):
+        def help(*xs): return help_boolop(ast.And, xs)
+
+@defprim(intern("OR")[0], ([expr_spill],))
+class or_(potconst):
+        def help(*xs): return help_boolop(ast.Or, xs)
+
+@defprim(intern("POW")[0], (expr_spill, expr_spill))
+class expt(potconst):
+        def help(x, y): return help_binop(ast.Pow, x, y)
+
+@defprim(intern("NEQ")[0], (expr_spill, expr_spill))
+class neq(potconst):
+        def help(x, y):          return help_compare(ast.IsNot, x, [y])
+
+@defprim(intern("EQUAL")[0], (expr_spill, [expr_spill]))
+class equal(potconst):
+        def help(x, *ys): return help_compare(ast.Eq, x, ys)
+
+@defprim(intern("NOT-EQUAL")[0], (expr_spill, [expr_spill]))
+class nequal(potconst):
+        def help(x, *ys): return help_compare(ast.NotEq, x, ys)
+
+@defprim(intern("IN")[0], (expr_spill, expr_spill))
+class in_(potconst):
+        def help(x, y): return help_compare(ast.In, x, [y])
+
+@defprim(intern("NOT-IN")[0], (expr_spill, expr_spill))
+class not_in(potconst):
+        def help(x, y): return help_compare(ast.NotIn, x, [y])
+
+## This is no high-level it hurts!  Obviously needed for intrinsics.
+@defprim(intern("ATTR-REF")[0],
+         (prim, prim))
+class attr(indet):
+        a_const = defstrategy(test = lambda _, attr: isinstance(attr, string),
+                              keys = "const attr")
+        b_var   = defstrategy(keys = efless)
+
+@defprim(intern("CONST-ATTR-REF")[0],
+         (expr_spill, string))
+class const_attr(efless):
+        ## We assume, that within the domain of emitted code, objects do not have accessors defined.  So, efless.
+        def help(x, attr, writep = nil): return ast.Attribute(help_expr(x), attr.value(), help_ctx(writep))
+        attr = identity_method("const attr")
+
+@defprim(intern("VAR-ATTR-REF")[0],
+         (expr_spill, expr_spill))
+class var_attr(efless):
+        def help(x, attr):
+                return help(funcall(name("getattr"), help_expr(x), help_expr(attr)))
+        attr = identity_method()
+
+def prim_attr_chain(xs, writep = nil):
+        return reduce((lambda acc, attr: const_attr(acc, attr, writep = writep)),
+                      xs[1:],
+                      xs[0])
+
+@defprim(intern("SLICE")[0],
+         (expr_spill, expr_spill, maybe_expr_spill, maybe_expr_spill))
+class slice(expr):
+        def help(x, start, end, step, writep = nil):
+                return ast.Subscript(help_expr(x), ast.Slice(help_expr(start),
+                                                             help_expr(end if end is not nil else
+                                                                       name("None")),
+                                                             help_expr(step if step is not nil else
+                                                                       name("None"))),
+                                     help_ctx(writep))
+
 @defprim(intern("FILTERMAP")[0],
          (name, expr_spill, prim, (maybe, prim)))
 class filtermap(indet):
@@ -1084,7 +1133,7 @@ class filtermap_expr(expr):
 class filtermap_prim(body):
         def help(name, iter, body, condition = None):
                 tn = genname("FILTERMAP_THUNK")
-                return help(progn(defun(tn, fixed_ll(name), [],
+                return help(progn(defun(tn, (None, name),
                                         body),
                                   filtermap(name, iter, funcall(tn, name), condition)))
         filtermap = identity_method()
@@ -1098,124 +1147,98 @@ class generator(expr):
                                                             [ help_expr(if_) for if_ in ifs ])
                                           for target, iter, *ifs in comps ])
 
-###
-### Operations
-###
-def help_boolop(op, xs):     return ast.BoolOp(op(), [ help_expr(x) for x in xs ])
-def help_unop(op, x):        return ast.UnaryOp(op(), help_expr(x))
-def help_binop(op, x, y):    return ast.BinOp(help_expr(x), op(), help_expr(y))
-def help_compare(op, x, ys): return ast.Compare(help_expr(x), [op()] * len(ys), [ help_expr(y) for y in ys ])
+@defprim(intern("IMPL-REF")[0],
+         (str,))
+class impl_ref(expr):
+        def help(x):
+                return cl.ast_attribute_chain(["cl", x])
 
-def help_binop_seq(args, type, one):
-        init, rest = ((args[0], args[1:]) if args else (one, args))
-        return reduce(lambda x, y: ast.BinOp(x, type(), help_expr(y)),
-                      rest, help_expr(init))
+@defprim(intern("BUILTIN-REF")[0],
+         (string_t,))
+class blin_ref(expr):
+        def help(x):
+                return help_expr(name(x))
 
-## AND OR
-@defprim(intern("AND")[0], ([expr_spill],))
-class and_(potconst):
-        def help(*xs): return help_boolop(ast.And, xs)
+@defprim(intern("IMPORT")[0],
+         ([string_t],))
+class import_(stmt):
+        def help(*xs):
+                return [ ast.Import([ ast.alias(x, None) for x in xs ])
+                         ], help_nil()
 
-@defprim(intern("OR")[0], ([expr_spill],))
-class or_(potconst):
-        def help(*xs): return help_boolop(ast.Or, xs)
+@defprim(intern("DEL")[0],
+         ([expr],))
+class delete(stmt):
+        def help(*exprs):
+                return [ ast.Delete([ help_expr(x) for x in exprs ])
+                         ], help_nil()
 
-## + - * / MOD POW << >> LOGIOR LOGXOR LOGAND FLOOR
-@defprim(intern("+")[0], ([expr_spill],))
-class add(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Add, 0)
+@defprim(intern("GLOBAL")[0],
+         ([name],))
+class global_(stmt):
+        def help(*xs):
+                return [ ast.Global([ x.value() for x in xs ]
+                                  ) ], help_nil()
 
-@defprim(intern("-")[0], ([expr_spill],))
-class subtract(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Sub, 0)
+@defprim(intern("NONLOCAL")[0],
+         ([name],))
+class nonlocal_(stmt):
+        def help(*xs):
+                return [ ast.Nonlocal([ x.value() for x in xs ]
+                                      ) ], help_nil()
 
-@defprim(intern("*")[0], ([expr_spill],))
-class multiply(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Mult, 1)
 
-@defprim(intern("/")[0], ([expr_spill],))
-class divide(potconst):
-        def help(*xs): return help_binop_seq(xs, ast.Div, 1)
+@defprim(intern("ASSERT")[0], (expr_spill, expr_spill))
+class assert_(stmt):
+        def help(condition, description):
+                return [ ast.Assert(help_expr(condition), help_expr(description)
+                                    ) ], help_nil()
 
-@defprim(intern("MOD")[0], (expr_spill, expr_spill))
-class mod(potconst):
-        def help(x, y): return help_binop(ast.Mod, x, y)
 
-@defprim(intern("POW")[0], (expr_spill, expr_spill))
-class expt(potconst):
-        def help(x, y): return help_binop(ast.Pow, x, y)
+## We cannot spill these, so they need to be treated specially.
+def wrap_raw_ast(x):
+        def wrap(x):
+                return ([ rec(x) for x in x ]
+                        if isinstance(x, list) else
+                        rec(x))
+        def rec(x):
+                return (raw(type(x).__name__, *(wrap(getattr(x, slot))
+                                                for slot in type(x)._fields))
+                        if isinstance(x, ast.AST) else
+                        x)
+        return rec(x)
 
-@defprim(intern("<<")[0], (expr_spill, expr_spill))
-class lshift(potconst):
-        def help(x, y): return help_binop(ast.LShift, x, y)
+@defprim(intern("RAW")[0],
+         ((satisfies, lambda x: hasattr(ast, x) and issubclass(getattr(ast, x), ast.AST)),
+          [t]))
+class raw(indet):
+        a_stmt = defstrategy(test = lambda cls_name, *args, **keys: issubclass(getattr(ast, cls_name), ast.stmt),
+                             keys = stmt)
+        b_expr = defstrategy(keys = expr)
 
-@defprim(intern(">>")[0], (expr_spill, expr_spill))
-class rshift(potconst):
-        def help(x, y): return help_binop(ast.RShift, x, y)
+@defprim(intern("RAW-EXP")[0],
+         ((satisfies, lambda x: hasattr(ast, x) and issubclass(getattr(ast, x), ast.AST)),
+          [t]))
+class raw_expr(expr):
+        def help(cls_name, *args, **keys):
+                cls = getattr(ast, cls_name)
+                return cls( *(([ help_expr(x)
+                                 for x in x ] if isinstance(x, (tuple, list)) else
+                               help_expr(x))
+                              for x in args),
+                             **{k: help_expr(v)
+                                   for k, v in keys.items()})
+        raw = identity_method()
 
-@defprim(intern("LOGIOR")[0], (expr_spill, expr_spill))
-class logior(potconst):
-        def help(x, y): return help_binop(ast.BitOr, x, y)
-
-@defprim(intern("LOGXOR")[0], (expr_spill, expr_spill))
-class logxor(potconst):
-        def help(x, y): return help_binop(ast.BitXor, x, y)
-
-@defprim(intern("LOGAND")[0], (expr_spill, expr_spill))
-class logand(potconst):
-        def help(x, y): return help_binop(ast.BitAnd, x, y)
-
-@defprim(intern("FLOOR")[0], (expr_spill, expr_spill))
-class floor(potconst):
-        def help(x, y): return help_binop(ast.FloorDiv, x, y)
-
-## NOT LOGNOT
-@defprim(intern("NOT")[0], (expr_spill,))
-class not_(potconst):
-        ## Optimisation: fold (NOT (EQ X Y)) to ast.IsNot
-        def help(x): return help_unop(ast.Not, x)
-
-@defprim(intern("LOGNOT")[0], (expr_spill,))
-class lognot(potconst):
-        def help(x): return help_unop(ast.Invert, x)
-
-## EQ NEQ EQUAL NOT-EQUAL < <= > >= IN NOT-IN
-@defprim(intern("EQ")[0], (expr_spill, expr_spill))
-class eq(potconst):
-        def help(x, y): return help_compare(ast.Is, x, [y])
-
-@defprim(intern("NEQ")[0], (expr_spill, expr_spill))
-class neq(potconst):
-        def help(x, y): return help_compare(ast.IsNot, x, [y])
-
-@defprim(intern("EQUAL")[0], (expr_spill, [expr_spill]))
-class equal(potconst):
-        def help(x, *ys): return help_compare(ast.Eq, x, ys)
-
-@defprim(intern("NOT-EQUAL")[0], (expr_spill, [expr_spill]))
-class nequal(potconst):
-        def help(x, *ys): return help_compare(ast.NotEq, x, ys)
-
-@defprim(intern("<")[0], (expr_spill, [expr_spill]))
-class lthan(potconst):
-        def help(x, *ys): return help_compare(ast.Lt, x, ys)
-
-@defprim(intern("<=")[0], (expr_spill, [expr_spill]))
-class lorequal(potconst):
-        def help(x, *ys): return help_compare(ast.LtE, x, ys)
-
-@defprim(intern(">")[0], (expr_spill, [expr_spill]))
-class gthan(potconst):
-        def help(x, *ys): return help_compare(ast.Gt, x, ys)
-
-@defprim(intern(">=")[0], (expr_spill, [expr_spill]))
-class gorequal(potconst):
-        def help(x, *ys): return help_compare(ast.GtE, x, ys)
-
-@defprim(intern("IN")[0], (expr_spill, expr_spill))
-class in_(potconst):
-        def help(x, y): return help_compare(ast.In, x, [y])
-
-@defprim(intern("NOT-IN")[0], (expr_spill, expr_spill))
-class not_in(potconst):
-        def help(x, y): return help_compare(ast.NotIn, x, [y])
+@defprim(intern("RAW-STMT")[0],
+         ((satisfies, lambda x: hasattr(ast, x) and issubclass(getattr(ast, x), ast.AST)),
+          [t]))
+class raw_stmt(stmt):
+        def help(cls_name, *args, **keys):
+                cls = getattr(ast, cls_name)
+                return cls( *((tuple(help_expr(x) for x in x) if isinstance(x, tuple) else
+                               help_expr(x))
+                              for x in args),
+                             **{k: help_expr(v)
+                                   for k, v in keys.items()})
+        raw = identity_method()

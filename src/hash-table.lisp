@@ -52,4 +52,6 @@
 
 ;;;
 (defun puthash (value key hash-table)
-  (primitive '("assign") (primitive '("index") hash-table key) value))
+  (primitive '("raw") '"Assign"
+             (primitive '("raw") '"Index" hash-table key (primitive '("raw") '"Load"))
+             value))

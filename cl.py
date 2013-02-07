@@ -7885,10 +7885,10 @@ def DEFMACRO(name, lambda_list, *body):
                  # (function, (def_, name, lambda_list) + body),
                  l(_ir_args,
                    l(_function, l_(_lambda, lambda_list, consify_linear(body))),
-                   l("decorators", ir_cl_call("set_macro_definition", ir_apply("globals"),
-                                               l(_quote, name),
-                                               l(_quote, l_(_lambda, lambda_list, l(gensym("FAKE-BODY")) # consify_linear(body)
-                                                            )))),
+                   l("pydecorators", ir_cl_call("set_macro_definition", ir_apply("globals"),
+                                                 l(_quote, name),
+                                                 l(_quote, l_(_lambda, lambda_list, l(gensym("FAKE-BODY")) # consify_linear(body)
+                                                              )))),
                    ["globalp", t],
                    ["name", name]))
 
@@ -8673,25 +8673,16 @@ def ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macro
                 (optdefs, keydefs, auxforms),
                 keyposp, aokposp)
 
-def lower_lambda_list(lexenv, fixed, optional, opt_defaults, rest, keys, key_defaults):
-        assert len(optional) == len(opt_defaults)
-        assert len(keys)     == len(key_defaults)
+def tnify_function_arglist(fname, lexenv, arglist):
         frames = [ getattr(lexenv, x)["name"] for x in ["varframe", "funcframe"]
                    if getattr(lexenv, x) ]
-        def tnify(x):
+        def tnify(x, error_if_none = True):
                 for f in frames:
                         if x in f:
                                 return f[x].tn
-        def to_names(xs): return [ tnify(x) for x in xs ]
-        return (to_names(fixed),
-                to_names(optional),
-                [ primitivise(x) if x is not None else p.name("None")
-                  for x in opt_defaults ],
-                tnify(rest) if rest else None,
-                to_names(keys),
-                [ primitivise(x) if x is not None else p.name("None")
-                  for x in key_defaults ],
-                None)
+                if error_if_none:
+                        error("While processing arglist of %s: %s is not in the lexenv.", fname, x)
+        return (tnify(arglist[0], error_if_none = False),) + tuple(tnify(x) for x in arglist[1:])
 
 def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
         # Unregistered Issue COMPLIANCE-MACRO-LAMBDA-LIST-DESTRUCTURING-AND-ENV
@@ -8704,10 +8695,13 @@ def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
         # constant_forms_p = all(constantp(x) for x in optdefs + keydefs + auxforms)
         opt_gsyms        = [ gensym_tn("OPT-" + symbol_name(x) + "-")
                              for x in optional ]
-        need_rest        = rest or clambda.keysp ## &key is processed through parsing of *rest
+        need_rest        = rest or optional or clambda.keysp ## &key is processed through parsing of *rest
         rest_gsym        = ((gensym_tn("REST-" + (symbol_name(rest) if rest else
                                                   "TN") + "-")) if need_rest else
                             None)
+        nrest_gsym       = gensym("REST-LEN")
+        need_nonopt_rest = (rest or clambda.keysp) and optional
+        nonopt_rest_gsym = gensym("NONOPT-REST") if need_nonopt_rest else rest_gsym
         must_check_keys  = clambda.keysp and not clambda.aokp
         keyset_gsym      = gensym("KEYSET-") if must_check_keys else nil
         key_map_gsym     = gensym_tn("KWHASH-") if clambda.keysp else nil
@@ -8718,19 +8712,21 @@ def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
         l, l_, a = list_, list__, append
         return l(a(l(whole) if whole else nil,
                    consify_linear(fixed),
-                   l_(_optional, consify_linear(opt_gsyms)) if optional else nil,
                    l(_rest, rest_gsym) if need_rest else nil),
                  # l(_funcall, l(_function, l(_quote, l("cl", "dprintf"))),
                  #   ("fixed:%s    optional:%s    rest:%s"
                  #    % (" %s"*len(fixed), " %s"*len(optional), (" %s" if need_rest else ""))),
                  #   *(fixed + opt_gsyms + ([rest_gsym] if need_rest else []))),
-                 l(_let_, a(consify_linear(l(name, l(_if, l(_primitive, p.eq, gs.tn, p.name("None")),
-                                                     def_expr,
-                                                     gs))
-                                           for name, gs, def_expr in zip(optional, opt_gsyms, optdefs)),
-                            (l(l(rest, ir_cl_call("consify_linear", rest_gsym)))
+                 l(_let_, a((l(l(nrest_gsym, ir_funcall("len", rest_gsym))) if optional else nil),
+                            consify_linear(l(name, l(_if, l(_primitive, p.lt, i, nrest_gsym),
+                                                          l(_primitive, p.index, rest_gsym, i),
+                                                          def_expr))
+                                           for i, name, gs, def_expr
+                                           in zip(range(len(optional)), optional, opt_gsyms, optdefs)),
+                            (l(l(nonopt_rest_gsym, l(_primitive, p.slice, rest_gsym, len(optional), None, None))) if need_nonopt_rest else nil),
+                            (l(l(rest, ir_cl_call("consify_linear", nonopt_rest_gsym)))
                              if rest else nil),
-                            (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", rest_gsym)),
+                            (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", nonopt_rest_gsym)),
                                   consify_linear(l(name, l(_if, l(_primitive, p.not_in, ksym.tn, key_map_gsym.tn),
                                                            def_expr,
                                                            l(_primitive, p.index, key_map_gsym.tn, ksym.tn)))
@@ -8743,11 +8739,11 @@ def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
                                            for name, form in zip(aux, auxforms))),
                    *body))
 
-def lower_lambda(lexenv, clambda, lam, body, name = nil, decorators = nil, self_binding = nil, globalp = nil,
+def lower_lambda(lexenv, clambda, lam, body, name = nil, pydecorators = nil, self_binding = nil, globalp = nil,
                  function_namespace = nil):
         (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
             args, forms = clambda.args, clambda.forms
-        assert not (whole or clambda.keysp or aux) ## &WHOLE is a piece of debt, currently.
+        assert not (whole or optional or clambda.keysp or aux) ## &WHOLE is a piece of debt, currently.
         fnname_tn = function_tn(name, globalp = globalp) if name else None
         ## Things, that are needed:
         ##  - CLAMBDA passing
@@ -8760,6 +8756,8 @@ def lower_lambda(lexenv, clambda, lam, body, name = nil, decorators = nil, self_
                                 dictappend(dict((b, function_binding(b, _function, None))
                                                 for b in clambda.total),
                                            dict([(pyfname, self_binding)] if self_binding else []))))
+        ## We've wedged stuff into a single LEXENV, where in fact it is an intricate LET*.
+        ## This is probably gonna bite sooner or later.
         fn_lexenv = make_lexenv(lexenv, clambda = clambda, allocate_tns = t,
                                 name_varframe  = varframe,
                                 name_funcframe = funcframe)
@@ -8770,11 +8768,11 @@ def lower_lambda(lexenv, clambda, lam, body, name = nil, decorators = nil, self_
                                                  for x in sorted(clambda.nonlocal_setqs, key = symbol_name) )) ]
                                  if clambda.nonlocal_setqs else [])
                 # dprintf("emitting LAMBDA primitive, name: %s, pyfname: %s, fnname_tn: %s", name, pyfname, fnname_tn)
-                return p.lambda_(lower_lambda_list(fn_lexenv, fixed, optional, [None] * len(optional), rest or None, [], []),
-                                 p.progn(*nonlocal_decl
-                                         + primitivised_body),
-                                 name = fnname_tn, id = pp_consly(name) if name else nil,
-                                 decorators = xmap_to_vector(primitivise, decorators))
+                return p.function(fnname_tn, tnify_function_arglist(name, fn_lexenv, [rest or None] + fixed),
+                                  p.progn(*nonlocal_decl
+                                          + primitivised_body),
+                                  id = pp_consly(name) if name else nil,
+                                  pydecorators = xmap_to_vector(primitivise, pydecorators))
 
 @defknown((_binder, _flet,
            (_flet, " ", ([(_notlead, "\n"), (_bind, _function,
@@ -9233,7 +9231,7 @@ class let(known):
                              (_satisfies, pyref_p),
                              (_setf, (_satisfies, namep))))))
 class function(known):
-        def binder(exp, further, name = nil, decorators = nil, globalp = nil):
+        def binder(exp, further, name = nil, pydecorators = nil, globalp = nil):
                 form = form_real(exp)
                 x = form[1][0]
                 if atom(x) or x[0] is not _lambda:
@@ -9251,7 +9249,7 @@ class function(known):
                                                name_funcframe = { name: function_binding(name, _function, fn(name, lam)) }))
                                  ])):
                         return further(exp)
-        def rewrite(orig, x, name = nil, decorators = nil, globalp = nil):
+        def rewrite(orig, x, name = nil, pydecorators = nil, globalp = nil):
                 lambdap = ir_lambda_p(x)
                 if lambdap:
                         if not (listp(x[1][0]) and listp(x[1][1])):
@@ -9260,15 +9258,15 @@ class function(known):
                 return nil, (ir(_function, cons(_lambda, rewrite_lambda(symbol_value(_walker_lexenv_),
                                                                         compiler_lambda(name, lambda_list),
                                                                         lambda_list, vectorise_linear(body))),
-                                **dictappend({ "name":       name }       if name       else {},
-                                             { "decorators": decorators } if decorators else {},
-                                             { "globalp":    globalp }    if globalp    else {}))
+                                **dictappend({ "name":         name }         if name         else {},
+                                             { "pydecorators": pydecorators } if pydecorators else {},
+                                             { "globalp":      globalp }      if globalp      else {}))
                              if lambdap else
                              orig)
         ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def primitivise(x, name = nil, decorators = nil, globalp = nil):
+        def primitivise(x, name = nil, pydecorators = nil, globalp = nil):
                 ## (QUOTE ("str"))
                 if pyref_p(x):
                         return primitivise_pyref(x)
@@ -9278,7 +9276,7 @@ class function(known):
                         return lower_lambda(symbol_value(_lexenv_),
                                             compiler_lambda(name, lambda_list),
                                             lambda_list, vectorise_linear(body),
-                                            name = name, decorators = decorators,
+                                            name = name, pydecorators = pydecorators,
                                             globalp = globalp,
                                             self_binding = function_binding(name, _function, fn(name, lambda_list)))
                 lexical_binding, lexenv = symbol_value(_lexenv_).lookup_func(x)
@@ -10220,11 +10218,11 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
         form = ir(*[_function, lambda_expression],
                    name = name,
                    globalp = t,  ## This (LOWER-LAMBDA's) globalp is different from COMPILE-IN-LEXENV's globalp.
-                   **({ "decorators": list_(ir_cl_call("set_macro_definition",
-                                                        ir_apply("globals"), name, lambda_expression)
-                                            if global_macro_p else
-                                            ir_cl_call("set_function_definition",
-                                                        ir_apply("globals"), name, lambda_expression))}
+                   **({ "pydecorators": list_(ir_cl_call("set_macro_definition",
+                                                          ir_apply("globals"), name, lambda_expression)
+                                              if global_macro_p else
+                                              ir_cl_call("set_function_definition",
+                                                          ir_apply("globals"), name, lambda_expression))}
                       if globalp else {}))
         bytecode = process_as_loadable(process_to_ast, form, lexenv = lexenv, macroexpand = macroexpand,
                                        id = "COMPILED-LAMBDA-")
@@ -10463,7 +10461,7 @@ def run_tests_compiler():
                  True)
         evaltest("PRIMITIVE-LAMBDA/FUNCALL",
                  l(_primitive, p.funcall,
-                   l(_primitive, p.lambda_, l(_quote, ([p.name("x")], [], [], None, [], [], None)),
+                   l(_primitive, p.function, None, l(_quote, (None, p.name("x"))),
                      l(_primitive, p.add, p.name("x"), 2)),
                    2),
                  4)
@@ -10527,10 +10525,8 @@ def run_tests_compiler():
         ## PRIM, IR-ARGS
         evaltest("PRIM-DEF-CALL",
                  l(_progn,
-                   l(_ir_args,
-                     l(_primitive, p.lambda_, l(_quote, ([], [], [], None, [], [], None)),
-                         p.integer(42)),
-                     ["name", p.name("foo")]),
+                   l(_primitive, p.function, p.name("foo"), l(_quote, (None,)),
+                     p.integer(42)),
                    l(_primitive, p.funcall, p.name("foo"))),
                  42,
                  known_failure = t, catch_errors = t) ## Same reason as SETQ/REF-PYREF
@@ -10693,10 +10689,8 @@ def run_tests_compiler():
         name = gensym("FNAME")
         evaltest("FUNCALL-PRIM",
                  l(_flet, l(l(name, nil,
-                              l(_ir_args,
-                                l(_primitive, p.lambda_, l(_quote, ([], [], [], None, [], [], None)),
-                                  p.integer(42)),
-                                ["name", p.name("bar")]),
+                              l(_primitive, p.function, p.name("bar"), l(_quote, (None,)),
+                                 p.integer(42)),
                               l(_funcall, l(_function, l(_quote, l("bar")))))),
                    l(name)),
                  42)
