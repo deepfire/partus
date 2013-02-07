@@ -7,8 +7,3 @@ class function():
                 attrify_args(self, locals(),
                              "name", "result_type", "arglist", "bb",
                              "linkage", "visibility_style")
-
-class bb():
-        def __init__(self, insns = [], label = None, enters = [], exits = []):
-                attrify_args(self, locals(),
-                             "insns", "label", "enters", "exits")

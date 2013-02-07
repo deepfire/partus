@@ -118,8 +118,6 @@ class prim(metaclass = primclass):
                 return print_primitive(self)
         def __repr__(self):
                 return print_primitive(self)
-        def trify(self):
-                error("Trifying not defined for primitives of type %s.", type(self).__name__.upper())
         @classmethod
         def find_method(cls, tags):
                 "Find *the* single method matching all tags."

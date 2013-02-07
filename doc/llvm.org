@@ -520,124 +520,134 @@
     operation that does not have side effects (e.g. load and call are not supported). The
     following is the syntax for constant expressions:
 
-***** trunc (CST to TYPE)
+***** Truncation/extension
+******* trunc (CST to TYPE)
 
-      Truncate a constant to another type. The bit size of CST must be larger than the bit size
-      of TYPE. Both types must be integers.
+        Truncate a constant to another type. The bit size of CST must be larger than the bit size
+        of TYPE. Both types must be integers.
 
-***** zext (CST to TYPE)
+******* zext (CST to TYPE)
 
-      Zero extend a constant to another type. The bit size of CST must be smaller than the bit
-      size of TYPE. Both types must be integers.
+        Zero extend a constant to another type. The bit size of CST must be smaller than the bit
+        size of TYPE. Both types must be integers.
 
-***** sext (CST to TYPE)
+******* sext (CST to TYPE)
 
-      Sign extend a constant to another type. The bit size of CST must be smaller than the bit
-      size of TYPE. Both types must be integers.
+        Sign extend a constant to another type. The bit size of CST must be smaller than the bit
+        size of TYPE. Both types must be integers.
 
-***** fptrunc (CST to TYPE)
+******* fptrunc (CST to TYPE)
 
-      Truncate a floating point constant to another floating point type. The size of CST must
-      be larger than the size of TYPE. Both types must be floating point.
+        Truncate a floating point constant to another floating point type. The size of CST must
+        be larger than the size of TYPE. Both types must be floating point.
 
-***** fpext (CST to TYPE)
+******* fpext (CST to TYPE)
 
-      Floating point extend a constant to another type. The size of CST must be smaller or
-      equal to the size of TYPE. Both types must be floating point.
+        Floating point extend a constant to another type. The size of CST must be smaller or
+        equal to the size of TYPE. Both types must be floating point.
 
-***** fptoui (CST to TYPE)
+***** Float <-> integer
+******* fptoui (CST to TYPE)
 
-      Convert a floating point constant to the corresponding unsigned integer constant. TYPE
-      must be a scalar or vector integer type. CST must be of scalar or vector floating point
-      type. Both CST and TYPE must be scalars, or vectors of the same number of elements. If
-      the value won't fit in the integer type, the results are undefined.
+        Convert a floating point constant to the corresponding unsigned integer constant. TYPE
+        must be a scalar or vector integer type. CST must be of scalar or vector floating point
+        type. Both CST and TYPE must be scalars, or vectors of the same number of elements. If
+        the value won't fit in the integer type, the results are undefined.
 
-***** fptosi (CST to TYPE)
+******* fptosi (CST to TYPE)
 
-      Convert a floating point constant to the corresponding signed integer constant. TYPE must
-      be a scalar or vector integer type. CST must be of scalar or vector floating point
-      type. Both CST and TYPE must be scalars, or vectors of the same number of elements. If
-      the value won't fit in the integer type, the results are undefined.
+        Convert a floating point constant to the corresponding signed integer constant. TYPE must
+        be a scalar or vector integer type. CST must be of scalar or vector floating point
+        type. Both CST and TYPE must be scalars, or vectors of the same number of elements. If
+        the value won't fit in the integer type, the results are undefined.
 
-***** uitofp (CST to TYPE)
+******* uitofp (CST to TYPE)
 
-      Convert an unsigned integer constant to the corresponding floating point constant. TYPE
-      must be a scalar or vector floating point type. CST must be of scalar or vector integer
-      type. Both CST and TYPE must be scalars, or vectors of the same number of elements. If
-      the value won't fit in the floating point type, the results are undefined.
+        Convert an unsigned integer constant to the corresponding floating point constant. TYPE
+        must be a scalar or vector floating point type. CST must be of scalar or vector integer
+        type. Both CST and TYPE must be scalars, or vectors of the same number of elements. If
+        the value won't fit in the floating point type, the results are undefined.
 
-***** sitofp (CST to TYPE)
+******* sitofp (CST to TYPE)
 
-      Convert a signed integer constant to the corresponding floating point constant. TYPE must
-      be a scalar or vector floating point type. CST must be of scalar or vector integer
-      type. Both CST and TYPE must be scalars, or vectors of the same number of elements. If
-      the value won't fit in the floating point type, the results are undefined.
+        Convert a signed integer constant to the corresponding floating point constant. TYPE must
+        be a scalar or vector floating point type. CST must be of scalar or vector integer
+        type. Both CST and TYPE must be scalars, or vectors of the same number of elements. If
+        the value won't fit in the floating point type, the results are undefined.
 
-***** ptrtoint (CST to TYPE)
+***** Pointer <-> integer
+******* ptrtoint (CST to TYPE)
 
-      Convert a pointer typed constant to the corresponding integer constant TYPE must be an
-      integer type. CST must be of pointer type. The CST value is zero extended, truncated, or
-      unchanged to make it fit in TYPE.
+        Convert a pointer typed constant to the corresponding integer constant TYPE must be an
+        integer type. CST must be of pointer type. The CST value is zero extended, truncated, or
+        unchanged to make it fit in TYPE.
 
-***** inttoptr (CST to TYPE)
+******* inttoptr (CST to TYPE)
 
-      Convert an integer constant to a pointer constant. TYPE must be a pointer type. CST must
-      be of integer type. The CST value is zero extended, truncated, or unchanged to make it
-      fit in a pointer size. This one is really dangerous!
+        Convert an integer constant to a pointer constant. TYPE must be a pointer type. CST must
+        be of integer type. The CST value is zero extended, truncated, or unchanged to make it
+        fit in a pointer size. This one is really dangerous!
 
-***** bitcast (CST to TYPE)
+***** Generic casting
+******* bitcast (CST to TYPE)
 
-      Convert a constant, CST, to another TYPE. The constraints of the operands are the same as
-      those for the bitcast instruction.
+        Convert a constant, CST, to another TYPE. The constraints of the operands are the same as
+        those for the bitcast instruction.
 
-***** getelementptr [inbounds] (CSTPTR, IDX0, IDX1, ...)
+***** Address operation
+******* getelementptr [inbounds] (CSTPTR, IDX0, IDX1, ...)
 
-      Perform the getelementptr operation on constants. As with the getelementptr instruction,
-      the index list may have zero or more indexes, which are required to make sense for the
-      type of "CSTPTR".
+        Perform the getelementptr operation on constants. As with the getelementptr instruction,
+        the index list may have zero or more indexes, which are required to make sense for the
+        type of "CSTPTR".
 
-***** select (COND, VAL1, VAL2)
+***** Conditional expression
+******* select (COND, VAL1, VAL2)
 
-      Perform the select operation on constants.
+        Perform the select operation on constants.
 
-***** icmp COND (VAL1, VAL2)
+***** Comparison
+******* icmp COND (VAL1, VAL2)
 
-      Performs the icmp operation on constants.
+        Performs the icmp operation on constants.
 
-***** fcmp COND (VAL1, VAL2)
+******* fcmp COND (VAL1, VAL2)
 
-      Performs the fcmp operation on constants.
+        Performs the fcmp operation on constants.
 
-***** extractelement (VAL, IDX)
+***** Vector
+******* extractelement (VAL, IDX)
 
-      Perform the extractelement operation on constants.
+        Perform the extractelement operation on constants.
 
-***** insertelement (VAL, ELT, IDX)
+******* insertelement (VAL, ELT, IDX)
 
-      Perform the insertelement operation on constants.
+        Perform the insertelement operation on constants.
 
-***** shufflevector (VEC1, VEC2, IDXMASK)
+******* shufflevector (VEC1, VEC2, IDXMASK)
 
-      Perform the shufflevector operation on constants.
+        Perform the shufflevector operation on constants.
 
-***** extractvalue (VAL, IDX0, IDX1, ...)
+***** Array
+******* extractvalue (VAL, IDX0, IDX1, ...)
 
-      Perform the extractvalue operation on constants. The index list is interpreted in a
-      similar manner as indices in a 'getelementptr' operation. At least one index value must
-      be specified.
+        Perform the extractvalue operation on constants. The index list is interpreted in a
+        similar manner as indices in a 'getelementptr' operation. At least one index value must
+        be specified.
 
-***** insertvalue (VAL, ELT, IDX0, IDX1, ...)
+******* insertvalue (VAL, ELT, IDX0, IDX1, ...)
 
-      Perform the insertvalue operation on constants. The index list is interpreted in a
-      similar manner as indices in a 'getelementptr' operation. At least one index value must
-      be specified.
+        Perform the insertvalue operation on constants. The index list is interpreted in a
+        similar manner as indices in a 'getelementptr' operation. At least one index value must
+        be specified.
 
-***** binary-or-bitwise-binary-OPCODE (LHS, RHS)
+***** Binary
+******* binary-or-bitwise-binary-OPCODE (LHS, RHS)
 
-      Perform the specified operation of the LHS and RHS constants. OPCODE may be any of the
-      binary or bitwise binary operations. The constraints on operands are the same as those
-      for the corresponding instruction (e.g. no bitwise operations on floating point values
-      are allowed).
+        Perform the specified operation of the LHS and RHS constants. OPCODE may be any of the
+        binary or bitwise binary operations. The constraints on operands are the same as those
+        for the corresponding instruction (e.g. no bitwise operations on floating point values
+        are allowed).
 
 * Other values
 *** Inline assembler expressions
