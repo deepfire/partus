@@ -8006,7 +8006,7 @@ def compiler_macroexpand_all(form, lexenv = nil, desc = "COMPILER-MACROEXPAND-AL
         if symbol_value(_compiler_trace_macroexpanded_):
                 if form != expanded:
                         # dprintf("  MX  %s   --->\n%s", pp_consly(form), pp_consly(macroexpanded))
-                        report(macroexpanded = expanded, desc = desc, lexenv = _null)
+                        report(expanded, "macroexpanded", desc = desc, lexenv = _null)
                 else:
                         dprintf(";;;%s macroexpansion had no effect", sex_space(-3, ";"))
         return expanded
@@ -9772,26 +9772,25 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_PP") == "t":
 
 # Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
 
-def report(macroexpanded = None, known = None, primitive = None, ast = None, bytecode = None,
-            desc = "", form_id = None, lexenv = None):
+def report(x, kind, desc = "", form_id = None, lexenv = None):
         lexenv  = "%s\n"  % coerce_to_lexenv(lexenv) if  lexenv is not None else ""
         desc    = "%s - " % desc                     if    desc is not None else ""
         form_id = "  %x"  % form_id                  if form_id is not None else ""
-        if macroexpanded is not None:
+        if   kind == "macroexpanded":
                 dprintf(";;; %smacroexpanded ............%s\n%s%s\n",
-                              desc, form_id, lexenv, pp(macroexpanded))
-        if known is not None:
+                              desc, form_id, lexenv, pp(x))
+        elif kind == "known":
                 dprintf(";;; %sknowns ..............%s\n%s%s\n",
-                              desc, form_id, lexenv, pp(known))
-        if primitive is not None:
+                              desc, form_id, lexenv, pp(x))
+        elif kind == "primitive":
                 dprintf(";;; %sprimitives ==========%s\n%s%s\n",
-                              desc, form_id, lexenv, primitive)
-        if ast:
+                              desc, form_id, lexenv, x)
+        elif kind == "ast":
                 import more_ast
                 dprintf(";;; %spython ------------->%s\n%s\n",
                               desc, form_id, "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
-                                                       for x in ast))
-        if bytecode:
+                                                       for x in x))
+        elif kind == "bytecode":
                 dprintf(";;; %sbytecode ************%s\n", desc, form_id)
                 import dis
                 def rec(x):
@@ -9800,7 +9799,7 @@ def report(macroexpanded = None, known = None, primitive = None, ast = None, byt
                                 if isinstance(sub, types.CodeType):
                                         dprintf(";;; child code -------------\n")
                                         rec(sub)
-                rec(bytecode)
+                rec(x)
 
 # Unregistered Issue COMPILER-MACRO-SYSTEM
 def primitivise(form, lexenv = nil) -> p.prim:
@@ -9812,7 +9811,7 @@ def primitivise(form, lexenv = nil) -> p.prim:
                 if (symbol_value(_compiler_trace_subprimitivisation_)
                     and not isinstance(x, (symbol_t, bool, int, str))
                     and not (consp(x) and x[0] in [_ref, _function, _quote])):
-                        report(known = x, desc = "PRIMITIVISE", lexenv = coerce_to_lexenv(symbol_value(_lexenv_)))
+                        report(x, "known", desc = "PRIMITIVISE", lexenv = coerce_to_lexenv(symbol_value(_lexenv_)))
                         dprintf("%s", res)
         def compiler_maybe_note_inner(known_name, xs):
                 if symbol_value(_compiler_trace_inner_knowns_) and known_name is not _symbol:
@@ -9926,16 +9925,16 @@ def lower(form, lexenv = nil):
         # with traced_matcher(emt = t, immediate = t):
         rewritten = rewrite_all(form, lexenv = lexenv)    ## No other high-level entry point to %REWRITE-ALL
         if symbol_value(_compiler_trace_rewritten_):
-                report(known = rewritten, form_id = id(form), desc = "%LOWER", lexenv = lexenv)
+                report(rewritten, "known", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
         ## HIR -> LIR
         prim = primitivise(rewritten, lexenv = lexenv)    ## No other high-level entry point to %PRIMITIVISE.
         if symbol_value(_compiler_trace_primitives_):
-                report(primitive = prim, form_id = id(form), desc = "%LOWER", lexenv = lexenv)
+                report(prim, "primitive", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
         ##
         ## LIR -> target AST
         ast  = emit_ast(prim)
         if symbol_value(_compiler_trace_ast_):            ## No other high-level entry point to %EMIT-AST.
-                report(ast = ast, form_id = id(form), desc = "%LOWER")
+                report(ast, "ast", form_id = id(form), desc = "%LOWER")
         return ast
 
 def process_to_ast(form, lexenv = nil, macroexpand = t):
@@ -10020,10 +10019,10 @@ def assemble(_ast: [ast.stmt], form: cons_t, filename = "") -> "code":
                 [ ast_validate(a) for a in _ast ]
         more_ast.assign_meaningful_locations(_ast)
         if symbol_value(_compiler_trace_module_ast_):
-                report(ast = _ast, form_id = id(form), desc = "%ASSEMBLE")
+                report(_ast, "ast", form_id = id(form), desc = "%ASSEMBLE")
         bytecode = py.compile(ast.fix_missing_locations(ast_module(_ast)), filename, "exec")
         if symbol_value(_compiler_trace_bytecode_):
-                report(bytecode = bytecode, form_id = id(form), desc = "%ASSEMBLE")
+                report(bytecode, "bytecode", form_id = id(form), desc = "%ASSEMBLE")
         return bytecode
 
 def process_as_loadable(processor, form, lexenv = nil, id = "PROCESSED-", **keys):
@@ -10120,12 +10119,14 @@ def process_top_level(form) -> [ast.stmt]:
                                                                    id = "PROCESS-TOPLEVEL-")
                 if process:
                         if toplevel and symbol_value(_compiler_trace_toplevels_):
-                                report(known = form, ast = stmts, desc = "processed TLF")
+                                report(form, "known", desc = "processed TLF")
+                                report(stmts, "ast", desc = "processed TLF")
                         run_time_results.extend(stmts)
                         compilation_unit_adjoin_symbols(*unit_data)
                 if eval:
                         if toplevel and symbol_value(_compiler_trace_compile_time_eval_):
-                                report(known = form, ast = stmts, desc = "CT eval")
+                                report(form, "known", desc = "CT eval")
+                                report(stmts, "ast", desc = "CT eval")
                         bytecode = assemble(compilation_unit_prologue(*unit_data)
                                             + stmts,
                                             form)
