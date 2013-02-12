@@ -542,7 +542,7 @@ class dictator(collections.UserDict):
         def __init__(self, dict):
                 self.__dict__.update(data = dict)
 
-py = dictator(python_builtins_dictionary())
+pyb = dictator(python_builtins_dictionary())
 #+end_src
 
 ******* Imports
@@ -804,7 +804,7 @@ def do_pyimport_symbol(symbol, globals, inmod_name = None, name_xform = frost.li
         frost.setf_global(symbol, inmod_name, globals, force = force)
 
 def pyimport_symbol(symbol, globals = None, inmod_name = None, name_xform = frost.lisp_symbol_name_python_name, force = False):
-        do_pyimport_symbol(boot_check_type(symbolp, symbol), defaulted(globals, py.globals()), inmod_name, name_xform, force)
+        do_pyimport_symbol(boot_check_type(symbolp, symbol), defaulted(globals, pyb.globals()), inmod_name, name_xform, force)
 
 def global_pyname(name):
         if name[0] != "*" != name[-1]:
@@ -815,7 +815,7 @@ def symbol_pyname(name):
         return "_" + name.replace("%", "_").replace("&", "_").replace("-", "_").strip("_%").lower()
 
 def intern_and_bind(*specs, globals = None, gvarp = False):
-        globals = defaulted(globals, py.globals())
+        globals = defaulted(globals, pyb.globals())
         for namespec in specs:
                 pyname, name, value = ((None, namespec, None) if not isinstance(namespec, tuple) else
                                        namespec + (None,)     if len(namespec) is 2              else
@@ -1613,7 +1613,7 @@ def deftype(type_name_or_fn, globals = None):
                 nonlocal globals
                 old_global_name = (type_name_or_fn.__name__ if functionp(type_name_or_fn) else
                                    fn.__name__)
-                globals = defaulted(globals, py.globals())
+                globals = defaulted(globals, pyb.globals())
                 old_global = (global_(old_global_name, globals)
                               or builtins.__dict__.get(old_global_name, None)
                               or None)
@@ -2234,7 +2234,7 @@ def load_code_object_as_module(name, co, filename = "", builtins = None, globals
         return mod, globals, locals
 
 def load_text_as_module(name, text, filename = "", **keys):
-        return load_code_object_as_module(name, py.compile(text, filename, "exec"),
+        return load_code_object_as_module(name, pyb.compile(text, filename, "exec"),
                                            filename = filename, **keys)[0]
 
 def reregister_module_as_package(mod, parent_package = None):
@@ -2253,7 +2253,7 @@ def reregister_module_as_package(mod, parent_package = None):
 def py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
         return load_code_object_as_module(
                 modname,
-                py.compile(ast.fix_missing_locations(ast_module(list(body), lineno = lineno)), filename, "exec"),
+                pyb.compile(ast.fix_missing_locations(ast_module(list(body), lineno = lineno)), filename, "exec"),
                 register = nil,
                 filename = filename,
                 **keys)
@@ -3430,12 +3430,12 @@ Defined keywords:
         ## Unregistered Issue COMPLIANCE-OPEN-ELEMENT-TYPE
         ## Unregistered Issue COMPLIANCE-OPEN-IF-EXISTS
         ## Unregistered Issue COMPLIANCE-OPEN-IF-DOES-NOT-EXIST
-        return py.open(namestring(pathname),
-                        poor_man_ecase(direction,
-                                        (make_keyword("INPUT"),  lambda: "r"),
-                                        (make_keyword("OUTPUT"), lambda: "w"),
-                                        (make_keyword("IO"),     lambda: "rw"),
-                                        (make_keyword("PROBE"),  lambda: not_implemented("direction :PROBE"))))
+        return pyb.open(namestring(pathname),
+                         poor_man_ecase(direction,
+                                         (make_keyword("INPUT"),  lambda: "r"),
+                                         (make_keyword("OUTPUT"), lambda: "w"),
+                                         (make_keyword("IO"),     lambda: "rw"),
+                                         (make_keyword("PROBE"),  lambda: not_implemented("direction :PROBE"))))
 
 @defun
 def with_open_file(pathname, body, direction = make_keyword("INPUT"), element_type = base_char_t,
@@ -3660,7 +3660,7 @@ def stream_as_string(stream):
         return stream.read()
 
 def file_as_string(filename):
-        with py.open(filename, "r") as f:
+        with pyb.open(filename, "r") as f:
                 return stream_as_string(f)
 #+end_src
 
@@ -6008,7 +6008,7 @@ def coerce_to_ast_type(type_):
                 error("Invalid AST type specifier: %s, %s, %s.", type_, type, isinstance(type_, type)))
 
 def text_ast(text):
-        return py.compile(text, "", 'exec', flags = ast.PyCF_ONLY_AST).body
+        return pyb.compile(text, "", 'exec', flags = ast.PyCF_ONLY_AST).body
 
 def function_ast(fn):
         fn_ast = text_ast(without_condition_system(lambda: inspect.getsource(fn)))[0]
@@ -8987,7 +8987,7 @@ def compiler_macroexpand_all(form, lexenv = nil, desc = "COMPILER-MACROEXPAND-AL
 
 #+begin_src python
 class known():
-        def rewrite(orig, *_):
+        def rewrite(mach, orig, *_):
                 return nil, orig
         def binder(exp, continuation):
                 with progv({ _walker_binder_: lexenv_walker.binder(0, "Generic binder.") }):
@@ -9046,12 +9046,13 @@ def rewrite_1(preform) -> "(Bool ({} Form Bool))":
         if not known:
                 error("Unknown form encountered at rewrite stage: %s, form[0]: %s/%x", pp_consly(form), form[0], id(form[0]))
         ## 4. Check known parameter/argument count correspondence.
+        machine = symbol_value(_machine_)
         rewrite_method = known.rewrite
         args = vectorise_linear(form[1])
         validate_function_keys(form[0], rewrite_method, keys)
-        validate_function_args(form[0], rewrite_method, [form] + args)
+        validate_function_args(form[0], rewrite_method, [machine, form] + args)
         ## 5. Invoke the rewrite method.
-        ret = _, r = rewrite_method(form, *args, **keys)
+        ret = _, r = rewrite_method(machine, form, *args, **keys)
         if (symbol_value(_compiler_trace_subrewriting_)
             and form != r):
                 dprintf(";;; %s - rewrote ............\n%s   -->\n%s\n",
@@ -9123,8 +9124,22 @@ def ir_nth_valueify_last_subform(n, form):
 *** Primitive IR
 
 #+begin_src python
+intern_and_bind("*MACHINE*", gvarp = t)
+
 with disabled_condition_system():
         import primitives as p
+        import py
+        import tri
+        pymach  = py.py()
+        cfgmach = tri.tri()
+
+string_set("*MACHINE*", pymach)
+
+target_machine = defwith("target_machine",
+                         lambda self: dynamic_scope_push({ _machine_: self.machine }),
+                         lambda *_:   dynamic_scope_pop(),
+                         __init__ = (lambda self, machine:
+                                             self.__dict__.update({ "machine": machine })))
 
 def variable_tn(sym, globalp = nil): return p.name((unit_variable_pyname if globalp else ensure_variable_pyname)(sym))
 def function_tn(sym, globalp = nil): return p.name((unit_function_pyname if globalp else new_function_pyname)(sym))
@@ -9144,11 +9159,12 @@ __primitiviser_map__ = { str:        (nil, p.string),
                          int:        (nil, p.integer),
                          float:      (nil, p.float_num),
                          ## Note: this relies on the corresponding name to be made available by some means.
-                         symbol_t:   (nil, lambda x: p.symbol(unit_symbol_pyname(x))),
                          bool:       (nil, lambda x: p.name("True" if x else "False")),
                          NoneType:   (nil, lambda x: p.name("None")),
-                         list:       (t,   lambda xs: p.pylist(*xs)),
-                         tuple:      (t,   lambda xs: p.pytuple(*xs)),
+                         ## PY machine only:
+                         symbol_t:   (nil, lambda x:  py.symbol(unit_symbol_pyname(x))),
+                         list:       (t,   lambda xs: py.pylist(*xs)),
+                         tuple:      (t,   lambda xs: py.pytuple(*xs)),
                          }
 
 def primitivisable_p(x):
@@ -9199,7 +9215,7 @@ def ir_apply(func, *args):
         ## Has the virtue of being available even post-rewrite.
         l, l_ = list_, list__
         return l(_apply, l(_function, (l(_quote, l(func)) if isinstance(func, str) else
-                                       l(_quote, func)    if pyrefname_p(func)     else
+                                       l(_quote, func)    if py.pyrefname_p(func)  else
                                        func)),
                  *(args + (l(_quote, nil),)))
 
@@ -9455,21 +9471,6 @@ def handle_constant_linear_body(xs):
 ###                         =(LET,FUNCTION,APPLY)                     NONEXPR-REWIND-AS-LET-FUNCTION-APPLY
 #+end_src
 
-***** Raw python references
-
-#+begin_src python
-def pyrefname_p(x):
-        return consp(x) and isinstance(x[0], str)
-
-def pyref_p(x):
-        return (consp(x) and x[0] is _quote and consp(x[1])
-                and pyrefname_p(x[1][0]))
-
-def primitivise_pyref(x):
-        return p.prim_attr_chain([ p.name(x[1][0][0]) ]
-                                 + xmap_to_vector(p.string, x[1][0][1]))
-#+end_src
-
 ***** IR argument passing
 
 #+begin_src python +n
@@ -9517,7 +9518,7 @@ def ir(*ir, **keys):
 #+begin_src python
 @defknown
 class funcall(known):
-        def rewrite(_, func, *args):
+        def rewrite(mach, _, func, *args):
                 return t, list__(_apply, func, append(consify_linear(args), list_(list_(_quote, nil))))
 #+end_src
 
@@ -9534,7 +9535,7 @@ class funcall(known):
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _let_)
 class let_(known):
-        def rewrite(_, bindings, *body):
+        def rewrite(mach, _, bindings, *body):
                 ## I quietly hope that there is no need to handle lexenvs here..
                 if not bindings:
                         return t, handle_linear_body(body)
@@ -9718,11 +9719,11 @@ def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
                                                           def_expr))
                                            for i, name, gs, def_expr
                                            in zip(range(len(optional)), optional, opt_gsyms, optdefs)),
-                            (l(l(nonopt_rest_gsym, l(_primitive, p.slice, rest_gsym, len(optional), None, None))) if need_nonopt_rest else nil),
+                            (l(l(nonopt_rest_gsym, l(_primitive, py.slice, rest_gsym, len(optional), None, None))) if need_nonopt_rest else nil),
                             (l(l(rest, ir_cl_call("consify_linear", nonopt_rest_gsym)))
                              if rest else nil),
                             (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", nonopt_rest_gsym)),
-                                  consify_linear(l(name, l(_if, l(_primitive, p.not_in, ksym.tn, key_map_gsym.tn),
+                                  consify_linear(l(name, l(_if, l(_primitive, py.not_in, ksym.tn, key_map_gsym.tn),
                                                            def_expr,
                                                            l(_primitive, p.index, key_map_gsym.tn, ksym.tn)))
                                                for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
@@ -9734,11 +9735,12 @@ def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
                                            for name, form in zip(aux, auxforms))),
                    *body))
 
-def lower_lambda(lexenv, clambda, lam, body, name = nil, pydecorators = nil, self_binding = nil, globalp = nil,
+def lower_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorators = nil, self_binding = nil, globalp = nil,
                  function_namespace = nil):
         (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
             args, forms = clambda.args, clambda.forms
         assert not (whole or optional or clambda.keysp or aux) ## &WHOLE is a piece of debt, currently.
+        check_type(mach, p.machine)
         fnname_tn = function_tn(name, globalp = globalp) if name else None
         ## Things, that are needed:
         ##  - CLAMBDA passing
@@ -9757,10 +9759,10 @@ def lower_lambda(lexenv, clambda, lam, body, name = nil, pydecorators = nil, sel
                                 name_varframe  = varframe,
                                 name_funcframe = funcframe)
         with progv({ _lexenv_: fn_lexenv }):
-                primitivised_body = [ primitivise(x) for x in body ]
+                primitivised_body = [ primitivise(mach, x) for x in body ]
                 ## _now_, that the body was primitivised, the clambda's nonlocal-SETQs were computed:
-                nonlocal_decl = ([ p.nonlocal_(*(variable_tn(x)
-                                                 for x in sorted(clambda.nonlocal_setqs, key = symbol_name) )) ]
+                nonlocal_decl = ([ py.nonlocal_(*(variable_tn(x)
+                                                  for x in sorted(clambda.nonlocal_setqs, key = symbol_name) )) ]
                                  if clambda.nonlocal_setqs else [])
                 # dprintf("emitting LAMBDA primitive, name: %s, pyfname: %s, fnname_tn: %s", name, pyfname, fnname_tn)
                 return p.function(fnname_tn, tnify_function_arglist(name, fn_lexenv, [rest or None] + fixed),
@@ -9778,7 +9780,7 @@ def lower_lambda(lexenv, clambda, lam, body, name = nil, pydecorators = nil, sel
 class flet(known):
         def binder_args(bindings, *body):
                 return xmap_to_vector(lambda b: fn(b[0], b[1][0]), bindings)
-        def rewrite(orig, bindings, *body):
+        def rewrite(mach, orig, bindings, *body):
                 ## Unregistered Issue FLET-POTENTIALLY-MISSING-LAMBDA-BINDER-MAGIC
                 not (listp(bindings)
                      and every(lambda x: (length(x) >= 2 and
@@ -9795,17 +9797,17 @@ class flet(known):
                                                                                  f[1][0], vectorise_linear(f[1][1]))),
                                              bindings),
                                 *body))
-        def primitivise(bindings, *body):
+        def primitivise(mach, bindings, *body):
                 lexenv          = symbol_value(_lexenv_)
                 names, bindings = list(zip(*xmap_to_vector(lambda b: (b[0], b), bindings)))
                 clambdas        = [ compiler_lambda(b[0], b[1][0]) for b in bindings ]
                 body_name       = "FLET-" + ("-".join(symbol_name(x) for x in names))
-                return p.funcall(lower_lambda(lexenv, compiler_lambda(gensym(body_name + "-"),
+                return p.funcall(lower_lambda(mach, lexenv, compiler_lambda(gensym(body_name + "-"),
                                                                       list_(*names)),
                                               names, body,
                                               name = gensym(body_name),
                                               function_namespace = t),
-                                 *[ lower_lambda(lexenv, clambda,
+                                 *[ lower_lambda(mach, lexenv, clambda,
                                                  lambda_list, vectorise_linear(body),
                                                  name = name)
                                     for clambda, (name, (lambda_list, body)) in zip(clambdas, bindings) ])
@@ -9843,7 +9845,7 @@ class labels(known):
                            { _walker_binder_: binder,
                              _walker_binder_args_: nil }):
                         return further(exp)
-        def rewrite(_, bindings, *body):
+        def rewrite(mach, _, bindings, *body):
                 l = list_
                 def henry_baker_labels_using_flet_alone():
                         # (defmacro laybells (fns &body forms)
@@ -9899,7 +9901,7 @@ class labels(known):
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _macrolet)
 class macrolet(known):
-        def rewrite(_, bindings, *body):
+        def rewrite(mach, _, bindings, *body):
                 return t, handle_linear_body(body)
 #+end_src
 
@@ -9911,7 +9913,7 @@ class macrolet(known):
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _symbol_macrolet)
 class symbol_macrolet(known):
-        def rewrite(_, bindings, *body):
+        def rewrite(mach, _, bindings, *body):
                 return t, handle_linear_body(body)
 #+end_src
 
@@ -9939,7 +9941,7 @@ class block(known):
                              _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
                                                           name_blockframe = { name: block_binding(name, _block, nonce) }) }):
                         return continuation(exp)
-        def rewrite(orig, name, *body):
+        def rewrite(mach, orig, name, *body):
                 consbody = consify_linear(body)
                 block_used = nil
                 def compute_block_usage(sex, further):
@@ -9963,7 +9965,7 @@ class block(known):
 #+begin_src python
 @defknown((_return_from, " ", (_satisfies, namep), (_maybe, " ", (_form,))))
 class return_from(known):
-        def rewrite(_, name, *maybe_form):
+        def rewrite(mach, _, name, *maybe_form):
                 binding, _ = symbol_value(_walker_lexenv_).lookup_block(the(symbol_t, name))
                 if not binding:
                         simple_program_error("return for unknown block: %s", name)
@@ -10004,7 +10006,7 @@ class tagbody(known):
                                                                                           binder.fnames) }))]
                                  if binder.tags else []))):
                         return further(exp)
-        def rewrite(orig, *tags_and_forms):
+        def rewrite(mach, orig, *tags_and_forms):
                 binder       = symbol_value(_walker_binder_)
                 init_tag     = binder.tags[0]
                 (go_tag,
@@ -10049,7 +10051,7 @@ class tagbody(known):
 #+begin_src python
 @defknown((_go, " ", (_typep, symbol_t)))
 class go(known):
-        def rewrite(_, name):
+        def rewrite(mach, _, name):
                 binding, lexenv = symbol_value(_walker_lexenv_).lookup_gotag(the(symbol_t, name))
                 if not binding:
                         simple_program_error("attempt to GO to nonexistent tag: %s", name)
@@ -10100,7 +10102,7 @@ EVAL-WHEN normally appears as a top level form, but it is meaningful
 for it to appear as a non-top-level form.  However, the compile-time
 side effects described in Section 3.2 (Compilation) only take place
 when EVAL-WHEN appears as a top level form."""
-        def rewrite(_, when, *body):
+        def rewrite(mach, _, when, *body):
                 ctop, ltop, exec = parse_eval_when_situations(when)
                 ## This handles EVAL-WHEN in non-top-level forms. (EVAL-WHENs in top
                 ## level forms are picked off and handled by PROCESS-TOPLEVEL-FORM,
@@ -10117,13 +10119,13 @@ when EVAL-WHEN appears as a top level form."""
 @defknown((_setq, [(_poscase,
                     (1, " "),
                     (3, 5),
-                    (t, "\n")), (_or, (_satisfies, namep), (_satisfies, pyref_p)), " ", (_form,)]))
+                    (t, "\n")), (_or, (_satisfies, namep), (_satisfies, py.pyref_p)), " ", (_form,)]))
 class setq(known):
-        def rewrite(orig, *args):
+        def rewrite(mach, orig, *args):
                 ## Actually a normalisation.. or actually, the hell knows what it is..
                 len(args) % 2 and \
                     error("SETQ accepts an even amount of arguments, got: %s", pp_consly(consify_linear(args)))
-                not all(pyref_p(x) or isinstance(x, symbol_t)
+                not all(py.pyref_p(x) or isinstance(x, symbol_t)
                         for x in args[::2]) and \
                     error("SETQ arguments at even positions must be symbols, got: %s", pp_consly(consify_linear(args)))
                 return ((nil, orig) if len(args) == 2 else
@@ -10133,9 +10135,9 @@ class setq(known):
         def nth_value(n, orig, _, value):                                 return orig if n is 0 else list_(_progn, orig, nil)
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
-        def primitivise(name, value):
-                if pyref_p(name):
-                        return p.assign(primitivise_pyref(name), primitivise(value))
+        def primitivise(mach, name, value):
+                if py.pyref_p(name):
+                        return p.assign(py.primitivise_pyref(name), primitivise(mach, value))
                 cur_lexenv = symbol_value(_lexenv_)
                 lexical_binding, tgt_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
@@ -10146,12 +10148,12 @@ class setq(known):
                         if not gvar and not lexical_binding: # Must be a special, don't complain.
                                 simple_style_warning("undefined variable: %s", name)
                                 compiler_defvar_without_actually_defvar(name, value)
-                        return p.special_setq(p.name(unit_symbol_pyname(name)), primitivise(value))
+                        return p.special_setq(p.name(unit_symbol_pyname(name)), primitivise(mach, value))
                 compiler_trace_known_choice(_setq, name, "LEXICAL")
                 if cur_lexenv.clambda is not tgt_lexenv.clambda:
                         # dprintf("NONLOCAL SETQ of %s from %s by %s", name, tgt_lexenv.clambda, cur_lexenv.clambda)
                         cur_lexenv.clambda.nonlocal_setqs.add(name)
-                return p.assign(lexical_binding.tn, primitivise(value))
+                return p.assign(lexical_binding.tn, primitivise(mach, value))
         def effects(name, value):         return t
         def affected(name, value):        return ir_affected(value)
 #+end_src
@@ -10162,14 +10164,14 @@ class setq(known):
 @defknown((_progn,
            [(_lead, 1), (_notlead, "\n"), (_form,)]))
 class progn(known):
-        def rewrite(_, *body):
+        def rewrite(mach, _, *body):
                 rewrote, form = rewrite_linear_body(body)
                 return rewrote, form
         def nvalues(*body):            return 1   if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, *body): return nil if not body else ir_nth_valueify_last_subform(n, orig)
-        def primitivise(*body):
-                return (p.progn(*(primitivise(x) for x in body)) if body else
-                        primitivise(nil))
+        def primitivise(mach, *body):
+                return (p.progn(*(primitivise(mach, x) for x in body)) if body else
+                        primitivise(mach, nil))
         def effects(*body):            return any(ir_effects(f) for f in body)
         def affected(*body):           return any(ir_affected(f) for f in body)
 #+end_src
@@ -10181,7 +10183,7 @@ class progn(known):
            3, (_form,),
           (_maybe, "\n", (_form,))))
 class if_(known):
-        def rewrite(orig, test, consequent, *maybe_ante):
+        def rewrite(mach, orig, test, consequent, *maybe_ante):
                 return not maybe_ante, (orig if maybe_ante else
                                         list_(_if, test, consequent, nil))
         def nvalues(test, consequent, antecedent):
@@ -10197,10 +10199,10 @@ class if_(known):
                 return (list_(_nth_value, n, orig) if ir_effects(consequent) or ir_effects(antecedent) else
                         vconseq                    if (vconseq == vante) and not ir_effects(test)       else
                         list_(_if, test, vconseq, vante))
-        def primitivise(test, consequent, antecedent):
-                return p.if_(primitivise(test),
-                             primitivise(consequent),
-                             primitivise(antecedent))
+        def primitivise(mach, test, consequent, antecedent):
+                return p.if_(primitivise(mach, test),
+                             primitivise(mach, consequent),
+                             primitivise(mach, antecedent))
         def effects(*tca):  return any(ir_effects(f)  for f in tca)
         def affected(*tca): return any(ir_affected(f) for f in tca)
 #+end_src
@@ -10213,7 +10215,7 @@ class if_(known):
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _let)
 class let(known):
-        def rewrite(orig, bindings, *body):
+        def rewrite(mach, orig, bindings, *body):
                 names, forms = list(zip(*xmap_to_vector(lambda x: ((first(x), second(x)) if consp(x) else (x, nil)),
                                                                bindings))) or ([], [])
                 check_no_locally_rebound_constants(names)
@@ -10225,14 +10227,14 @@ class let(known):
                          list__(_progn, append(consify_linear(forms), list_(nil)))))
         def nvalues(bindings, *body):            return 1   if not body else ir_nvalues(body[-1])
         def nth_value(n, orig, bindings, *body): return nil if not body else ir_nth_valueify_last_subform(n, orig)
-        def primitivise(bindings, *body):
+        def primitivise(mach, bindings, *body):
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
                 # Unregistered Issue DEAD-CODE-ELIMINATION
                 normalised = vectorise_linear(bindings)
                 env = make_lexenv_varframe(list(zip(*normalised))[0], allocate_tns = t)
                 with progv({ _lexenv_: env }):
-                        guts = p.progn(*(primitivise(x) for x in body))
-                return p.let(list((env.varframe["name"][name].tn, primitivise(form))
+                        guts = p.progn(*(primitivise(mach, x) for x in body))
+                return p.let(list((env.varframe["name"][name].tn, primitivise(mach, form))
                                   for name, (form, __) in normalised),
                              guts)
         def effects(bindings, *body):
@@ -10251,7 +10253,7 @@ class let(known):
            (_function, " ", (_or,
                              (_lambda, (_funcher, _lambda)),
                              (_satisfies, namep),
-                             (_satisfies, pyref_p),
+                             (_satisfies, py.pyref_p),
                              (_setf, (_satisfies, namep))))))
 class function(known):
         def binder(exp, further, name = nil, pydecorators = nil, globalp = nil):
@@ -10272,7 +10274,7 @@ class function(known):
                                                name_funcframe = { name: function_binding(name, _function, fn(name, lam)) }))
                                  ])):
                         return further(exp)
-        def rewrite(orig, x, name = nil, pydecorators = nil, globalp = nil):
+        def rewrite(mach, orig, x, name = nil, pydecorators = nil, globalp = nil):
                 lambdap = ir_lambda_p(x)
                 if lambdap:
                         if not (listp(x[1][0]) and listp(x[1][1])):
@@ -10289,14 +10291,14 @@ class function(known):
         ## Unregistered Issue COMPLIANCE-FUNCTION-NAMESPACE-SEPARATION
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def primitivise(x, name = nil, pydecorators = nil, globalp = nil):
+        def primitivise(mach, x, name = nil, pydecorators = nil, globalp = nil):
                 ## (QUOTE ("str"))
-                if pyref_p(x):
-                        return primitivise_pyref(x)
+                if py.pyref_p(x):
+                        return py.primitivise_pyref(x)
                 lambdap = ir_lambda_p(x)
                 if lambdap:
                         lambda_list, body = x[1][0], x[1][1]
-                        return lower_lambda(symbol_value(_lexenv_),
+                        return lower_lambda(mach, symbol_value(_lexenv_),
                                             compiler_lambda(name, lambda_list),
                                             lambda_list, vectorise_linear(body),
                                             name = name, pydecorators = pydecorators,
@@ -10354,7 +10356,7 @@ behavior."""
            3, (_form,),
            [(_lead, -2), (_notlead, "\n"), (_form,)]))
 class unwind_protect(known):
-        def rewrite(orig, form, *unwind_body):
+        def rewrite(mach, orig, form, *unwind_body):
                 return ((t, cont(form)) if not unwind_body or all(constantp(x) for x in unwind_body) else
                         (lambda gs: (t, list_(_let, list_(list_(gs, form)),
                                               *(unwind_body
@@ -10364,9 +10366,9 @@ class unwind_protect(known):
         def nvalues(form, *unwind_body):            return ir_nvalues(form)
         def nth_value(n, orig, form, *unwind_body): return list__(_unwind_protect, ir_nth_value(n, form),
                                                                   consify_linear(unwind_body))
-        def primitivise(form, *unwind_body):
-                return p.unwind_protect(primitivise(form),
-                                        p.progn(*(primitivise(x) for x in unwind_body)))
+        def primitivise(mach, form, *unwind_body):
+                return p.unwind_protect(primitivise(mach, form),
+                                        p.progn(*(primitivise(mach, x) for x in unwind_body)))
         def effects(form, *unwind_body):
                 return any(ir_effects(f) for f in (form,) + body)
         def affected(form, *unwind_body):
@@ -10376,16 +10378,16 @@ class unwind_protect(known):
 ******* REF
 
 #+begin_src python
-@defknown((_ref, " ", (_or, (_satisfies, namep), (_satisfies, pyref_p))))
+@defknown((_ref, " ", (_or, (_satisfies, namep), (_satisfies, py.pyref_p))))
 class ref(known):
-        def rewrite(orig, x):
-                pyrefp = pyref_p(x)
+        def rewrite(mach, orig, x):
+                pyrefp = py.pyref_p(x)
                 return not pyrefp, (orig if pyrefp else x)
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def primitivise(name):
-                if pyref_p(name):
-                        return primitivise_pyref(name)
+        def primitivise(mach, name):
+                if py.pyref_p(name):
+                        return py.primitivise_pyref(name)
                 cur_lexenv = symbol_value(_lexenv_)
                 lexical_binding, src_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
@@ -10405,27 +10407,24 @@ class ref(known):
 ******* PRIM
 
 #+begin_src python
-@defknown((_primitive, " ", (_or, (_satisfies, p.prim_type_p), (_satisfies, pyref_p)), [" ", (_form,)]))
+@defknown((_primitive, " ", (_or, (_satisfies, p.prim_type_p), (_satisfies, py.pyref_p)), [" ", (_form,)]))
 class primitive(known):
-        def rewrite(orig, prim, *args, **keys):
-                prim, pyrefp = ((prim, nil)                    if not pyref_p(prim)               else
-                                error("Unknown PRIMITIVE: %s",
-                                      pp_consly(prim))         if (   not hasattr(p, prim[1][0][0])
-                                                                   or not issubclass(getattr(p, prim[1][0][0]),
-                                                                                     p.prim))     else
-                                (getattr(p, prim[1][0][0]), t))
+        def rewrite(mach, orig, prim, *args, **keys):
+                prim, pyrefp = ((prim, nil) if not py.pyref_p(prim) else
+                                (p.find_primitive(prim[1][0][0], mach), t))
                 return nil, (ir(_primitive, prim, *args, **keys) if keys   else
                              list_(_primitive, prim, *args)      if pyrefp else
                              orig)
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
-        def primitivise(prim, *args, **keys):
+        def primitivise(mach, prim, *args, **keys):
                 return prim(*(x         if isinstance(x, p.prim)       else
                               (error("Invalid quoting within PRIMITIVE known form: %s", cons(prim, consify_linear(args)))
                                if not consp(x[1]) else
                                x[1][0]) if consp(x) and x[0] is _quote else
-                              primitivise(x)
+                              primitivise(mach, x)
                               for x in args),
+                             machine = mach,
                              **keys)
         def effects(*_):            return t
         def affected(*_):           return t
@@ -10440,7 +10439,7 @@ class primitive(known):
 class apply(known):
         def nvalues(func, _, *__):            return ir_function_form_nvalues(func)
         def nth_value(n, orig, func, _, *__): return ir_function_form_nth_value_form(n, func, orig)
-        def primitivise(func, arg, *args):
+        def primitivise(mach, func, arg, *args):
                 ## Unregistered Issue IMPROVEMENT-APPLY-COULD-VALIDATE-CALLS-OF-KNOWNS
                 fixed, rest = (((),                 arg)       if not args                  else
                                ((arg,) + args[:-1], args[-1]))
@@ -10449,11 +10448,11 @@ class apply(known):
                 ## Therefore, the important evolutionary question, is what kind of preparations are
                 ## required to make such type analysis viable.
                 if rest is nil or rest == list_(_quote, nil):
-                        return p.funcall(primitivise(func), *(primitivise(x) for x in fixed))
+                        return p.funcall(primitivise(mach, func), *(primitivise(mach, x) for x in fixed))
                 else:
-                        return p.apply(primitivise(func), *(list(primitivise(x) for x in fixed)
-                                                             + [ p.funcall(p.impl_ref("vectorise_linear"),
-                                                                           primitivise(rest)) ]))
+                        return p.apply(primitivise(mach, func), *(list(primitivise(mach, x) for x in fixed)
+                                                             + [ p.funcall(py.impl_ref("vectorise_linear"),
+                                                                           primitivise(mach, rest)) ]))
         def effects(func, arg, *args):
                 return (any(ir_effects(arg) for arg in (func, arg) + args) or
                         ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
@@ -10469,7 +10468,7 @@ class apply(known):
 class quote(known):
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
-        def primitivise(x):
+        def primitivise(mach, x):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if isinstance(x, symbol_t) and not constantp(x):
                         compiler_trace_known_choice(_quote, x, "NONCONSTANT-SYMBOL")
@@ -10481,7 +10480,7 @@ class quote(known):
                                 return prim
                         elif consp(x):
                                 compiler_trace_known_choice(_quote, x, "SEX")
-                                return p.literal_list(*(primitivise(list_(_quote, x)) for x in vectorise_linear(x)))
+                                return p.literal_list(*(primitivise(mach, list_(_quote, x)) for x in vectorise_linear(x)))
                         else:
                                 error("QUOTE: cannot handle %s: non-primitivisable constant atom.")
         def effects(x):            return nil
@@ -10500,11 +10499,11 @@ class multiple_value_call(known):
         ## once we get into the partial evaluation affairs..
         def nvalues(func, *_):            return ir_function_form_nvalues(func)
         def nth_value(n, orig, func, *_): return ir_function_form_nth_value_form(n, func, orig)
-        def primitivise(fn, *arg_forms):
+        def primitivise(mach, fn, *arg_forms):
                 ## We have no choice, but to lower immediately, and by hand.
                 ## Unregistered Issue SAFETY-VALUES-FRAME-CHECKING
-                return p.apply(primitivise(fn),
-                               p.add(*(p.slice(primitivise(x), p.integer(1), nil, nil) for x in arg_forms)))
+                return p.apply(primitivise(mach, fn),
+                               p.add(*(py.slice(primitivise(mach, x), p.integer(1), nil, nil) for x in arg_forms)))
         def effects(fn, *arg_forms):
                 return (any(ir_effects(arg) for arg in arg_forms) or
                         ir_depending_on_function_properties(func, lambda fn, effects: effects, "effects"))
@@ -10525,9 +10524,9 @@ class catch(known):
                                                     list_(_progn, tag, nil)  if ir_effects(tag) else
                                                     nil)
         ## Unregistered Issue DOUBT-WHETHER-LAMBDA-CAN-LOWER-PROLOGUESSLY-DUE-TO-C-L-A-N-T
-        def primitivise(tag, *body):
-                return p.catch(primitivise(tag),
-                               p.progn(*(primitivise(x) for x in body)))
+        def primitivise(mach, tag, *body):
+                return p.catch(primitivise(mach, tag),
+                               p.progn(*(primitivise(mach, x) for x in body)))
         def effects(tag, *body):  return ir_effects(tag) or any(ir_effects(f) for f in body)
         def affected(tag, *body): return ir_affected(tag) or any(ir_affected(f) for f in body)
 #+end_src
@@ -10540,8 +10539,8 @@ class throw(known):
         def nvalues(_, value):            return ir_nvalues(value)
         def nth_value(n, orig, _, value): return (list_(_progn, tag, ir_nth_value(value)) if ir_effects(tag) else
                                                   ir_nth_value(value))
-        def primitivise(tag, value):
-                return p.throw(primitivise(tag), primitivise(value))
+        def primitivise(mach, tag, value):
+                return p.throw(primitivise(mach, tag), primitivise(mach, value))
         def effects(tag, value):          return ir_effects(tag) or ir_effects(value)
         def affected(tag, value):         return ir_affected(tag) or ir_affected(value)
 #+end_src
@@ -10568,8 +10567,8 @@ class nth_value(known):
                         nil                        if n != form_n and not ir_effects(form)   else
                         list_(_progn, form, nil)   if n != form_n                            else
                         ir_nth_value(n, form)) ## We don't risk unbounded recursion here, so let's analyse further..
-        def primitivise(n, form):
-                return p.funcall(p.impl_ref("values_frame_project"), primitivise(n), primitivise(form))
+        def primitivise(mach, n, form):
+                return p.funcall(py.impl_ref("values_frame_project"), primitivise(mach, n), primitivise(mach, form))
         def effects(n, form):   return ir_effects(n) or ir_effects(form)
         def affected(n, form):  return ir_affected(n) or ir_affected(form)
 #+end_src
@@ -10590,9 +10589,9 @@ class progv(known):
                                                               if (ir_effects(names)
                                                                   or ir_effects(values)) else
                                                               nil)
-        def primitivise(vars, vals, *body):
-                return p.progv(tuple(primitivise(x) for x in vars), tuple(primitivise(x) for x in vals),
-                               p.progn(*(primitivise(x) for x in body)))
+        def primitivise(mach, vars, vals, *body):
+                return p.progv(tuple(primitivise(mach, x) for x in vars), tuple(primitivise(mach, x) for x in vals),
+                               p.progn(*(primitivise(mach, x) for x in body)))
         def effects(names, values, *body):            return any(ir_effects(f) for f in (names, values) + body)
         def affected(names, values, *body):           return any(ir_affected(f) for f in (names, values) + body)
 #+end_src
@@ -10607,8 +10606,8 @@ class protoloop(known):
         ## Critical Issue PROTOLOOP-MULTIPLE-VALUES-NOT-IMPLEMENTED
         def nvalues(*_):            return not_implemented()
         def nth_value(n, *_):       return not_implemented()
-        def primitivise(*body):
-                return p.loop(p.progn(*(primitivise(x) for x in body)))
+        def primitivise(mach, *body):
+                return p.loop(p.progn(*(primitivise(mach, x) for x in body)))
         def effects(*body):         return any(ir_effects(x)  for x in body)
         def affected(*body):        return any(ir_affected(x) for x in body)
 #+end_src
@@ -10621,7 +10620,7 @@ class protoloop(known):
 class the(known):
         def nvalues(type, form):            not_implemented()
         def nth_value(n, orig, type, form): not_implemented()
-        def primitivise(type, form):              not_implemented()
+        def primitivise(mach, type, form):  not_implemented()
         def effects(type, form):            return ir_effects(form)
         def affected(type, form):           return ir_affected(form)
 #+end_src
@@ -10634,7 +10633,7 @@ class the(known):
 class locally(known):
         def nvalues(*decls_n_body):            not_implemented()
         def nth_value(n, orig, *decls_n_body): not_implemented()
-        def primitivise(*decls_n_body):        not_implemented()
+        def primitivise(mach, *decls_n_body):  not_implemented()
         def effects(*decls_n_body):            not_implemented()
         def affected(*decls_n_body):           not_implemented()
 #+end_src
@@ -10652,7 +10651,7 @@ class multiple_value_prog1(known):
                         (lambda sym: list__(_let, list_(list_(sym, ir_nth_value(n, first_form))),
                                             consify_linear(forms + (sym,))))
                         (gensym("MV-PROG1-VALUE-")))
-        def primitivise(first_form, *forms):        not_implemented()
+        def primitivise(mach, first_form, *forms):  not_implemented()
         def effects(first_form, *forms):            return ir_effects(first_form) or any(ir_effects(f) for f in forms)
         def affected(first_form, *forms):           return ir_affected(first_form) or any(ir_affected(f) for f in forms)
 #+end_src
@@ -10664,7 +10663,7 @@ class multiple_value_prog1(known):
 class load_time_value(known):
         def nvalues(form, read_only_p):            not_implemented()
         def nth_value(n, orig, form, read_only_p): not_implemented()
-        def primitivise(form, read_only_p):        not_implemented()
+        def primitivise(mach, form, read_only_p):  not_implemented()
         def effects(form, read_only_p):            not_implemented()
         def affected(form, read_only_p):           not_implemented()
 #+end_src
@@ -10873,7 +10872,7 @@ def report(x, kind, desc = "", form_id = None, lexenv = None):
                 rec(x)
 
 # Unregistered Issue COMPILER-MACRO-SYSTEM
-def primitivise(form, lexenv = nil) -> p.prim:
+def primitivise(mach, form, lexenv = nil) -> p.prim:
         # - tail position tracking
         # - scopes
         # - symbols not terribly clear
@@ -10913,7 +10912,7 @@ def primitivise(form, lexenv = nil) -> p.prim:
                                 compiler_maybe_note_inner(known.name, form)
                                 if not hasattr(known, "primitivise"):
                                         error("It is not KNOWN to me, how to primitivise %s forms.", form[0])
-                                res = known.primitivise(*vectorise_linear(form[1]), **alist_hash_table(args))
+                                res = known.primitivise(mach, *vectorise_linear(form[1]), **alist_hash_table(args))
                                 compiler_maybe_note_subprimitivisation(x, res)
                                 return res
                         else:
@@ -10984,29 +10983,42 @@ def ast_fixup_written_name_contexts(x):
         with progv({ fixupp: nil }):
                 return name_context_fixer.visit(the(ast.AST, x))
 
-def emit_ast(prim) -> [p.stmt]:
-        asts = p.help_prog([prim])
+def emit_python_ast(prim) -> [ast.AST]:
+        asts = py.help_prog([prim])
         if symbol_value(_compiler_validate_ast_):
                 [ ast_validate(a) for a in asts ]
         return [ ast_fixup_written_name_contexts(a) for a in asts ]
 
-def lower(form, lexenv = nil):
+def emit_cfg(prim):
+        gdata   = tri.unit_global_data_t()
+        return tri.primitive_cfg(symbol_value(_machine_), gdata, prim)
+
+def lower(form, lexenv = nil, machine = None):
         "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
-        ## Macroexpanded SEX -> MacIR
-        # with traced_matcher(emt = t, immediate = t):
-        rewritten = rewrite_all(form, lexenv = lexenv)    ## No other high-level entry point to %REWRITE-ALL
-        if symbol_value(_compiler_trace_rewritten_):
-                report(rewritten, "known", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
-        ## HIR -> LIR
-        prim = primitivise(rewritten, lexenv = lexenv)    ## No other high-level entry point to %PRIMITIVISE.
-        if symbol_value(_compiler_trace_primitives_):
-                report(prim, "primitive", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
-        ##
-        ## LIR -> target AST
-        ast  = emit_ast(prim)
-        if symbol_value(_compiler_trace_ast_):            ## No other high-level entry point to %EMIT-AST.
-                report(ast, "ast", form_id = id(form), desc = "%LOWER")
-        return ast
+        machine = defaulted_to_var(machine, _machine_)
+        with target_machine(machine):
+                ## Macroexpanded SEX -> MacIR
+                # with traced_matcher(emt = t, immediate = t):
+                rewritten = rewrite_all(form, lexenv = lexenv)  ## The high-level entry to %REWRITE-ALL
+                if symbol_value(_compiler_trace_rewritten_):
+                        report(rewritten, "known", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
+                ## HIR -> LIR
+                prim = primitivise(machine, rewritten, lexenv = lexenv)  ## The high-level entry to %PRIMITIVISE
+                if symbol_value(_compiler_trace_primitives_):
+                        report(prim, "primitive", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
+                if machine is pymach:
+                        ##
+                        ## LIR -> Python AST
+                        ast  = emit_python_ast(prim)
+                        if symbol_value(_compiler_trace_ast_):            ## No other high-level entry point to %EMIT-AST.
+                                report(ast, "ast", form_id = id(form), desc = "%LOWER")
+                        return ast
+                if machine is cfgmach:
+                        ##
+                        ## LIR -> CFG
+                        cfg = emit_cfg(prim) # Ignored.
+                        return cfg
+        error("In LOWER %s: unknown or unspecified machine: %s.", pp_consly(form), machine)
 
 def process_to_ast(form, lexenv = nil, macroexpand = t):
         "Same as %LOWER, but also macroexpand.  Requires %WITH-SYMBOL-UNIT-MAGIC context all the same."
@@ -11015,7 +11027,8 @@ def process_to_ast(form, lexenv = nil, macroexpand = t):
                 dprintf(";;;%s compiling:\n%s%s",
                               sex_space(-3, ";"), sex_space(), pp(form))
         return lower(compiler_macroexpand_all(form, lexenv = lexenv, desc = "PROCESS-TO-AST") if macroexpand else form,
-                     lexenv = lexenv)
+                     lexenv = lexenv,
+                     machine = pymach)
 
 #+END_SRC
 
@@ -11044,9 +11057,9 @@ def compilation_unit_prologue(funs, syms, gfuns, gvars):
         """Emit a prologue for a standalone unit referring to SYMBOLS."""
         l = list_
         def import_prologue():
-                return p.help(p.import_("cl"))[0]
+                return py.help(pymach.import_("cl"))[0]
         def ir_literal_pylist(xs):
-                return l(_primitive, p.pylist, *xs)
+                return l(_primitive, py.pylist, *xs)
         def symbol_prologue():
                 def wrap(x):
                         return defaulted(x, consify_star(_ref, (_quote, ("None",))))
@@ -11071,7 +11084,8 @@ def compilation_unit_prologue(funs, syms, gfuns, gvars):
                  # dprintf("prologue:\n%s", pp_consly(prologue))
                  return lower(prologue,
                               ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
-                              lexenv = the_null_lexenv())
+                              lexenv = the_null_lexenv(),
+                              machine = pymach)
         with progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
                 return (import_prologue() +
                         symbol_prologue())
@@ -11094,7 +11108,7 @@ def assemble(_ast: [ast.stmt], form: cons_t, filename = "") -> "code":
         more_ast.assign_meaningful_locations(_ast)
         if symbol_value(_compiler_trace_module_ast_):
                 report(_ast, "ast", form_id = id(form), desc = "%ASSEMBLE")
-        bytecode = py.compile(ast.fix_missing_locations(ast_module(_ast)), filename, "exec")
+        bytecode = pyb.compile(ast.fix_missing_locations(ast_module(_ast)), filename, "exec")
         if symbol_value(_compiler_trace_bytecode_):
                 report(bytecode, "bytecode", form_id = id(form), desc = "%ASSEMBLE")
         return bytecode
@@ -11235,13 +11249,13 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
         ## input/output file conformance is bad here..
         abort_p, warnings_p, failure_p = nil, nil, nil
         forms = list_(_progn)
-        with py.open(input_file, "r") as input:
+        with pyb.open(input_file, "r") as input:
                 def in_compilation_unit():
                         nonlocal trace_file, forms
                         if trace_file:
                                 trace_filename = (trace_file if stringp(trace_file) else
                                                   input_file.replace(".lisp", "." + symbol_value(_trace_file_type_)))
-                                trace_file = py.open(trace_filename, "w")
+                                trace_file = pyb.open(trace_filename, "w")
                         try:
                                 stmts = []
                                 form = read(input, eof_value = input, eof_error_p = nil)
@@ -11266,7 +11280,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                                               override = t, id = "COMPILE-FILE-")
         output_file = output_file or input_file.replace(".lisp", "." + symbol_value(_fasl_file_type_))
         try:
-                with py.open(output_file, "wb") as f:
+                with pyb.open(output_file, "wb") as f:
                         f.write(symbol_value(_fasl_file_magic_))
                         bytecode = assemble(stmts, nreverse(forms))
                         marshal.dump(bytecode, f)
@@ -12012,7 +12026,7 @@ def load(pathspec, verbose = None, print = None,
                                                                     nil),
                                     element_type = (unsigned_byte_t, 8))
         with_open_stream(((pathspec                 if streamp(pathspec)                          else
-                           py.open(pathspec, "rb") if stringp(pathspec) and probe_file(pathspec) else
+                           pyb.open(pathspec, "rb") if stringp(pathspec) and probe_file(pathspec) else
                            nil) or
                           (pathname_type(pathspec) is nil and typeless_pathname_branch()) or
                           (if_does_not_exist and
@@ -14055,7 +14069,7 @@ GENERIC-FUNCTION argument is then returned."""
                 # The function name FUNCTION-NAME is set to name the generic function.
                 generic_function = generic_function_class_t(**initargs)
                 # standard_generic_function_shared_initialize is called by s-g-f.__init__
-                frost.setf_global(generic_function, function_name, globals = defaulted(globals, py.globals()))
+                frost.setf_global(generic_function, function_name, globals = defaulted(globals, pyb.globals()))
         else:
                 if class_of(generic_function) is not generic_function_class:
                         # If the class of the GENERIC-FUNCTION argument is not the same as the
@@ -14113,7 +14127,7 @@ The second argument is FUNCTION-NAME. The remaining arguments are the
 complete set of keyword arguments received by
 ENSURE-GENERIC-FUNCTION."""
         maybe_gfun = defaulted(global_(the(symbol_t, function_name),
-                                       defaulted(globals, py.globals())),
+                                       defaulted(globals, pyb.globals())),
                                 nil)
         if functionp(maybe_gfun) and not generic_function_p(maybe_gfun):
                 error("%s already names an ordinary function.", function_name)
@@ -15107,7 +15121,7 @@ def eval_python(expr_or_stmt):
                          ast_Expr(ast_funcall(ast_name("__evset__"), [_coerce_to_expr(expr_or_stmt)]))]
                         if exprp else
                         [expr_or_stmt]))
-        code = handler_case(lambda: py.compile(call, "", "exec"),
+        code = handler_case(lambda: pyb.compile(call, "", "exec"),
                             (error_t,
                              lambda cond:
                                      error("EVAL: error while trying to compile <%s>: %s",
