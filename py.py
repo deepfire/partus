@@ -216,17 +216,6 @@ def help_nil():
         return help(p.prim_nil() if symbol_value(p._valueless_primitive_statement_must_yield_nil_) else
                     name("None"))[1]
 
-def pyrefname_p(x):
-        return consp(x) and isinstance(x[0], str)
-
-def pyref_p(x):
-        return (consp(x) and x[0] is cl._quote and consp(x[1])
-                and pyrefname_p(x[1][0]))
-
-def primitivise_pyref(x):
-        return prim_attr_chain([ p.name(x[1][0][0]) ]
-                                 + xmap_to_vector(p.string, x[1][0][1]))
-
 ###
 ### Spill theory
 ###
@@ -1209,6 +1198,9 @@ class py(machine):
                 return determine(cls, args, keys)
         def after_initialise_determinate_primitive(_, x):
                 return prim_check_and_spill(x)
+        def primitivise_implref(_, x):
+                return prim_attr_chain([ p.name(x[1][0][0]) ]
+                                       + xmap_to_vector(p.string, x[1][0][1]))
         def lower(self, prim):
                 asts = help_prog([prim])
                 if symbol_value(cl._compiler_validate_ast_):

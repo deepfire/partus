@@ -8213,6 +8213,13 @@ def primitivise_constant(x):
                 error("Cannot primitivise value %s (of type %s).  Is it a literal?",
                       pp_consly(x), type(x).__name__))
 
+def implrefname_p(x):
+        return consp(x) and isinstance(x[0], str)
+
+def implref_p(x):
+        return (consp(x) and x[0] is _quote and consp(x[1])
+                and implrefname_p(x[1][0]))
+
 intern_and_bind("APPLY", "FUNCALL")
 
 def ir_funcall(func, *args):
@@ -8226,7 +8233,7 @@ def ir_apply(func, *args):
         ## Has the virtue of being available even post-rewrite.
         l, l_ = list_, list__
         return l(_apply, l(_function, (l(_quote, l(func)) if isinstance(func, str) else
-                                       l(_quote, func)    if py.pyrefname_p(func)  else
+                                       l(_quote, func)    if implrefname_p(func)   else
                                        func)),
                  *(args + (l(_quote, nil),)))
 
@@ -9093,13 +9100,13 @@ when EVAL-WHEN appears as a top level form."""
 @defknown((_setq, [(_poscase,
                     (1, " "),
                     (3, 5),
-                    (t, "\n")), (_or, (_satisfies, namep), (_satisfies, py.pyref_p)), " ", (_form,)]))
+                    (t, "\n")), (_or, (_satisfies, namep), (_satisfies, implref_p)), " ", (_form,)]))
 class setq(known):
         def rewrite(mach, orig, *args):
                 ## Actually a normalisation.. or actually, the hell knows what it is..
                 len(args) % 2 and \
                     error("SETQ accepts an even amount of arguments, got: %s", pp_consly(consify_linear(args)))
-                not all(py.pyref_p(x) or isinstance(x, symbol_t)
+                not all(implref_p(x) or isinstance(x, symbol_t)
                         for x in args[::2]) and \
                     error("SETQ arguments at even positions must be symbols, got: %s", pp_consly(consify_linear(args)))
                 return ((nil, orig) if len(args) == 2 else
@@ -9110,8 +9117,8 @@ class setq(known):
         ## Unregistered Issue COMPLIANCE-ISSUE-SETQ-BINDING
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
         def primitivise(mach, name, value):
-                if py.pyref_p(name):
-                        return p.assign(py.primitivise_pyref(name), primitivise(mach, value))
+                if implref_p(name):
+                        return p.assign(m.primitivise_implref(name), primitivise(mach, value))
                 cur_lexenv = symbol_value(_lexenv_)
                 lexical_binding, tgt_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
@@ -9218,7 +9225,7 @@ class let(known):
            (_function, " ", (_or,
                              (_lambda, (_funcher, _lambda)),
                              (_satisfies, namep),
-                             (_satisfies, py.pyref_p),
+                             (_satisfies, implref_p),
                              (_setf, (_satisfies, namep))))))
 class function(known):
         def binder(exp, further, name = nil, pydecorators = nil, globalp = nil):
@@ -9258,8 +9265,8 @@ class function(known):
         def nth_value(n, orig, _): return orig if n is 0 else nil
         def primitivise(mach, x, name = nil, pydecorators = nil, globalp = nil):
                 ## (QUOTE ("str"))
-                if py.pyref_p(x):
-                        return py.primitivise_pyref(x)
+                if implref_p(x):
+                        return mach.primitivise_implref(x)
                 lambdap = ir_lambda_p(x)
                 if lambdap:
                         lambda_list, body = x[1][0], x[1][1]
@@ -9339,16 +9346,16 @@ class unwind_protect(known):
 
 # REF
 
-@defknown((_ref, " ", (_or, (_satisfies, namep), (_satisfies, py.pyref_p))))
+@defknown((_ref, " ", (_or, (_satisfies, namep), (_satisfies, implref_p))))
 class ref(known):
         def rewrite(mach, orig, x):
-                pyrefp = py.pyref_p(x)
-                return not pyrefp, (orig if pyrefp else x)
+                implrefp = implref_p(x)
+                return not implrefp, (orig if implrefp else x)
         def nvalues(_):            return 1
         def nth_value(n, orig, _): return orig if n is 0 else nil
         def primitivise(mach, name):
-                if py.pyref_p(name):
-                        return py.primitivise_pyref(name)
+                if implref_p(name):
+                        return mach.primitivise_implref(name)
                 cur_lexenv = symbol_value(_lexenv_)
                 lexical_binding, src_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
@@ -9366,13 +9373,13 @@ class ref(known):
 
 # PRIM
 
-@defknown((_primitive, " ", (_or, (_satisfies, p.prim_type_p), (_satisfies, py.pyref_p)), [" ", (_form,)]))
+@defknown((_primitive, " ", (_or, (_satisfies, p.prim_type_p), (_satisfies, implref_p)), [" ", (_form,)]))
 class primitive(known):
         def rewrite(mach, orig, prim, *args, **keys):
-                prim, pyrefp = ((prim, nil) if not py.pyref_p(prim) else
-                                (p.find_primitive(prim[1][0][0], mach), t))
-                return nil, (ir(_primitive, prim, *args, **keys) if keys   else
-                             list_(_primitive, prim, *args)      if pyrefp else
+                prim, implrefp = ((prim, nil) if not implref_p(prim) else
+                                  (p.find_primitive(prim[1][0][0], mach), t))
+                return nil, (ir(_primitive, prim, *args, **keys) if keys     else
+                             list_(_primitive, prim, *args)      if implrefp else
                              orig)
         def nvalues(*_):            return 1
         def nth_value(n, orig, *_): return orig if n is 0 else nil
@@ -10360,7 +10367,7 @@ def run_tests_compiler():
                                                     l(_setq, _car, 42,
                                                              _cdr, 3.14),
                                                     l(_list, _car, _cdr)),                  l(42, 3.14))
-        evaltest("SETQ/REF-PYREF",                l(_progn,
+        evaltest("SETQ/REF-IMPLREF",              l(_progn,
                                                     l(_setq, l(_quote, l("foo")), "bar"),
                                                     l(_ref, l(_quote, l("foo")))),         "bar",
                                                   known_failure = t, catch_errors = t)
@@ -10402,9 +10409,9 @@ def run_tests_compiler():
                      p.integer(42)),
                    l(_primitive, p.funcall, p.name("foo"))),
                  42,
-                 known_failure = t, catch_errors = t) ## Same reason as SETQ/REF-PYREF
+                 known_failure = t, catch_errors = t) ## Same reason as SETQ/REF-IMPLREF
         ## FUNCTION
-        evaltest("FUNCTION/PYREF",
+        evaltest("FUNCTION/IMPLREF",
                  l(_function, l(_quote, l("cl", "list_"))),
                  list_)
         ## LAMBDA
