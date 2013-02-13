@@ -6,8 +6,9 @@ import builtins
 import operator
 import types
 
-from cl import attrify_args, error, gensymname, intern, identity, symbol_value, consp, xmap_to_vector, reduce, dprintf
-from cl import typep, the, or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t
+from cl import attrify_args, error, gensym, gensymname, intern, identity, consp, xmap_to_vector, reduce, dprintf
+from cl import typep, the, or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t, symbol_t
+from cl import symbol_value, symbol_name, symbol_package, package_name
 from cl import t, nil
 
 from primitives import machine, prim, det, indet, body, stmt, expr
@@ -261,9 +262,9 @@ def primitivise_pyref(x):
 def prim_check_and_spill(primitive) -> prim:
         def check_prim_type(arg, type) -> bool:
                 if not typep(arg, type):
-                        raise primitive_mismatch("type mismatch",
-                                                 prim = primitive, pspec = primitive.form_specifier,
-                                                 spec = type, form = arg)
+                        raise p.primitive_mismatch("type mismatch",
+                                                   prim = primitive, pspec = primitive.form_specifier,
+                                                   spec = type, form = arg)
         def tuple_spills(spec, args, force_spill) -> ([stmt], [expr]):
                 specialp = spec and spec[0] in [maybe, satisfies]
                 if specialp:
@@ -1121,8 +1122,62 @@ class not_in(potconst):
 ###
 ### The Python machine definition
 ###
+fixupp = gensym("FIXUPP")
+
+class name_context_fixer(ast.NodeTransformer):
+        def visit_Name(w, o):
+                return (ast.Name(o.id, ast.Store()) if symbol_value(fixupp) else
+                        o)
+        def visit_Assign(w, o):
+                with cl.progv({ fixupp: t }):
+                        targets = [ w.visit(x)
+                                    for x in o.targets ]
+                return ast.Assign(targets = targets,
+                                   value = w.visit(o.value))
+        def visit_AugAssign(w, o):
+                with cl.progv({ fixupp: t }):
+                        target = w.visit(o.target)
+                return ast.AugAssign(target = target,
+                                      op = o.op,
+                                      value = w.visit(o.value))
+        def visit_For(w, o):
+                with cl.progv({ fixupp: t }):
+                        target = w.visit(o.target)
+                return ast.For(target = target,
+                                iter = w.visit(o.iter),
+                                body = [ w.visit(x) for x in o.body ],
+                                orelse = [ w.visit(x) for x in o.orelse ])
+        def visit_With(w, o):
+                with cl.progv({ fixupp: t }):
+                        optional_vars = w.visit(o.optional_vars) if o.optional_vars else None
+                return ast.With(context_expr = w.visit(o.context_expr),
+                                 optional_vars = optional_vars,
+                                 body = [ w.visit(x) for x in o.body ])
+        def visit_comprehension(w, o):
+                with cl.progv({ fixupp: t }):
+                        target = w.visit(o.target)
+                return ast.comprehension(target = target,
+                                          iter = w.visit(o.iter),
+                                          ifs = [ w.visit(x) for x in o.ifs ])
+        def visit_Subscript(w, o):
+                writep = symbol_value(fixupp)
+                with cl.progv({ fixupp: nil }):
+                        return ast.Subscript(value = w.visit(o.value),
+                                              slice = w.visit(o.slice),
+                                              ctx = ast.Store() if writep else o.ctx)
+        def visit_Attribute(w, o):
+                writep = symbol_value(fixupp)
+                with cl.progv({ fixupp: nil }):
+                        return ast.Attribute(value = w.visit(o.value),
+                                              attr = o.attr,
+                                              ctx = ast.Store() if writep else o.ctx)
+
+name_context_fixer = name_context_fixer()
+
 @defmachine
 class py(machine):
+        def globals(self):
+                return globals()
         __supported_primitives__ = {
                 string, symbol, literal_list,
                 name, integer, float_num,
@@ -1150,9 +1205,45 @@ class py(machine):
                 literal_hash_table_expr, pylist, pytuple, pyset,
                 neq, and_, or_, equal, nequal, in_, not_in,
                 }
-        def globals(self):
-                return globals()
         def make_indeterminate_primitive(_, cls, args, keys):
                 return determine(cls, args, keys)
         def after_initialise_determinate_primitive(_, x):
                 return prim_check_and_spill(x)
+        def lower(self, prim):
+                asts = help_prog([prim])
+                if symbol_value(cl._compiler_validate_ast_):
+                        [ ast_validate(a) for a in asts ]
+                with cl.progv({ fixupp: nil }):
+                        fixed_asts = [ name_context_fixer.visit(the(ast.AST, a))
+                                       for a in asts ]
+                if symbol_value(cl._compiler_trace_ast_):
+                        report(fixed_asts, "ast", form_id = id(form), desc = "%LOWER")
+                return fixed_asts
+        def compilation_unit_prologue(m, funs, syms, gfuns, gvars):
+                def wrap_str_or_None(x):
+                        return (m.string(x)    if isinstance(x, str) else
+                                m.name("None") if x is None          else
+                                error("Bad wrap: %s.", x))
+                def wrap_bool(x):
+                        return m.name("True" if x else "False")
+                with cl.progv(cl.compiler_debugless_traceless_frame):
+                         names = sorted(funs | syms, key = lambda x: str(x if isinstance(x, symbol_t) else x[1]))
+                         names = [ (cl.pythonised_function_name_symbol(x), x, isinstance(x, tuple)) for x in names]
+                         prologue = m.progn(
+                                 m.import_("cl"),
+                                 m.funcall(
+                                         m.const_attr(m.name("cl"), m.string("fop_make_symbols_available")),
+                                         m.funcall(m.name("globals")),
+                                         m.pylist(*((m.string(package_name(symbol_package(sym))) if symbol_package(sym) else
+                                                    m.name("None"))
+                                                    for sym, x, _ in names)),
+                                         m.pylist(*(m.string(symbol_name(sym))            for sym, x, _     in names)),
+                                         m.pylist(*(wrap_bool(setfp)                      for _, __, setfp  in names)),
+                                         m.pylist(*(wrap_str_or_None(sym.setf_function_pyname if setfp else
+                                                                     sym.function_pyname) for sym, x, setfp in names)),
+                                         m.pylist(*(wrap_str_or_None(sym.symbol_pyname)   for sym, x, _     in names)),
+                                         m.pylist(*(wrap_bool(x in gfuns)                 for sym, x, _     in names)),
+                                         m.pylist(*(wrap_bool(sym in gvars)               for sym, x, _     in names))))
+                         # dprintf("prologue:\n%s", pp_consly(prologue))
+                         with cl.progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
+                                 return m.lower(prologue)

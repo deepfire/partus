@@ -52,6 +52,9 @@ class cfg(machine):
         def argumentp(self, x):
                 ## This assumes that non-immediate literals have been filtered out.
                 return isinstance(x, (p.literal, p.name))
+        def lower(self, prim):
+                gdata  = unit_global_data_t()
+                return primitive_cfg(symbol_value(_machine_), gdata, prim)
 
 # The map we assemble on the journey across The Gap
 class unit_global_data_t():

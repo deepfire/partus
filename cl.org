@@ -10921,110 +10921,21 @@ def primitivise(mach, form, lexenv = nil) -> p.prim:
                 compiler_maybe_note_known_primitives(form, prim)
                 return prim
 
-fixupp = gensym("FIXUPP")
-
-class name_context_fixer(ast.NodeTransformer):
-        def visit_Name(w, o):
-                return (ast.Name(o.id, ast.Store()) if symbol_value(fixupp) else
-                        o)
-        def visit_Assign(w, o):
-                with progv({ fixupp: t }):
-                        targets = [ w.visit(x)
-                                    for x in o.targets ]
-                return ast.Assign(targets = targets,
-                                   value = w.visit(o.value))
-        def visit_AugAssign(w, o):
-                with progv({ fixupp: t }):
-                        target = w.visit(o.target)
-                return ast.AugAssign(target = target,
-                                      op = o.op,
-                                      value = w.visit(o.value))
-        def visit_For(w, o):
-                with progv({ fixupp: t }):
-                        target = w.visit(o.target)
-                return ast.For(target = target,
-                                iter = w.visit(o.iter),
-                                body = [ w.visit(x) for x in o.body ],
-                                orelse = [ w.visit(x) for x in o.orelse ])
-        def visit_With(w, o):
-                with progv({ fixupp: t }):
-                        optional_vars = w.visit(o.optional_vars) if o.optional_vars else None
-                return ast.With(context_expr = w.visit(o.context_expr),
-                                 optional_vars = optional_vars,
-                                 body = [ w.visit(x) for x in o.body ])
-        def visit_comprehension(w, o):
-                with progv({ fixupp: t }):
-                        target = w.visit(o.target)
-                return ast.comprehension(target = target,
-                                          iter = w.visit(o.iter),
-                                          ifs = [ w.visit(x) for x in o.ifs ])
-        def visit_Subscript(w, o):
-                writep = symbol_value(fixupp)
-                with progv({ fixupp: nil }):
-                        return ast.Subscript(value = w.visit(o.value),
-                                              slice = w.visit(o.slice),
-                                              ctx = ast.Store() if writep else o.ctx)
-        def visit_Attribute(w, o):
-                writep = symbol_value(fixupp)
-                with progv({ fixupp: nil }):
-                        return ast.Attribute(value = w.visit(o.value),
-                                              attr = o.attr,
-                                              ctx = ast.Store() if writep else o.ctx)
-
-name_context_fixer = name_context_fixer()
-
-def ast_fixup_written_name_contexts(x):
-        with progv({ fixupp: nil }):
-                return name_context_fixer.visit(the(ast.AST, x))
-
-def emit_python_ast(prim) -> [ast.AST]:
-        asts = py.help_prog([prim])
-        if symbol_value(_compiler_validate_ast_):
-                [ ast_validate(a) for a in asts ]
-        return [ ast_fixup_written_name_contexts(a) for a in asts ]
-
-def emit_cfg(prim):
-        gdata   = tri.unit_global_data_t()
-        return tri.primitive_cfg(symbol_value(_machine_), gdata, prim)
-
-def lower(form, lexenv = nil, machine = None):
+def lower(form: cons_t, lexenv = nil, machine = None) -> "machine-specific":
         "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
         machine = defaulted_to_var(machine, _machine_)
         with target_machine(machine):
-                ## Macroexpanded SEX -> MacIR
+                ## Wide Knowns -> Narrow Knowns
                 # with traced_matcher(emt = t, immediate = t):
                 rewritten = rewrite_all(form, lexenv = lexenv)  ## The high-level entry to %REWRITE-ALL
                 if symbol_value(_compiler_trace_rewritten_):
                         report(rewritten, "known", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
-                ## HIR -> LIR
+                ## Narrow Knowns -> Primitives
                 prim = primitivise(machine, rewritten, lexenv = lexenv)  ## The high-level entry to %PRIMITIVISE
                 if symbol_value(_compiler_trace_primitives_):
                         report(prim, "primitive", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
-                if machine is pymach:
-                        ##
-                        ## LIR -> Python AST
-                        ast  = emit_python_ast(prim)
-                        if symbol_value(_compiler_trace_ast_):            ## No other high-level entry point to %EMIT-AST.
-                                report(ast, "ast", form_id = id(form), desc = "%LOWER")
-                        return ast
-                if machine is cfgmach:
-                        ##
-                        ## LIR -> CFG
-                        cfg = emit_cfg(prim) # Ignored.
-                        return cfg
-        error("In LOWER %s: unknown or unspecified machine: %s.", pp_consly(form), machine)
-
-def process_to_ast(form, lexenv = nil, macroexpand = t):
-        "Same as %LOWER, but also macroexpand.  Requires %WITH-SYMBOL-UNIT-MAGIC context all the same."
-        check_type(lexenv, (or_t, null_t, lexenv_t))
-        if symbol_value(_compiler_trace_forms_):
-                dprintf(";;;%s compiling:\n%s%s",
-                              sex_space(-3, ";"), sex_space(), pp(form))
-        return lower(compiler_macroexpand_all(form, lexenv = lexenv, desc = "PROCESS-TO-AST") if macroexpand else form,
-                     lexenv = lexenv,
-                     machine = pymach)
-
-#+END_SRC
+                return machine.lower(prim)
+#+end_src
 
 *** Linkage: %ASSEMBLE, %PROCESS-AS-LOADABLE, %LOAD-MODULE-BYTECODE
 
@@ -11045,52 +10956,14 @@ def process_to_ast(form, lexenv = nil, macroexpand = t):
 ## @defknown -> lower
 #
 
-_vector = intern("VECTOR")[0]
-
-def compilation_unit_prologue(funs, syms, gfuns, gvars):
-        """Emit a prologue for a standalone unit referring to SYMBOLS."""
-        l = list_
-        def import_prologue():
-                return py.help(pymach.import_("cl"))[0]
-        def ir_literal_pylist(xs):
-                return l(_primitive, py.pylist, *xs)
-        def symbol_prologue():
-                def wrap(x):
-                        return defaulted(x, consify_star(_ref, (_quote, ("None",))))
-                with progv(compiler_debugless_traceless_frame):
-                 names = sorted(funs | syms, key = lambda x: str(x if isinstance(x, symbol_t) else x[1]))
-                 names = [ (pythonised_function_name_symbol(x), x, isinstance(x, tuple)) for x in names]
-                 prologue = l(_progn,
-                              ir_cl_call(
-                              "fop_make_symbols_available",
-                              ir_apply("globals"),
-                              ir_literal_pylist(( package_name(symbol_package(sym))
-                                                  if symbol_package(sym) else
-                                                  l(_ref, l(_quote, l("None")))
-                                                  for sym, x, _ in names )),
-                              ir_literal_pylist(( symbol_name(sym)          for sym, x, _     in names )),
-                              ir_literal_pylist(( setfp                     for _, __, setfp  in names )),
-                              ir_literal_pylist(( wrap(sym.setf_function_pyname if setfp else
-                                                       sym.function_pyname) for sym, x, setfp in names )),
-                              ir_literal_pylist(( wrap(sym.symbol_pyname)   for sym, x, _     in names )),
-                              ir_literal_pylist((   x in gfuns              for sym, x, _     in names )),
-                              ir_literal_pylist(( sym in gvars              for sym, x, _     in names ))))
-                 # dprintf("prologue:\n%s", pp_consly(prologue))
-                 return lower(prologue,
-                              ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
-                              lexenv = the_null_lexenv(),
-                              machine = pymach)
-        with progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
-                return (import_prologue() +
-                        symbol_prologue())
-
-def with_symbol_unit_magic(body, standalone = nil, id = "UNIT-"):
+def with_symbol_unit_magic(body, machine = None, standalone = nil, id = "UNIT-"):
         "Ensure symbol availability, for the code emitted by BODY, by prepending it with name initialisers."
+        machine = defaulted_to_var(machine, _machine_)
         def in_compilation_unit():
                 stmts = body()
                 check_type(stmts, list)
                 unit_data = compilation_unit_symbols()
-                return ((compilation_unit_prologue(*unit_data) if standalone else []) +
+                return ((machine.compilation_unit_prologue(*unit_data) if standalone else []) +
                         stmts,) + tuple(unit_data)
         return with_compilation_unit(in_compilation_unit,
                                      override = t, id = id)
@@ -11106,11 +10979,6 @@ def assemble(_ast: [ast.stmt], form: cons_t, filename = "") -> "code":
         if symbol_value(_compiler_trace_bytecode_):
                 report(bytecode, "bytecode", form_id = id(form), desc = "%ASSEMBLE")
         return bytecode
-
-def process_as_loadable(processor, form, lexenv = nil, id = "PROCESSED-", **keys):
-        stmts, *_ = with_symbol_unit_magic(lambda: processor(form, lexenv = lexenv, **keys),
-                                           standalone = t, id = id)
-        return assemble(stmts, form)
 
 def load_module_bytecode(bytecode, func_name = nil, filename = ""):
         mod, globals, locals = load_code_object_as_module(filename, bytecode, register = nil)
@@ -11285,6 +11153,7 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
 def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = None, global_macro_p = None, macroexpand = t):
         if name is None:
                 error("In COMPILE-IN-LEXENV: NAME must be provided.")
+        check_type(lexenv, (or_t, null_t, lexenv_t))
         if lexenv and globalp:
                 error("In %%COMPILE-IN-LEXENV: the provided non-NULL lexenv conflicts with GLOBALP.")
         form = ir(*[_function, lambda_expression],
@@ -11296,8 +11165,17 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
                                               ir_cl_call("set_function_definition",
                                                           ir_apply("globals"), name, lambda_expression))}
                       if globalp else {}))
-        bytecode = process_as_loadable(process_to_ast, form, lexenv = lexenv, macroexpand = macroexpand,
-                                       id = "COMPILED-LAMBDA-")
+        if symbol_value(_compiler_trace_forms_):
+                dprintf(";;;%s compiling:\n%s%s",
+                              sex_space(-3, ";"), sex_space(), pp(form))
+        def process_to_ast(form, lexenv = None, macroexpand = None):
+                return lower(compiler_macroexpand_all(form, lexenv = lexenv, desc = "PROCESS-TO-AST") if macroexpand else
+                             form,
+                             lexenv = lexenv,
+                             machine = pymach)
+        stmts, *_ = with_symbol_unit_magic(lambda: process_to_ast(form, lexenv = lexenv, macroexpand = macroexpand),
+                                           standalone = t, id = "COMPILED-LAMBDA-")
+        bytecode = assemble(stmts, form)
         function, bad_gls, good_gls = load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
         ## Doesn't this make %READ-FUNCTION-AS-TOPLEVEL-COMPILE-AND-LOAD somewhat of an excess?
