@@ -11282,19 +11282,6 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
         finally:
                 verbose and format(t, "; %s written\n", output_file)
 
-def read_function_as_toplevel_compile_and_load(body):
-        ## What should it be like?
-        ##  - COMPILE-FILE + LOAD
-        ##  - COMPILE-TOPLEVEL-FORM + ?
-        name, form = read_python_toplevel_as_lisp(body)
-        bytecode = process_as_loadable(process_top_level, form, id = "LISP-")
-        function, bad_gls, good_gls = load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
-        bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
-        return function.name
-
-def lisp(function):
-        return read_function_as_toplevel_compile_and_load(function)
-
 def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = None, global_macro_p = None, macroexpand = t):
         if name is None:
                 error("In COMPILE-IN-LEXENV: NAME must be provided.")
