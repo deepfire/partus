@@ -851,12 +851,6 @@ def string_set(symbol_name, value, force_toplevel = None, symbolicp = True, glob
         symbolicp and pyimport_symbol(name, globals = globals)
         return value
 
-# @boot("typep", lambda _, __, ___: error("A violent faecal odour hung in the air.."))
-# @boot_defun
-# def set(symbol, value, *_, force_toplevel = False):
-#         do_set(the(symbol_t, symbol), value, force_toplevel)
-#         return value
-
 @boot("symbol", lambda _, name: find_dynamic_frame(boot_check_type(stringp, name)) and t)
 @boot_defun
 def boundp(symbol):
@@ -1256,7 +1250,7 @@ def import_(symbols, package = None, populate_module = True):
                                 not_implemented("Namespace merging.")
                                 # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
                                 # python_name = frost.lisp_symbol_name_python_name(s.name)
-                                # module.__dict__[python_name] = ???
+                                # module.__dict__[python_name] = ?
         return t
 #+end_src
 
@@ -7341,7 +7335,7 @@ def rewrite_metasex(form, for_pp = nil, for_bind = nil):
                                          l(rec(x[0]))),
                               xs)
         ret = rec(l(form))[0]
-        # dprintf("REWR %s: %s\n--->\n%s", "pp" if for_pp else "bind" if for_bind else "???", pp_consly(form), pp_consly(ret))
+        # dprintf("REWR %s: %s\n--->\n%s", "pp" if for_pp else "bind" if for_bind else "?", pp_consly(form), pp_consly(ret))
         return ret
 
 #+end_src
@@ -9438,7 +9432,7 @@ def handle_constant_linear_body(xs):
 ### LET                  -> APPLY,LAMBDA(e_d_e=t, f_s=f_s)         |  EXPR-BOUND-VALUES
 ###                         =(PROGN,SETQ,LAMBDA(e_d_e=t, f_s=f_s))    NONEXPR-SETQ-LAMBDA
 ### FLET                 -> =(LET,PROGN,DEF,FUNCTION)
-### LABELS               -> =(FLET,DEF,APPLY) ???
+### LABELS               -> =(FLET,DEF,APPLY) ?
 ### FUNCTION             -> ∅
 ### UNWIND-PROTECT       -> =()            |                          NO-UNWIND
 ###                         SETQ,PROGN,REF                            UNWIND
@@ -12232,7 +12226,7 @@ def describe_object(o, stream):
                 describe_class(o, nil, stream)
                 ### type specifier
                 # type_kind = info(keyword("type"), make_keyword("kind"), o)
-                # type_kind = ???
+                # type_kind = ?
                 ## defined   - expander
                 ## primitive - translator
                 ### optimisation policy
