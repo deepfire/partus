@@ -13,15 +13,10 @@ import types
 
 import cl
 
-from cl         import t, nil, typep, null, integerp, floatp, functionp, stringp,\
+from cl         import t, nil, typep, the, null, integerp, floatp, functionp, stringp,\
                        car, identity, with_output_to_string, error, \
                        symbol_value, progv
-from cl         import ast_rw, _ast_alias as ast_alias, ast_string, ast_name, ast_attribute, ast_index
-from cl         import ast_funcall, ast_maybe_normalise_string
-from cl         import ast_Expr, ast_list, ast_tuple, ast_set
-from cl         import ast_return, ast_assign, ast_import
-from cl         import ast_module
-from cl         import not_implemented
+from cl         import not_implemented, string_t
 from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, fprintf
 from neutrality import py3p
 from functools  import reduce
@@ -78,6 +73,14 @@ def ast_expr_p(x):              return typep(x, ast.expr)
 def ast_Expr_p(x):              return typep(x, ast.Expr)
 
 # top-levels
+def ast_Expr(node):
+        return ast.Expr(value = the(ast.expr, node))
+
+def ast_module(body, lineno = 0):
+        assert isinstance(body, list) and all(isinstance(x, ast.AST) for x in body)
+        return ast.Module(body = body,
+                          lineno = lineno)
+
 def ast_expression(expr):
     assert astp(expr)
     return ast.Expression(body = expr, lineno = 0)
@@ -99,6 +102,17 @@ def ast_def(name, args, *body):
 
 
 ## expressions
+def _ast_alias(name):                       return ast.alias(name = the(string_t, name), asname = None)
+def ast_keyword(name, value):               return ast.keyword(arg = the(string_t, name), value = the(ast.expr, value))
+
+def ast_rw(writep):                         return (ast.Store() if writep else ast.Load())
+def ast_name(name, writep = nil):           return ast.Name(id = the(string_t, name), ctx = ast_rw(writep))
+def ast_attribute(x, name, writep = nil):   return ast.Attribute(attr = name, value = x, ctx = ast_rw(writep))
+def ast_attribute_chain(xs, writep = nil):  return reduce((lambda acc, attr: ast_attribute(acc, attr, writep)),
+                                                           xs[1:],
+                                                           ast_name(xs[0], writep))
+def ast_index(of, index, writep = nil):     return ast.Subscript(value = of, slice = ast.Index(value = index), ctx = ast_rw(writep))
+def ast_maybe_normalise_string(x):          return (ast_string(x) if isinstance(x, str) else x)
 def ast_bytes(bs):                  return ast.Bytes(s = the(bytes, bs))
 def ast_arg(name):                  return ast.Name(arg = the(str, name), ctx = ast.Param())
 
