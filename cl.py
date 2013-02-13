@@ -8177,8 +8177,6 @@ __primitiviser_map__ = { str:        (nil, p.string),
                          NoneType:   (nil, lambda x: p.name("None")),
                          ## PY machine only:
                          symbol_t:   (nil, lambda x:  py.symbol(unit_symbol_pyname(x))),
-                         list:       (t,   lambda xs: py.pylist(*xs)),
-                         tuple:      (t,   lambda xs: py.pytuple(*xs)),
                          }
 
 def primitivisable_p(x):
