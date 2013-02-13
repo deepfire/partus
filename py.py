@@ -6,9 +6,13 @@ import builtins
 import operator
 import types
 
-from cl import attrify_args, error, gensym, gensymname, intern, identity, consp, xmap_to_vector, reduce, dprintf
+from cl import error, list_, list__, gensym, gensymname, intern, append, identity, consp, reduce, progv as _progv
+from cl import attrify_args, dprintf, gensym_tn, make_keyword_tn
 from cl import typep, the, or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t, symbol_t
 from cl import symbol_value, symbol_name, symbol_package, package_name
+from cl import consify_linear, xmap_to_vector, validate_function_args, validate_function_keys
+from cl import _if, _primitive, _list
+from cl import ir_funcall, ir_apply, ir_cl_call
 from cl import t, nil
 
 from primitives import machine, prim, det, indet, body, stmt, expr
@@ -35,6 +39,25 @@ for x in ["SETQ"]:
 
 def py_error(kind, control, *args):
         error("While PY-lowering %s: " + control, kind, *args)
+
+###
+### Python AST
+###
+def ast_compiled_name(name, *body, function = nil, **keys):
+        mod, globals, locals = py_compile_and_load(*body, **keys)
+        return locals[function or name]
+
+
+###
+### Python runtime
+###
+def py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
+        return load_code_object_as_module(
+                modname,
+                pyb.compile(ast.fix_missing_locations(ast_module(list(body), lineno = lineno)), filename, "exec"),
+                register = nil,
+                filename = filename,
+                **keys)
 
 ###
 ### Python IR -geared primitive extensions
@@ -126,8 +149,8 @@ p.prim.find_method = classmethod(find_method)
 def determine(cls, args, keys):
         for name, test, xform_or_keys in cls.help_strategies:
                 desc = "applicability predicate for method %s.%s" % (cls.__name__.upper(), name)
-                cl.validate_function_args(desc, test, args)
-                cl.validate_function_keys(desc, test, keys)
+                validate_function_args(desc, test, args)
+                validate_function_keys(desc, test, keys)
                 if test(*args, **keys):
                         ## Simplify.
                         xf = (xform_or_keys if not isinstance(xform_or_keys, list) else
@@ -147,15 +170,15 @@ _compiler_trace_primitives_ = cl._compiler_trace_primitives_
 def help(x) -> ([stmt], expr):
         if not isinstance(x, prim):
                 return [], x
-        with cl.progv({ cl._pp_base_depth_: cl.pp_base_depth() + 3 }):
+        with _progv({ cl._pp_base_depth_: cl.pp_base_depth() + 3 }):
                 meth_name = type(x).__name__.upper()
                 def handler(cond):
                         error("While calling %s.%s, caught:\n%s", meth_name, x.help, cond)
-                cl.validate_function_keys("%s.HELP" % meth_name, x.help, x.keys)
-                cl.validate_function_args("%s.HELP" % meth_name, x.help, x.args)
+                validate_function_keys("%s.HELP" % meth_name, x.help, x.keys)
+                validate_function_args("%s.HELP" % meth_name, x.help, x.args)
                 r = x.help(*x.args, **x.keys)
-                # r = cl.handler_bind(lambda: x.help(*x.args, **x.keys),
-                #                     (Exception, handler))
+                # r = handler_bind(lambda: x.help(*x.args, **x.keys),
+                #                  (Exception, handler))
         p, v = (([], r) if not isinstance(r, ast.stmt) and isinstance(r, ast.AST) else
                 ## list(r) if isinstance(r, tuple) else
                 ## Unregistered Issue SLOW-CHECK
@@ -1118,45 +1141,45 @@ class name_context_fixer(ast.NodeTransformer):
                 return (ast.Name(o.id, ast.Store()) if symbol_value(fixupp) else
                         o)
         def visit_Assign(w, o):
-                with cl.progv({ fixupp: t }):
+                with _progv({ fixupp: t }):
                         targets = [ w.visit(x)
                                     for x in o.targets ]
                 return ast.Assign(targets = targets,
                                    value = w.visit(o.value))
         def visit_AugAssign(w, o):
-                with cl.progv({ fixupp: t }):
+                with _progv({ fixupp: t }):
                         target = w.visit(o.target)
                 return ast.AugAssign(target = target,
                                       op = o.op,
                                       value = w.visit(o.value))
         def visit_For(w, o):
-                with cl.progv({ fixupp: t }):
+                with _progv({ fixupp: t }):
                         target = w.visit(o.target)
                 return ast.For(target = target,
                                 iter = w.visit(o.iter),
                                 body = [ w.visit(x) for x in o.body ],
                                 orelse = [ w.visit(x) for x in o.orelse ])
         def visit_With(w, o):
-                with cl.progv({ fixupp: t }):
+                with _progv({ fixupp: t }):
                         optional_vars = w.visit(o.optional_vars) if o.optional_vars else None
                 return ast.With(context_expr = w.visit(o.context_expr),
                                  optional_vars = optional_vars,
                                  body = [ w.visit(x) for x in o.body ])
         def visit_comprehension(w, o):
-                with cl.progv({ fixupp: t }):
+                with _progv({ fixupp: t }):
                         target = w.visit(o.target)
                 return ast.comprehension(target = target,
                                           iter = w.visit(o.iter),
                                           ifs = [ w.visit(x) for x in o.ifs ])
         def visit_Subscript(w, o):
                 writep = symbol_value(fixupp)
-                with cl.progv({ fixupp: nil }):
+                with _progv({ fixupp: nil }):
                         return ast.Subscript(value = w.visit(o.value),
                                               slice = w.visit(o.slice),
                                               ctx = ast.Store() if writep else o.ctx)
         def visit_Attribute(w, o):
                 writep = symbol_value(fixupp)
-                with cl.progv({ fixupp: nil }):
+                with _progv({ fixupp: nil }):
                         return ast.Attribute(value = w.visit(o.value),
                                               attr = o.attr,
                                               ctx = ast.Store() if writep else o.ctx)
@@ -1167,6 +1190,28 @@ name_context_fixer = name_context_fixer()
 class py(machine):
         def globals(self):
                 return globals()
+        ## Known level
+        def vector_consifier(self, x):
+                return ir_cl_call("consify_linear", x)
+        def vararg_count(self, vararg_name):
+                return ir_funcall("len", vararg_name)
+        def vararg_subseq(self, vararg_name, start):
+                return list_(_primitive, slice, vararg_name, start, None, None)
+        def keyword_binding_checking(self, optless_rest, keys, defaults, must_check_keys = True):
+                l, l_ = list_, list__
+                ksyms        = [ make_keyword_tn(symbol_name(x)) for x in keys ]
+                keyset_gsym  = gensym("KEYSET-") if must_check_keys else nil
+                key_map_gsym = gensym_tn("KWHASH-")
+                return append(
+                        l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", optless_rest)),
+                           consify_linear(l(name, l(_if, l(_primitive, not_in, ksym.tn, key_map_gsym.tn),
+                                                    def_expr,
+                                                    l(_primitive, p.index, key_map_gsym.tn, ksym.tn)))
+                                          for name, ksym, def_expr in zip(keys, ksyms, defaults))),
+                        (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
+                           l(gensym("DUMMY-"), ir_cl_call("validate_keyword_args", keyset_gsym, key_map_gsym)))
+                         if must_check_keys else nil))
+        ## Primitive level
         __supported_primitives__ = {
                 string, symbol, literal_list,
                 name, integer, float_num,
@@ -1205,7 +1250,7 @@ class py(machine):
                 asts = help_prog([prim])
                 if symbol_value(cl._compiler_validate_ast_):
                         [ ast_validate(a) for a in asts ]
-                with cl.progv({ fixupp: nil }):
+                with _progv({ fixupp: nil }):
                         fixed_asts = [ name_context_fixer.visit(the(ast.AST, a))
                                        for a in asts ]
                 if symbol_value(cl._compiler_trace_ast_):
@@ -1218,7 +1263,7 @@ class py(machine):
                                 error("Bad wrap: %s.", x))
                 def wrap_bool(x):
                         return m.name("True" if x else "False")
-                with cl.progv(cl.compiler_debugless_traceless_frame):
+                with _progv(cl.compiler_debugless_traceless_frame):
                          names = sorted(funs | syms, key = lambda x: str(x if isinstance(x, symbol_t) else x[1]))
                          names = [ (cl.pythonised_function_name_symbol(x), x, isinstance(x, tuple)) for x in names]
                          prologue = m.progn(
@@ -1237,5 +1282,5 @@ class py(machine):
                                          m.pylist(*(wrap_bool(x in gfuns)                 for sym, x, _     in names)),
                                          m.pylist(*(wrap_bool(sym in gvars)               for sym, x, _     in names))))
                          # dprintf("prologue:\n%s", pp_consly(prologue))
-                         with cl.progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
+                         with _progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
                                  return m.lower(prologue)

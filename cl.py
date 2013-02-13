@@ -1622,18 +1622,6 @@ def reregister_module_as_package(mod, parent_package = None):
         if packagep:
                 mod.__children__ = set()
 
-def py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
-        return load_code_object_as_module(
-                modname,
-                pyb.compile(ast.fix_missing_locations(ast_module(list(body), lineno = lineno)), filename, "exec"),
-                register = nil,
-                filename = filename,
-                **keys)
-
-def ast_compiled_name(name, *body, function = nil, **keys):
-        mod, globals, locals = py_compile_and_load(*body, **keys)
-        return locals[function or name]
-
 # Python frames
 
 def all_threads_frames():
@@ -8002,6 +7990,19 @@ def compiler_macroexpand_all(form, lexenv = nil, desc = "COMPILER-MACROEXPAND-AL
 
 # Known IR
 
+## Known names.
+intern_and_bind("IR-ARGS", "FUNCALL", ("_let_", "LET*"),
+                "FLET", "LABELS", "MACROLET",
+                "SYMBOL-MACROLET", "BLOCK", "RETURN-FROM",
+                "TAGBODY", "GO", "EVAL-WHEN",
+                "SETQ", "PROGN", "IF",
+                "LET", "FUNCTION", "UNWIND-PROTECT",
+                "REF", "LAMBDA", "PRIMITIVE",
+                "APPLY", "QUOTE", "MULTIPLE-VALUE-CALL",
+                "CATCH", "THROW", "NTH-VALUE",
+                "PROGV", "PROTOLOOP", "THE",
+                "LOCALLY", "MULTIPLE-VALUE-PROG1", "LOAD-TIME-VALUE")
+
 class known():
         def rewrite(mach, orig, *_):
                 return nil, orig
@@ -8138,22 +8139,37 @@ def ir_nth_valueify_last_subform(n, form):
 
 # Primitive IR
 
+def implrefname_p(x):
+        return consp(x) and isinstance(x[0], str)
+
+def implref_p(x):
+        return (consp(x) and x[0] is _quote and consp(x[1])
+                and implrefname_p(x[1][0]))
+
+intern_and_bind("APPLY", "FUNCALL")
+
+def ir_funcall(func, *args):
+        ## Has the virtue of only being available pre-rewrite.
+        l, l_ = list_, list__
+        return l(_funcall, l(_function, (l(_quote, l(func)) if isinstance(func, str) else
+                                         func)),
+                 *args)
+
+def ir_apply(func, *args):
+        ## Has the virtue of being available even post-rewrite.
+        l, l_ = list_, list__
+        return l(_apply, l(_function, (l(_quote, l(func)) if isinstance(func, str) else
+                                       l(_quote, func)    if implrefname_p(func)   else
+                                       func)),
+                 *(args + (l(_quote, nil),)))
+
+def ir_cl_call(name, *args):
+        return ir_apply(list_(_quote, list_("cl", name)), *args)
+
 intern_and_bind("*MACHINE*", gvarp = t)
 
 with disabled_condition_system():
         import primitives as p
-        import py
-        import tri
-        pymach  = py.py()
-        cfgmach = tri.tri()
-
-string_set("*MACHINE*", pymach)
-
-target_machine = defwith("target_machine",
-                         lambda self: dynamic_scope_push({ _machine_: self.machine }),
-                         lambda *_:   dynamic_scope_pop(),
-                         __init__ = (lambda self, machine:
-                                             self.__dict__.update({ "machine": machine })))
 
 def variable_tn(sym, globalp = nil): return p.name((unit_variable_pyname if globalp else ensure_variable_pyname)(sym))
 def function_tn(sym, globalp = nil): return p.name((unit_function_pyname if globalp else new_function_pyname)(sym))
@@ -8168,6 +8184,20 @@ def make_keyword_tn(name):
         kw = make_keyword(name)
         kw.tn = symbol_tn(kw)
         return kw
+
+with disabled_condition_system():
+        import py
+        import tri
+        pymach  = py.py()
+        cfgmach = tri.tri()
+
+string_set("*MACHINE*", pymach)
+
+target_machine = defwith("target_machine",
+                         lambda self: dynamic_scope_push({ _machine_: self.machine }),
+                         lambda *_:   dynamic_scope_pop(),
+                         __init__ = (lambda self, machine:
+                                             self.__dict__.update({ "machine": machine })))
 
 __primitiviser_map__ = { str:        (nil, p.string),
                          int:        (nil, p.integer),
@@ -8212,33 +8242,6 @@ def primitivise_constant(x):
         return (prim if successp else
                 error("Cannot primitivise value %s (of type %s).  Is it a literal?",
                       pp_consly(x), type(x).__name__))
-
-def implrefname_p(x):
-        return consp(x) and isinstance(x[0], str)
-
-def implref_p(x):
-        return (consp(x) and x[0] is _quote and consp(x[1])
-                and implrefname_p(x[1][0]))
-
-intern_and_bind("APPLY", "FUNCALL")
-
-def ir_funcall(func, *args):
-        ## Has the virtue of only being available pre-rewrite.
-        l, l_ = list_, list__
-        return l(_funcall, l(_function, (l(_quote, l(func)) if isinstance(func, str) else
-                                         func)),
-                 *args)
-
-def ir_apply(func, *args):
-        ## Has the virtue of being available even post-rewrite.
-        l, l_ = list_, list__
-        return l(_apply, l(_function, (l(_quote, l(func)) if isinstance(func, str) else
-                                       l(_quote, func)    if implrefname_p(func)   else
-                                       func)),
-                 *(args + (l(_quote, nil),)))
-
-def ir_cl_call(name, *args):
-        return ir_apply(list_(_quote, list_("cl", name)), *args)
 
 # Metasex tests
 
@@ -8483,18 +8486,6 @@ def handle_constant_linear_body(xs):
 
 # IR argument passing
 
-intern_and_bind("IR-ARGS", "FUNCALL", ("_let_", "LET*"),
-                "FLET", "LABELS", "MACROLET",
-                "SYMBOL-MACROLET", "BLOCK", "RETURN-FROM",
-                "TAGBODY", "GO", "EVAL-WHEN",
-                "SETQ", "PROGN", "IF",
-                "LET", "FUNCTION", "UNWIND-PROTECT",
-                "REF", "LAMBDA", "PRIMITIVE",
-                "APPLY", "QUOTE", "MULTIPLE-VALUE-CALL",
-                "CATCH", "THROW", "NTH-VALUE",
-                "PROGV", "PROTOLOOP", "THE",
-                "LOCALLY", "MULTIPLE-VALUE-PROG1", "LOAD-TIME-VALUE")
-
 intern_and_bind("AREF", "VECTOR", "INLINE", ## For LABELS
                 )
 
@@ -8680,7 +8671,7 @@ def tnify_function_arglist(fname, lexenv, arglist):
                         error("While processing arglist of %s: %s is not in the lexenv.", fname, x)
         return (tnify(arglist[0], error_if_none = False),) + tuple(tnify(x) for x in arglist[1:])
 
-def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
+def rewrite_lambda(mach, lexenv, clambda, lam, body) -> "conslist of rewritten":
         # Unregistered Issue COMPLIANCE-MACRO-LAMBDA-LIST-DESTRUCTURING-AND-ENV
         (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
             args, forms = clambda.args, clambda.forms,
@@ -8699,9 +8690,6 @@ def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
         need_nonopt_rest = (rest or clambda.keysp) and optional
         nonopt_rest_gsym = gensym("NONOPT-REST") if need_nonopt_rest else rest_gsym
         must_check_keys  = clambda.keysp and not clambda.aokp
-        keyset_gsym      = gensym("KEYSET-") if must_check_keys else nil
-        key_map_gsym     = gensym_tn("KWHASH-") if clambda.keysp else nil
-        ksyms            = [ make_keyword_tn(symbol_name(x)) for x in keys ]
         ## 1. validate_keyword_args, parse_keyword_args
         ### This is the biggest victim of IR representation mixing (cons vs. linear-tuple),
         ### all in the name of enrolling python lambda lists on board.
@@ -8713,24 +8701,18 @@ def rewrite_lambda(lexenv, clambda, lam, body) -> "conslist of rewritten":
                  #   ("fixed:%s    optional:%s    rest:%s"
                  #    % (" %s"*len(fixed), " %s"*len(optional), (" %s" if need_rest else ""))),
                  #   *(fixed + opt_gsyms + ([rest_gsym] if need_rest else []))),
-                 l(_let_, a((l(l(nrest_gsym, ir_funcall("len", rest_gsym))) if optional else nil),
+                 ## REST argument must be indexable
+                 l(_let_, a((l(l(nrest_gsym, mach.vararg_count(rest_gsym))) if optional else nil),
                             consify_linear(l(name, l(_if, l(_primitive, p.lt, i, nrest_gsym),
                                                           l(_primitive, p.index, rest_gsym, i),
                                                           def_expr))
                                            for i, name, gs, def_expr
                                            in zip(range(len(optional)), optional, opt_gsyms, optdefs)),
-                            (l(l(nonopt_rest_gsym, l(_primitive, py.slice, rest_gsym, len(optional), None, None))) if need_nonopt_rest else nil),
-                            (l(l(rest, ir_cl_call("consify_linear", nonopt_rest_gsym)))
+                            (l(l(nonopt_rest_gsym, mach.vararg_subseq(rest_gsym, len(optional)))) if need_nonopt_rest else nil),
+                            (l(l(rest, mach.vector_consifier(nonopt_rest_gsym)))
                              if rest else nil),
-                            (l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", nonopt_rest_gsym)),
-                                  consify_linear(l(name, l(_if, l(_primitive, py.not_in, ksym.tn, key_map_gsym.tn),
-                                                           def_expr,
-                                                           l(_primitive, p.index, key_map_gsym.tn, ksym.tn)))
-                                               for name, ksym, def_expr in zip(keys, ksyms, keydefs)))
+                            (mach.keyword_binding_checking(nonopt_rest_gsym, keys, keydefs, must_check_keys = must_check_keys)
                              if clambda.keysp else nil),
-                            (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
-                               l(gensym("DUMMY-"), ir_cl_call("validate_keyword_args", keyset_gsym, key_map_gsym)))
-                             if must_check_keys else nil),
                             consify_linear(l(name, form)
                                            for name, form in zip(aux, auxforms))),
                    *body))
@@ -8792,7 +8774,7 @@ class flet(known):
                              ## This weak attempt above screams for proper liveness analysis.
                              nil                               if not (bindings or body)          else
                              handle_linear_body(body)          if not bindings                    else
-                             l(_flet, mapcar(lambda f: cons(f[0], rewrite_lambda(lexenv,
+                             l(_flet, mapcar(lambda f: cons(f[0], rewrite_lambda(mach, lexenv,
                                                                                  compiler_lambda(f[0], f[1][0]),
                                                                                  f[1][0], vectorise_linear(f[1][1]))),
                                              bindings),
@@ -9118,7 +9100,7 @@ class setq(known):
         ## Unregistered Issue COMPLIANCE-SETQ-MULTIPLE-ASSIGNMENTS-UNSUPPORTED
         def primitivise(mach, name, value):
                 if implref_p(name):
-                        return p.assign(m.primitivise_implref(name), primitivise(mach, value))
+                        return p.assign(mach.primitivise_implref(name), primitivise(mach, value))
                 cur_lexenv = symbol_value(_lexenv_)
                 lexical_binding, tgt_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
@@ -9252,7 +9234,7 @@ class function(known):
                         if not (listp(x[1][0]) and listp(x[1][1])):
                                 error("Invalid #'LAMBDA form: %s", pp_consly(orig))
                         lambda_list, body = x[1][0], x[1][1]
-                return nil, (ir(_function, cons(_lambda, rewrite_lambda(symbol_value(_walker_lexenv_),
+                return nil, (ir(_function, cons(_lambda, rewrite_lambda(mach, symbol_value(_walker_lexenv_),
                                                                         compiler_lambda(name, lambda_list),
                                                                         lambda_list, vectorise_linear(body))),
                                 **dictappend({ "name":         name }         if name         else {},
@@ -9832,7 +9814,8 @@ def primitivise(mach, form, lexenv = nil) -> p.prim:
                                 # Urgent Issue COMPILER-MACRO-SYSTEM
                                 known = find_known(form[0])
                                 if not known:
-                                        error("Invariant failed: no non-known IR node expected at this point.  Saw: %s.", x)
+                                        error("Invariant failed: no non-known IR node expected at this point.  Saw %s in %s.",
+                                              form[0], pp_consly(x))
                                 compiler_maybe_note_inner(known.name, form)
                                 if not hasattr(known, "primitivise"):
                                         error("It is not KNOWN to me, how to primitivise %s forms.", form[0])
