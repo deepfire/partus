@@ -2986,13 +2986,6 @@ def lisp_symbol_python_value(sym):
         return (value if presentp else
                 error(simple_package_error_t, "This name is not accessible in the '%s' module: '%s'.",
                       module.__name__, name))
-
-def lisp_symbol_ast(sym, current_package):
-        symname, packname = lisp_symbol_python_names(sym)
-        return (ast_name(symname) if symbol_accessible_in(sym, current_package) else
-                ast_index(ast_attribute(ast_index(ast_attribute(ast_name("sys"), "modules"), ast_string(packname)),
-                                          "__dict__"),
-                           ast_string(symname)))
 #+end_src
 
 ***** Namespaces
@@ -6142,92 +6135,6 @@ def argspec_lambda_spec(spec, astify_defaults = t):
 def function_lambda_list(fn, astify_defaults = t):
         "Returns: FIXPARMS, OPTIONAL-WITH-DEFAULTS, VARARGS, KEYS-WITH-DEFAULTS, KWARGS."
         return argspec_lambda_spec(inspect.getfullargspec(fn), astify_defaults = astify_defaults)
-
-def lambda_spec_arguments(lambda_list_spec):
-        fixed, optional, args, keyword, keys = lambda_list_spec
-        return ast.arguments(args        = [ ast.arg(x, None)
-                                              for x in fixed + [ x[0] for x in optional ] ],
-                              defaults    = [ x[1] for x in optional ],
-                              vararg      = args,
-                              kwonlyargs  = [ ast.arg(x, None)
-                                              for x in [ x[0] for x in keyword ] ],
-                              kw_defaults = [ x[1] for x in keyword ],
-                              kwarg       = keys,
-                              varargannotation = None,
-                              kwargannotation  = None)
-
-def ast_functiondef(name, lambda_list_spec, body):
-        fixed, optional, args, keyword, keys = lambda_list_spec
-        return ast.FunctionDef(
-                name = the(string_t, name),
-                args = lambda_spec_arguments(lambda_list_spec),
-                lineno = 0,
-                decorator_list = [],
-                returns = None,
-                body = poor_man_etypecase(body,
-                                           ((pylist_t, ast.AST),
-                                            body),
-                                           (function_t,
-                                            lambda:
-                                                    body(*tuple(ast_name(x) for x in fixed),
-                                                          **_map_into_hash(lambda x: (x, ast_name),
-                                                                           (list(optional) + list(keyword) +
-                                                                            ([args] if args else []) +
-                                                                            ([keys] if keys else [])))))))
-
-def ast_defun_fixed(name, names, *body):
-        return ast_functiondef(name, (names, [], None, [], None),
-                                list(body))
-
-#+end_src
-
-***** Interning: %READ-AST, %READ-PYTHON-TOPLEVEL-AS-LISP
-
-#+begin_src python +n
-def literal_ast_sex(ast_):
-        def fail(sex):
-                import more_ast
-                error("Invalid sexp: %s.", more_ast.pp_ast_as_code(sex))
-        return (ast_.id                                                if isinstance(ast_, ast.Name)  else
-                ast_.n                                                 if isinstance(ast_, ast.Num)   else
-                consify_linear([ extract_sexp(x) for x in ast_.elts ]) if isinstance(ast_, ast.Tuple) else
-                fail(ast_))
-
-def read_ast(x):
-        def rec(x):
-                def read_symbol(x):
-                        lisp_name = frost.python_name_lisp_symbol_name(x)
-                        name, keywordp = (lisp_name, nil) if lisp_name[0] != ":" else (lisp_name[1:], t)
-                        package = symbol_value(_package_) if not keywordp else __keyword
-                        return intern(name, package)[0]
-                return (x.n                                      if isinstance(x, ast.Num)   else
-                        x.s                                      if isinstance(x, ast.Str)   else
-                        read_symbol(x.id)                        if isinstance(x, ast.Name)  else
-                        consify_linear([rec(e) for e in x])      if isinstance(x, list)       else
-                        consify_linear([rec(e) for e in x.elts]) if isinstance(x, ast.Tuple) else
-                        read_ast(x.value)                       if isinstance(x, ast.Expr)  else
-                        error("LISP: don't know how to intern value %s of type %s.", x, type_of(x)))
-        with progv(# {_read_case_: make_keyword("preserve")}
-                   {}):
-                return expand_quasiquotation(rec(x))
-
-def read_python_toplevel_as_lisp(fn, allowed_toplevels = { "DEFUN", "DEFMACRO" }):
-        def read_python_toplevel_name(f):
-                symbol_name = frost.python_name_lisp_symbol_name(f.__name__)
-                symbol = intern(symbol_name)[0]
-                return symbol, symbol_name, f.__name__
-        name, sym_name, pyname = read_python_toplevel_name(fn)
-        frost.setf_global(name, pyname.lower(),
-                           globals())
-        args_ast, body_ast = function_ast(fn)
-        if len(body_ast) > 1:
-                error("In LISP %s: toplevel definitions are just that: toplevel definitions. "
-                      "No more than one toplevel form is allowed per definition.", name)
-        form = read_ast(body_ast[0])
-        if not (symbolp(form[0]) and symbol_name(form[0]) in allowed_toplevels):
-                error("In LISP %s: only toplevels in %s are allowed.",
-                      repr(form[0]), __def_allowed_toplevels__)
-        return name, form
 #+end_src
 
 ***** DEFAST
@@ -14936,111 +14843,12 @@ def init():
 #+end_src
 
 * Extra-curricular stuff
-*** Evaluation of Python as Lisp (for Partus)
-
-#+begin_src python +n
-def make_eval_context():
-        val = None
-        def set(x):
-                nonlocal val
-                val = x
-        def get():
-                return val
-        return get, set
-__evget__, __evset__ = make_eval_context()
-
-__eval_source_cache__ = dict() # :: code_object -> string
-
-def evaluated_code_source(co):
-        return gethash(co, __eval_source_cache__)
-
-def coerce_to_expr(x):
-        return (x.value if isinstance(x, ast.Expr) else
-                x)
-
-def eval_python(expr_or_stmt):
-        "In AST form, naturally."
-        package = symbol_value(_package_)
-        exprp = isinstance(the(ast.AST, expr_or_stmt), (ast.expr, ast.Expr))
-        call = ast.fix_missing_locations(ast_module(
-                        [_ast_import_from("cl", ["__evset__", "read_symbol"]),
-                         ast_Expr(ast_funcall(ast_name("__evset__"), [_coerce_to_expr(expr_or_stmt)]))]
-                        if exprp else
-                        [expr_or_stmt]))
-        code = handler_case(lambda: pyb.compile(call, "", "exec"),
-                            (error_t,
-                             lambda cond:
-                                     error("EVAL: error while trying to compile <%s>: %s",
-                                           more_ast.pp_ast_as_code(expr_or_stmt), cond)))
-        if boundp(source_for_eval_):
-                __eval_source_cache__[code] = symbol_value(_source_for_eval_)
-        # write_line(">>> EVAL: %s" % (more_ast.pp_ast_as_code(expr),))
-        exec(code, find_module(frost.lisp_symbol_name_python_name(package_name(package))).__dict__)
-        values = (__evget__() if exprp else
-                  ())
-        return values if isinstance(values, tuple) else (values,)
-
-def callify(form, package = None, quoted = nil):
-        package = defaulted_to_var(package, package_)
-        def callify_call(sym, args):
-                func = function(the(symbol_t, sym))
-                paramspec = inspect.getfullargspec(func)
-                nfix = argspec_nfixargs(paramspec)
-                here("func: %s -> %s, paramspec: %s", sym, func, paramspec)
-                here("nfix: %s", nfix)
-                here("args: %s", args)
-                here("nkeys: %s", len(args) - nfix)
-                if oddp(len(args) - nfix):
-                        error("odd number of &KEY arguments")
-                allow_other_keys = paramspec.varkw is not None
-                fixnames, keynames = (paramspec.args[0:nfix],
-                                      set(paramspec.args[nfix:] + paramspec.kwonlyargs))
-                fixargs = args[0:nfix]
-                keyargs = ({ lisp_symbol_python_name(k):v
-                             for k, v in zip(args[nfix::2], args[nfix + 1::2]) })
-                if not allow_other_keys:
-                        for k in keyargs.keys():
-                                if k not in keynames:
-                                        error("unknown &KEY argument: %s", k)
-                return ast_funcall(
-                        lisp_symbol_ast(sym, package),
-                        [ callify(x, package) for x in args ],
-                        map_hash_table(
-                               lambda k, x: (k, callify(x, package)),
-                                      keyargs))
-        obj2ast_xform = {
-                False     : ast_name("False"),
-                None      : ast_name("None"),
-                True      : ast_name("True"),
-                string_t  : ast_string,
-                integer_t : ast_num,
-                }
-        if listp(form):
-                if quoted or (form[0] is find_symbol("QUOTE", __cl)[0]):
-                        return (ast_list([ callify(x, package, t) for x in form[1] ])
-                                if listp(form[1]) else
-                                callify(form[1], package, t))
-                else:
-                        return callify_call(form[0], form[1:])
-        elif symbolp(form):
-                return (ast_funcall("read_symbol", [_ast_string(form.name),
-                                                      ast_string(form.package.name)])
-                        if quoted or keywordp(form) else
-                        lisp_symbol_ast(form, package))
-        elif constantp(form):
-                return obj2ast_xform[type(form)](form)
-        elif form in obj2ast_xform:
-                return obj2ast_xform[form]
-        else:
-                error("Unable to convert form %s", form)
-
-def valid_declaration_p(x):
-        return nil
-#+end_src
-
 *** Missing stuff
 
 #+begin_src python +n
+def valid_declaration_p(x):
+        return nil
+
 # class deadline_timeout(condition)
 # def with_deadline(timeout, body)
 
