@@ -6579,24 +6579,6 @@ Examples:
 def undefined_function(name):
         error("Function not defined: %s.", name)
 
-# Call support
-
-def parse_keyword_args(rest):
-        acc = dict()
-        for k, v in zip(rest[0::2], rest[1::2]):
-                if k not in acc:
-                        acc[k] = v
-        return acc
-
-_allow_other_keys_ = intern("ALLOW-OTHER-KEYS", __keyword)[0]
-
-def validate_keyword_args(allowed_set, keymap):
-        if _allow_other_keys_ in keymap and keymap[_allow_other_keys_] is not nil:
-                return
-        wrong_keys = keymap.keys() - allowed_set - set([_allow_other_keys_])
-        if wrong_keys:
-                error("Unknown &KEY arguments: %s", ", ".join(str(x) for x in wrong_keys))
-
 # Macroexpansion
 
 intern_and_bind("DEFMACRO", "EVAL-WHEN", "DEFVAR", "IMPL-REF", "IMPL-CALL")
@@ -6915,6 +6897,8 @@ def ir_apply(func, *args):
 
 def ir_cl_call(name, *args):
         return ir_apply(list_(_quote, list_("cl", name)), *args)
+
+_allow_other_keys_ = intern("ALLOW-OTHER-KEYS", __keyword)[0]
 
 intern_and_bind("*MACHINE*", gvarp = t)
 
@@ -7440,7 +7424,6 @@ def rewrite_lambda(mach, lexenv, clambda, lam, body) -> "conslist of rewritten":
         need_nonopt_rest = (rest or clambda.keysp) and optional
         nonopt_rest_gsym = gensym("NONOPT-REST") if need_nonopt_rest else rest_gsym
         must_check_keys  = clambda.keysp and not clambda.aokp
-        ## 1. validate_keyword_args, parse_keyword_args
         ### This is the biggest victim of IR representation mixing (cons vs. linear-tuple),
         ### all in the name of enrolling python lambda lists on board.
         l, l_, a = list_, list__, append

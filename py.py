@@ -21,7 +21,7 @@ from cl import symbol_value, symbol_name, symbol_package, make_symbol, package_n
 from cl import find_global_variable, format
 from cl import interpreted_function_name_symbol, get_function_rtname, unit_variable_rtname
 from cl import consify_linear, xmap_to_vector, validate_function_args, validate_function_keys, without_condition_system
-from cl import _if, _primitive, _list
+from cl import _if, _primitive, _list, _quote, _allow_other_keys_
 from cl import ir_funcall, ir_apply, ir_cl_call
 from cl import _debug_io_
 from cl import t, nil
@@ -2290,6 +2290,23 @@ def fop_make_symbols_available(globals, package_names, symbol_names, setfps,
                 fop_make_symbol_available(globals, *fop_msa_args)
 
 ###
+### Runtime: complex lambda list support
+###
+def parse_keyword_args(rest):
+        acc = dict()
+        for k, v in zip(rest[0::2], rest[1::2]):
+                if k not in acc:
+                        acc[k] = v
+        return acc
+
+def validate_keyword_args(allowed_set, keymap):
+        if _allow_other_keys_ in keymap and keymap[_allow_other_keys_] is not nil:
+                return
+        wrong_keys = keymap.keys() - allowed_set - set([_allow_other_keys_])
+        if wrong_keys:
+                error("Unknown &KEY arguments: %s", ", ".join(str(x) for x in wrong_keys))
+
+###
 ### The Python machine definition
 ###
 @defmachine
@@ -2309,13 +2326,14 @@ class py(machine):
                 keyset_gsym  = gensym("KEYSET-") if must_check_keys else nil
                 key_map_gsym = gensym_tn("KWHASH-")
                 return append(
-                        l_(l(key_map_gsym, ir_cl_call("parse_keyword_args", optless_rest)),
+                        l_(l(key_map_gsym, ir_apply(list_(_quote, list_("py", "parse_keyword_args")), optless_rest)),
                            consify_linear(l(name, l(_if, l(_primitive, not_in, ksym.tn, key_map_gsym.tn),
                                                     def_expr,
                                                     l(_primitive, p.index, key_map_gsym.tn, ksym.tn)))
                                           for name, ksym, def_expr in zip(keys, ksyms, defaults))),
                         (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
-                           l(gensym("DUMMY-"), ir_cl_call("validate_keyword_args", keyset_gsym, key_map_gsym)))
+                           l(gensym("DUMMY-"), ir_apply(list_(_quote, list_("py", "validate_keyword_args")),
+                                                        keyset_gsym, key_map_gsym)))
                          if must_check_keys else nil))
         ## Primitive level
         __supported_primitives__ = {
