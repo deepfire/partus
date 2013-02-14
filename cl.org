@@ -10190,11 +10190,8 @@ def with_symbol_unit_magic(body, machine = None, standalone = nil, id = "UNIT-")
         "Ensure symbol availability, for the code emitted by BODY, by prepending it with name initialisers."
         machine = defaulted_to_var(machine, _machine_)
         def in_compilation_unit():
-                stmts = body()
-                check_type(stmts, list)
-                unit_data = compilation_unit_symbols()
-                return ((machine.compilation_unit_prologue(*unit_data) if standalone else []) +
-                        stmts,) + tuple(unit_data)
+                return (the(list, body()),
+                        ) + compilation_unit_symbols()
         return with_compilation_unit(in_compilation_unit,
                                      override = t, id = id)
 
@@ -10380,10 +10377,12 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
         finally:
                 verbose and format(t, "; %s written\n", output_file)
 
-def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = None, global_macro_p = None, macroexpand = t):
+def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = None, global_macro_p = None, macroexpand = t,
+                      machine = None):
         if name is None:
                 error("In COMPILE-IN-LEXENV: NAME must be provided.")
         check_type(lexenv, (or_t, null_t, lexenv_t))
+        machine = defaulted_to_var(machine, _machine_)
         if lexenv and globalp:
                 error("In %%COMPILE-IN-LEXENV: the provided non-NULL lexenv conflicts with GLOBALP.")
         form = ir(*[_function, lambda_expression],
@@ -10398,14 +10397,15 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
         if symbol_value(_compiler_trace_forms_):
                 dprintf(";;;%s compiling:\n%s%s",
                               sex_space(-3, ";"), sex_space(), pp(form))
-        def process_to_ast(form, lexenv = None, macroexpand = None):
-                return lower(compiler_macroexpand_all(form, lexenv = lexenv, desc = "PROCESS-TO-AST") if macroexpand else
+        def process_to_code(form, lexenv = None, macroexpand = None):
+                return lower(compiler_macroexpand_all(form, lexenv = lexenv, desc = "PROCESS-TO-CODE") if macroexpand else
                              form,
                              lexenv = lexenv,
-                             machine = pymach)
-        stmts, *_ = with_symbol_unit_magic(lambda: process_to_ast(form, lexenv = lexenv, macroexpand = macroexpand),
-                                           standalone = t, id = "COMPILED-LAMBDA-")
-        bytecode = assemble(stmts, form)
+                             machine = machine)
+        code, *unit_data = with_symbol_unit_magic(lambda: process_to_code(form, lexenv = lexenv, macroexpand = macroexpand),
+                                                  id = "COMPILED-LAMBDA-")
+        bytecode = assemble(machine.compilation_unit_prologue(*unit_data)
+                            + code, form)
         function, bad_gls, good_gls = load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
         bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
         ## Doesn't this make %READ-FUNCTION-AS-TOPLEVEL-COMPILE-AND-LOAD somewhat of an excess?
