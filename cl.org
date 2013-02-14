@@ -10385,7 +10385,15 @@ def self_analyze():
                                 deps |= co_deps(sub)
                 return deps
         def fn_deps(x):
-                return co_deps(x.__code__)
+                if hasattr(x, "__code__"):
+                        return co_deps(x.__code__)
+                elif isinstance(x, staticmethod):
+                        if hasattr(x.__func__, "__code__"):
+                                return co_deps(x.__func__.__code__)
+                        else:
+                                # error("Object %s (of type %s), which is .__func__ of %s, has no __code__.  DIR: %s.",
+                                #       x.__func__, type(x.__func__), x, dir(x.__func__))
+                                return set()
         def cls_deps(x):
                 deps = set()
                 for ix in x.__dict__.values():
