@@ -721,7 +721,7 @@ def stringp(x):        return t if isinstance(x, cold_string_type) else nil
 @boot("symbol", lambda _, o: (isinstance(o, _cold_function_type) or
                               isinstance(o, symbol_t) and o.function))
 @boot_defun ## Unregistered Issue COMPLIANCE-EVALUATION-MODEL-FUNCTIONP
-def functionp(o):      return t if isinstance(o, cold_function_type) else nil
+def functionp(o):      return t if isinstance(o, (cold_function_type, staticmethod)) else nil
 
 def symbol_type_specifier_p(x):
         return hasattr(x, "python_type")
