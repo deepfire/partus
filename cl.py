@@ -9328,6 +9328,10 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_COMPILER") == "t":
                 run_tests_compiler()
 
 def self_analyze():
+        this_module_name = "cl"
+        relevant_modules = ["tri.py", "py.py"]
+        def hide(x):
+                return x.startswith("FUN_") or x.startswith("#<")
         def codep(x): return isinstance(x, type(self_analyze.__code__))
         def co_deps(x):
                 deps = set(x.co_names)
@@ -9343,13 +9347,23 @@ def self_analyze():
                         if functionp(ix):
                                 deps |= fn_deps(ix)
                 return deps
-        fdeps = dict()                        ## CALLER --> { CALLEE }
+        def module_deps(mod):
+                import ast, more_ast
+                deps = set()
+                with pyb.open(mod, "r") as f:
+                        for x in more_ast.extract_ast(f.read()).body:
+                                if isinstance(x, ast.ImportFrom) and x.module == this_module_name:
+                                        deps |= set(x.name for x in x.names)
+                return deps
+        fdeps = dict()                        ## REFERRER --> { REFEREE }
         for name, x in globals().items():
                 if functionp(x):
-                        fdeps[x] = fn_deps(x)
+                        fdeps[name] = fn_deps(x)
                 if isinstance(x, type):
-                        fdeps[x] = cls_deps(x)
-        frdeps = collections.defaultdict(set) ## CALLEE --> { CALLERS }
+                        fdeps[name] = cls_deps(x)
+        for mod in relevant_modules:
+                fdeps["#<Module '%s'>" % mod] = module_deps(mod)
+        frdeps = collections.defaultdict(set) ## REFEREE --> { REFERRER }
         for f, deps in fdeps.items():
                 for dep in deps:
                         frdeps[dep].add(f)
@@ -9357,12 +9371,15 @@ def self_analyze():
         usebs = collections.defaultdict(set)
         for f, rdeps in sorted(frdeps.items()):
                 usebs[len(rdeps)].add(f)
-        usebs[0] = set(x.__name__ for x in fdeps
-                       if x.__name__ not in frdeps)
+        usebs[0] = set(x for x in fdeps
+                       if x not in frdeps)
         dprintf("; Usage breakdown:")
-        for n, fs in reversed(sorted(usebs.items())):
-                dprintf("; ---- use count %d:", n)
-                for f in sorted(fs): dprintf(";     %s", f)
+        # for n, fs in reversed(sorted(usebs.items())):
+        for n, fs in [list(reversed(sorted(usebs.items())))[-1]]:
+                dprintf("; ---- use count %d (%d at this level):", n, len(fs))
+                for f in sorted(fs):
+                        if not hide(f):
+                                dprintf(";     %s", f)
 
 # Auxiliary: FDEFINITION
 
