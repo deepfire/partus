@@ -9130,15 +9130,6 @@ def lower(form: cons_t, lexenv = nil, machine = None) -> "machine-specific":
 ## @defknown -> lower
 #
 
-def with_symbol_unit_magic(body, machine = None, standalone = nil, id = "UNIT-"):
-        "Ensure symbol availability, for the code emitted by BODY, by prepending it with name initialisers."
-        machine = defaulted_to_var(machine, _machine_)
-        def in_compilation_unit():
-                return (the(list, body()),
-                        ) + compilation_unit_symbols()
-        return with_compilation_unit(in_compilation_unit,
-                                     override = t, id = id)
-
 def assemble(_ast: [ast.stmt], form: cons_t, filename = "") -> "code":
         import more_ast
         if symbol_value(_compiler_validate_ast_):
@@ -9236,20 +9227,21 @@ def process_top_level(form) -> [ast.stmt]:
                 ## Additional note: this is %PROCESS, split in half, due to cases.
                 if process or eval:
                         ## Note, how lie wrt. the NULL lexenv -- what about {SYMBOL-,}MACROLET?  See above..
-                        stmts, *unit_data = with_symbol_unit_magic(lambda: lower(form, lexenv = _null),
-                                                                   id = "PROCESS-TOPLEVEL-")
+                        code, *unit_data = with_compilation_unit(lambda: (lower(form, lexenv = _null),
+                                                                          ) + compilation_unit_symbols(),
+                                                                 override = t, id = "PROCESS-TOPLEVEL-")
                 if process:
                         if toplevel and symbol_value(_compiler_trace_toplevels_):
                                 report(form, "known", desc = "processed TLF")
-                                report(stmts, "ast", desc = "processed TLF")
-                        run_time_results.extend(stmts)
+                                report(code, "ast", desc = "processed TLF")
+                        run_time_results.extend(code)
                         compilation_unit_adjoin_symbols(*unit_data)
                 if eval:
                         if toplevel and symbol_value(_compiler_trace_compile_time_eval_):
                                 report(form, "known", desc = "CT eval")
-                                report(stmts, "ast", desc = "CT eval")
+                                report(code, "ast", desc = "CT eval")
                         bytecode = assemble(compilation_unit_prologue(*unit_data)
-                                            + stmts,
+                                            + code,
                                             form)
                         # dprintf(";; ..compile-time code object execution")
                         _, broken_globals, good_globals = load_module_bytecode(bytecode)
@@ -9344,8 +9336,9 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
                              form,
                              lexenv = lexenv,
                              machine = machine)
-        code, *unit_data = with_symbol_unit_magic(lambda: process_to_code(form, lexenv = lexenv, macroexpand = macroexpand),
-                                                  id = "COMPILED-LAMBDA-")
+        code, *unit_data = with_compilation_unit(lambda: (process_to_code(form, lexenv = lexenv, macroexpand = macroexpand),
+                                                          ) + compilation_unit_symbols(),
+                                                 override = t, id = "COMPILED-LAMBDA-")
         bytecode = assemble(machine.compilation_unit_prologue(*unit_data)
                             + code, form)
         function, bad_gls, good_gls = load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
