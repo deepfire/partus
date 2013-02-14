@@ -10370,8 +10370,11 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_COMPILER") == "t":
                 run_tests_compiler()
 
 def self_analyze():
+        import more_ast, pergamum
         this_module_name = "cl"
         relevant_modules = ["tri.py", "py.py"]
+        symtab = without_condition_system(
+                lambda: more_ast.extract_symtable(pergamum.file_as_string(this_module_name + ".py"), ""))
         def hide(x):
                 return x.startswith("FUN_") or x.startswith("#<")
         def codep(x): return isinstance(x, type(self_analyze.__code__))
@@ -10409,6 +10412,9 @@ def self_analyze():
         for f, deps in fdeps.items():
                 for dep in deps:
                         frdeps[dep].add(f)
+        for s in without_condition_system(symtab.get_symbols):
+                if s.is_referenced():
+                        frdeps[s.get_name()].add("#<global ref>")
         dprintf("; Total functions: %d", len(fdeps))
         usebs = collections.defaultdict(set)
         for f, rdeps in sorted(frdeps.items()):
