@@ -1606,9 +1606,6 @@ def read_case_xformed(x):
 def if_let(x, consequent, antecedent = lambda: None):
         return consequent(x) if x else antecedent()
 
-def when_let(x, consequent):
-        return consequent(x) if x else None
-
 def lret(value, body):
         body(value)
         return value
@@ -1899,17 +1896,6 @@ def lisp_symbol_python_value(sym):
                       module.__name__, name))
 
 # Functions
-
-def variable_kind(name):
-        check_type(name, symbol_t)
-        # (ecase kind
-        #   (:special "a special variable")
-        #   (:macro "a symbol macro")
-        #   (:constant "a constant variable")
-        #   (:global "a global variable")
-        #   (:unknown "an undefined variable")
-        #   (:alien "an alien variable"))
-        not_implemented()
 
 @defun
 def fboundp(name):
@@ -2272,13 +2258,6 @@ Defined keywords:
                                          (make_keyword("OUTPUT"), lambda: "w"),
                                          (make_keyword("IO"),     lambda: "rw"),
                                          (make_keyword("PROBE"),  lambda: not_implemented("direction :PROBE"))))
-
-@defun
-def with_open_file(pathname, body, direction = make_keyword("INPUT"), element_type = base_char_t,
-                   if_exists = make_keyword("ERROR"), if_does_not_exist = make_keyword("ERROR"),
-                   external_format = make_keyword("DEFAULT")):
-        return with_open_stream(open(pathname, direction, element_type, if_exists, if_does_not_exist, external_format),
-                                body)
 
 @defun
 def probe_file(x):
@@ -5880,7 +5859,6 @@ class gotag_binding(gotag, binding):
                 gotag.__init__(self, name, **attributes)
                 binding.__init__(self, value, **attributes)
 
-def variable_bindingp(x): return isinstance(x, variable_binding)
 def function_bindingp(x): return isinstance(x, function_binding)
 def block_bindingp(x):    return isinstance(x, block_binding)
 def gotag_bindingp(x):    return isinstance(x, gotag_binding)
@@ -6340,10 +6318,6 @@ def evenp(x):
 def plusp(x):
         return t if x > 0 else nil
 
-@defun
-def zerop(x):
-        return t if x == 0 else nil
-
 def post_factum_defun(symbol, function):
         set_function_definition(globals(), symbol,
                                 lambda_expression = nil, check_redefinition = nil)(function)
@@ -6491,9 +6465,6 @@ string_set("*IN-COMPILATION-UNIT*", nil)
 
 def unit_function(x):
         symbol_value(_unit_functions_).add(x)
-        return x
-def unit_symbol(x):
-        symbol_value(_unit_symbols_).add(x)
         return x
 def unit_variable_rtname(x):
         return full_symbol_rtname(x)

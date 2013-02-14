@@ -4,7 +4,7 @@
 from cl           import typep, functionp, stringp, mapcar, mapc, identity, remove_if, null, every, some, t
 from functools    import reduce, partial
 from cl           import of_type, setp, frozensetp
-from cl           import if_let, when_let, lret
+from cl           import lret
 from cl           import prefix_suffix_if, prefix_suffix_if_not
 from cl           import map_into_hash
 from cl           import not_implemented_error, not_implemented
