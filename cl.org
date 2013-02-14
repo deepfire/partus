@@ -10417,6 +10417,43 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_COMPILER") == "t":
         with matcher_pp_stack():
                 run_tests_compiler()
 
+def self_analyze():
+        def codep(x): return isinstance(x, type(self_analyze.__code__))
+        def co_deps(x):
+                deps = set(x.co_names)
+                for sub in x.co_consts:
+                        if codep(sub):
+                                deps |= co_deps(sub)
+                return deps
+        def fn_deps(x):
+                return co_deps(x.__code__)
+        def cls_deps(x):
+                deps = set()
+                for ix in x.__dict__.values():
+                        if functionp(ix):
+                                deps |= fn_deps(ix)
+                return deps
+        fdeps = dict()                        ## CALLER --> { CALLEE }
+        for name, x in globals().items():
+                if functionp(x):
+                        fdeps[x] = fn_deps(x)
+                if isinstance(x, type):
+                        fdeps[x] = cls_deps(x)
+        frdeps = collections.defaultdict(set) ## CALLEE --> { CALLERS }
+        for f, deps in fdeps.items():
+                for dep in deps:
+                        frdeps[dep].add(f)
+        dprintf("; Total functions: %d", len(fdeps))
+        usebs = collections.defaultdict(set)
+        for f, rdeps in sorted(frdeps.items()):
+                usebs[len(rdeps)].add(f)
+        usebs[0] = set(x.__name__ for x in fdeps
+                       if x.__name__ not in frdeps)
+        dprintf("; Usage breakdown:")
+        for n, fs in reversed(sorted(usebs.items())):
+                dprintf("; ---- use count %d:", n)
+                for f in sorted(fs): dprintf(";     %s", f)
+
 # Auxiliary: FDEFINITION
 
 ################################################################################

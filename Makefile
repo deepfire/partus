@@ -34,6 +34,9 @@ small-repl: vpcl.vpfas
 repl:
 	$(PYTHON) -i vpcl.py
 
+self-analyze:
+	$(PYTHON) -c "import cl; cl.self_analyze()"
+
 ansi-test:
 	reset
 	cd ~/src/ansi-tests;                                                                                                          export DUMP_FORM=$(DUMP_FORM) DUMP_MX=$(DUMP_MX) DUMP_RE=$(DUMP_RE) DUMP_PRIM=$(DUMP_PRIM) DUMP_AST=$(DUMP_AST);              make test LISP=/home/deepfire/src/partus/vpcl.py
