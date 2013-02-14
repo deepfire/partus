@@ -329,7 +329,7 @@ def coerce_to_condition(datum, *args, default_type = None, **keys):
                 raise Exception("Cannot coerce %s to a condition." % repr(x))
         type_specifier = defaulted(default_type, error_t) if isinstance(datum, str) else datum
 
-        type_ = (type_specifier             if isinstance(type_specifier, type)                                     else
+        type_ = (type_specifier             if isinstance(type_specifier, type)                                    else
                  None                       if conditionp(type_specifier)                                          else
                  type_specifier.python_type if isinstance(type_specifier, symbol_t) and symbol_type_specifier_p(type_specifier) else
                  not_a_condition_specifier_error(datum))
@@ -547,8 +547,6 @@ def print_symbol(s, escape = None, gensym = None, case = None, package = None, r
         # Individual methods for PRINT-OBJECT, including user-defined methods,
         # are responsible for implementing these requirements.
         package  = defaulted_to_var(package,  _package_)
-        if not packagep(package):
-                here("------------------------------------------------------------\npackage is a %s: %s" % (type_of(package), package,))
         readably = defaulted_to_var(readably, _print_readably_)
         escape   = defaulted_to_var(escape,   _print_escape_) if not readably else t
         case     = defaulted_to_var(case,     _print_case_)   if not readably else make_keyword("UPCASE")
@@ -1010,14 +1008,14 @@ disagreement and, as a third element, a boolean, denoting whether the
 type specifier was malformed.  Otherwise, when X is of TYPE, a
 negative boolean value is returned."""
         return (((not isinstance(x, type_)) and
-                 (x, type_, False))                            if isinstance(type_, type)               else
-                nil                                            if type_ is t                            else
+                 (x, type_, False))                            if isinstance(type_, type)                else
+                nil                                            if type_ is t                             else
                 (((not isinstance(x, type_.python_type)) and
-                  (x, type_, False))                           if hasattr(type_, "python_type")         else
-                 complex_type_mismatch(x, tuple([type_]))     if hasattr(type_, "type_predicate")      else
-                 invalid_type_specifier_error(type_))         if isinstance(type_, symbol_t)           else
-                complex_type_mismatch(x, type_)               if (isinstance(type_, tuple) and type_ and
-                                                                   hasattr(type_[0], "type_predicate")) else
+                  (x, type_, False))                           if hasattr(type_, "python_type")          else
+                 complex_type_mismatch(x, tuple([type_]))      if hasattr(type_, "type_predicate")       else
+                 invalid_type_specifier_error(type_))          if isinstance(type_, symbol_t)            else
+                complex_type_mismatch(x, type_)                if (isinstance(type_, tuple) and type_ and
+                                                                    hasattr(type_[0], "type_predicate")) else
                 invalid_type_specifier_error(type_))
 
 @boot_defun
@@ -1318,12 +1316,12 @@ class not_implemented_warning(not_implemented_condition, warning_t): pass
 def not_implemented(x = None):
         error(not_implemented_error,
               x if x is not None else
-              caller_name())
+              py.caller_name())
 
 def warn_not_implemented(x = None):
         warn(not_implemented_warning,
               x if x is not None else
-              caller_name())
+              py.caller_name())
 
 # Rudimentary multiple values
 
@@ -1585,373 +1583,11 @@ def cold_probe_file(pathname):
         return os.path.exists(the(string_t, pathname))
 probe_file = cold_probe_file
 
-# Python frames
-
-def all_threads_frames():
-        return sys._current_frames()
-
-def this_frame():
-        return sys._getframe(1)
-
-frame = type(this_frame())
-
-def framep(x):
-        return isinstance(x, frame)
-
-def next_frame(f):
-        return f.f_back if f.f_back else error("Frame \"%s\" is the last frame.", pp_frame(f, lineno = True))
-
-def caller_frame(caller_relative = 0):
-        return sys._getframe(caller_relative + 2)
-
-def frames_calling(f = None, n = -1):
-        "Semantics of N are slightly confusing, but the implementation is so simple.."
-        f = caller_frame() if f is None else the(frame, f)
-        acc = [f]
-        while f.f_back and n:
-                f, n = f.f_back, n - 1
-                acc.append(f)
-        return acc
-
-def caller_name(n = 0):
-        return fun_name(frame_fun(sys._getframe(n + 2)))
-
-def caller_args(n = 0):
-        return frame_locals(sys._getframe(n + 2))
-
-def exception_frame():
-        return sys.exc_info()[2].tb_frame
-
-def top_frame():
-        return caller_frame()
-
-def frame_info(f):
-        "Return frame (function, lineno, locals, globals, builtins)."
-        return (f.f_code,
-                f.f_lineno,
-                f.f_locals,
-                f.f_globals,
-                f.f_builtins,
-                )
-
-# Issue FRAME-CODE-OBJECT-IS-NOT-FUN
-def frame_fun(f):               return f.f_code
-def frame_lineno(f):            return f.f_lineno
-def frame_locals(f):            return f.f_locals
-def frame_globals(f):           return f.f_globals
-def frame_local_value(f, name): return f.f_locals[name]
-
-### XXX: this is the price of Pythonic pain
-__ordered_frame_locals__ = dict()
-def frame_ordered_locals(f):
-        global __ordered_frame_locals__
-        if f not in __ordered_frame_locals__:
-                __ordered_frame_locals__[f] = list(f.f_locals.keys())
-        return __ordered_frame_locals__[f]
-
-def fun_info(f):
-        "Return function (name, params, filename, lineno, nlines)."
-        return (f.co_name or "<unknown-name>",
-                f.co_varnames[:f.co_argcount], # parameters
-                f.co_filename or "<unknown-file>",
-                f.co_firstlineno,
-                1 + max(f.co_lnotab or [0]),        # lines
-                f.co_varnames[f.co_argcount:], # non-parameter bound locals
-                f.co_freevars,
-                )
-def fun_name(f):        return f.co_name
-def fun_filename(f):    return f.co_filename
-def fun_firstlineno(f): return f.co_firstlineno
-def fun_bytecode(f):    return f.co_code
-def fun_constants(f):   return f.co_consts
-
-# Frame pretty-printing
-
-def frame_fun_name(f):          return f.f_code.co_name
-
-def print_function_arglist(f):
-        argspec = inspect.getargspec(f)
-        return ", ".join(argspec.args +
-                         (["*" + argspec.varargs]   if argspec.varargs  else []) +
-                         (["**" + argspec.keywords] if argspec.keywords else []))
-
-def pp_frame(f, align = None, handle_overflow = None, lineno = None, frame_id = None):
-        fun = frame_fun(f)
-        fun_name, fun_params, filename = fun_info(fun)[:3]
-        align = ((align or 10) if handle_overflow else
-                 defaulted(align, 0))
-        return ("%s%s%s %s(%s)" % (((frame_id(f)[:4] + " ") if frame_id else ""),
-                                   filename + ("" if align else ":") + (" " * (align - (len(filename) % align if align else 0))),
-                                   ("%d:" % frame_lineno(f)) if lineno else "",
-                                   fun_name, ", ".join(fun_params)))
-
-def print_frame(f, stream = None, **keys):
-        write_string(pp_frame(f, **keys), defaulted_to_var(stream, _debug_io_))
-
-def print_frames(fs, stream = None, frame_ids = None):
-        for i, f in enumerate(fs):
-                format(defaulted_to_var(stream, _debug_io_), "%2d: %s\n",
-                       i, pp_frame(f, lineno = True, frame_id = frame_ids))
-
-def backtrace(x = -1, stream = None, frame = None, frame_ids = None, offset = 0):
-        print_frames(frames_calling(defaulted(frame, this_frame()))[1 + offset:x],
-                      defaulted_to_var(stream, _debug_io_),
-                      frame_ids = frame_ids)
-
-def pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_line = None):
-        def pp_frame_in_chain(f, pretty = None):
-                fun = frame_fun(f)
-                return (fun_name(fun) if not pretty else
-                        ("%s%s@%s:%d" % (fun_name(fun),
-                                         (":" + str(frame_lineno(f) - fun_firstlineno(fun))) if print_fun_line else "",
-                                         fun_filename(fun),
-                                         frame_lineno(f))))
-        return ("..".join((pp_frame_in_chain(f, t) for f in xs) if all_pretty else
-                          ([pp_frame_in_chain(f) for f in xs[:-1]] +
-                           [pp_frame_in_chain(xs[-1], t)])))
-
-def pp_chain_of_frame(x, callers = 5, *args, **keys):
-        fs = frames_calling(x, callers)
-        fs.reverse()
-        return pp_frame_chain(fs, *args, **keys)
-
-def escape_percent(x):
-        return x.replace("%", "%%")
-
-# Higher-level debug trace functions
-
-# lf = open("/home/deepfire/lf", "w")
-def frame_chain_hash(f, ignore_callers = set(["<lambda>"])):
-        "Return an MD5 digest of the caller name chain, with callers listed in IGNORE-CALLERS omitted."
-        def f_digestible(f):
-                name = f.f_code.co_name
-                return name.encode() if name not in ignore_callers else b''
-        fchain = frames_calling(f)[1:]
-        retv = reduce((lambda acc, f:
-                               acc.update(f_digestible(f)) or acc),
-                      fchain, hashlib.new("md5")).hexdigest()
-        # fprintf(lf, "%s %s\n", [ f_str(x) for x in reversed(chain) ], r)
-        return retv
-
-def frame_id(f):
-        return hashlib.new("md5", ("%x" % id(f)).encode()).hexdigest()
-
-def here(note = None, *args, callers = 5, stream = None, default_stream = sys.stderr, frame = None, print_fun_line = None, all_pretty = None, offset = 0):
-        stream = defaulted(stream, t)
-        def do_format(x, args):
-                try:
-                        return x % args
-                except cold_error_type as cond:
-                        return "#<error formatting %s into %s: %s>" % (args.__repr__(), note.__repr__(), cond)
-        def format_args():
-                return (""           if not note else
-                        " - " + note if not args else
-                        # Unregistered Issue IDEA-MAPXFORM-IF
-                        do_format(note, args))
-        return format(stream, "    (%s)  %s:\n      %s\n",
-                      threading.current_thread().name.upper(),
-                      pp_chain_of_frame(defaulted(frame, caller_frame(offset)),
-                                        callers = callers - 1,
-                                        print_fun_line = print_fun_line,
-                                        all_pretty = all_pretty),
-                      without_condition_system(format_args),
-                      # defaulted(stream, default_stream)
-                      )
-
 def locals_printf(locals, *local_names):
         # Unregistered Issue NEWLINE-COMMA-SEPARATION-NOT-PRETTY
         fprintf(sys.stderr, ", ".join((("%s: %%s" % x) if isinstance(x, str) else "%s")
                                         for x in local_names) + "\n",
                  *((locals[x] if isinstance(x, str) else "\n") for x in local_names))
-
-# Raw data of frame research
-
-# ## Unregistered Issue PAREDIT-MUST-BE-TAUGHT-ABOUT-COMMENTS-WITHIN-BABEL-BLOCKS
-
-# >>> dir(f)
-# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
-# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
-# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
-# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
-# "__subclasshook__", "f_back", "f_builtins", "f_code", "f_globals",
-# "f_lasti", "f_lineno", "f_locals", "f_trace"]
-# >>> dir(f.f_code)
-# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
-# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
-# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
-# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
-# "__subclasshook__", "co_argcount", "co_cellvars", "co_code",
-# "co_consts", "co_filename", "co_firstlineno", "co_flags",
-# "co_freevars", "co_kwonlyargcount", "co_lnotab", "co_name",
-# "co_names", "co_nlocals", "co_stacksize", "co_varnames"]
-def example_frame():
-        "cellvars: closed over non-globals;  varnames: bound"
-        def xceptor(xceptor_arg):
-                "names: globals;  varnames: args + otherbind;  locals: len(varnames)"
-                try:
-                        error("This is xceptor talking: %s.", xceptor_arg)
-                except Exception as cond:
-                        return this_frame()
-        def midder(midder_arg):
-                "freevars: non-global-free;  varnames: args + otherbind;  locals: ..."
-                midder_stack_var = 0
-                return xceptor(midder_arg + midder_stack_var)
-        def outer():
-                "freevars: non-global-free;  varnames: args + otherbind"
-                outer_stack_var = 3
-                return midder(outer_stack_var)
-        return outer()
-# Study was done by the means of:
-# print("\n".join((lambda listattr:
-#                   map(lambda f:
-#                        "== co %s\n  %s\n== def %s\n  %s\n" %
-#                        (f, listattr(f), cl._fun_name(cl._frame_fun(f)), listattr(cl._frame_fun(f))),
-#                        cl._frames_calling(cl._example_frame())))
-#                 (lambda x: "\n  ".join(map(lambda s: s + ": " + str(getattr(x, s)),
-#                                            cl.remove_if(lambda attr: "__" in attr or "builtins" in attr or "locals" in attr or "globals" in attr,
-#                                                         dir(x)))))))
-
-# == co <frame object at 0x2381de0>
-#   f_back: <frame object at 0x2381c00>
-#   f_code: <code object xceptor at 0x277a4f8, file "cl.py", line 199>
-#   f_lasti: 59
-#   f_lineno: 204
-#   f_trace: None
-# == def xceptor
-#   co_argcount: 1
-#   co_cellvars: ()
-#   co_code: b'y\x11\x00t\x00\x00d\x01\x00|\x00\x00\x83\x02\x00\x01Wn,\x00\x04t\x01\x00k\n\x00r?\x00\x01\x01\x00\x01z\x0c\x00t\x02\x00\x83\x00\x00SWYd\x02\x00d\x02\x00\x01\x00~\x01\x00Xn\x01\x00Xd\x02\x00S'
-#   co_consts: ('names: globals;  varnames: args + otherbind;  locals: len(varnames)', 'This is xceptor talking: %s.', None)
-#   co_filename: cl.py
-#   co_firstlineno: 199
-#   co_flags: 83
-#   co_freevars: ()
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x02\x03\x01\x11\x01\x12\x01'
-#   co_name: xceptor
-#   co_names: ('error', 'Exception', '_this_frame')
-#   co_stacksize: 16
-#   co_varnames: ('xceptor_arg', 'cond')
-
-# == co <frame object at 0x2381c00>
-#   f_back: <frame object at 0x1fa8480>
-#   f_code: <code object midder at 0x277a580, file "cl.py", line 205>
-#   f_lasti: 19
-#   f_lineno: 208
-#   f_trace: None
-# == def midder
-#   co_argcount: 1
-#   co_cellvars: ()
-#   co_code: b'd\x01\x00\x01\x00\x88\x00\x00|\x00\x00|\x01\x00\x17\x83\x01\x00S'
-#   co_consts: ('freevars: non-global-free;  varnames: args + otherbind;  locals: ...', 0)
-#   co_filename: cl.py
-#   co_firstlineno: 205
-#   co_flags: 19
-#   co_freevars: ('xceptor',)
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x02\x06\x01'
-#   co_name: midder
-#   co_names: ()
-#   co_stacksize: 3
-#   co_varnames: ('midder_arg', 'midder_stack_var')
-
-# == co <frame object at 0x1fa8480>
-#   f_back: <frame object at 0x27ce6c0>
-#   f_code: <code object outer at 0x277a608, file "cl.py", line 209>
-#   f_lasti: 15
-#   f_lineno: 212
-#   f_trace: None
-# == def outer
-#   co_argcount: 0
-#   co_cellvars: ()
-#   co_code: b'd\x01\x00\x00\x00\x88\x00\x00|\x00\x00\x83\x01\x00S'
-#   co_consts: ('freevars: non-global-free;  varnames: args + otherbind', 3)
-#   co_filename: cl.py
-#   co_firstlineno: 209
-#   co_flags: 19
-#   co_freevars: ('midder',)
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x02\x06\x01'
-#   co_name: outer
-#   co_names: ()
-#   co_stacksize: 2
-#   co_varnames: ('outer_stack_var',)
-
-# == co <frame object at 0x27ce6c0>
-#   f_back: <frame object at 0x27f3030>
-#   f_code: <code object example_frame at 0x277a690, file "cl.py", line 197>
-#   f_lasti: 45
-#   f_lineno: 213
-#   f_trace: None
-# == def example_frame
-#   co_argcount: 0
-#   co_cellvars: ('xceptor', 'midder')
-#   co_code: b'd\x01\x00\x84\x00\x00\x89\x00\x00\x87\x00\x00f\x01\x00d\x02\x00\x86\x00\x00\x89\x01\x00\x87\x01\x00f\x01\x00d\x03\x00\x86\x00\x00\x00\x00|\x00\x00\x83\x00\x00S'
-#   co_consts: ('cellvars: closed over non-globals;  varnames: bound', <code object xceptor at 0x277a4f8, file "cl.py", line 199>, <code object midder at 0x277a580, file "cl.py", line 205>, <code object outer at 0x277a608, file "cl.py", line 209>)
-#   co_filename: cl.py
-#   co_firstlineno: 197
-#   co_flags: 3
-#   co_freevars: ()
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x02\t\x06\x0f\x04\x0f\x04'
-#   co_name: example_frame
-#   co_names: ()
-#   co_stacksize: 2
-#   co_varnames: ('outer',)
-
-# == co <frame object at 0x27f3030>
-#   f_back: <frame object at 0x2388fd0>
-#   f_code: <code object <lambda> at 0x278de00, file "<stdin>", line 1>
-#   f_lasti: 36
-#   f_lineno: 5
-#   f_trace: None
-# == def <lambda>
-#   co_argcount: 1
-#   co_cellvars: ('listattr',)
-#   co_code: b't\x00\x00\x87\x00\x00f\x01\x00d\x01\x00\x86\x00\x00t\x01\x00j\x02\x00t\x01\x00j\x03\x00\x83\x00\x00\x83\x01\x00\x83\x02\x00S'
-#   co_consts: (None, <code object <lambda> at 0x278d0b8, file "<stdin>", line 2>)
-#   co_filename: <stdin>
-#   co_firstlineno: 1
-#   co_flags: 3
-#   co_freevars: ()
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x01\x0f\x03'
-#   co_name: <lambda>
-#   co_names: ('map', 'cl', '_frames_calling', '_example_frame')
-#   co_stacksize: 4
-#   co_varnames: ('listattr',)
-
-# == co <frame object at 0x2388fd0>
-#   f_back: None
-#   f_code: <code object <module> at 0x220f7a0, file "<stdin>", line 1>
-#   f_lasti: 24
-#   f_lineno: 6
-#   f_trace: None
-# == def <module>
-#   co_argcount: 0
-#   co_cellvars: ()
-#   co_code: b'e\x00\x00d\x00\x00j\x01\x00d\x01\x00\x84\x00\x00d\x02\x00\x84\x00\x00\x83\x01\x00\x83\x01\x00\x83\x01\x00Fd\x03\x00S'
-#   co_consts: ('\n', <code object <lambda> at 0x278de00, file "<stdin>", line 1>, <code object <lambda> at 0x220f2d8, file "<stdin>", line 6>, None)
-#   co_filename: <stdin>
-#   co_firstlineno: 1
-#   co_flags: 64
-#   co_freevars: ()
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x0f\x05'
-#   co_name: <module>
-#   co_names: ('print', 'join')
-#   co_stacksize: 4
-#   co_varnames: ()
-
-# More info:
-# sys.call_tracing()
-# p = Pdb(self.completekey, self.stdin, self.stdout)
-# p.prompt = "(%s) " % self.prompt.strip()
-# print >>self.stdout, "ENTERING RECURSIVE DEBUGGER"
-# sys.call_tracing(p.run, (arg, globals, locals))
-# print >>self.stdout, "LEAVING RECURSIVE DEBUGGER"
-# sys.settrace(self.trace_dispatch)
-# self.lastcmd = p.lastcmd
 
 # Alexandria
 
@@ -1961,32 +1597,6 @@ def alist_hash_table(xs):
 def hash_table_alist(xs):
         return mapcon(lambda kv: [k, [v, nil]],
                       consify_linear(the(dict, xs).items()))
-
-class cache(collections.UserDict):
-        def __init__(self, filler):
-                self.filler = filler
-                self.data = dict()
-        def __getitem__(self, key):
-                check_type(key, pytuple_t)
-                key, access_timestamp = key
-                if key not in self.data:
-                        res = self.filler(key)
-                        if res is None: # Allow the filler to refuse.
-                                return
-                        self.data[key] = res
-                return self.data[key]
-        def __setitem__(self, key, value):
-                error("Direct cache writes are not allowed.")
-
-def make_timestamping_cache(map_computer):
-        cache = cache(lambda x:
-                              poor_man_let(map_computer(x),
-                                            lambda y: ((y, get_universal_time()) if x else
-                                                       None)))
-        def cache_getter(x):
-                res = cache[(x, 0)]
-                return res[0] if res is not None else None
-        return cache, cache_getter
 
 def read_case_xformed(x):
         return case_xform(symbol_value(_read_case_), x)
@@ -2171,7 +1781,7 @@ def from_(n, xs):
         for x in iterator:
                 yield x
 
-termination_marker = gensym()
+termination_marker = object()
 def take(n, xs):
         iterator = iter(xs)
         for i in range(n):
@@ -2244,14 +1854,6 @@ def map_into_hash_star(f, xs,
 
 def map_hash_table(f, hash_table, **keys) -> dict:
         return map_into_hash_star(f, hash_table.items(), **keys)
-
-def symbol_python_type(symbol, if_not_a_type = "error"):
-        return (symbol.python_type                                   if hasattr(the(symbol_t, symbol), "python_type") else
-                nil                                                                        if if_not_a_type == "continue" else
-                error("In %%SYMBOL-TYPE %s: symbol does not designate a known type.", symbol) if if_not_a_type == "error" else
-                error("In %%SYMBOL-TYPE: the :IF-NOT-A-TYPE keyword argument must be one of ('error, 'continue')."))
-def symbol_type_predicate(symbol):
-        return symbol.type_predicate if hasattr(the(symbol_t, symbol), "type_predicate") else nil
 
 # Complex arguments
 
@@ -4775,7 +4377,7 @@ def report_condition(cond, stream = None, backtrace = None):
                 "C"),
                type(cond), cond)
         if backtrace:
-                backtrace(-1, stream)
+                py.backtrace(-1, stream)
         return t
 
 def maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
@@ -4841,15 +4443,15 @@ def __cl_condition_handler__(condspec, frame):
                                 repr_str = princ_to_string(cond)
                         except Exception as sub_cond:
                                 dprintf("While printing condition, another condition was raised: %s", repr(sub_cond))
-                                # backtrace(frame = exception_frame())
+                                # py.backtrace(frame = exception_frame())
                                 repr_str = "#<error printing condition>"
-                        here("In thread '%s': unhandled condition of type %s:\n\n%s",
-                              threading.current_thread().name, type_of(cond), repr_str,
-                              callers = 15, frame = signalling_frame)
+                        py.here("In thread '%s': unhandled condition of type %s:\n\n%s",
+                                threading.current_thread().name, type_of(cond), repr_str,
+                                callers = 15, frame = signalling_frame)
                 else:
                         dprintf("In thread %s: a non-condition of type %s was raised: %s",
                                 threading.current_thread().name, type_of(cond), repr(cond))
-        signalling_frame = caller_frame(caller_relative = 1)
+        signalling_frame = py.caller_frame(caller_relative = 1)
         with progv({_stack_top_hint_: signalling_frame}):
                 cond = sys.call_tracing(continuation, ())
         if type_of(cond) not in __not_even_conditions__:
@@ -4857,7 +4459,7 @@ def __cl_condition_handler__(condspec, frame):
                         return
                 report_condition(cond)
                 if not backtrace_printed:
-                        backtrace(offset = 2) ## 2 = [ pytracer, __cl_condition_handler__ ]
+                        py.backtrace(offset = 2) ## 2 = [ pytracer, __cl_condition_handler__ ]
                 last_chance_handler = symbol_value(_last_chance_handler_)
                 if last_chance_handler:
                         last_chance_handler(cond)
@@ -4888,7 +4490,7 @@ def handler_bind(f, *handlers, no_error = identity):
         if frost.pytracer_enabled_p() and frost.tracer_hook("exception") is __cl_condition_handler__:
                 # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
                 with progv({_handler_clusters_: (symbol_value(_handler_clusters_) +
-                                                 [handlers + (("__frame__", caller_frame()),)])}):
+                                                 [handlers + (("__frame__", py.caller_frame()),)])}):
                         return no_error(f())
         else:
                 # old world case..
@@ -5243,7 +4845,7 @@ def matcher_deeper_immediate(args, name):
         level = [[name] + args]
         depth = symbol_value(_matcher_depth_) + 1
         record = "%s%s    %s" % \
-                 (" " * depth, name if name else caller_name().upper(),
+                 (" " * depth, name if name else py.caller_name().upper(),
                   ("  ".join(matcher_print_one_arg(x) for x in args)) if args else "")
         dprintf("%s", record)
         symbol_value(_matcher_pp_stack_).append(level)
@@ -5262,7 +4864,7 @@ def r(retval, q = "", n = 20, ignore_callers = set(["<lambda>", "complex", "simp
                 level = symbol_value(_matcher_pp_stack_)
                 name, *args = level[0]
                 level[0] = ("%s%s    <==%s    %s==>    %s" %
-                            (" " * depth, name if name else caller_name().upper(),
+                            (" " * depth, name if name else py.caller_name().upper(),
                              # retval[0],
                              matcher_pp(retval[1]),
                              matcher_pp(retval[2]),
@@ -9802,7 +9404,7 @@ def peek_func_globals(x, desc = "FUNC"):
                       desc, func.__name__, id(func),
                       id(func.__globals__), type_of(func.__globals__),
                       { k:v for k,v in func.__globals__.items() if k != '__builtins__' })
-        backtrace(15, frame_ids = t, offset = 1)
+        py.backtrace(15, frame_ids = t, offset = 1)
 
 @defun
 def fdefinition(name):
@@ -10318,7 +9920,7 @@ class generic_function_t(funcallable_standard_class_t):
         "All generic functions are of this type."
         def __init__(self, **initargs): # Simulate a :BEFORE method.
                 self.__dependents__ = set()
-                here("args: %s", initargs)
+                py.here("args: %s", initargs)
                 super().__init__(**initargs)
 
 # Dependent maintenance protocol
@@ -11651,15 +11253,15 @@ __sealed_classes__ = set([object,
                           pytuple_t, pybytes_t, pylist_t, pybytearray_t, pyset_t, pyfrozenset_t,
                           BaseException, Exception] +
                          [ type_of(x)
-                           for x in [None,           # NoneType
-                                     Ellipsis,       # ellipsis
-                                     NotImplemented, # NotImplementedType
-                                     integer_t,      # type
-                                     "".find,        # builtin_function_or_method
-                                     ast,            # module
-                                     sys.stdin,      # _io.TextIOWrapper
-                                     car.__code__,   # code object
-                                     this_frame(),   # frame
+                           for x in [None,            # NoneType
+                                     Ellipsis,        # ellipsis
+                                     NotImplemented,  # NotImplementedType
+                                     integer_t,       # type
+                                     "".find,         # builtin_function_or_method
+                                     ast,             # module
+                                     sys.stdin,       # _io.TextIOWrapper
+                                     car.__code__,    # code object
+                                     py.this_frame(), # frame
                                      ] ])
 
 def class_sealed_p(x):
@@ -11764,7 +11366,7 @@ INITIALIZE-INSTANCE and REINITIALIZE-INSTANCE."""
                         # (i) the generic function is being called again with required
                         #     arguments which are instances of the same classes,
                         return applicable
-                here("gf: %s, ll: %s", generic_function, generic_function.lambda_list)
+                py.here("gf: %s, ll: %s", generic_function, generic_function.lambda_list)
                 _, methods, okayp = compute_applicable_methods_using_classes(generic_function,
                                                                              dispatch_arg_types)
                 if okayp:
@@ -11917,7 +11519,7 @@ GENERIC-FUNCTION argument is then returned."""
                 filename                  = filename,
                 lineno                    = lineno)
         initargs.update(keys)
-        here("args: %s", initargs)
+        py.here("args: %s", initargs)
         ###
         ### Second step:
         if not generic_function:

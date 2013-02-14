@@ -11,8 +11,6 @@ from cl           import not_implemented_error, not_implemented
 from cl           import curry, compose
 from cl           import mapset, mapsetn
 from cl           import slotting, slot_of
-from cl           import caller_name
-from cl           import here
 from cl           import servile
 from cl           import stream_as_string, file_as_string
 from cl           import fprintf, dprintf
