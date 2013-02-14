@@ -4911,7 +4911,7 @@ def maybe_destructure_binding(pat):
                 tuple(pat.items())[0] if len(pat) == 1             else
                 Exception("Bad pattern: %s." % (pat,)))
 
-class matcher():
+class matcher_t():
         class matchod():
                 def __init__(self, name, method):
                         self.name = name
@@ -5356,9 +5356,9 @@ def combine_append(f0, fR, originalp):
 
 intern_and_bind("%SATISFIES", "%CONS", "%TYPEP")
 
-class metasex_matcher_t(matcher):
+class metasex_matcher_t(matcher_t):
         def __init__(m):
-                matcher.__init__(m)
+                matcher_t.__init__(m)
                 m.register_simplex_matcher(_form,             m.form)
                 m.register_simplex_matcher(_satisfies,        m.satisfies)
                 m.register_simplex_matcher(_cons,             m.cons)
@@ -6046,7 +6046,7 @@ define_funcher(_lambda,
                 [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])
 
 ## Unregistered Issue LEXENV-WALKER-NOT-REENTRANT->MACROEXPANSION-DAMAGED-GOODS
-class lexenv_walker(metasex_mapper_t):
+class lexenv_walker_t(metasex_mapper_t):
         class binder():
                 def __init__(self, args, description):
                         self.args, self.positionally, self.description = args, dict(), description
@@ -6063,7 +6063,7 @@ class lexenv_walker(metasex_mapper_t):
         def add_binding(m, bound, name, exp, pat, orifst):
                 ## For the sake of proper pre-lexenv maintenance for the value subform of this binding form,
                 ## bust all the bindings accumulated from previous unsuccessful matches:
-                binder = the(lexenv_walker.binder, symbol_value(_walker_binder_))
+                binder = the(lexenv_walker_t.binder, symbol_value(_walker_binder_))
                 if not binder:
                         error("While adding a binding from %s: no binder available.", pp_consly(exp))
                 position = kinda_position()
@@ -6107,7 +6107,7 @@ class lexenv_walker(metasex_mapper_t):
                                                                        for name, what in zip(names, whats) } }) }):
                         return further()
 
-lexenv_walker = lexenv_walker()
+lexenv_walker = lexenv_walker_t()
 
 def walk_with_lexenv(fn: "Form -> (Form -> ({} Form Bool)) -> ({} Form Bool)",
                      sex, lexenv = nil, allocate_tns = nil, matcher = lexenv_walker, bind_after_fn = t) -> "Form":
@@ -6623,7 +6623,7 @@ def IMPL_CALL(x, *args):
         return l_(_funcall, l(_function, l(_quote, l("cl", x))), consify_linear(args))
 
 
-class macroexpander_t(type(lexenv_walker)):
+class macroexpander_t(lexenv_walker_t):
         pass
 
 macroexpander = macroexpander_t()
@@ -6739,7 +6739,7 @@ class known():
         def rewrite(mach, orig, *_):
                 return nil, orig
         def binder(exp, continuation):
-                with progv({ _walker_binder_: lexenv_walker.binder(0, "Generic binder.") }):
+                with progv({ _walker_binder_: lexenv_walker_t.binder(0, "Generic binder.") }):
                         return continuation(exp)
 
 def compute_default_metasex(name):
@@ -6817,7 +6817,7 @@ def rewrite(form) -> "({} Form Bool)":
         ret = do_rewrite(form)
         return ret
 
-class rewriter_t(type(lexenv_walker)):
+class rewriter_t(lexenv_walker_t):
         pass
 
 rewriter = rewriter_t()
@@ -7547,7 +7547,7 @@ class labels(known):
                      listp(second(x)))
                     for x in bindings) or fail(form)
                 env    = symbol_value(_walker_lexenv_)
-                binder = lexenv_walker.binder(0, "Labels.")
+                binder = lexenv_walker_t.binder(0, "Labels.")
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
                 with progv({ _walker_lexenv_:
                               make_lexenv(env, allocate_tns = symbol_value(_walker_allocate_tns_),
@@ -7644,7 +7644,7 @@ class block(known):
                         error("Bad BLOCK form: %s", pp_consly(exp))
                 name = exp[1][0]
                 nonce = gensym("BLOCK-" + symbol_name(name) + "-")
-                with progv({ _walker_binder_: lexenv_walker.binder(0, "Block."),
+                with progv({ _walker_binder_: lexenv_walker_t.binder(0, "Block."),
                              _walker_lexenv_: make_lexenv(symbol_value(_walker_lexenv_),
                                                           name_blockframe = { name: block_binding(name, _block, nonce) }) }):
                         return continuation(exp)
@@ -7693,7 +7693,7 @@ class return_from(known):
 class tagbody(known):
         def binder(exp, further):
                 form          = form_real(exp)
-                binder        = lexenv_walker.binder(0, "Tagbody.")
+                binder        = lexenv_walker_t.binder(0, "Tagbody.")
                 binder.tags   = [ gensym("INIT-TAG-")
                                   ] + [ x for x in vectorise_linear(form[1])
                                         if isinstance(x, symbol_t) ]
@@ -7952,7 +7952,7 @@ class function(known):
                 lam = x[1][0]
                 not listp(lam) and error("Bad lambda list in LAMBDA form: %s", pp_consly(exp))
                 clambda = compiler_lambda(name, lam)
-                with progv(dict([ (_walker_binder_, lexenv_walker.binder(0, "Lambda.")),
+                with progv(dict([ (_walker_binder_, lexenv_walker_t.binder(0, "Lambda.")),
                                   (_walker_binder_args_, nil),
                                   (_walker_lexenv_,
                                    make_lexenv(symbol_value(_walker_lexenv_), clambda = clambda,
