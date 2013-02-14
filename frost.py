@@ -10,11 +10,6 @@ def lisp_symbol_name_python_name(x):
         ret = "".join(sub(x)).lower()
         return ret
 
-def full_symbol_name_python_name(x):
-        return ("#" if not x.package              else
-                "" if x.package.name == "KEYWORD" else
-                x.package.name) + ":" + x.name
-
 def lisp_symbol_name_python_type_name(x):
         return lisp_symbol_name_python_name(x) + "_t"
 

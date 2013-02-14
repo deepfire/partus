@@ -6,14 +6,18 @@ import more_ast
 import builtins
 import collections
 import inspect
+import imp
 import operator
 import types
 
-from cl import error, list_, list__, gensym, gensymname, intern, append, identity, consp, reduce, gethash, progv as _progv
-from cl import attrify_args, dprintf, gensym_tn, make_keyword_tn
-from cl import typep, the, or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t, symbol_t, pyanytuple_t, maybe_t
-from cl import integer_t, float_t
-from cl import symbol_value, symbol_name, symbol_package, package_name
+from cl import error, list_, list__, gensym, gensymname, intern, append, identity, reduce, gethash, progv as _progv
+from cl import attrify_args, defaulted, gensym_tn, make_keyword_tn, dprintf, undefined_function
+from cl import typep, the, check_type, consp, functionp
+from cl import or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t, symbol_t, pyanytuple_t, maybe_t
+from cl import integer_t, float_t, cons_t, function_t
+from cl import symbol_value, symbol_name, symbol_package, make_symbol, package_name, find_package
+from cl import find_global_variable
+from cl import interpreted_function_name_symbol, get_function_rtname, unit_variable_rtname
 from cl import consify_linear, xmap_to_vector, validate_function_args, validate_function_keys, without_condition_system
 from cl import _if, _primitive, _list
 from cl import ir_funcall, ir_apply, ir_cl_call
@@ -680,15 +684,59 @@ def ast_validate(_ast):
         return _ast
 
 ###
-### Python runtime
+### AST fixery
 ###
-def py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
-        return load_code_object_as_module(
-                modname,
-                compile(ast.fix_missing_locations(ast_module(list(body), lineno = lineno)), filename, "exec"),
-                register = nil,
-                filename = filename,
-                **keys)
+fixupp = gensym("FIXUPP")
+
+class name_context_fixer(ast.NodeTransformer):
+        def visit_Name(w, o):
+                return (ast.Name(o.id, ast.Store()) if symbol_value(fixupp) else
+                        o)
+        def visit_Assign(w, o):
+                with _progv({ fixupp: t }):
+                        targets = [ w.visit(x)
+                                    for x in o.targets ]
+                return ast.Assign(targets = targets,
+                                   value = w.visit(o.value))
+        def visit_AugAssign(w, o):
+                with _progv({ fixupp: t }):
+                        target = w.visit(o.target)
+                return ast.AugAssign(target = target,
+                                      op = o.op,
+                                      value = w.visit(o.value))
+        def visit_For(w, o):
+                with _progv({ fixupp: t }):
+                        target = w.visit(o.target)
+                return ast.For(target = target,
+                                iter = w.visit(o.iter),
+                                body = [ w.visit(x) for x in o.body ],
+                                orelse = [ w.visit(x) for x in o.orelse ])
+        def visit_With(w, o):
+                with _progv({ fixupp: t }):
+                        optional_vars = w.visit(o.optional_vars) if o.optional_vars else None
+                return ast.With(context_expr = w.visit(o.context_expr),
+                                 optional_vars = optional_vars,
+                                 body = [ w.visit(x) for x in o.body ])
+        def visit_comprehension(w, o):
+                with _progv({ fixupp: t }):
+                        target = w.visit(o.target)
+                return ast.comprehension(target = target,
+                                          iter = w.visit(o.iter),
+                                          ifs = [ w.visit(x) for x in o.ifs ])
+        def visit_Subscript(w, o):
+                writep = symbol_value(fixupp)
+                with _progv({ fixupp: nil }):
+                        return ast.Subscript(value = w.visit(o.value),
+                                              slice = w.visit(o.slice),
+                                              ctx = ast.Store() if writep else o.ctx)
+        def visit_Attribute(w, o):
+                writep = symbol_value(fixupp)
+                with _progv({ fixupp: nil }):
+                        return ast.Attribute(value = w.visit(o.value),
+                                              attr = o.attr,
+                                              ctx = ast.Store() if writep else o.ctx)
+
+name_context_fixer = name_context_fixer()
 
 ###
 ### Python IR -geared primitive extensions
@@ -1763,60 +1811,119 @@ class not_in(potconst):
         def help(x, y): return help_compare(ast.NotIn, x, [y])
 
 ###
+### Code activation
+###
+def load_code_object_as_module(name, co, filename = "", builtins = None, globals = None, locals = None, register = True):
+        check_type(co, type(load_code_object_as_module.__code__))
+        mod = imp.new_module(name)
+        mod.__filename__ = filename
+        if builtins:
+                mod.__dict__["__builtins__"] = builtins
+        if register:
+                sys.modules[name] = mod
+        globals = defaulted(globals, mod.__dict__)
+        locals  = defaulted(locals, mod.__dict__)
+        exec(co, globals, locals)
+        return mod, globals, locals
+
+def load_text_as_module(name, text, filename = "", **keys):
+        return load_code_object_as_module(name, pyb.compile(text, filename, "exec"),
+                                           filename = filename, **keys)[0]
+
+def reregister_module_as_package(mod, parent_package = None):
+        # this line might need to be performed before exec()
+        mod.__path__ = (parent_package.__path__ if parent_package else []) + [ mod.name.split(".")[-1] ]
+        if parent_package:
+                dotpos = mod.name.rindex(".")
+                assert dotpos
+                postdot_name = mod.name[dotpos + 1:]
+                setattr(parent_package, postdot_name, mod)
+                parent_package.__children__.add(mod)
+                mod.__parent__ = parent_package
+        if packagep:
+                mod.__children__ = set()
+
+def load_module_bytecode(bytecode, func_name = nil, filename = ""):
+        mod, globals, locals = load_code_object_as_module(filename, bytecode, register = nil)
+        if func_name:
+                sf = the((or_t, symbol_t, function_t), # globals[get_function_pyname(name)]
+                         mod.__dict__[get_function_rtname(func_name)])
+                func = sf if functionp(sf) else symbol_function(sf)
+                # without_condition_system(pdb.set_trace) # { k:v for k,v in globals().items() if v is None }
+                func.name = func_name # Debug name, as per F-L-E spec.
+        else:
+                func = nil
+        # dprintf("; L-M-B globals: %x, content: %s",
+        #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
+        return func, globals, dict(globals)
+
+def py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
+        return load_code_object_as_module(
+                modname,
+                compile(ast.fix_missing_locations(ast_module(list(body), lineno = lineno)), filename, "exec"),
+                register = nil,
+                filename = filename,
+                **keys)
+
+###
+### Runtime
+###
+## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
+
+def make_undefined_function_stub(name):
+        stub = lambda *_, **__: undefined_function(name)
+        stub.__name__ = "undefined_function_stub_%s" % name
+        return stub
+
+### Global compiler state carry-over, and module state initialisation.
+def fop_make_symbol_available(globals, package_name, symbol_name, setfp,
+                               function_rtname, symbol_rtname,
+                               gfunp, gvarp):
+        # dprintf("FOP-M-S-A: %11s:%17s%5s %25s%25s%s%s",
+        #         package_name, symbol_name, " SETF" * setfp, function_rtname, symbol_rtname,
+        #         " gfun" * gfunp, " gvar" * gvarp)
+        symbol = (intern(symbol_name, find_package(package_name))[0] if package_name is not None else
+                  make_symbol(symbol_name))
+        if function_rtname is not None:
+                fslot, slot, fname = (("setf_function", "setf_function_rtname", list_(_setf, symbol)) if setfp else
+                                      ("function",      "function_rtname",      symbol))
+                setattr(symbol, slot, function_rtname)
+                # dprintf("   c-t %%U-S-G-F-P %s FUN: %s  - %s, %s %s",
+                #               "G" if gfunp else "l", symbol_name, function_rtname, symbol.function, symbol.macro_function)
+                if gfunp:
+                        # dprintf("FOP-M-S-A symbol %s, fslot %s, value %s, rtname %s",
+                        #         symbol, fslot, (getattr(symbol, fslot)
+                        #                         or (symbol.macro_function and not setfp)
+                        #                         or (lambda *_, **__: undefined_function(symbol))), function_rtname)
+                        globals[function_rtname] = (getattr(symbol, fslot)
+                                                    or (symbol.macro_function and not setfp)
+                                                    ## It is NOT a valid situation, when the function is not defined at
+                                                    ## the beginning of load-time for a given compilation unit.
+                                                    ## Unregistered Issue ABSURD-NOT-YET-DEFINED-FUNCTION-WITHIN-COMPILATION-UNIT
+                                                    or make_undefined_function_stub(symbol))
+        if gvarp:
+                if find_global_variable(symbol):
+                        value = symbol_value(symbol)
+                        assert(value is not None)
+                        globals[unit_variable_rtname(symbol)] = value
+                else:
+                        ## Unregistered Issue UNDEFINED-GLOBAL-REFERENCE-ERROR-DETECTION
+                        pass # This will fail obscurely.
+        if symbol_rtname is not None:
+                symbol.symbol_rtname = symbol_rtname
+                globals[symbol_rtname] = symbol
+
+def fop_make_symbols_available(globals, package_names, symbol_names, setfps,
+                                function_rtnames, symbol_rtnames,
+                                gfunps, gvarps):
+        for fop_msa_args in zip(package_names, symbol_names, setfps,
+                                function_rtnames, symbol_rtnames,
+                                gfunps, gvarps):
+                fop_make_symbol_available(globals, *fop_msa_args)
+
+###
 ### The Python machine definition
 ###
-fixupp = gensym("FIXUPP")
-
-class name_context_fixer(ast.NodeTransformer):
-        def visit_Name(w, o):
-                return (ast.Name(o.id, ast.Store()) if symbol_value(fixupp) else
-                        o)
-        def visit_Assign(w, o):
-                with _progv({ fixupp: t }):
-                        targets = [ w.visit(x)
-                                    for x in o.targets ]
-                return ast.Assign(targets = targets,
-                                   value = w.visit(o.value))
-        def visit_AugAssign(w, o):
-                with _progv({ fixupp: t }):
-                        target = w.visit(o.target)
-                return ast.AugAssign(target = target,
-                                      op = o.op,
-                                      value = w.visit(o.value))
-        def visit_For(w, o):
-                with _progv({ fixupp: t }):
-                        target = w.visit(o.target)
-                return ast.For(target = target,
-                                iter = w.visit(o.iter),
-                                body = [ w.visit(x) for x in o.body ],
-                                orelse = [ w.visit(x) for x in o.orelse ])
-        def visit_With(w, o):
-                with _progv({ fixupp: t }):
-                        optional_vars = w.visit(o.optional_vars) if o.optional_vars else None
-                return ast.With(context_expr = w.visit(o.context_expr),
-                                 optional_vars = optional_vars,
-                                 body = [ w.visit(x) for x in o.body ])
-        def visit_comprehension(w, o):
-                with _progv({ fixupp: t }):
-                        target = w.visit(o.target)
-                return ast.comprehension(target = target,
-                                          iter = w.visit(o.iter),
-                                          ifs = [ w.visit(x) for x in o.ifs ])
-        def visit_Subscript(w, o):
-                writep = symbol_value(fixupp)
-                with _progv({ fixupp: nil }):
-                        return ast.Subscript(value = w.visit(o.value),
-                                              slice = w.visit(o.slice),
-                                              ctx = ast.Store() if writep else o.ctx)
-        def visit_Attribute(w, o):
-                writep = symbol_value(fixupp)
-                with _progv({ fixupp: nil }):
-                        return ast.Attribute(value = w.visit(o.value),
-                                              attr = o.attr,
-                                              ctx = ast.Store() if writep else o.ctx)
-
-name_context_fixer = name_context_fixer()
-
 @defmachine
 class py(machine):
         def globals(self):
@@ -1896,22 +2003,39 @@ class py(machine):
                         return m.name("True" if x else "False")
                 with _progv(cl.compiler_debugless_traceless_frame):
                          names = sorted(funs | syms, key = lambda x: str(x if isinstance(x, symbol_t) else x[1]))
-                         names = [ (cl.pythonised_function_name_symbol(x), x, isinstance(x, tuple)) for x in names]
+                         names = [ (interpreted_function_name_symbol(x), x, isinstance(x, tuple)) for x in names]
                          prologue = m.progn(
-                                 m.import_("cl"),
+                                 m.import_("cl", "py"),
                                  m.funcall(
-                                         m.const_attr(m.name("cl"), m.string("fop_make_symbols_available")),
+                                         m.const_attr(m.name("py"), m.string("fop_make_symbols_available")),
                                          m.funcall(m.name("globals")),
                                          m.pylist(*((m.string(package_name(symbol_package(sym))) if symbol_package(sym) else
                                                     m.name("None"))
                                                     for sym, x, _ in names)),
                                          m.pylist(*(m.string(symbol_name(sym))            for sym, x, _     in names)),
                                          m.pylist(*(wrap_bool(setfp)                      for _, __, setfp  in names)),
-                                         m.pylist(*(wrap_str_or_None(sym.setf_function_pyname if setfp else
-                                                                     sym.function_pyname) for sym, x, setfp in names)),
-                                         m.pylist(*(wrap_str_or_None(sym.symbol_pyname)   for sym, x, _     in names)),
+                                         m.pylist(*(wrap_str_or_None(sym.setf_function_rtname if setfp else
+                                                                     sym.function_rtname) for sym, x, setfp in names)),
+                                         m.pylist(*(wrap_str_or_None(sym.symbol_rtname)   for sym, x, _     in names)),
                                          m.pylist(*(wrap_bool(x in gfuns)                 for sym, x, _     in names)),
                                          m.pylist(*(wrap_bool(sym in gvars)               for sym, x, _     in names))))
                          # dprintf("prologue:\n%s", pp_consly(prologue))
                          with _progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
                                  return m.lower(prologue)
+        def assemble(m, _ast: [ast.stmt], form: cons_t, filename = "") -> "code":
+                if symbol_value(cl._compiler_validate_ast_):
+                        [ ast_validate(a) for a in _ast ]
+                more_ast.assign_meaningful_locations(_ast)
+                if symbol_value(cl._compiler_trace_module_ast_):
+                        report(_ast, "ast", form_id = id(form), desc = "%ASSEMBLE")
+                bytecode = compile(ast.fix_missing_locations(more_ast.ast_module(_ast)), filename, "exec")
+                if symbol_value(cl._compiler_trace_bytecode_):
+                        report(bytecode, "bytecode", form_id = id(form), desc = "%ASSEMBLE")
+                return bytecode
+        def execute_bytecode(m, bytecode, object_name = None, filename = ""):
+                function, broken_globals, good_globals = load_module_bytecode(bytecode, object_name, filename)
+                ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
+                broken_globals.update(good_globals)
+                # dprintf("; D-P: globals: %x, content: %s",
+                #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
+                return function

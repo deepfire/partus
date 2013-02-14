@@ -806,21 +806,21 @@ def do_pyimport_symbol(symbol, globals, inmod_name = None, name_xform = frost.li
 def pyimport_symbol(symbol, globals = None, inmod_name = None, name_xform = frost.lisp_symbol_name_python_name, force = False):
         do_pyimport_symbol(boot_check_type(symbolp, symbol), defaulted(globals, pyb.globals()), inmod_name, name_xform, force)
 
-def global_pyname(name):
+def global_rtname(name):
         if name[0] != "*" != name[-1]:
-                error("%%GLOBAL-PYNAME: provided symbol name \"%s\" is not valid for a global variable name.", name)
+                error("%%GLOBAL-RTNAME: provided symbol name \"%s\" is not valid for a global variable name.", name)
         return "_%s_" % name[1:-1].replace("-", "_").lower()
 
-def symbol_pyname(name):
+def symbol_rtname(name):
         return "_" + name.replace("%", "_").replace("&", "_").replace("-", "_").strip("_%").lower()
 
 def intern_and_bind(*specs, globals = None, gvarp = False):
         globals = defaulted(globals, pyb.globals())
         for namespec in specs:
-                pyname, name, value = ((None, namespec, None) if not isinstance(namespec, tuple) else
+                rtname, name, value = ((None, namespec, None) if not isinstance(namespec, tuple) else
                                        namespec + (None,)     if len(namespec) is 2              else
                                        namespec)
-                pyimport_symbol(intern(name)[0], globals, pyname, global_pyname if gvarp else symbol_pyname)
+                pyimport_symbol(intern(name)[0], globals, rtname, global_rtname if gvarp else symbol_rtname)
                 if value is not None:
                         do_set(name, value, force_toplevel = t)
 
@@ -1020,9 +1020,9 @@ class symbol_t(): # Turned to a symbol, during the package system bootstrap.
                   self.known)) = name, nil, (nil, nil, nil, nil, None, nil)
                 ## Critically, the compiler must never produce two symbols with the same
                 ## package and name.
-                self.function_pyname      = None
-                self.setf_function_pyname = None
-                self.symbol_pyname        = None
+                self.function_rtname      = None
+                self.setf_function_rtname = None
+                self.symbol_rtname        = None
         def __bool__(self):
                 return self is not nil
 
@@ -1146,7 +1146,7 @@ def cold_make_nil():
          nil.compiler_macro_function,
          nil.symbol_macro_expansion,
          nil.known) = "NIL", __cl, nil, nil, nil, nil, None, nil
-        nil.symbol_pyname, nil.function_pyname, nil.setf_function_pyname = None, None, None
+        nil.symbol_rtname, nil.function_rtname, nil.setf_function_rtname = None, None, None
         return do_intern_symbol(nil, __cl)
 
 NIL = nil = cold_make_nil()
@@ -1261,11 +1261,6 @@ def protosymbolicate(x, name, slot):
         sym, _ = do_intern(name)
         setattr(sym, slot, x)
         return sym
-
-def symbolicate(x, name, slot, globals):
-        sym = protosymbolicate(x, name, slot)
-        pyname = frost.lisp_symbol_name_python_name(name)
-        frost.setf_global(sym, pyname, globals, force = t)
 
 def init_package_system_0():
         global __packages__
@@ -1849,13 +1844,13 @@ doit = True
 class nil():
         @classmethod
         def __instancecheck__(_, __): return False # This is an empty type
-symbolicate(nil, "NIL", "python_type", globals())
+nil = protosymbolicate(nil, "NIL", "python_type")
 
 @defclass
 class t():
         @classmethod
         def __instancecheck__(_, __): return True  # This is the absolute sum type
-symbolicate(t, "T", "python_type", globals())
+t = protosymbolicate(t, "T", "python_type")
 
 def attrify_args(self, locals, *names):
         for name in names:
@@ -2211,40 +2206,6 @@ probe_file = cold_probe_file
 #+end_src
 
 ******* Some python system stuff
-********* Python module compilation
-
-#+begin_src python +n
-def load_code_object_as_module(name, co, filename = "", builtins = None, globals = None, locals = None, register = True):
-        check_type(co, type(load_code_object_as_module.__code__))
-        mod = imp.new_module(name)
-        mod.__filename__ = filename
-        if builtins:
-                mod.__dict__["__builtins__"] = builtins
-        if register:
-                sys.modules[name] = mod
-        globals = defaulted(globals, mod.__dict__)
-        locals  = defaulted(locals, mod.__dict__)
-        exec(co, globals, locals)
-        return mod, globals, locals
-
-def load_text_as_module(name, text, filename = "", **keys):
-        return load_code_object_as_module(name, pyb.compile(text, filename, "exec"),
-                                           filename = filename, **keys)[0]
-
-def reregister_module_as_package(mod, parent_package = None):
-        # this line might need to be performed before exec()
-        mod.__path__ = (parent_package.__path__ if parent_package else []) + [ mod.name.split(".")[-1] ]
-        if parent_package:
-                dotpos = mod.name.rindex(".")
-                assert dotpos
-                postdot_name = mod.name[dotpos + 1:]
-                setattr(parent_package, postdot_name, mod)
-                parent_package.__children__.add(mod)
-                mod.__parent__ = parent_package
-        if packagep:
-                mod.__children__ = set()
-#+end_src
-
 ********* Python frames
 
 #+begin_src python +n
@@ -3245,47 +3206,60 @@ Should signal TYPE-ERROR if its argument is not a symbol."""
 ***** Namespace separation.
 
 #+begin_src python +n
-def new_function_pyname(name):
+def full_symbol_rtname(x):
+        return ("#" if not x.package              else
+                "" if x.package.name == "KEYWORD" else
+                x.package.name) + ":" + x.name
+
+def interpret_function_name(x):
+        return (x if isinstance(x, symbol_t) else
+                (_setf, x[1][0]))
+
+def interpreted_function_name_symbol(x):
+        return (x if isinstance(x, symbol_t) else
+                x[1])
+
+def new_function_rtname(name):
         return gensymname("FUN_" + (str(name) if symbolp(name) else
                                     ("SETF_" + str(name[1][0]))) + "-")
 
-def new_symbol_pyname(symbol):
+def new_symbol_rtname(symbol):
         return gensymname("SYM_" + str(symbol) + "-")
 
-def ensure_function_pyname(name):
+def ensure_function_rtname(name):
         check_type(name, (or_t, symbol_t, cons_t))
-        slot, sym = ("function_pyname", name) if isinstance(name, symbol_t) else ("setf_function_pyname", name[1][0])
+        slot, sym = ("function_rtname", name) if isinstance(name, symbol_t) else ("setf_function_rtname", name[1][0])
         if getattr(sym, slot) is not None:
-                # dprintf("ensure_function_pyname: slot %s, sym %s, existing name: %s", slot, sym, getattr(sym, slot))
+                # dprintf("ensure_function_rtname: slot %s, sym %s, existing name: %s", slot, sym, getattr(sym, slot))
                 return getattr(sym, slot)
-        setattr(sym, slot, new_function_pyname(name))
-        # dprintf("ensure_function_pyname: slot %s, sym %s, new name: %s", slot, sym, getattr(sym, slot))
+        setattr(sym, slot, new_function_rtname(name))
+        # dprintf("ensure_function_rtname: slot %s, sym %s, new name: %s", slot, sym, getattr(sym, slot))
         return getattr(sym, slot)
 
-def ensure_symbol_pyname(symbol):
-        if the(symbol_t, symbol).symbol_pyname is not None:
-                return symbol.symbol_pyname
-        symbol.symbol_pyname = new_symbol_pyname(symbol)
-        return symbol.symbol_pyname
+def ensure_symbol_rtname(symbol):
+        if the(symbol_t, symbol).symbol_rtname is not None:
+                return symbol.symbol_rtname
+        symbol.symbol_rtname = new_symbol_rtname(symbol)
+        return symbol.symbol_rtname
 
-def ensure_variable_pyname(x):
-        return frost.full_symbol_name_python_name(x)
+def ensure_variable_rtname(x):
+        return full_symbol_rtname(x)
 
-def get_function_pyname(name):
+def get_function_rtname(name):
         check_type(name, (or_t, symbol_t, cons_t))
-        slot, sym = ("function_pyname", name) if isinstance(name, symbol_t) else ("setf_function_pyname", name[1][0])
+        slot, sym = ("function_rtname", name) if isinstance(name, symbol_t) else ("setf_function_rtname", name[1][0])
         if getattr(sym, slot) is None:
                 error("Function %s has no mapping to a python name.", pp_consly(name))
         return getattr(sym, slot)
 
-def get_symbol_pyname(symbol):
-        if the(symbol_t, symbol).symbol_pyname is None:
+def get_symbol_rtname(symbol):
+        if the(symbol_t, symbol).symbol_rtname is None:
                 error("Symbol %s has no mapping to a python name.", symbol)
-        return symbol.symbol_pyname
+        return symbol.symbol_rtname
 
-def define_global_sym_for_pyname(globals, pyname, sym):
-        globals["__" + pyname[:None if (pyname[:-1].endswith("_")
-                                        or not pyname.endswith("_")) else
+def define_global_sym_for_rtname(globals, rtname, sym):
+        globals["__" + rtname[:None if (rtname[:-1].endswith("_")
+                                        or not rtname.endswith("_")) else
                                -1]] = sym
 
 def set_function_definition(globals, x, lambda_expression = None, check_redefinition = nil):
@@ -3295,18 +3269,18 @@ def set_function_definition(globals, x, lambda_expression = None, check_redefini
                 if identity_redef:
                         style_warn("not identically redefining function %s", x)
                 if function and not identity_redef:
-                        pyfname = pythonise_function_name(x)
-                        setfp = isinstance(pyfname, tuple)
-                        sym = pythonised_function_name_symbol(pyfname)
+                        ifname = interpret_function_name(x)
+                        setfp = isinstance(ifname, tuple)
+                        sym = interpreted_function_name_symbol(ifname)
                         slot = ("setf_function" if setfp else "function")
                         setattr(sym, slot, function)
                         if not setfp:
                                 sym.macro_function = nil
                         function.name = x
                         ## Unregistered Issue NAMESPACE-POLLUTION-SEEMS-FRIVOLOUS
-                        pyname = ensure_function_pyname(x)
-                        # dprintf("S-F-D: %15s %25s %20s %15s%s <- %s", pyname, function, sym, slot, " SETF" * setfp, x)
-                        frost.setf_global(function, pyname, globals, force = True)
+                        rtname = ensure_function_rtname(x)
+                        # dprintf("S-F-D: %15s %25s %20s %15s%s <- %s", rtname, function, sym, slot, " SETF" * setfp, x)
+                        frost.setf_global(function, rtname, globals, force = True)
                 return function
         return do_set_function_definition
 
@@ -3318,7 +3292,7 @@ def set_macro_definition(globals, x, lambda_expression):
                 if not identity_redef and function:
                         x.function, x.macro_function = nil, function
                         function.name = x
-                        frost.setf_global(function, ensure_function_pyname(x), globals, force = True)
+                        frost.setf_global(function, ensure_function_rtname(x), globals, force = True)
                 return x
         return do_set_macro_definition
 #+end_src
@@ -7341,7 +7315,7 @@ class lexenv_t():
                                 dprintf("---  %s", frame)
                                 scope = rest # COLD-CDR
         def lookup_var(self, x, default = None):          return self.do_lookup_scope(self.varscope, x, default)
-        def lookup_func(self, x, default = None):         return self.do_lookup_scope(self.funcscope, pythonise_function_name(x), default)
+        def lookup_func(self, x, default = None):         return self.do_lookup_scope(self.funcscope, interpret_function_name(x), default)
         def lookup_block(self, x, default = None):        return self.do_lookup_scope(self.blockscope, x, default)
         def lookup_gotag(self, x, default = None):        return self.do_lookup_scope(self.gotagscope, x, default)
         def funcscope_binds_p(self, x):   return self.lookup_func(x)[0]  is not None
@@ -7349,7 +7323,7 @@ class lexenv_t():
         def blockscope_binds_p(self, x):  return self.lookup_block(x)[0] is not None
         def gotagscope_binds_p(self, x):  return self.lookup_gotag(x)[0] is not None
         def lookup_func_kind(self, kind, x, default = None):
-                b = self.do_lookup_scope(self.funcscope, pythonise_function_name(x), None)[0]
+                b = self.do_lookup_scope(self.funcscope, interpret_function_name(x), None)[0]
                 return (b and b.kind is kind and b) or default
         def lookup_var_kind(self, kind, x, default = None):
                 b = self.do_lookup_scope(self.varscope, x, None)[0]
@@ -7523,14 +7497,6 @@ def walker_lexenv():
 #+begin_src python
 intern_and_bind(("_setf", "SETF"))
 
-def pythonise_function_name(x):
-        return (x if isinstance(x, symbol_t) else
-                (_setf, x[1][0]))
-
-def pythonised_function_name_symbol(x):
-        return (x if isinstance(x, symbol_t) else
-                x[1])
-
 class scope(): pass
 class variable_scope(scope, collections.UserDict):
         def __hasattr__(self, name): return name in self.data
@@ -7547,8 +7513,8 @@ variable_scope = variable_scope()
 function_scope = function_scope()
 
 def find_global_variable(name):     return gethash(name, variable_scope)[0]
-def find_global_function(name):     return gethash(pythonise_function_name(name), function_scope)[0]
-def  set_global_function(name, x): function_scope[pythonise_function_name(name)] = the(function, x)
+def find_global_function(name):     return gethash(interpret_function_name(name), function_scope)[0]
+def  set_global_function(name, x): function_scope[interpret_function_name(name)] = the(function, x)
 def  set_global_variable(name, x): variable_scope[name] = the(variable, x)
 
 def compiler_defparameter(name, value):
@@ -7808,11 +7774,11 @@ class fn():
                 check_type(arglist, list_t)
                 args_types = [t] * length(arglist)
                 if name: ## Not anonymous LAMBDA?
-                        pyfname = pythonise_function_name(the((or_t, symbol_t, cons_t), name))
+                        ifname = interpret_function_name(the((or_t, symbol_t, cons_t), name))
                         if globalp:
                                 if name in fns:
                                         error("Asked to overwrite FN record %s.", pp_consly(name))
-                                fns[pyfname] = self
+                                fns[ifname] = self
                 attrify_args(self, locals(), "name",
                               "arglist", "args_types", "values_types",
                               "effects", "affected")
@@ -7874,18 +7840,18 @@ def unit_function(x):
 def unit_symbol(x):
         symbol_value(_unit_symbols_).add(x)
         return x
-def unit_variable_pyname(x):
-        return frost.full_symbol_name_python_name(x)
-def unit_function_pyname(x):
-        pyfname = pythonise_function_name(x)
-        symbol_value(_unit_functions_).add(pyfname)
-        return ensure_function_pyname(x)
-def unit_symbol_pyname(x):
+def unit_variable_rtname(x):
+        return full_symbol_rtname(x)
+def unit_function_rtname(x):
+        ifname = interpret_function_name(x)
+        symbol_value(_unit_functions_).add(ifname)
+        return ensure_function_rtname(x)
+def unit_symbol_rtname(x):
         symbol_value(_unit_symbols_).add(x)
-        return ensure_symbol_pyname(x)
+        return ensure_symbol_rtname(x)
 
 def unit_note_gfun_reference(x):
-        symbol_value(_unit_gfuns_).add(pythonise_function_name(x))
+        symbol_value(_unit_gfuns_).add(interpret_function_name(x))
 def unit_note_gvar_reference(x):
         symbol_value(_unit_gvars_).add(x)
 
@@ -7986,64 +7952,11 @@ Examples:
 *** Target environment
 ***** Setup machinery
 
-#+BEGIN_SRC python
-## Unregistered Issue SEPARATE-COMPILATION-IN-FACE-OF-NAME-MAPS
+#+begin_src python
 
 def undefined_function(name):
         error("Function not defined: %s.", name)
-
-def make_undefined_function_stub(name):
-        stub = lambda *_, **__: undefined_function(name)
-        stub.__name__ = "undefined_function_stub_%s" % name
-        return stub
-
-### Global compiler state carry-over, and module state initialisation.
-def fop_make_symbol_available(globals, package_name, symbol_name, setfp,
-                               function_pyname, symbol_pyname,
-                               gfunp, gvarp):
-        # dprintf("FOP-M-S-A: %11s:%17s%5s %25s%25s%s%s",
-        #         package_name, symbol_name, " SETF" * setfp, function_pyname, symbol_pyname,
-        #         " gfun" * gfunp, " gvar" * gvarp)
-        symbol = (intern(symbol_name, find_package(package_name))[0] if package_name is not None else
-                  make_symbol(symbol_name))
-        if function_pyname is not None:
-                fslot, slot, fname = (("setf_function", "setf_function_pyname", list_(_setf, symbol)) if setfp else
-                                      ("function",      "function_pyname",      symbol))
-                setattr(symbol, slot, function_pyname)
-                # dprintf("   c-t %%U-S-G-F-P %s FUN: %s  - %s, %s %s",
-                #               "G" if gfunp else "l", symbol_name, function_pyname, symbol.function, symbol.macro_function)
-                if gfunp:
-                        # dprintf("FOP-M-S-A symbol %s, fslot %s, value %s, pyname %s",
-                        #         symbol, fslot, (getattr(symbol, fslot)
-                        #                         or (symbol.macro_function and not setfp)
-                        #                         or (lambda *_, **__: undefined_function(symbol))), function_pyname)
-                        frost.setf_global((getattr(symbol, fslot)
-                                           or (symbol.macro_function and not setfp)
-                                           ## It is NOT a valid situation, when the function is not defined at
-                                           ## the beginning of load-time for a given compilation unit.
-                                           ## Unregistered Issue ABSURD-NOT-YET-DEFINED-FUNCTION-WITHIN-COMPILATION-UNIT
-                                           or make_undefined_function_stub(symbol)),
-                                          function_pyname, globals)
-        if gvarp:
-                if find_global_variable(symbol):
-                        value = symbol_value(symbol)
-                        assert(value is not None)
-                        frost.setf_global(value, unit_variable_pyname(symbol), globals)
-                else:
-                        ## Unregistered Issue UNDEFINED-GLOBAL-REFERENCE-ERROR-DETECTION
-                        pass # This will fail obscurely.
-        if symbol_pyname is not None:
-                symbol.symbol_pyname = symbol_pyname
-                frost.setf_global(symbol, symbol_pyname, globals)
-
-def fop_make_symbols_available(globals, package_names, symbol_names, setfps,
-                                function_pynames, symbol_pynames,
-                                gfunps, gvarps):
-        for fop_msa_args in zip(package_names, symbol_names, setfps,
-                                function_pynames, symbol_pynames,
-                                gfunps, gvarps):
-                fop_make_symbol_available(globals, *fop_msa_args)
-#+END_SRC
+#+end_src
 
 ***** Call support
 
@@ -8070,7 +7983,7 @@ def validate_keyword_args(allowed_set, keymap):
 #+begin_src python +n
 intern_and_bind("DEFMACRO", "EVAL-WHEN", "DEFVAR", "IMPL-REF", "IMPL-CALL")
 
-ensure_function_pyname(_defmacro) ## This is only needed due to the special definition of DEFMACRO.
+ensure_function_rtname(_defmacro) ## This is only needed due to the special definition of DEFMACRO.
 @set_macro_definition(globals(), _defmacro, nil)
 # ((intern("DEFMACRO")[0], " ", (_satisfies, namep), " ", ([(_notlead, " "), (_satisfies, _namep)],),
 #   [(_lead, 1), (_notlead, "\n"), (_bound, form)]))
@@ -8236,8 +8149,8 @@ def compute_default_metasex(name):
         return (name, [" ", (_form,)])
 
 def defknown(metasex_or_class, name = None):
-        def do_def(cls, sym, pyname, metasex):
-                orig = global_(pyname, globals())
+        def do_def(cls, sym, rtname, metasex):
+                orig = global_(rtname, globals())
                 ## Complete, record the deeds.
                 metasex = preprocess_metasex(metasex)
                 cls.name           = sym
@@ -8245,14 +8158,14 @@ def defknown(metasex_or_class, name = None):
                 cls.metasex_pp     = rewrite_metasex(metasex, for_pp = t)
                 cls.metasex_bind   = rewrite_metasex(metasex, for_bind = t)
                 sym.known          = cls
-                define_global_sym_for_pyname(globals(), pyname, sym)
+                define_global_sym_for_rtname(globals(), rtname, sym)
                 return orig # pass through -- let the symbol be bound to the name
         def def_(cls, name = name, metasex = metasex_or_class):
-                pyname = cls.__name__
-                sym     = intern(frost.python_name_lisp_symbol_name(pyname))[0]
+                rtname = cls.__name__
+                sym     = intern(frost.python_name_lisp_symbol_name(rtname))[0]
                 name    = defaulted(name, sym, symbol_t)
                 metasex = defaulted(metasex, compute_default_metasex(name))
-                return do_def(cls, name, pyname, metasex)
+                return do_def(cls, name, rtname, metasex)
         return (def_(metasex_or_class, metasex = None) if isinstance(metasex_or_class, type)    else
                 def_                                   if isinstance(metasex_or_class, tuple)   else
                 error("In DEFKNOWN: argument must be either a class or a metasex tuple, was: %s.",
@@ -8394,9 +8307,9 @@ intern_and_bind("*MACHINE*", gvarp = t)
 with disabled_condition_system():
         import primitives as p
 
-def variable_tn(sym, globalp = nil): return p.name((unit_variable_pyname if globalp else ensure_variable_pyname)(sym))
-def function_tn(sym, globalp = nil): return p.name((unit_function_pyname if globalp else new_function_pyname)(sym))
-def   symbol_tn(sym):                return p.name(unit_symbol_pyname(sym))
+def variable_tn(sym, globalp = nil): return p.name((unit_variable_rtname if globalp else ensure_variable_rtname)(sym))
+def function_tn(sym, globalp = nil): return p.name((unit_function_rtname if globalp else new_function_rtname)(sym))
+def   symbol_tn(sym):                return p.name(unit_symbol_rtname(sym))
 
 def gensym_tn(x = "G"):
         sym = gensym(x)
@@ -8428,7 +8341,7 @@ __primitiviser_map__ = { str:        (nil, p.string),
                          ## Note: this relies on the corresponding name to be made available by some means.
                          bool:       (nil, lambda x: p.name("True" if x else "False")),
                          NoneType:   (nil, lambda x: p.name("None")),
-                         symbol_t:   (nil, lambda x: p.symbol(unit_symbol_pyname(x))),
+                         symbol_t:   (nil, lambda x: p.symbol(unit_symbol_rtname(x))),
                          }
 
 def primitivisable_p(x):
@@ -8967,15 +8880,15 @@ def lower_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorators = ni
         fnname_tn = function_tn(name, globalp = globalp) if name else None
         ## Things, that are needed:
         ##  - CLAMBDA passing
-        pyfname = pythonise_function_name(name)
+        ifname = interpret_function_name(name)
         varframe, funcframe = ((dict((b, variable_binding(b, _variable, None))
                                      for b in clambda.total),
-                                dict([(pyfname, self_binding)] if self_binding else []))
+                                dict([(ifname, self_binding)] if self_binding else []))
                                if not function_namespace else
                                (dict(),
                                 dictappend(dict((b, function_binding(b, _function, None))
                                                 for b in clambda.total),
-                                           dict([(pyfname, self_binding)] if self_binding else []))))
+                                           dict([(ifname, self_binding)] if self_binding else []))))
         ## We've wedged stuff into a single LEXENV, where in fact it is an intricate LET*.
         ## This is probably gonna bite sooner or later.
         fn_lexenv = make_lexenv(lexenv, clambda = clambda, allocate_tns = t,
@@ -8987,7 +8900,7 @@ def lower_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorators = ni
                 nonlocal_decl = ([ py.nonlocal_(*(variable_tn(x)
                                                   for x in sorted(clambda.nonlocal_setqs, key = symbol_name) )) ]
                                  if clambda.nonlocal_setqs else [])
-                # dprintf("emitting LAMBDA primitive, name: %s, pyfname: %s, fnname_tn: %s", name, pyfname, fnname_tn)
+                # dprintf("emitting LAMBDA primitive, name: %s, ifname: %s, fnname_tn: %s", name, ifname, fnname_tn)
                 return p.function(fnname_tn, tnify_function_arglist(name, fn_lexenv, [rest or None] + fixed),
                                   p.progn(*nonlocal_decl
                                           + primitivised_body),
@@ -9371,7 +9284,7 @@ class setq(known):
                         if not gvar and not lexical_binding: # Must be a special, don't complain.
                                 simple_style_warning("undefined variable: %s", name)
                                 compiler_defvar_without_actually_defvar(name, value)
-                        return p.special_setq(p.name(unit_symbol_pyname(name)), primitivise(mach, value))
+                        return p.special_setq(p.name(unit_symbol_rtname(name)), primitivise(mach, value))
                 compiler_trace_known_choice(_setq, name, "LEXICAL")
                 if cur_lexenv.clambda is not tgt_lexenv.clambda:
                         # dprintf("NONLOCAL SETQ of %s from %s by %s", name, tgt_lexenv.clambda, cur_lexenv.clambda)
@@ -9619,7 +9532,7 @@ class ref(known):
                                 simple_style_warning("undefined variable: %s", name)
                         unit_note_gvar_reference(name)
                         ## Note, how this differs from FUNCTION:
-                        return p.special_ref(p.name(unit_symbol_pyname(name)))
+                        return p.special_ref(p.name(unit_symbol_rtname(name)))
                 if cur_lexenv.clambda is not src_lexenv.clambda:
                         cur_lexenv.clambda.nonlocal_refs.add(name)
                 return lexical_binding.tn
@@ -9695,7 +9608,7 @@ class quote(known):
                 # Unregistered Issue COMPLIANCE-QUOTED-LITERALS
                 if isinstance(x, symbol_t) and not constantp(x):
                         compiler_trace_known_choice(_quote, x, "NONCONSTANT-SYMBOL")
-                        return p.symbol(unit_symbol_pyname(x))
+                        return p.symbol(unit_symbol_rtname(x))
                 else:
                         prim, successp = try_primitivise_constant(x)
                         if successp:
@@ -10167,52 +10080,6 @@ def lower(form: cons_t, lexenv = nil, machine = None) -> "machine-specific":
                 return machine.lower(prim)
 #+end_src
 
-*** Linkage: %ASSEMBLE, %PROCESS-AS-LOADABLE, %LOAD-MODULE-BYTECODE
-
-#+BEGIN_SRC python
-#
-## High-level users of %LOWER   ---   UPDATE !!!
-#
-## eval, eval_tlf
-##   do_eval
-##     eval_in_lexenv        <-_
-##       simple_eval_in_lexenv /
-##         simple_eval =-> compile_in_lexenv
-## read_function_object_ast_compile_load_and_pymport, compile_in_lexenv (<-= compile), compile_in_lexenv (<-= macro_function, simple_eval)
-##   compile_and_load_function
-##     compile_loadable_unit :: form -> code-object
-##       expand_process_and_lower_in_lexenv =-> lower
-##       compilation_unit_prologue =-> lower
-## @defknown -> lower
-#
-
-def assemble(_ast: [ast.stmt], form: cons_t, filename = "") -> "code":
-        import more_ast
-        if symbol_value(_compiler_validate_ast_):
-                [ ast_validate(a) for a in _ast ]
-        more_ast.assign_meaningful_locations(_ast)
-        if symbol_value(_compiler_trace_module_ast_):
-                report(_ast, "ast", form_id = id(form), desc = "%ASSEMBLE")
-        bytecode = pyb.compile(ast.fix_missing_locations(more_ast.ast_module(_ast)), filename, "exec")
-        if symbol_value(_compiler_trace_bytecode_):
-                report(bytecode, "bytecode", form_id = id(form), desc = "%ASSEMBLE")
-        return bytecode
-
-def load_module_bytecode(bytecode, func_name = nil, filename = ""):
-        mod, globals, locals = load_code_object_as_module(filename, bytecode, register = nil)
-        if func_name:
-                sf = the((or_t, symbol_t, function_t), # globals[get_function_pyname(name)]
-                         mod.__dict__[get_function_pyname(func_name)])
-                func = sf if functionp(sf) else symbol_function(sf)
-                # without_condition_system(pdb.set_trace) # { k:v for k,v in globals().items() if v is None }
-                func.name = func_name # Debug name, as per F-L-E spec.
-        else:
-                func = nil
-        # dprintf("; L-M-B globals: %x, content: %s",
-        #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
-        return func, globals, dict(globals)
-#+END_SRC
-
 *** High-level drivers: %PROCESS-TOP-LEVEL, COMPILE-FILE, @LISP, COMPILE, EVAL
 
 #+begin_src python
@@ -10250,8 +10117,9 @@ def map_top_level(fn, form, eval_when_computer, compile_time_too = nil, process 
                  fn) (form, compile_time_too, process, eval)
         rec(form, compile_time_too, process, eval)
 
-def process_top_level(form) -> [ast.stmt]:
+def process_top_level(form, machine = None) -> [ast.stmt]:
         "A, hopefully, faithful implementation of CLHS 3.2.3.1."
+        machine = defaulted_to_var(machine, _machine_)
         if symbol_value(_compile_verbose_):
                 def mini_pp(kind, id, named_p, long_p):
                         return "(%s%s%s%s)" % (kind, " " if named_p else "", id, " ..." if long_p else "")
@@ -10285,7 +10153,7 @@ def process_top_level(form) -> [ast.stmt]:
                 ## Additional note: this is %PROCESS, split in half, due to cases.
                 if process or eval:
                         ## Note, how lie wrt. the NULL lexenv -- what about {SYMBOL-,}MACROLET?  See above..
-                        code, *unit_data = with_compilation_unit(lambda: (lower(form, lexenv = _null),
+                        code, *unit_data = with_compilation_unit(lambda: (lower(form, lexenv = _null, machine = machine),
                                                                           ) + compilation_unit_symbols(),
                                                                  override = t, id = "PROCESS-TOPLEVEL-")
                 if process:
@@ -10298,15 +10166,11 @@ def process_top_level(form) -> [ast.stmt]:
                         if toplevel and symbol_value(_compiler_trace_compile_time_eval_):
                                 report(form, "known", desc = "CT eval")
                                 report(code, "ast", desc = "CT eval")
-                        bytecode = assemble(compilation_unit_prologue(*unit_data)
-                                            + code,
-                                            form)
+                        bytecode = machine.assemble(machine.compilation_unit_prologue(*unit_data)
+                                                    + code,
+                                                    form)
                         # dprintf(";; ..compile-time code object execution")
-                        _, broken_globals, good_globals = load_module_bytecode(bytecode)
-                        ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
-                        broken_globals.update(good_globals)
-                        # dprintf("; D-P: globals: %x, content: %s",
-                        #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
+                        machine.execute_bytecode(bytecode)
         map_top_level(file_compiler_processor, macroexpanded, further_eval_when_file_compiler,
                       compile_time_too = nil,
                       process          = t,
@@ -10322,13 +10186,14 @@ string_set("*COMPILE-FILE-TRUENAME*", nil)
 string_set("*COMPILE-OBJECT*",          nil)
 string_set("*COMPILE-TOPLEVEL-OBJECT*", nil)
 
-def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None, print = None):
+def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None, print = None, machine = None):
         verbose = defaulted_to_var(verbose, _compile_verbose_)
         print   = defaulted_to_var(verbose, _compile_print_)
         if verbose:
                 format(t, "; compiling file \"%s\" (written %s):\n", input_file, file_write_date(input_file))
         ## input/output file conformance is bad here..
         abort_p, warnings_p, failure_p = nil, nil, nil
+        machine = defaulted_to_var(machine, _machine_)
         forms = list_(_progn)
         with pyb.open(input_file, "r") as input:
                 def in_compilation_unit():
@@ -10338,32 +10203,32 @@ def compile_file(input_file, output_file = nil, trace_file = nil, verbose = None
                                                   input_file.replace(".lisp", "." + symbol_value(_trace_file_type_)))
                                 trace_file = pyb.open(trace_filename, "w")
                         try:
-                                stmts = []
+                                code = []
                                 form = read(input, eof_value = input, eof_error_p = nil)
                                 while form is not input:
                                         forms = cons(form, forms)
                                         ## Beacon LEXENV-CLAMBDA-IS-NIL-HERE
-                                        form_stmts = process_top_level(form)
-                                        stmts.extend(form_stmts)
+                                        form_code = process_top_level(form, machine = machine)
+                                        code.extend(form_code)
                                         if trace_file:
                                                 trace_file.write(pp(form))
-                                                for stmt in form_stmts:
+                                                for stmt in form_code:
                                                         trace_file.write(str(stmt))
                                                         trace_file.write("\n")
                                         form = read(input, eof_value = input, eof_error_p = nil)
-                                return (compilation_unit_prologue(*compilation_unit_symbols()) +
-                                        stmts)
+                                return (machine.compilation_unit_prologue(*compilation_unit_symbols()) +
+                                        code)
                         finally:
                                 if trace_file:
                                         trace_file.close()
-                stmts = with_compilation_unit(in_compilation_unit,
-                                              ## Unregistered Issue POSSIBLE-COMPILATION-UNIT-USE-VIOLATION-HERE
-                                              override = t, id = "COMPILE-FILE-")
+                code = with_compilation_unit(in_compilation_unit,
+                                             ## Unregistered Issue POSSIBLE-COMPILATION-UNIT-USE-VIOLATION-HERE
+                                             override = t, id = "COMPILE-FILE-")
         output_file = output_file or input_file.replace(".lisp", "." + symbol_value(_fasl_file_type_))
         try:
                 with pyb.open(output_file, "wb") as f:
                         f.write(symbol_value(_fasl_file_magic_))
-                        bytecode = assemble(stmts, nreverse(forms))
+                        bytecode = machine.assemble(code, nreverse(forms))
                         marshal.dump(bytecode, f)
                         return output_file
         finally:
@@ -10397,11 +10262,9 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
         code, *unit_data = with_compilation_unit(lambda: (process_to_code(form, lexenv = lexenv, macroexpand = macroexpand),
                                                           ) + compilation_unit_symbols(),
                                                  override = t, id = "COMPILED-LAMBDA-")
-        bytecode = assemble(machine.compilation_unit_prologue(*unit_data)
-                            + code, form)
-        function, bad_gls, good_gls = load_module_bytecode(bytecode, func_name = name, filename = "<lisp core>")
-        bad_gls.update(good_gls)      ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
-        ## Doesn't this make %READ-FUNCTION-AS-TOPLEVEL-COMPILE-AND-LOAD somewhat of an excess?
+        bytecode = machine.assemble(machine.compilation_unit_prologue(*unit_data)
+                                    + code, form)
+        function = machine.execute_bytecode(bytecode, object_name = name, filename = "<lisp core>")
         return the(cold_function_type, function)
 
 ##

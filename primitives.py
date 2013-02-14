@@ -2,7 +2,7 @@ import cl
 from cl import *
 from cl import gensymname
 from cl import symbol_value, sex_deeper
-from cl import ensure_symbol_pyname
+from cl import ensure_symbol_rtname
 from cl import sex_space, defaulted
 from cl import dprintf
 
@@ -361,7 +361,7 @@ class return_(stmt): ...
 class progn_like(): pass
 
 def prim_nil():
-        return name(cl.unit_symbol_pyname(nil))
+        return name(cl.unit_symbol_rtname(nil))
 
 def simplify_progns(children: [prim]) -> (prim, bool):
         children = children or [prim_nil()]
