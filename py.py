@@ -54,13 +54,14 @@ def py_error(kind, control, *args):
 ###
 ### Python AST
 ###
+##
+## Toolkit
+##
+def astp(x):        return isinstance(x, ast.AST)
+
 def ast_compiled_name(name, *body, function = nil, **keys):
         mod, globals, locals = py_compile_and_load(*body, **keys)
         return locals[function or name]
-
-# Toolkit
-
-def astp(x):        return isinstance(x, ast.AST)
 
 def coerce_to_ast_type(type_):
         return ((type_ if subtypep(type_, ast.AST) else error("Provided type %s is not a proper subtype of ast.AST", type_))
@@ -204,8 +205,9 @@ def function_lambda_list(fn, astify_defaults = t):
         "Returns: FIXPARMS, OPTIONAL-WITH-DEFAULTS, VARARGS, KEYS-WITH-DEFAULTS, KWARGS."
         return argspec_lambda_spec(inspect.getfullargspec(fn), astify_defaults = astify_defaults)
 
-# DEFAST
-
+##
+## DEFAST
+##
 ast_info = cl.poor_man_defstruct("_ast_info",
                                   "type",
                                   "fields",     # each field is dict(name, type, walk, [default])
@@ -275,8 +277,9 @@ def defast(fn):
 ## AST + Symbols
 register_astifier_for_type(symbol_t, nil, (lambda sym: ast_funcall("find_symbol_or_fail", [symbol_name(sym)])))
 
-# Definitions
-
+##
+## Definitions
+##
 # mod = Module(stmt* body)
 #     | Interactive(stmt* body)
 #     | Expression(expr body)
@@ -742,7 +745,7 @@ class name_context_fixer(ast.NodeTransformer):
 name_context_fixer = name_context_fixer()
 
 ###
-### Python IR -geared primitive extensions
+### Primitives: lowering to Python AST
 ###
 def find_indet_method_pool(indet_name):
         return p.__primitives_by_pyname__[indet_name].methods
@@ -920,39 +923,41 @@ def help_ctx(writep):
 def help_nil():
         return help(p.prim_nil() if symbol_value(p._valueless_primitive_statement_must_yield_nil_) else
                     name("None"))[1]
-
 ###
-### Spill theory
+### Spilling
 ###
-### Q1: what end goals are we trying to attain?
-### seeming candidates are:
-### - determine indeterminate primitives
-###   - maximise the use of expressions
-###   - punt to statements where we cannot
-### - preserve the correct order and time of evaluation
-###
-### Problematic primitives.  Basically, anything with pieces having different time of evaluation.
-###
-### (IF spillable unspillable unspillable)
-###   ..we still need to spill unspillables, but.. thunk allocation, in normal mode, just to delay..
-###   Better to solve unspillables through stmt form.
-###   ..still we'd like to be able to spill the spillable, independent of the expr-ness of the chosen
-###   primitive.
-###
-### (LAMBDA (const &OPTIONAL (const spillable)...) unspillable)
-###   same logic for unspillables leading to a stmt form.
-###   The spillables present a problem for preservation of evaluation order.
-###
-### The transient logic of skies:
-###
-### HELP needs final expr-ness for dispatch decision making.
-### Exprness, thus, must be an immediate property of the primitive.
-### Exprness is a product of the primitive's kind and its spills.
-### Expression spills is a recursive property.
-### Spill computation is expensive and needs to be obtained at different nest levels, and thus must be cached.
-### Primitive, thus, at the time it reaches this stage, must be an object, to store the cached property.
-### Only applicatively positioned subforms can be conveniently spilled (proven to be true only partially).
-###
+##
+## Spill theory
+##
+## Q1: what end goals are we trying to attain?
+## seeming candidates are:
+## - determine indeterminate primitives
+##   - maximise the use of expressions
+##   - punt to statements where we cannot
+## - preserve the correct order and time of evaluation
+##
+## Problematic primitives.  Basically, anything with pieces having different time of evaluation.
+##
+## (IF spillable unspillable unspillable)
+##   ..we still need to spill unspillables, but.. thunk allocation, in normal mode, just to delay..
+##   Better to solve unspillables through stmt form.
+##   ..still we'd like to be able to spill the spillable, independent of the expr-ness of the chosen
+##   primitive.
+##
+## (LAMBDA (const &OPTIONAL (const spillable)...) unspillable)
+##   same logic for unspillables leading to a stmt form.
+##   The spillables present a problem for preservation of evaluation order.
+##
+## The transient logic of skies:
+##
+## HELP needs final expr-ness for dispatch decision making.
+## Exprness, thus, must be an immediate property of the primitive.
+## Exprness is a product of the primitive's kind and its spills.
+## Expression spills is a recursive property.
+## Spill computation is expensive and needs to be obtained at different nest levels, and thus must be cached.
+## Primitive, thus, at the time it reaches this stage, must be an object, to store the cached property.
+## Only applicatively positioned subforms can be conveniently spilled (proven to be true only partially).
+##
 def prim_check_and_spill(primitive) -> prim:
         def check_prim_type(arg, type) -> bool:
                 if not typep(arg, type):
@@ -1034,7 +1039,7 @@ def prim_check_and_spill(primitive) -> prim:
                 primitive)
 
 ###
-### Python-geared IR exprness-specific definitions
+### Python-specific IR definitions
 ###
 @defpy
 class string(literal):
@@ -1175,9 +1180,6 @@ class let__stmt(body):
                             body)
         let_ = identity_method()
 
-# @defprim(intern("PROGN-STMT")[0],
-#          ([prim],))
-# class progn_stmt(body):
 @defpy
 class progn(body):
         def help(*body):
@@ -1372,7 +1374,6 @@ class nonlocal_(stmt):
         def help(*xs):
                 return [ ast.Nonlocal([ x.value() for x in xs ]
                                       ) ], help_nil()
-
 
 @defprim(intern("ASSERT")[0], (expr_spill, expr_spill))
 class assert_(stmt): ...
@@ -1867,13 +1868,12 @@ def py_compile_and_load(*body, modname = "", filename = "", lineno = 0, **keys):
                 register = nil,
                 filename = filename,
                 **keys)
-
 ###
 ### Runtime
 ###
+##
 ## Frames
-# Python frames
-
+##
 def all_threads_frames():
         return sys._current_frames()
 
@@ -1928,7 +1928,6 @@ def frame_locals(f):            return f.f_locals
 def frame_globals(f):           return f.f_globals
 def frame_local_value(f, name): return f.f_locals[name]
 
-### XXX: this is the price of Pythonic pain
 __ordered_frame_locals__ = dict()
 def frame_ordered_locals(f):
         global __ordered_frame_locals__
@@ -1952,8 +1951,7 @@ def fun_firstlineno(f): return f.co_firstlineno
 def fun_bytecode(f):    return f.co_code
 def fun_constants(f):   return f.co_consts
 
-# Frame pretty-printing
-
+### Frame pretty-printing
 def frame_fun_name(f):          return f.f_code.co_name
 
 def print_function_arglist(f):
@@ -1980,11 +1978,6 @@ def print_frames(fs, stream = None, frame_ids = None):
                 format(defaulted_to_var(stream, _debug_io_), "%2d: %s\n",
                        i, pp_frame(f, lineno = True, frame_id = frame_ids))
 
-def backtrace(x = -1, stream = None, frame = None, frame_ids = None, offset = 0):
-        print_frames(frames_calling(defaulted(frame, this_frame()))[1 + offset:x],
-                     defaulted_to_var(stream, _debug_io_),
-                     frame_ids = frame_ids)
-
 def pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_line = None):
         def pp_frame_in_chain(f, pretty = None):
                 fun = frame_fun(f)
@@ -2005,9 +1998,9 @@ def pp_chain_of_frame(x, callers = 5, *args, **keys):
 def escape_percent(x):
         return x.replace("%", "%%")
 
-# Higher-level debug trace functions
-
-# lf = open("/home/deepfire/lf", "w")
+##
+## Higher-level debug trace functions
+##
 def frame_chain_hash(f, ignore_callers = set(["<lambda>"])):
         "Return an MD5 digest of the caller name chain, with callers listed in IGNORE-CALLERS omitted."
         def f_digestible(f):
@@ -2045,198 +2038,17 @@ def here(note = None, *args, callers = 5, stream = None, default_stream = sys.st
                       # defaulted(stream, default_stream)
                       )
 
-# Raw data of frame research
+##
+## CL level services
+##
+def backtrace(x = -1, stream = None, frame = None, frame_ids = None, offset = 0):
+        print_frames(frames_calling(defaulted(frame, this_frame()))[1 + offset:x],
+                     defaulted_to_var(stream, _debug_io_),
+                     frame_ids = frame_ids)
 
-# ## Unregistered Issue PAREDIT-MUST-BE-TAUGHT-ABOUT-COMMENTS-WITHIN-BABEL-BLOCKS
-
-# >>> dir(f)
-# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
-# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
-# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
-# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
-# "__subclasshook__", "f_back", "f_builtins", "f_code", "f_globals",
-# "f_lasti", "f_lineno", "f_locals", "f_trace"]
-# >>> dir(f.f_code)
-# ["__class__", "__delattr__", "__doc__", "__eq__", "__format__",
-# "__ge__", "__getattribute__", "__gt__", "__hash__", "__init__",
-# "__le__", "__lt__", "__ne__", "__new__", "__reduce__",
-# "__reduce_ex__", "__repr__", "__setattr__", "__sizeof__", "__str__",
-# "__subclasshook__", "co_argcount", "co_cellvars", "co_code",
-# "co_consts", "co_filename", "co_firstlineno", "co_flags",
-# "co_freevars", "co_kwonlyargcount", "co_lnotab", "co_name",
-# "co_names", "co_nlocals", "co_stacksize", "co_varnames"]
-def example_frame():
-        "cellvars: closed over non-globals;  varnames: bound"
-        def xceptor(xceptor_arg):
-                "names: globals;  varnames: args + otherbind;  locals: len(varnames)"
-                try:
-                        error("This is xceptor talking: %s.", xceptor_arg)
-                except Exception as cond:
-                        return this_frame()
-        def midder(midder_arg):
-                "freevars: non-global-free;  varnames: args + otherbind;  locals: ..."
-                midder_stack_var = 0
-                return xceptor(midder_arg + midder_stack_var)
-        def outer():
-                "freevars: non-global-free;  varnames: args + otherbind"
-                outer_stack_var = 3
-                return midder(outer_stack_var)
-        return outer()
-
-# Study was done by the means of:
-# print("\n".join((lambda listattr:
-#                   map(lambda f:
-#                        "== co %s\n  %s\n== def %s\n  %s\n" %
-#                        (f, listattr(f), cl._fun_name(cl._frame_fun(f)), listattr(cl._frame_fun(f))),
-#                        cl._frames_calling(cl._example_frame())))
-#                 (lambda x: "\n  ".join(map(lambda s: s + ": " + str(getattr(x, s)),
-#                                            cl.remove_if(lambda attr: "__" in attr or "builtins" in attr or "locals" in attr or "globals" in attr,
-#                                                         dir(x)))))))
-
-# == co <frame object at 0x2381de0>
-#   f_back: <frame object at 0x2381c00>
-#   f_code: <code object xceptor at 0x277a4f8, file "cl.py", line 199>
-#   f_lasti: 59
-#   f_lineno: 204
-#   f_trace: None
-# == def xceptor
-#   co_argcount: 1
-#   co_cellvars: ()
-#   co_code: b'y\x11\x00t\x00\x00d\x01\x00|\x00\x00\x83\x02\x00\x01Wn,\x00\x04t\x01\x00k\n\x00r?\x00\x01\x01\x00\x01z\x0c\x00t\x02\x00\x83\x00\x00SWYd\x02\x00d\x02\x00\x01\x00~\x01\x00Xn\x01\x00Xd\x02\x00S'
-#   co_consts: ('names: globals;  varnames: args + otherbind;  locals: len(varnames)', 'This is xceptor talking: %s.', None)
-#   co_filename: cl.py
-#   co_firstlineno: 199
-#   co_flags: 83
-#   co_freevars: ()
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x02\x03\x01\x11\x01\x12\x01'
-#   co_name: xceptor
-#   co_names: ('error', 'Exception', '_this_frame')
-#   co_stacksize: 16
-#   co_varnames: ('xceptor_arg', 'cond')
-
-# == co <frame object at 0x2381c00>
-#   f_back: <frame object at 0x1fa8480>
-#   f_code: <code object midder at 0x277a580, file "cl.py", line 205>
-#   f_lasti: 19
-#   f_lineno: 208
-#   f_trace: None
-# == def midder
-#   co_argcount: 1
-#   co_cellvars: ()
-#   co_code: b'd\x01\x00\x01\x00\x88\x00\x00|\x00\x00|\x01\x00\x17\x83\x01\x00S'
-#   co_consts: ('freevars: non-global-free;  varnames: args + otherbind;  locals: ...', 0)
-#   co_filename: cl.py
-#   co_firstlineno: 205
-#   co_flags: 19
-#   co_freevars: ('xceptor',)
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x02\x06\x01'
-#   co_name: midder
-#   co_names: ()
-#   co_stacksize: 3
-#   co_varnames: ('midder_arg', 'midder_stack_var')
-
-# == co <frame object at 0x1fa8480>
-#   f_back: <frame object at 0x27ce6c0>
-#   f_code: <code object outer at 0x277a608, file "cl.py", line 209>
-#   f_lasti: 15
-#   f_lineno: 212
-#   f_trace: None
-# == def outer
-#   co_argcount: 0
-#   co_cellvars: ()
-#   co_code: b'd\x01\x00\x00\x00\x88\x00\x00|\x00\x00\x83\x01\x00S'
-#   co_consts: ('freevars: non-global-free;  varnames: args + otherbind', 3)
-#   co_filename: cl.py
-#   co_firstlineno: 209
-#   co_flags: 19
-#   co_freevars: ('midder',)
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x02\x06\x01'
-#   co_name: outer
-#   co_names: ()
-#   co_stacksize: 2
-#   co_varnames: ('outer_stack_var',)
-
-# == co <frame object at 0x27ce6c0>
-#   f_back: <frame object at 0x27f3030>
-#   f_code: <code object example_frame at 0x277a690, file "cl.py", line 197>
-#   f_lasti: 45
-#   f_lineno: 213
-#   f_trace: None
-# == def example_frame
-#   co_argcount: 0
-#   co_cellvars: ('xceptor', 'midder')
-#   co_code: b'd\x01\x00\x84\x00\x00\x89\x00\x00\x87\x00\x00f\x01\x00d\x02\x00\x86\x00\x00\x89\x01\x00\x87\x01\x00f\x01\x00d\x03\x00\x86\x00\x00\x00\x00|\x00\x00\x83\x00\x00S'
-#   co_consts: ('cellvars: closed over non-globals;  varnames: bound', <code object xceptor at 0x277a4f8, file "cl.py", line 199>, <code object midder at 0x277a580, file "cl.py", line 205>, <code object outer at 0x277a608, file "cl.py", line 209>)
-#   co_filename: cl.py
-#   co_firstlineno: 197
-#   co_flags: 3
-#   co_freevars: ()
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x02\t\x06\x0f\x04\x0f\x04'
-#   co_name: example_frame
-#   co_names: ()
-#   co_stacksize: 2
-#   co_varnames: ('outer',)
-
-# == co <frame object at 0x27f3030>
-#   f_back: <frame object at 0x2388fd0>
-#   f_code: <code object <lambda> at 0x278de00, file "<stdin>", line 1>
-#   f_lasti: 36
-#   f_lineno: 5
-#   f_trace: None
-# == def <lambda>
-#   co_argcount: 1
-#   co_cellvars: ('listattr',)
-#   co_code: b't\x00\x00\x87\x00\x00f\x01\x00d\x01\x00\x86\x00\x00t\x01\x00j\x02\x00t\x01\x00j\x03\x00\x83\x00\x00\x83\x01\x00\x83\x02\x00S'
-#   co_consts: (None, <code object <lambda> at 0x278d0b8, file "<stdin>", line 2>)
-#   co_filename: <stdin>
-#   co_firstlineno: 1
-#   co_flags: 3
-#   co_freevars: ()
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x00\x01\x0f\x03'
-#   co_name: <lambda>
-#   co_names: ('map', 'cl', '_frames_calling', '_example_frame')
-#   co_stacksize: 4
-#   co_varnames: ('listattr',)
-
-# == co <frame object at 0x2388fd0>
-#   f_back: None
-#   f_code: <code object <module> at 0x220f7a0, file "<stdin>", line 1>
-#   f_lasti: 24
-#   f_lineno: 6
-#   f_trace: None
-# == def <module>
-#   co_argcount: 0
-#   co_cellvars: ()
-#   co_code: b'e\x00\x00d\x00\x00j\x01\x00d\x01\x00\x84\x00\x00d\x02\x00\x84\x00\x00\x83\x01\x00\x83\x01\x00\x83\x01\x00Fd\x03\x00S'
-#   co_consts: ('\n', <code object <lambda> at 0x278de00, file "<stdin>", line 1>, <code object <lambda> at 0x220f2d8, file "<stdin>", line 6>, None)
-#   co_filename: <stdin>
-#   co_firstlineno: 1
-#   co_flags: 64
-#   co_freevars: ()
-#   co_kwonlyargcount: 0
-#   co_lnotab: b'\x0f\x05'
-#   co_name: <module>
-#   co_names: ('print', 'join')
-#   co_stacksize: 4
-#   co_varnames: ()
-
-# More info:
-# sys.call_tracing()
-# p = Pdb(self.completekey, self.stdin, self.stdout)
-# p.prompt = "(%s) " % self.prompt.strip()
-# print >>self.stdout, "ENTERING RECURSIVE DEBUGGER"
-# sys.call_tracing(p.run, (arg, globals, locals))
-# print >>self.stdout, "LEAVING RECURSIVE DEBUGGER"
-# sys.settrace(self.trace_dispatch)
-# self.lastcmd = p.lastcmd
-
-## Symbol availability
-
+##
+## Essential runtime: symbol, global variable and function availability
+##
 def make_undefined_function_stub(name):
         stub = lambda *_, **__: undefined_function(name)
         stub.__name__ = "undefined_function_stub_%s" % name
@@ -2289,9 +2101,9 @@ def fop_make_symbols_available(globals, package_names, symbol_names, setfps,
                                 gfunps, gvarps):
                 fop_make_symbol_available(globals, *fop_msa_args)
 
-###
-### Runtime: complex lambda list support
-###
+##
+## Essential runtime: complex lambda list support
+##
 def parse_keyword_args(rest):
         acc = dict()
         for k, v in zip(rest[0::2], rest[1::2]):
