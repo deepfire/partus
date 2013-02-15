@@ -691,9 +691,7 @@ cold_error_type       = Exception
 cold_hash_table_type  = dict
 cold_stream_type      = _io._IOBase
 cold_function_type    = types.FunctionType.__mro__[0]
-cold_tuple_type       = tuple
 cold_string_type      = str
-cold_list_type        = list
 def cold_simple_error(format, *args): raise cold_error_type(format % args)
 def cold_typep(x, type):
         return isinstance(x, (type             if isinstance(x, type) else
@@ -725,8 +723,6 @@ def functionp(o):      return t if isinstance(o, (cold_function_type, staticmeth
 
 def symbol_type_specifier_p(x):
         return hasattr(x, "python_type")
-
-def python_type_p(x): return isinstance(o, cold_class_type)
 
 @boot_defun
 def type_of(x):
@@ -783,9 +779,6 @@ def find_dynamic_frame(name):
                         return scope
         if name in __global_scope__:
                 return __global_scope__
-
-def list_dynamic_frames():
-        return __tls__.dynamic_scope
 
 def dynamic_frame_for_set(name, force_toplevel = None):
         return (__global_scope__ if force_toplevel else
@@ -999,11 +992,6 @@ def find_package(name):
         return name if packagep(name) else packages.get(name if isinstance(name, str) else symbol_name(name),
                                                         nil)
 
-@boot_defun
-def package_used_by_list(package):
-        p = coerce_to_package(package)
-        return p.packages_using if p else package_not_found_error(package)
-
 @boot_defclass
 class symbol_t(): # Turned to a symbol, during the package system bootstrap.
         def __str__(self):
@@ -1072,10 +1060,6 @@ def do_find_symbol(str, package):
         return ((s, symbol_relation(s, package)) if s is not None else
                 (None, None))
 
-def symbol_accessible_in(x, package):
-        return (x.name in package.accessible and
-                package.accessible[x.name] is x)
-
 @boot_defun
 def find_symbol(str, package = None):
         return do_find_symbol(str, coerce_to_package(package))
@@ -1111,6 +1095,9 @@ def print_symbol(s, escape = None, gensym = None, case = None, package = None, r
         #
         # would be printed as (#:FOO #:FOO) if *PRINT-CIRCLE* were
         # false, but as (#1=#:FOO #1#) if *PRINT-CIRCLE* were true.
+        def symbol_accessible_in(x, package):
+                return (x.name in package.accessible and
+                        package.accessible[x.name] is x)
         return ((""                       if not escape                       else
                  ":"                      if s.package is __keyword           else
                  ""                       if symbol_accessible_in(s, package) else
@@ -1206,11 +1193,6 @@ def intern(x, package = None):
         s, found_in_package = do_intern(x, package)
         return s, (symbol_relation(s, package) if found_in_package else
                    None)
-
-@boot_defun
-def do_in_package(name):
-        string_set("*PACKAGE*", coerce_to_package(name), force_toplevel = t)
-        return nil
 
 @boot_defun
 def export(symbols, package = None):
@@ -1504,11 +1486,7 @@ def invoke_debugger(condition):
 #+begin_src python +n
 def integerp(o):      return isinstance(o, int)
 def floatp(o):        return isinstance(o, float)
-def complexp(o):      return isinstance(o, complex)
-def numberp(o):       return isinstance(o, (int, float, complex))
 def hash_table_p(o):  return isinstance(o, cold_hash_table_type)
-def listp(o):        return isinstance(o, cold_list_type)
-def boolp(o):        return isinstance(o, bool)
 def sequencep(x):     return getattr(type(x), "__len__", None) is not None
 #+end_src
 
@@ -1539,15 +1517,11 @@ define_python_type_map("FUNCTION",          cold_function_type)
 
 define_python_type_map("STREAM",            cold_stream_type)
 
-define_python_type_map("CLASS",             type) # Ha.
-
 define_python_type_map("CONDITION",         BaseException)
 define_python_type_map("ERROR",             Exception)
-define_python_type_map("SERIOUS-CONDITION", Exception)
 define_python_type_map("END-OF-FILE",       EOFError)
 
 ## non-standard type names
-define_python_type_map("PYBOOL",      bool)
 define_python_type_map("PYBYTES",     bytes)
 define_python_type_map("PYBYTEARRAY", bytearray)
 define_python_type_map("PYSET",       set)
@@ -1628,12 +1602,6 @@ def the(type, x):
 def check_type(x, type):
         the(type, x)
         return nil
-
-def of_type(x):
-        return lambda y: typep(y, x)
-
-def not_of_type(x):
-        return lambda y: not typep(y, x)
 #+end_src
 
 ******* Complex type definitions
@@ -1783,25 +1751,6 @@ def eql_type_specifier_p(x): return isinstance(x, tuple) and len(x) is 2 and x[0
 unboot_set("typep")
 #+end_src
 
-******* Type relationships, rudimentary
-
-#+begin_src python
-def subtypep(sub, super):
-        def coerce_to_python_type(x):
-                return (x             if isinstance(x, cold_class_type)   else
-                        x.python_type if isinstance(x, symbol_t)           else
-                        error("In SUBTYPEP: arguments must be valid type designators, but %s wasn't one.", repr(x)))
-        def do_subclass_check(sub, super):
-                return issubclass(coerce_to_python_type(sub),
-                                      coerce_to_python_type(super))
-        return (do_subclass_check(sub, super)                  if super is not t                                     else
-                not_implemented("complex type relatioships: %s vs. %s.",
-                                 sub, super)                   if isinstance(sub, tuple) or isinstance(super, tuple) else
-                error("%s is not a valid type specifier", sub) if not (typep(sub, (or_t, type, (eql_t, t))) and
-                                                                       typep(sub, (or_t, type, (eql_t, t))))         else
-                sub is super or super is t)
-#+end_src
-
 ***** Toplevel definitions: @DEFUN and @DEFCLASS
 
 #+begin_src python +n
@@ -1822,9 +1771,9 @@ def make_cold_definer(definer_name, predicate, slot, preprocess):
 del boot_defun
 del boot_defclass
 
-defun            = cold_defun    = make_cold_definer("%COLD-DEFUN",    functionp, "function",    identity)
-defclass         = cold_defclass = make_cold_definer("%COLD-DEFCLASS", lambda x: isinstance(x, type), "python_type", identity)
-defun_with_block = cold_defun_with_block = make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp, "function", __block__)
+defun            = make_cold_definer("%COLD-DEFUN",    functionp, "function",    identity)
+defclass         = make_cold_definer("%COLD-DEFCLASS", lambda x: isinstance(x, type), "python_type", identity)
+defun_with_block = make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp, "function", __block__)
 for fn  in __boot_defunned__:   frost.setf_global(defun(fn),     fn.__name__,  globals(), force = t)
 for cls in __boot_defclassed__: frost.setf_global(defclass(cls), cls.__name__, globals(), force = t)
 doit = True
@@ -1959,15 +1908,6 @@ class readtable_t(collections.UserDict):
                                 case)
                 self.data = dict()
 
-def readtablep(x):     return isinstance(x, readtable_t)
-def readtable_case(x): return the(readtable_t, x).case
-
-def copy_readtable(x):
-        check_type(x, readtable_t)
-        new = readtable(case = readtable_case(x))
-        new.dict = dict()
-        return new
-
 __standard_pprint_dispatch__ = dict()        # XXX: this is crap!
 __standard_readtable__       = readtable_t() # XXX: this is crap!
 
@@ -2094,11 +2034,6 @@ curry             = functools.partial
 
 stringp           = neutrality.stringp
 do_write_string   = neutrality.do_write_string
-
-def classp(x):     return isinstance(x, type)
-def frozensetp(o): return isinstance(o, frozenset)
-def setp(o):       return isinstance(o, (set, frozenset))
-def nonep(o):      return o is None
 #+end_src
 
 ******* Constants
@@ -2113,10 +2048,6 @@ def poor_man_let(*values_and_body):
 def poor_man_defstruct(name, *slots):
         return collections.namedtuple(name, slots)
 
-def poor_man_when(test, body):
-        if test:
-                return body() if isinstance(body, cold_function_type) else body
-
 def poor_man_case(val, *clauses):
         for (cval, body) in clauses:
                 if ((val == cval or (cval is True) or (cval is t)) if not isinstance(cval, list) else
@@ -2129,11 +2060,6 @@ def poor_man_ecase(val, *clauses):
                     val in cval):
                         return body() if isinstance(body, cold_function_type) else body
         error("%s fell through ECASE expression. Wanted one of %s.", val, [ x[0] for x in clauses ])
-
-def poor_man_typecase(val, *clauses):
-        for (ctype, body) in clauses:
-                if (ctype is t) or (ctype is True) or typep(val, ctype):
-                        return body() if isinstance(body, cold_function_type) else body
 
 def poor_man_etypecase(val, *clauses):
         for (ctype, body) in clauses:
@@ -2197,10 +2123,6 @@ def cold_princ_to_string(x):
         return repr(x)
 princ_to_string = cold_princ_to_string
 # Unregistered Issue PACKAGE-INIT-MUST-TAKE-COLD-SYMBOL-VALUES-INTO-ACCOUNT
-def cold_probe_file(pathname):
-        assert(isinstance(pathname, str))
-        return os.path.exists(the(string_t, pathname))
-probe_file = cold_probe_file
 
 def locals_printf(locals, *local_names):
         # Unregistered Issue NEWLINE-COMMA-SEPARATION-NOT-PRETTY
@@ -2219,9 +2141,6 @@ def alist_hash_table(xs):
 def hash_table_alist(xs):
         return mapcon(lambda kv: [k, [v, nil]],
                       consify_linear(the(dict, xs).items()))
-
-def read_case_xformed(x):
-        return case_xform(symbol_value(_read_case_), x)
 #+end_src
 
 ********* Pergamum 0
@@ -2230,57 +2149,8 @@ def read_case_xformed(x):
 def if_let(x, consequent, antecedent = lambda: None):
         return consequent(x) if x else antecedent()
 
-def lret(value, body):
-        body(value)
-        return value
-
 def compose(f, g):
         return lambda *args, **keys: f(g(*args, **keys))
-
-def mapset(f, xs):
-        acc = set()
-        for x in xs:
-                acc.add(f(x))
-        return acc
-
-def mapsetn(f, xs):
-        acc = set()
-        for x in xs:
-                acc |= f(x)
-        return acc
-
-def mapseparaten(f, xs):
-        s0, s1 = set(), set()
-        for s0r, s1r in (f(x) for x in xs):
-                s0 |= s0r; s1 |= s1r
-        return s0, s1
-
-def separate(n, f, xs):
-        ss = tuple(set() for _ in range(n))
-        for rss in (f(x) for x in xs):
-                for s, rs in zip(ss, rss):
-                        s |= rs
-        return ss
-
-__combiners__ = { set: set.add, list: list.append }
-def recombine(spec, f, xss):
-        accs  = tuple(f() for f in spec)
-        combs = tuple(__combiners__[type(a)] for a in accs)
-        for xs in xss:
-                for acc, comb, reselt in zip(accs, combs, f(xs)):
-                        comb(acc, reselt)
-        return accs
-def recombine_star(spec, f, *xss):
-        accs  = tuple(f() for f in spec)
-        combs = tuple(__combiners__[type(a)] for a in accs)
-        for xs in zip(*xss):
-                for acc, comb, reselt in zip(accs, combs, f(*xs)):
-                        comb(acc, reselt)
-        return accs
-
-def slotting(x):             return lambda y: getattr(y, x, None)
-def slot_of(x):              return lambda y: getattr(x, y, None)
-def slot_equal(slot, val):   return lambda y: getattr(y, slot, None) == val
 
 def updated_dict(to, from_):
         to.update(from_)
@@ -2307,15 +2177,6 @@ def lookup(scope, name):
                 if cell_name is name:
                         return value, t
         return lookup(name, rest)
-
-def defscope(name, varname, **initargs):
-        def make_frame(bindings):
-                return tuple(bindings.items())
-        def push_frame(**bindings):
-                # This dictionary<->alist-ing is a waste.
-                return dynamic_scope_push({ varname: (make_frame(bindings), symbol_value(var)) })
-        def pop_frame(*_): dynamic_scope_pop()
-        return defwith(name, push_frame, pop_frame, lookup = lookup, **initargs)
 #+end_src
 
 ********* Lesser non-CL tools
@@ -2335,15 +2196,6 @@ class servile():
                                     ", ".join([ "%s = %s" % (k, v) for k, v in self.__dict__.items() ]))
         def __init__(self, **keys):
                 self.__dict__.update(keys)
-
-def gen(n = 1, x = "G", gen = gensym):
-        if n == 0:
-                error("_GEN: we are very very much against this, please stop!")
-        return tuple(gen(x)
-               for i in range(n))
-def gensyms(**initargs):     return gen(gen = gensym,      **initargs)
-def gensymnames(**initargs): return gen(gen = gensymname, **initargs)
-
 #+end_src
 
 ********* Testing
@@ -2399,25 +2251,6 @@ def eql(x, y):
         # False
         return t if ((x is y) if not isinstance(x, int) else x == y) else nil
 
-def seek(n, iterator):
-        for i in range(n):
-                next(iterator, nil)
-
-def from_(n, xs):
-        iterator = iter(xs)
-        for i in range(n):
-                next(iterator, nil)
-        for x in iterator:
-                yield x
-
-termination_marker = object()
-def take(n, xs):
-        iterator = iter(xs)
-        for i in range(n):
-                elt = next(iterator, termination_marker)
-                if elt is not termination_marker:
-                        yield elt
-
 def some_fast(f, xs):
         for x in xs:
                 ret = f(x)
@@ -2440,22 +2273,6 @@ def xorf(x, y):
 @defun
 def stable_sort(xs, predicate):
         return sorted(xs, key = functools.cmp_to_key(predicate))
-
-__allowed__ = frozenset([str, set, frozenset, tuple, list, bytes, bytearray])
-def maprestype(x):
-        type = type_of(x)
-        return type if type in __allowed__ else list
-
-def intersperse(x, xs):
-        """Return a sequence of elements, with X inserted between every two
-adjacent elements of XS."""
-        acc = []
-        if xs:
-                for ix in xs[:-1]:
-                        acc.append(ix)
-                        acc.append(x)
-                acc.append(xs[-1])
-        return acc
 #+end_src
 
 ********* Dicts
@@ -2468,13 +2285,6 @@ def dictappend(*dicts):
                 acc.update(d)
         return acc
 
-def dict_select_keys(dict_, *keys):
-        acc = dict()
-        for k in keys:
-                if k in dict_:
-                        acc[k] = dict_[k]
-        return acc
-
 def map_into_hash_star(f, xs,
                         key_test = lambda k: k is not None,
                         value_test = lambda _: t) -> dict:
@@ -2484,9 +2294,6 @@ def map_into_hash_star(f, xs,
                 if key_test(k) and value_test(v):
                         acc[k] = v
         return acc
-
-def map_hash_table(f, hash_table, **keys) -> dict:
-        return map_into_hash_star(f, hash_table.items(), **keys)
 #+end_src
 
 *** Pre-compiler
@@ -2509,13 +2316,6 @@ def extract_keywords(xs, keys_allowed = t):
 ***** Lisp packages/symbols vs. python modules/names
 
 #+begin_src python +n
-def lisp_symbol_python_name(sym):
-        return frost.lisp_symbol_name_python_name(sym.name)
-
-def lisp_symbol_python_names(sym):
-        return (frost.lisp_symbol_name_python_name(sym.name),
-                frost.lisp_symbol_name_python_name(sym.package.name))
-
 def find_module(name, if_does_not_exist = "error"):
         return (frost.find_module(name) or
                 poor_man_ecase(if_does_not_exist,
@@ -2524,17 +2324,6 @@ def find_module(name, if_does_not_exist = "error"):
                                 ("error",
                                  lambda: error(simple_package_error_t, "The name %s does not designate any package.",
                                                name))))
-
-def lisp_symbol_python_addr(sym):
-        symname, packname = lisp_symbol_python_names(sym)
-        return symname, find_module(packname)
-
-def lisp_symbol_python_value(sym):
-        name, module = lisp_symbol_python_addr(sym)
-        value, presentp = gethash(name, module.__dict__)
-        return (value if presentp else
-                error(simple_package_error_t, "This name is not accessible in the '%s' module: '%s'.",
-                      module.__name__, name))
 #+end_src
 
 ***** Namespaces
@@ -2720,28 +2509,6 @@ def warn_possible_redefinition(type, x):
         if x:
                 style_warn("In %s: %s is being redefined.", type, pp_consly(x))
 
-@defun
-def special_operator_p(symbol):
-        """Syntax:
-
-special-operator-p symbol => generalized-boolean
-
-Arguments and Values:
-
-SYMBOL---a symbol.
-
-GENERALIZED-BOOLEAN---a generalized boolean.
-
-Description:
-
-Returns true if SYMBOL is a special operator; otherwise, returns
-false.
-
-Exceptional Situations:
-
-Should signal TYPE-ERROR if its argument is not a symbol."""
-        return t if find_known(symbol) else nil
-
 # * (do-external-symbols (s :common-lisp) (when (special-operator-p s) (print s)))
 #  TAGBODY
 #  GO
@@ -2828,11 +2595,6 @@ def get_function_rtname(name):
         if getattr(sym, slot) is None:
                 error("Function %s has no mapping to a python name.", pp_consly(name))
         return getattr(sym, slot)
-
-def get_symbol_rtname(symbol):
-        if the(symbol_t, symbol).symbol_rtname is None:
-                error("Symbol %s has no mapping to a python name.", symbol)
-        return symbol.symbol_rtname
 
 def define_global_sym_for_rtname(globals, rtname, sym):
         globals["__" + rtname[:None if (rtname[:-1].endswith("_")
@@ -2935,13 +2697,6 @@ def streamp(x):                    return t if isinstance(x, stream_t) else nil
 def file_stream_p(x):              return t if isinstance(x, (_io._TextIOBase, _io._BufferedIOBase)) else nil
 
 @defun
-def with_open_stream(stream, f):
-        try:
-                return f(stream)
-        finally:
-                close(stream)
-
-@defun
 def open(pathname, direction = make_keyword("INPUT"), element_type = base_char_t,
          if_exists = make_keyword("ERROR"), if_does_not_exist = make_keyword("ERROR"),
          external_format = make_keyword("DEFAULT")):
@@ -3037,8 +2792,6 @@ class two_way_stream_t(stream_t):
         def writable(self): return t
 
 def make_two_way_stream(input, output):   return two_way_stream_t(input, output)
-def two_way_stream_input_stream(stream):  return stream.input
-def two_way_stream_output_stream(stream): return stream.output
 
 string_set("*DEBUG-IO*", make_two_way_stream(symbol_value(_standard_input_), symbol_value(_standard_output_)))
 string_set("*QUERY-IO*", make_two_way_stream(symbol_value(_standard_input_), symbol_value(_standard_output_)))
@@ -3057,9 +2810,6 @@ class broadcast_stream_t(stream_t):
         def readable(self): return nil
         def writable(self): return t
 
-def make_broadcast_stream(*streams):  return broadcast_stream_t(*streams)
-def broadcast_stream_streams(stream): return stream.streams
-
 @defclass
 class synonym_stream_t(stream_t):
         def __init__(self, symbol):
@@ -3074,9 +2824,6 @@ class synonym_stream_t(stream_t):
                 return self.stream().flush()
         def readable(self): return self.stream.readable()
         def writable(self): return self.stream.writable()
-
-def make_synonym_stream(symbol):   return synonym_stream_t(symbol)
-def synonym_stream_symbol(stream): return stream.symbol
 
 def coerce_to_stream(x):
         return (x                               if streamp(x) else
@@ -3115,9 +2862,6 @@ def write_line(string, stream = t):
 def finish_output(stream = t):
         check_type(stream, (or_t, stream_t, (member_t, t, nil)))
         (stream is not nil) and coerce_to_stream(stream).flush()
-
-def force_output(*args, **keys):
-        finish_output(*args, **keys)
 
 @defun
 def format(destination, control_string, *args):
@@ -3344,19 +3088,6 @@ logical pathname, a logical pathname is returned."""
                 file_stream_name(x)                          if file_stream_p(x) else
                 error("PATHNAME only accepts pathnames, namestrings and file streams, was given: %s.", x))
 
-@defun
-def pathname_directory(x):
-        # Unregistered Issue PORTABILITY-PATHNAME
-        absp = the(string_t, x).startswith(os.sep)
-        return ([make_keyword("absolute" if absp else "relative")] +
-                # Reject the integer interpretation of booleans.
-                namestring_components(x)[0].split(os.sep)[1 if absp else 0])
-
-@defun
-def pathname_name(x): return namestring_components(x)[1]
-@defun
-def pathname_type(x): return namestring_components(x)[2]
-
 def init_pathnames():
         string_set("*DEFAULT-PATHNAME-DEFAULTS*",
                     values_frame_project(0, parse_namestring(os.getcwd() + "/",
@@ -3365,140 +3096,6 @@ def init_pathnames():
         # T is a junk marker, but avoid a bootstrap loop
 
 init_pathnames()
-#+end_src
-
-******* Sub-standard pathname functions
-
-#+begin_src python +n
-def cold_merge_pathnames(pathname, default_pathname = None, default_version = None):
-        """merge-pathnames pathname &optional default-pathname default-version
-
-=> merged-pathname
-
-Arguments and Values:
-
-PATHNAME---a pathname designator.
-
-DEFAULT-PATHNAME---a pathname designator. The default is the value of *DEFAULT-PATHNAME-DEFAULTS*.
-
-DEFAULT-VERSION---a valid pathname version. The default is :NEWEST.
-
-MERGED-PATHNAME---a pathname.
-
-Description:
-
-Constructs a pathname from PATHNAME by filling in any unsupplied
-components with the corresponding values from DEFAULT-PATHNAME and
-DEFAULT-VERSION.
-
-Defaulting of pathname components is done by filling in components
-taken from another pathname.  This is especially useful for cases such
-as a program that has an input file and an output file.  Unspecified
-components of the output pathname will come from the input pathname,
-except that the type should not default to the type of the input
-pathname but rather to the appropriate default type for output from
-the program; for example, see the function COMPILE-FILE-PATHNAME.
-
-If no version is supplied, DEFAULT-VERSION is used.  If DEFAULT-VERSION
-is NIL, the version component will remain unchanged.
-
-If PATHNAME explicitly specifies a host and not a device, and if the
-host component of DEFAULT-PATHNAME matches the host component of
-pathname, then the device is taken from the DEFAULT-PATHNAME;
-otherwise the device will be the default file device for that host.
-If PATHNAME does not specify a host, device, directory, name, or type,
-each such component is copied from DEFAULT-PATHNAME.  If PATHNAME does
-not specify a name, then the version, if not provided, will come from
-DEFAULT-PATHNAME, just like the other components.  If PATHNAME does
-specify a name, then the version is not affected by DEFAULT-PATHNAME.
-If this process leaves the version missing, the DEFAULT-VERSION is
-used.  If the host's file name syntax provides a way to input a
-version without a name or type, the user can let the name and type
-default but supply a version different from the one in
-DEFAULT-PATHNAME.
-
-If PATHNAME is a stream, PATHNAME effectively becomes (PATHNAME
-PATHNAME).  MERGE-PATHNAMES can be used on either an open or a closed
-stream.
-
-If PATHNAME is a pathname it represents the name used to open the
-file.  This may be, but is not required to be, the actual name of the
-file.
-
-MERGE-PATHNAMES recognizes a logical pathname namestring when
-DEFAULT-PATHNAME is a logical pathname, or when the namestring begins
-with the name of a defined logical host followed by a colon.  In the
-first of these two cases, the host portion of the logical pathname
-namestring and its following colon are optional.
-
-MERGE-PATHNAMES returns a logical pathname if and only if its first
-argument is a logical pathname, or its first argument is a logical
-pathname namestring with an explicit host, or its first argument does
-not specify a host and the DEFAULT-PATHNAME is a logical pathname.
-
-Pathname merging treats a relative directory
-specially. If (pathname-directory pathname) is a list whose car
-is :RELATIVE, and (pathname-directory default-pathname) is a list,
-then the merged directory is the value of
-
- (append (pathname-directory default-pathname)
-         (cdr  ;remove :relative from the front
-           (pathname-directory pathname)))
-
-except that if the resulting list contains a string or :WILD
-immediately followed by :BACK, both of them are removed.  This removal
-of redundant :BACK keywords is repeated as many times as
-possible.  If (pathname-directory default-pathname) is not a list
-or (pathname-directory pathname) is not a list whose car is :RELATIVE,
-the merged directory is (or (pathname-directory
-pathname) (pathname-directory default-pathname))
-
-MERGE-PATHNAMES maps customary case in PATHNAME into customary case in
-the output pathname.
-
-Notes:
-
-The net effect is that if just a name is supplied, the host, device,
-directory, and type will come from DEFAULT-PATHNAME, but the version
-will come from DEFAULT-VERSION.  If nothing or just a directory is
-supplied, the name, type, and version will come from DEFAULT-PATHNAME
-together."""
-        # * (merge-pathnames "/a" "b")     # -NAME superseded by X
-        # #P"/a"
-        # * (merge-pathnames "a" "b")
-        # #P"a"
-        # * (merge-pathnames "a/a" "/b")   # when Y specifies the whole path, X takes over
-        # #P"/a/a"
-        # * (merge-pathnames "/a" "b/b")
-        # #P"/a"
-        # * (merge-pathnames "/a/" "b")    # non-conflicting components are merged
-        # #P"/a/b"
-        # * (merge-pathnames "b" "a/")
-        # #P"a/b"
-        # * (merge-pathnames "a/" "b")
-        # #P"a/b"
-        # * (merge-pathnames "b" "a/")
-        # #P"a/b"
-        # * (merge-pathnames "/a/" "/b/")
-        # #P"/a/"
-        ## Unregistered Issue MERGE-PATHNAMES-WEIRDLY-IMPLEMENTED
-        # * (merge-pathnames "a/" "b/")
-        # #P"b/a/"
-        # * (merge-pathnames "a/a" "b/b")
-        # P"b/a/a"
-        not_implemented() # Gave up for the while.
-        default_pathname = defaulted(default_pathname, os.getcwd() + os.sep)
-        dir_supplied_p = os.sep in pathname
-        name_supplied_p = pathname and pathname[-1] != os.sep
-        dir_defaulted_p = os.sep in default_pathname
-        net_effect_if = name_supplied_p and not dir_supplied_p # Unregistered Issue COMPLIANCE-MERGE-PATHNAMES-SIMPLIFICATION
-        if net_effect_if:
-                posn = default_pathname.rfind(os.sep)
-                return os.path.join((default_pathname[:posn + 1] if dir_defaulted_p else ""),
-                                    pathname)
-        elif not name_supplied_p:
-                pass
-        return os.path.join(x, y)
 #+end_src
 
 ***** Cons <-> vector xform
@@ -3627,17 +3224,6 @@ def copy_list_with_lastcdr(x, cdr):
                 if not x:
                         return ret
                 ptr[1] = ptr = [x[0], cdr]
-
-def copy_list_head_with_lastcdr(xs, n, cdr):
-        if not xs:
-                return cdr, n is 0
-        ret = ptr = [the(list_t, xs)[0], cdr]
-        while True:
-                n -= 1
-                xs, done = xs[1], n is 0
-                if not xs or done:
-                        return ret, done
-                ptr[1] = ptr = [xs[0], cdr]
 
 def copy_list_head_operating_on_cdr(f, n, xs):
         if not xs or n is 0:
@@ -3975,10 +3561,7 @@ def rest(x):        return x[1] if x else nil
 # CAAR
 # CADR
 # CDAR
-
-@defun
-def cddr(x):        return x[1][1] if x and x[1] else nil
-
+# CDDR
 # CAAAR
 # CAADR
 # CADAR
@@ -4105,20 +3688,6 @@ def last(x):
                         return lastx
 
 @defun
-def ldiff(object, list_):
-        """If OBJECT is the same as some tail of LIST, LDIFF returns a
-fresh list of the elements of LIST that precede OBJECT in the
-list structure of LIST; otherwise, it returns a copy[2] of
-LIST."""
-        not_implemented()
-
-@defun
-def tailp(object, list):
-        """If OBJECT is the same as some tail of LIST, TAILP returns
-true; otherwise, it returns false."""
-        not_implemented()
-
-@defun
 def nthcdr(n, xs):
         while n and xs:
                 n, xs = n - 1, xs[1]
@@ -4213,10 +3782,7 @@ def mapcar(f, xs, *xss):
                         ptr[1] = ptr = [f(caar, *cars), nil]
                 return acc
 
-@defun
-def mapcan(f, *xs):
-         not_implemented()
-
+# MAPCAN
 # MAPL
 # MAPLIST
 
@@ -4395,28 +3961,6 @@ def some(f, xs, *xss):
         else:
                 not_implemented("SOME: multiple-list case")
 
-@defun
-def notevery(f, xs, *xss):
-        if not xss:
-                while xs:
-                        if not f(xs[0]):
-                                 return t
-                        xs = xs[1]
-                return nil
-        else:
-                not_implemented("NOTEVERY: multiple-list case")
-
-@defun
-def notany(f, xs, *xss):
-        if not xss:
-                while xs:
-                        if f(xs[0]):
-                                 return nil
-                        xs = xs[1]
-                return t
-        else:
-                not_implemented("NOTANY: multiple-list case")
-
 # Function VALUES-LIST
 
 # Function GET-SETF-EXPANSION
@@ -4542,7 +4086,7 @@ def write_to_string(object,
                         elif isinstance(object, str):
                                 # Honors *PRINT-ESCAPE* and *PRINT-READABLY*.
                                 string += print_string(object)
-                        elif hash_table_p(object) or setp(object):
+                        elif hash_table_p(object):
                                 # Honors *PRINT-ESCAPE* and *PRINT-READABLY*.
                                 string += print_unreadable_compound(object)
                         elif functionp(object):
@@ -4558,7 +4102,6 @@ def write_to_string(object,
         # dprintf("===> %s", ret)
         return ret
 
-def prin1_to_string(object): return write_to_string(object, escape = t)
 def princ_to_string(object): return write_to_string(object, escape = nil, readably = nil)
 
 def write(object, stream = t, **args):
@@ -4571,32 +4114,6 @@ printer control variable is the same as it was at the time write was
 invoked. Once the appropriate bindings are established, the object is
 output by the Lisp printer."""
         write_string(write_to_string(object, **args), stream)
-        return object
-
-def prin1(object, stream = t):
-        """PRIN1 produces output suitable for input to READ. It binds *PRINT-ESCAPE* to true."""
-        return write(object, stream = stream, escape = t)
-
-def princ(object, stream = t):
-        """PRINC is just like PRIN1 except that the output has no escape characters.
-It binds *PRINT-ESCAPE* to false and *PRINT-READABLY* to false.
-The general rule is that output from PRINC is intended to look good to people,
-while output from PRIN1 is intended to be acceptable to READ."""
-        return write(object, stream = stream, escape = nil, readably = nil)
-
-def print_(object, stream = t):
-        """PRINT is just like PRIN1 except that the printed representation of object
-is preceded by a newline and followed by a space."""
-        terpri(stream)
-        prin1(object, stream)
-        write_char(" ", stream)
-        return object
-
-def pprint(object, stream = t):
-        """PPRINT is just like PRINT except that the trailing space is omitted
-and object is printed with the *PRINT-PRETTY* flag non-NIL to produce pretty output."""
-        terpri(stream)
-        write(object, stream = stream, escape = t, pretty = t)
         return object
 #+end_src
 
@@ -4852,36 +4369,6 @@ def read_char(stream = None, eof_error_p = t, eof_value = nil, recursivep = nil)
                 eof_value if not eof_error_p else
                 error(end_of_file_t, "end of file on %s" % (stream,)))
 
-def unread_char(x, stream = sys.stdin):
-        "XXX: conformance"
-        # I've found out I don't really understand how UNREAD-CHAR is supposed to work..
-        posn = file_position(stream)
-        if posn == 0:
-                error("Nothing to unread.")
-        else:
-                stream.seek(posn - 1)
-
-def peek_char(peek_type = nil, input_stream = None, eof_error_p = nil, eof_value = nil, recursive_p = nil):
-        """PEEK-CHAR obtains the next character in INPUT-STREAM without actually reading it, thus leaving the character to be read at a later time. It can also be used to skip over and discard intervening characters in the INPUT-STREAM until a particular character is found.
-
-If PEEK-TYPE is not supplied or NIL, PEEK-CHAR returns the next character to be read from INPUT-STREAM, without actually removing it from INPUT-STREAM. The next time input is done from INPUT-STREAM, the character will still be there. If PEEK-TYPE is T, then PEEK-CHAR skips over whitespace[2] characters, but not comments, and then performs the peeking operation on the next character. The last character examined, the one that starts an object, is not removed from INPUT-STREAM. If PEEK-TYPE is a character, then PEEK-CHAR skips over input characters until a character that is CHAR= to that character is found; that character is left in INPUT-STREAM.
-
-If an end of file[2] occurs and EOF-ERROR-P is false, EOF-VALUE is returned.
-
-If RECURSIVE-P is true, this call is expected to be embedded in a higher-level call to READ or a similar function used by the Lisp reader.
-
-When INPUT-STREAM is an echo stream, characters that are only peeked at are not echoed. In the case that PEEK-TYPE is not NIL, the characters that are passed by PEEK-CHAR are treated as if by READ-CHAR, and so are echoed unless they have been marked otherwise by UNREAD-CHAR."""
-        criterion = (lambda _: t                if peek_type is nil                                     else
-                     lambda c: c not in " \t\n" if peek_type is t                                       else
-                     lambda c: c == peek_type   if isinstance(peek_type, str) and len(peek_type) == 1 else
-                     error("Invalid peek-type: '%s'.", peek_type))
-        stream = defaulted(input_stream, symbol_value(_standard_input_))
-        while t:
-                char = read_char(stream, eof_error_p, eof_value, recursive_p)
-                if criterion(char):
-                        unread_char(char, stream)
-                        return char
-
 @__block__
 def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whitespace = None, recursivep = nil):
         ## Has not even a remote chance of conforming.
@@ -5071,44 +4558,6 @@ read_from_string = cold_read_from_string
 def conditionp(x):
         return isinstance(x, condition_t)
 
-def make_condition(type, *args, **keys):
-        check_type(type, symbol_t)
-        if not (hasattr(type, "python_type") and
-                conditionp(type.python_type)):
-                error("In MAKE-CONDITION: %s does not designate a condition type.", type)
-        return type.python_type(*args, **keys)
-
-def report_handling_handover(cond, frame, hook):
-        format(sys.stderr, "Handing over handling of %s to frame %s\n",
-               prin1_to_string(cond), pp_chain_of_frame(frame, callers = 25))
-
-__main_thread__ = threading.current_thread()
-def report_condition(cond, stream = None, backtrace = None):
-        stream = defaulted_to_var(stream, _debug_io_)
-        format(stream, "%sondition of type %s: %s\n",
-               (("In thread \"%s\": c" % threading.current_thread().name)
-                if threading.current_thread() is not __main_thread__ else
-                "C"),
-               type(cond), cond)
-        if backtrace:
-                py.backtrace(-1, stream)
-        return t
-
-def maybe_reporting_conditions_on_hook(p, hook, body, backtrace = None):
-        if p:
-                old_hook_value = symbol_value(hook)
-                def wrapped_hook(cond, hook_value):
-                        "Let's honor the old hook."
-                        report_condition(cond,
-                                          stream = symbol_value(_debug_io_),
-                                          backtrace = backtrace)
-                        if old_hook_value:
-                                old_hook_value(cond, old_hook_value)
-                with env.maybe_let(p, **{hook if isinstance(hook, str) else symbol_name(hook): wrapped_hook}):
-                        return body()
-        else:
-                return body()
-
 __not_even_conditions__ = frozenset([GeneratorExit, SystemExit, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
@@ -5228,11 +4677,6 @@ def handler_case(body, *handlers, no_error = identity):
                              for ty_ha in handlers ]
         return catch(nonce,
                       lambda: handler_bind(body, *wrapped_handlers, no_error = no_error))
-
-def ignore_errors(body):
-        return handler_case(body,
-                            (Exception,
-                             lambda _: None))
 #+end_src
 
 ***** Built-in condition types
@@ -6049,14 +5493,9 @@ intern_and_bind(
 __metasex_words__          = set() ## Populated by register_*_matcher()
 __metasex_pp_words__       = { _base, _newline, _fill, _nbsp, _poscase, _lead, _notlead, _nottail }
 __metasex_bind_words__     = { _binder, _bind, _bound }
-__metasex_leaf_words__     = { _form,
-                               _base, _newline, _fill, _nbsp,
-                               _for_matchers_xform, _for_not_matchers_xform, _for_matcher_layers_skip_action }
 
-def metasex_word_p(x):      return isinstance(x, symbol_t) and x in __metasex_words__
 def metasex_pp_word_p(x):   return isinstance(x, symbol_t) and x in __metasex_pp_words__
 def metasex_bind_word_p(x): return isinstance(x, symbol_t) and x in __metasex_bind_words__
-def metasex_leaf_word_p(x): return isinstance(x, symbol_t) and x in __metasex_leaf_words__
 
 def preprocess_metasex(pat):
         "Expand syntactic sugars."
@@ -6552,12 +5991,6 @@ def further_eval_when_file_compiler(compile_time_too, _, __, ct, lt, e):
         # dprintf("\nA-E-W-S:  CTT CT:LT:E   %s  %s %s %s   ->   NCTT %s, PROC %s, EVAL %s",
         #         compile_time_too, ct, lt, e, new_compile_time_too, process, eval)
         return new_compile_time_too, process, eval
-
-def process_decls(decls, vars, fvars):
-        warn_not_implemented()
-
-def self_evaluating_form_p(x):
-        return isinstance(x, (int, str, float)) or x in [t, nil]
 #+end_src
 
 ***** Debugging, tracing and pretty-printing
@@ -6617,12 +6050,6 @@ __known_trace_args__ = { "forms", "macroexpanded", "rewritten", "primitives", "a
                          "subexpansion", "subrewriting", "subprimitivisation", "subastification", "inner_knowns", "known_choices", "known_primitives",
                          "pretty_full" }
 
-def compiler_explain_tracing():
-        def control_var_name(x): return "*COMPILER-TRACE-%s*" % x.replace("_", "-").upper()
-        dprintf(";;  compiler trace config:")
-        for var in __known_trace_args__:
-                dprintf(";;    %s: %s", control_var_name(var), symbol_value(find_symbol(control_var_name(var))[0]))
-
 def compiler_dbgconf(**keys):
         def control_var_name(x): return "*%s%s*" % (("COMPILER-TRACE-" if x in __known_trace_args__ else ""),
                                                     x.replace("_", "-").upper())
@@ -6673,8 +6100,6 @@ class nameuse():
         name, kind, type = None, None, None
         def __init__(self, name, kind, type, **attributes):
                 attrify_args(self, locals(), "name", "kind", "type")
-def nameusep(x):
-        return isinstance(x, nameuse)
 
 class binding():
         tn, value, shadows = None, None, None
@@ -6705,10 +6130,6 @@ class gotag(nameuse):
         def __init__(self, name, **attributes):
                 nameuse.__init__(self, name, _gotag, t, **attributes)
 
-def nameuse_variablep(x): return isinstance(x, variable)
-def nameuse_functionp(x): return isinstance(x, function)
-def nameuse_blockp(x):    return isinstance(x, block)
-
 class variable_binding(variable, binding):
         def __init__(self, name, kind, value, tn = nil, **attributes):
                 ## Variables are not necessarily bound to specific value forms -- function parameters.
@@ -6737,10 +6158,6 @@ class gotag_binding(gotag, binding):
         def __init__(self, name, _, value, **attributes):
                 gotag.__init__(self, name, **attributes)
                 binding.__init__(self, value, **attributes)
-
-def function_bindingp(x): return isinstance(x, function_binding)
-def block_bindingp(x):    return isinstance(x, block_binding)
-def gotag_bindingp(x):    return isinstance(x, gotag_binding)
 #+end_src
 
 *** Lexical scope
@@ -6761,10 +6178,6 @@ def gotag_bindingp(x):    return isinstance(x, gotag_binding)
 intern_and_bind("*LEXENV*", gvarp = t)
 intern_and_bind("NULL")
 intern_and_bind("%BOOTSTRAP-NULL-LEXENV")
-
-def with_lexenv(lexenv, f):
-        with progv({ _lexenv_: lexenv }):
-                return f()
 
 @defclass(intern("%LEXENV")[0])
 class lexenv_t():
@@ -6898,7 +6311,6 @@ class lexenv_t():
                 b = self.do_lookup_scope(self.varscope, x, None)[0]
                 return (b and b.kind is kind and b) or default
 
-def lexenvp(x):                return isinstance(x, lexenv_t)
 def make_null_lexenv(clambda): return lexenv_t(clambda = clambda, parent = _bootstrap_null_lexenv)
 def make_lexenv(parent = nil, clambda = None, **initargs):
         """ :PARENT - NULL for a null lexenv, nil for the value of *LEXENV*.
@@ -7238,10 +6650,6 @@ def gt(x, y):
         return t if x > y else nil
 
 @defun
-def evenp(x):
-        return nil if x % 2 else t
-
-@defun
 def plusp(x):
         return t if x > 0 else nil
 
@@ -7399,9 +6807,6 @@ def ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
 #+begin_src python +n
 string_set("*IN-COMPILATION-UNIT*", nil)
 
-def unit_function(x):
-        symbol_value(_unit_functions_).add(x)
-        return x
 def unit_variable_rtname(x):
         return full_symbol_rtname(x)
 def unit_function_rtname(x):
@@ -9169,9 +8574,6 @@ class quote(known):
 ******* MULTIPLE-VALUE-CALL
 
 #+begin_src python
-def do_multiple_value_call(fn, values_frames):
-        return fn(*reduce(lambda acc, f: acc + f[1:], values_frames, []))
-
 @defknown
 class multiple_value_call(known):
         ## We might start considering the argument forms for the values queries,
@@ -10372,11 +9774,77 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_COMPILER") == "t":
 def self_analyze():
         import more_ast, pergamum
         this_module_name = "cl"
-        relevant_modules = ["tri.py", "py.py"]
+        relevant_modules = ["primitives.py", "tri.py", "py.py"]
         symtab = without_condition_system(
                 lambda: more_ast.extract_symtable(pergamum.file_as_string(this_module_name + ".py"), ""))
+        whitelist = {
+                ## undetectable
+                "defaulted_keys",                    ## For MAKE-PATHNAME
+                "file_length",                       ## For LOAD
+                "find_symbol",                       ## For %COLD-READ
+                "init",
+                "load_as_fasl", "load_as_source",
+                "repl",
+                ## documentation, kind of
+                "condition_system_enabled_p",
+                "make_lexenv_funcframe",
+                "set_global_variable",
+                ## CLOS/MOP
+                "defgeneric",
+                "define_method_combination",
+                "defmethod",
+                "generic_function_argument_precedence_order",
+                "generic_function_declarations",
+                "generic_function_method_combination",
+                "reinitialize_instance",
+                ## testing
+                "gt", "equals", "mult",
+                ## debugging
+                "compiler_function_trapped_p", "compiler_trap_function",
+                "no_debug", "summary_debug", "full_debug",
+                "mrtrace", "traced_matcher",
+                "locals_printf",
+                "run_profile",
+                "withless",
+                ## python-only runtime
+                "boundp",
+                "broadcast_stream_t",
+                "compose",
+                "count", "count_if", "count_if_not",
+                "find_if", "find_if_not",
+                "export",
+                "fboundp",
+                "file_position",
+                "get_universal_time",
+                "hash_table_alist",
+                "import_",
+                "input_stream_p", "output_stream_p",
+                "invoke_restart_interactively",
+                "make_hash_table",
+                "make_list",
+                "make_pathname",
+                "member_if",
+                "member_if_not",
+                "parse_integer",
+                "plusp",
+                "position",
+                "position_if",
+                "read_char",
+                "read_from_string",
+                "read_line",
+                "read_symbol",
+                "remove_dependent",
+                "remove_if",
+                "remove_if_not",
+                "restart_bind",
+                "some",
+                "synonym_stream_t",
+                "probe_file",
+                "with_standard_io_syntax",
+                "write_char"
+                }
         def hide(x):
-                return x.startswith("FUN_") or x.startswith("#<")
+                return x.startswith("FUN_") or x.startswith("#<") or x in whitelist
         def codep(x): return isinstance(x, type(self_analyze.__code__))
         def co_deps(x):
                 deps = set(x.co_names)
@@ -10409,17 +9877,26 @@ def self_analyze():
                                         deps |= set(x.name for x in x.names)
                 return deps
         fdeps = dict()                        ## REFERRER --> { REFEREE }
+        ####  1. Global function and class definitions
         for name, x in globals().items():
                 if functionp(x):
                         fdeps[name] = fn_deps(x)
                 if isinstance(x, type):
                         fdeps[name] = cls_deps(x)
+        ####  2. Toplevel import-from's within relevant using modules
         for mod in relevant_modules:
                 fdeps["#<Module '%s'>" % mod] = module_deps(mod)
+        ####  3. Type definitions
+        for s in (s for s in __cl.accessible.values() if hasattr(s, "type_predicate") and s.type_predicate):
+                fdeps["#<Predicate for type '%s'>" % s] = fn_deps(s.type_predicate)
+        ####  4. Known definitions
+        for kcls in (s.known for s in __cl.accessible.values() if s.known):
+                fdeps["#<Known '%s'>" % kcls.__name__] = cls_deps(kcls)
         frdeps = collections.defaultdict(set) ## REFEREE --> { REFERRER }
         for f, deps in fdeps.items():
                 for dep in deps:
                         frdeps[dep].add(f)
+        ####  5. Other, non-class/function toplevel uses, as by Python symtable rules
         for s in without_condition_system(symtab.get_symbols):
                 if s.is_referenced():
                         frdeps[s.get_name()].add("#<global ref>")
@@ -10431,44 +9908,20 @@ def self_analyze():
                        if x not in frdeps)
         dprintf("; Usage breakdown:")
         # for n, fs in reversed(sorted(usebs.items())):
-        for n, fs in [list(reversed(sorted(usebs.items())))[-1]]:
-                dprintf("; ---- use count %d (%d at this level):", n, len(fs))
-                for f in sorted(fs):
+        whitelist_noise = whitelist - set(globals()) - set([""])
+        if whitelist_noise:
+                error("Whitelist contains inexistent entries: %s.", ", ".join(sorted(whitelist_noise)))
+        for n, fs in [[(n, fs) for n, fs in reversed(sorted(usebs.items()))
+                       if any(not hide(f) for f in fs)][-1]]:
+                vis_fs = [ f for f in fs if not hide(f) ]
+                dprintf("; ---- use count %d (%d at this level, %d hidden):", n, len(vis_fs), len(fs) - len(vis_fs))
+                for f in sorted(vis_fs):
                         if not hide(f):
                                 dprintf(";     %s", f)
 
 # Auxiliary: FDEFINITION
 
 ################################################################################
-
-# getsource
-#   getsourcelines
-#     findsource
-#       file = fn.__code__.co_filename
-#       sourcefile = getsourcefile = f(fn.__code__.co_filename)
-#       file = sourcefile or file
-#       module = getmodule()
-#       linecache.getlines(file)
-#     getblock
-#       <boring>
-__def_sources__ = without_condition_system(lambda: collections.OrderedDict())
-__def_sources__[""] = "" # placeholder
-__def_sources_filename__ = "<lisp>"
-def lisp_add_def(name, source):
-        if name in __def_sources__:
-                del __def_sources__[name]
-        __def_sources__[name] = source
-        total = "\n".join(__def_sources__.values())
-        linecache.cache[__def_sources_filename__] = len(total), int(time.time()), total.split("\n"), __def_sources_filename__
-
-def peek_func_globals(x, desc = "FUNC"):
-        func = the(function_t, (x if functionp(x) else
-                              symbol_function(x) or macro_function(x)))
-        dprintf("\n  %s %s (0x%x): globals %x (of type %s)\n%s",
-                      desc, func.__name__, id(func),
-                      id(func.__globals__), type_of(func.__globals__),
-                      { k:v for k,v in func.__globals__.items() if k != '__builtins__' })
-        py.backtrace(15, frame_ids = t, offset = 1)
 
 @defun
 def fdefinition(name):
@@ -10527,14 +9980,6 @@ string_set("*FASL-FILE-TYPE*",  "vpfas")
 string_set("*TRACE-FILE-TYPE*", "trace")
 string_set("*FASL-FILE-MAGIC*", ";VPCL FAS\n".encode("utf-8"))
 
-def fasl_header_p(stream, errorp = nil):
-        magic = stream.read(10)
-        if magic == symbol_value(_fasl_file_magic_):
-                return t
-        if errorp:
-                error("The file pointed at by stream %s does not contain a FASL file.", stream)
-        return nil
-
 def load_as_fasl(stream, verbose = None, print = None):
         ## The stream is expected to have been seeked past the magic.
         verbose = defaulted_to_var(verbose, _load_verbose_)
@@ -10546,12 +9991,19 @@ def load_as_fasl(stream, verbose = None, print = None):
         ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
         broken_globals.update(good_globals)
 
-@cold_defun_with_block
+@defun_with_block
 def load(pathspec, verbose = None, print = None,
          if_does_not_exist = t,
          external_format = make_keyword("default")):
         verbose = defaulted_to_var(verbose, _load_verbose_)
         print   = defaulted_to_var(verbose, _load_print_)
+        def fasl_header_p(stream, errorp = nil):
+                magic = stream.read(10)
+                if magic == symbol_value(_fasl_file_magic_):
+                        return t
+                if errorp:
+                        error("The file pointed at by stream %s does not contain a FASL file.", stream)
+                return nil
         def load_stream(stream, faslp):
                 with progv({ _readtable_:     symbol_value(_readtable_),
                              _package_:       symbol_value(_package_),
@@ -10610,7 +10062,7 @@ class stream_type_error_t(simple_condition_t, io.UnsupportedOperation):
 *** LOAD-able things
 
 #+begin_src python +n
-def load_rest_of_lisp():
+def run_profile():
         global __running_tests__, __enable_matcher_tracing__
         __running_tests__ = True
         # __enable_matcher_tracing__ = True
@@ -10656,25 +10108,6 @@ def load_rest_of_lisp():
                          )
 #+end_src
 
-*** REQUIRE
-
-#+begin_src python +n
-string_set("*MODULE-PROVIDER-FUNCTIONS*", [])
-
-def module_filename(module):
-        return "%s/%s.py" % (env.partus_path, module if stringp(module) else symbol_name(module))
-
-def require(name, pathnames = None):
-        "XXX: not terribly compliant either"
-        namestring = name if stringp(name) else symbol_name(name)
-        filename = pathnames[0] if pathnames else module_filename(namestring)
-        if probe_file(filename):
-                not_implemented()
-        else:
-                error("Don't know how to REQUIRE %s.", namestring.upper())
-
-#+end_src
-
 *** Environment
 
 #+begin_src python +n
@@ -10685,126 +10118,6 @@ def get_universal_time():
 
 def sleep(x):
         return time.sleep(x)
-
-def user_homedir_pathname():
-        return os.path.expanduser("~")
-
-def lisp_implementation_type():    return "CPython"
-def lisp_implementation_version(): return sys.version
-
-def machine_instance():            return socket.gethostname()
-def machine_type():                return without_condition_system(lambda: platform.machine(),
-                                                                    reason = "platform.machine")
-def machine_version():             return "Unknown"
-#+end_src
-
-*** DESCRIBE
-
-#+begin_src python +n
-# def get_info_value(name, type, env_list = None):
-#         def lookup(env_list):
-# def info(class, type, name, env_list = None):
-#         info = type_info_or_lose(class, type)
-#         return get_info_value(name, type_info_number(info), env_list)
-def describe_function(name, function, stream):
-        name = function.__name__ if function else name
-        if not (function or (name and fboundp(name))):
-                format(stream, "%s names an undefined function.\n", name)
-        else:
-                if not function and special_operator_p(name):
-                        fun, what, lambda_list = symbol_value(name), "a special operator", not_implemented()
-                elif not function and macro_function(name):
-                        fun, what, lambda_list = macro_function(name), "a macro", not_implemented()
-                else:
-                        fun = function or fdefinition(name)
-                        what = "a function"
-                               # ("a generic function"      if typep(fun, generic_function_t) else
-                               #  "a compiled function"     if compiled_function_p(fun)       else
-                               #  "an interpreted function")
-                        lambda_list = (fun.lambda_list if hasattr(fun, "lambda_list") else
-                                       None)
-                        methods = (# generic_function_methods(fun) if typep(fun, generic_function_t) else
-                                   None)
-                        if not function:
-                                format(stream, "\n%s names %s:", name, what)
-                        if specifiedp(lambda_list):
-                                describe_lambda_list(lambda_list)
-                        # describe_documentation(name, intern("FUNCTION")[0], stream)
-                        if specifiedp(methods):
-                                format(stream, "\nMethod combination: %s",
-                                       generic_function_method_combination(fun))
-                                if not methods:
-                                        format(stream, "\nNo methods.\n")
-                                else:
-                                        for m in methods:
-                                                format(stream, "\n  %s %s %s",
-                                                       name,
-                                                       method_qualifiers(m),
-                                                       method_specializers(m))
-                                                describe_documentation(m, t, stream, nil)
-                        # describe_function_source(fun, stream)
-                        terpri(stream)
-        if not function:
-                # when (and (legal-fun-name-p name) (compiler-macro-function name))
-                ## ...
-                # when (and (consp name) (eq 'setf (car name)) (not (cddr name)))
-                ## ... setf expansions
-                pass
-        if symbolp(name):
-                ## (describe-function `(setf ,name) nil stream)
-                pass
-
-def describe_class(name, class_, stream):
-        pass
-
-def describe_python_object(x, stream):
-        type = type_of(x)
-        slots = [ x for x in dir(x) if "__" not in x ]
-        maxslotnamelen = max(len(x) for x in slots)
-        def describe_slot(x, slot):
-                value = getattr(x, slot)
-                format(stream, "\n  %%%ds: %%s" % maxslotnamelen, slot, repr(value))
-        format(stream, "Python type: %s", type)
-        for slot in slots:
-                describe_slot(x, slot)
-        terpri(stream)
-
-def describe_object(o, stream):
-        def object_self_string(o):
-                if symbolp(o):
-                        return print_symbol(o)
-                else:
-                        return "#<python object %s>" % (o.__repr__(),)
-        def object_type_string(o):
-                return type(o).__name__
-        def print_standard_describe_header(o, stream):
-                format(stream, "%s\n  [%s]\n",
-                       object_self_string(o), object_type_string(o))
-        def describe_symbol(o, stream):
-                ### variable of some kind -- see the variable_kind() stub
-                # var_kind = info(keyword("variable"), make_keyword("kind"), o)
-                # var_kind = variable_kind(o)
-                describe_function(o, nil, stream)
-                describe_class(o, nil, stream)
-                ### type specifier
-                # type_kind = info(keyword("type"), make_keyword("kind"), o)
-                # type_kind = ?
-                ## defined   - expander
-                ## primitive - translator
-                ### optimisation policy
-                ### properties
-                if not (fboundp(o) or symbol_type_specifier_p(o)):
-                        describe_python_object(o, stream)
-        print_standard_describe_header(o, stream)
-        if symbolp(o): describe_symbol(o, stream)
-        else:
-                describe_python_object(o, stream)
-
-def describe(object, stream_designator = None):
-        "Print a description of OBJECT to STREAM-DESIGNATOR."
-        stream_designator = defaulted(stream_designator, symbol_value(_standard_output_))
-        with progv({_print_right_margin_: 72}):
-                describe_object(object, stream_designator)
 #+end_src
 
 *** Rudimentary CLOS imitation
@@ -10822,9 +10135,6 @@ class standard_object_t():
                 initialize_instance(self, **initargs)
 
 def slot_boundp(object, slot):            return hasattr(object, slot)
-def slot_makunbound(object, slot):        del object.__dir__[slot]
-def slot_value(object, slot):             return getattr(object, slot)
-def setf_slot_value(value, object, slot): return setattr(object, slot, value)
 
 def initialize_instance(instance, **initargs):
         """Called by MAKE-INSTANCE to initialize a newly created INSTANCE. The
@@ -11439,7 +10749,6 @@ def generic_function_method_class(x):              return x.method_class
 def generic_function_name(x):                      return x.name
 
 def generic_function_p(x): return functionp(x) and hasattr(x, "__methods__")  # XXX: CL+
-def method_p(x):           return functionp(x) and hasattr(x, "specializers") # XXX: CL+
 def specializerp(x):       return ((x is t)        or
                                     typep(x, (or_t, type, (pytuple_t, (eql_t, eql), t))))
 
@@ -12361,12 +11670,6 @@ __sealed_classes__ = set([object,
 def class_sealed_p(x):
         return x in __sealed_classes__
 
-## A sealed metaclass?
-def seal_class(x):
-        not_implemented()
-        # How do we forbid class precedence list modification?
-        __sealed_classes__.add(x)
-
 def compute_discriminating_function(generic_function):
         """Arguments:
 
@@ -13209,11 +12512,6 @@ correspondences are as follows:"""
 def method_qualifiers(x):       return x.qualifiers
 def method_lambda_list(x):      return x.lambda_list
 def method_specializers(x):     return x.specializers
-def method_function(x):         return x
-def method_slot_definition(x):  return x.__slot_definition__
-def method_documentation(x):    return x.__doc__
-
-def method_generic_function(x): return x.__generic_function__
 
 def remove_method(generic_function, method):
         """Arguments:
@@ -13643,72 +12941,6 @@ def init():
         init_condition_system()
         string_set("*DEFAULT-PATHNAME-DEFAULTS*", os.path.getcwd())
         return t
-#+end_src
-
-* Extra-curricular stuff
-*** Missing stuff
-
-#+begin_src python +n
-def valid_declaration_p(x):
-        return nil
-
-# class deadline_timeout(condition)
-# def with_deadline(timeout, body)
-
-def read_sequence(sequence, stream, start = 0, end = None):
-        not_implemented()
-
-def get(symbol, indicator, default = None):
-        """get symbol indicator &optional default => value
-
-(setf (get symbol indicator &optional default) new-value)
-
-Arguments and Values:
-
-SYMBOL---a symbol.
-
-INDICATOR---an object.
-
-DEFAULT---an object. The default is NIL.
-
-VALUE---if the indicated property exists, the object that is its
-        value; otherwise, the specified default.
-
-NEW-VALUE---an object.
-
-Description:
-
-GET finds a property on the property list[2] of SYMBOL whose property
-indicator is identical to INDICATOR, and returns its corresponding
-property value.  If there are multiple properties[1] with that
-property indicator, GET uses the first such property.  If there is no
-property with that property indicator, DEFAULT is returned.
-
-SETF of GET may be used to associate a new object with an existing
-indicator already on the SYMBOL's property list, or to create a new
-assocation if none exists.  If there are multiple properties[1] with
-that property indicator, SETF of GET associates the NEW-VALUE with the
-first such property.  When a GET form is used as a SETF place, any
-default which is supplied is evaluated according to normal
-left-to-right evaluation rules, but its value is ignored."""
-        not_implemented()
-
-def setf_get(new_value, symbol, indicator, default = None):
-        not_implemented()
-
-def symbol_plist(symbol):
-        not_implemented()
-
-def setf_symbol_plist(new_value, symbol):
-        not_implemented()
-
-###
-### ...
-###
-# Specification Issue INTERN-RELATIONSHIP-UNDERUSED
-## response: sufficiently smart compilers eliminate the efficiency concern,
-##           so what is left?
-def intern0(x, package = None): return intern(the(str, x), package)[0]
 #+end_src
 
 *** The Attic

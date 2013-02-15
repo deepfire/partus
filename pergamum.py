@@ -3,14 +3,10 @@
 ###
 from cl           import typep, functionp, stringp, mapcar, mapc, identity, remove_if, null, every, some, t
 from functools    import reduce, partial
-from cl           import of_type, setp, frozensetp
-from cl           import lret
 from cl           import prefix_suffix_if, prefix_suffix_if_not
 from cl           import map_into_hash
 from cl           import not_implemented_error, not_implemented
 from cl           import curry, compose
-from cl           import mapset, mapsetn
-from cl           import slotting, slot_of
 from cl           import servile
 from cl           import stream_as_string, file_as_string
 from cl           import fprintf, dprintf
@@ -32,6 +28,8 @@ Empty = frozenset([])
 
 ## types
 def type_name(x):         return type(x).__name__
+
+def of_type(x):           return lambda y: typep(y, x)
 
 def nonep(o):             return o is None
 def minus1p(o):           return o is -1
@@ -181,6 +179,9 @@ value for the current node, rather than its raw value."""
         return combine_fn(this_acc, *mapcar(lambda c: map_tree(accumulate_fn, combine_fn, c, key, children, this_acc, leafp), childs))
 
 ## sets
+def frozensetp(o): return isinstance(o, frozenset)
+def setp(o):       return isinstance(o, (set, frozenset))
+
 def mapset_star(f, xs):
         acc = set()
         for x in xs:
@@ -307,6 +308,13 @@ def listf(*args):      return list(args)
 def make_set(*args):   return set(args)
 def make_tuple(*args): return args
 
+def separate(n, f, xs):
+        ss = tuple(set() for _ in range(n))
+        for rss in (f(x) for x in xs):
+                for s, rs in zip(ss, rss):
+                        s |= rs
+        return ss
+
 def unzip(pred, xs):
         yep = []
         nay = []
@@ -328,7 +336,57 @@ def mapunzip(fpred, xs):
                         nay.add(x)
         return yep, nay
 
+__combiners__ = { set: set.add, list: list.append }
+def recombine(spec, f, xss):
+        accs  = tuple(f() for f in spec)
+        combs = tuple(__combiners__[type(a)] for a in accs)
+        for xs in xss:
+                for acc, comb, reselt in zip(accs, combs, f(xs)):
+                        comb(acc, reselt)
+        return accs
+def recombine_star(spec, f, *xss):
+        accs  = tuple(f() for f in spec)
+        combs = tuple(__combiners__[type(a)] for a in accs)
+        for xs in zip(*xss):
+                for acc, comb, reselt in zip(accs, combs, f(*xs)):
+                        comb(acc, reselt)
+        return accs
+
+def intersperse(x, xs):
+        """Return a sequence of elements, with X inserted between every two
+adjacent elements of XS."""
+        acc = []
+        if xs:
+                for ix in xs[:-1]:
+                        acc.append(ix)
+                        acc.append(x)
+                acc.append(xs[-1])
+        return acc
+
+def seek(n, iterator):
+        for i in range(n):
+                next(iterator, nil)
+
+def from_(n, xs):
+        iterator = iter(xs)
+        for i in range(n):
+                next(iterator, nil)
+        for x in iterator:
+                yield x
+
+termination_marker = object()
+def take(n, xs):
+        iterator = iter(xs)
+        for i in range(n):
+                elt = next(iterator, termination_marker)
+                if elt is not termination_marker:
+                        yield elt
+
 ## objects
+def slotting(x):             return lambda y: getattr(y, x, None)
+def slot_of(x):              return lambda y: getattr(x, y, None)
+def slot_equal(slot, val):   return lambda y: getattr(y, slot, None) == val
+
 def map_slot_into_total_set(o, fn, total_slot, recur_slot, recur_key=identity):
         '''Compute the total set for TOTAL_SLOT over RECUR_SLOT, accessed through KEY,
 caching it on the way.'''
