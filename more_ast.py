@@ -14,7 +14,7 @@ import types
 import cl
 
 from cl         import t, nil, typep, the, null, integerp, floatp, functionp, stringp,\
-                       car, identity, with_output_to_string, error, \
+                       identity, with_output_to_string, error, \
                        symbol_value, progv
 from cl         import not_implemented, string_t
 from pergamum   import astp, bytesp, emptyp, ascend_tree, multiset, multiset_appendf, fprintf

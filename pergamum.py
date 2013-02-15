@@ -1,12 +1,12 @@
 ###
 ### Some utilities, in the spirit of Common Lisp.
 ###
-from cl           import typep, functionp, stringp, mapcar, mapc, identity, remove_if, null, every, some, t
+from cl           import typep, functionp, stringp, mapcar, mapc, identity, null, every, t
 from functools    import reduce, partial
 from cl           import prefix_suffix_if, prefix_suffix_if_not
 from cl           import map_into_hash
 from cl           import not_implemented_error, not_implemented
-from cl           import curry, compose
+from cl           import curry
 from cl           import servile
 from cl           import stream_as_string, file_as_string
 from cl           import fprintf, dprintf
@@ -297,6 +297,16 @@ def plist_hash_table(xs):
         while xs:
                 v, k = xs.pop(), xs.pop()
                 acc[k] = v
+        return acc
+
+def map_into_hash_star(f, xs,
+                        key_test = lambda k: k is not None,
+                        value_test = lambda _: t) -> dict:
+        acc = dict()
+        for x in xs:
+                k, v = f(*x)
+                if key_test(k) and value_test(v):
+                        acc[k] = v
         return acc
 
 ## sequences

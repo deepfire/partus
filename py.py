@@ -12,12 +12,14 @@ import sys
 import threading
 import types
 
-from cl import error, list_, list__, gensym, gensymname, intern, append, identity, reduce, gethash, progv as _progv
-from cl import attrify_args, defaulted, defaulted_to_var, gensym_tn, make_keyword_tn, dprintf, undefined_function
+from cl import error, list_, list__, gensym, gensymname, intern, append, identity, reduce, gethash, progv as _progv, defun
+from cl import attrify_args, defaulted, defaulted_to_var, gensym_tn, dprintf, undefined_function
 from cl import typep, the, check_type, consp, functionp
 from cl import or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t, symbol_t, pyanytuple_t, maybe_t
-from cl import integer_t, float_t, cons_t, function_t
-from cl import symbol_value, symbol_name, symbol_package, make_symbol, package_name, find_package
+from cl import integer_t, float_t, cons_t, function_t, stream_t
+from cl import symbol_value, symbol_name, symbol_package, make_symbol, make_keyword, make_keyword_tn
+from cl import package_name, find_package
+from cl import defun as _defun_, defclass as _defclass_
 from cl import find_global_variable, format
 from cl import interpreted_function_name_symbol, get_function_rtname, unit_variable_rtname
 from cl import consify_linear, xmap_to_vector, validate_function_args, validate_function_keys, without_condition_system
@@ -208,10 +210,10 @@ def function_lambda_list(fn, astify_defaults = t):
 ##
 ## DEFAST
 ##
-ast_info = cl.poor_man_defstruct("_ast_info",
-                                  "type",
-                                  "fields",     # each field is dict(name, type, walk, [default])
-                                  "nfixed")
+ast_info = collections.namedtuple("_ast_info",
+                                  ["type",
+                                   "fields",     # each field is dict(name, type, walk, [default])
+                                   "nfixed"])
 __ast_infos__                = dict()
 def find_ast_info(type):     return __ast_infos__[type]
 
@@ -2039,14 +2041,6 @@ def here(note = None, *args, callers = 5, stream = None, default_stream = sys.st
                       )
 
 ##
-## CL level services
-##
-def backtrace(x = -1, stream = None, frame = None, frame_ids = None, offset = 0):
-        print_frames(frames_calling(defaulted(frame, this_frame()))[1 + offset:x],
-                     defaulted_to_var(stream, _debug_io_),
-                     frame_ids = frame_ids)
-
-##
 ## Essential runtime: symbol, global variable and function availability
 ##
 def make_undefined_function_stub(name):
@@ -2237,3 +2231,396 @@ class py(machine):
                 # dprintf("; D-P: globals: %x, content: %s",
                 #               id(globals), { k:v for k,v in globals.items() if k != '__builtins__' })
                 return function
+###
+### CL level services
+###
+@_defun_
+def backtrace(x = -1, stream = None, frame = None, frame_ids = None, offset = 0):
+        print_frames(frames_calling(defaulted(frame, this_frame()))[1 + offset:x],
+                     defaulted_to_var(stream, _debug_io_),
+                     frame_ids = frame_ids)
+
+@_defun_
+def boundp(symbol):
+        # Unregistered Issue COMPLIANCE-BOUNDP-ACCEPTS-STRINGS
+        return t if find_dynamic_frame(the(symbol_t, symbol)) else nil
+
+@_defclass_
+class broadcast_stream_t(stream_t):
+        def __init__(self, *streams):
+                self.streams  = streams
+        def write(self, data):
+                for component in self.streams:
+                        component.write(data)
+        def flush(self):
+                for component in self.streams:
+                        component.flush()
+        def readable(self): return nil
+        def writable(self): return t
+
+@_defclass_
+class synonym_stream_t(stream_t):
+        def __init__(self, symbol):
+                self.symbol  = symbol
+        def stream():
+                return symbol_value(self.symbol)
+        def read(self, amount):
+                return self.stream().read(amount)
+        def write(self, data):
+                return self.stream().write(data)
+        def flush(self):
+                return self.stream().flush()
+        def readable(self): return self.stream.readable()
+        def writable(self): return self.stream.writable()
+
+def compose(f, g):
+        return lambda *args, **keys: f(g(*args, **keys))
+
+@_defun_
+def count(elt, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
+        key, start, end, from_end, test, test_not = [ keys.get(k, df) for k, df
+                                                      in [ (_key_,     identity),
+                                                           (_start,    0),
+                                                           (_end,      nil),
+                                                           (_from_end, nil),
+                                                           (_test,     nil),
+                                                           (_test_not, nil) ] ]
+        not_implemented()
+
+@_defun_
+def count_if(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
+        key, start, end, from_end = [ keys.get(k, df) for k, df
+                                      in [ (_key_,     identity),
+                                           (_start,    0),
+                                           (_end,      nil),
+                                           (_from_end, nil) ] ]
+        not_implemented()
+
+@_defun_
+def count_if_not(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
+        key, start, end, from_end = [ keys.get(k, df) for k, df
+                                      in [ (_key_,     identity),
+                                           (_start,    0),
+                                           (_end,      nil),
+                                           (_from_end, nil) ] ]
+        not_implemented()
+
+@_defun_
+def find_if(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
+        return cl.do_find_if(p, xs, keys)
+
+@_defun_
+def find_if_not(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
+        return cl.do_find_if(lambda x: not p(x), xs, keys)
+
+@_defun_
+def export(symbols, package = None):
+        symbols, package = symbols if isinstance(symbols, list) else [symbols], coerce_to_package(package)
+        assert(all(isinstance(x, symbol_t)
+                   for x in symbols))
+        symdict = map_into_hash(lambda x: (x.name, x), symbols)
+        for user in package.packages_using:
+                use_package_symbols(user, package, symdict)
+        # No conflicts?  Alright, we can proceed..
+        symset = set(symdict.values())
+        for_interning = symset & set(package.inherited)
+        for sym in for_interning:
+                del package.inherited[sym]
+                self.internal.add(sym)
+        package.external |= symset
+        return True
+
+@_defun_
+def fboundp(name):
+        """fboundp name => generalized-boolean
+
+Pronunciation:
+
+[,ef'bandpee]
+
+Arguments and Values:
+
+NAME---a function name.
+
+GENERALIZED-BOOLEAN---a generalized boolean.
+
+Description:
+
+Returns true if NAME is fbound; otherwise, returns false."""
+        return t if (the(symbol_t, name).function or
+                     name.macro_function) else nil
+
+## @_defun_ def function was moved lower, due to dependency on @_defun_ and CL:T
+
+@_defun_
+def file_position(x):
+        return x.seek(0, 1)
+
+def symbols_not_accessible_error(package, syms):
+        def pp_sym_or_string(x):
+                return "\"%s\"" % x if isinstance(x, str) else print_nonkeyword_symbol(x)
+        error(simple_package_error_t, "These symbols are not accessible in the %s package: (%s).",
+              package_name(package), ", ".join((pp_sym_or_string(x) for x in syms)))
+
+def find_symbol_or_fail(x, package = None):
+        sym = really_do_find_symbol(x, coerce_to_package(package))
+        return (sym if sym is not None else
+                symbols_not_accessible_error(p, [x]))
+
+@_defun_
+def get_universal_time():
+        # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
+        # time.time() returns microseconds..
+        return int(time.time())
+
+@_defun_
+def hash_table_alist(xs):
+        return mapcon(lambda kv: [k, [v, nil]],
+                      consify_linear(the(dict, xs).items()))
+
+@_defun_("IMPORT")
+def import__(symbols, package = None, populate_module = True):
+        p = coerce_to_package(package)
+        symbols = vectorise_linear(ensure_list(symbols))
+        module = find_module(frost.lisp_symbol_name_python_name(package_name(p)),
+                              if_does_not_exist = "continue")
+        for s in symbols:
+                ps, accessible = gethash(s.name, p.accessible)
+                if ps is s:
+                        continue
+                elif accessible: # conflict
+                        symbol_conflict_error("IMPORT", s, p, s, ps)
+                else:
+                        p.imported.add(s)
+                        p.accessible[s.name] = s
+                        if module:
+                                not_implemented("Namespace merging.")
+                                # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
+                                # python_name = frost.lisp_symbol_name_python_name(s.name)
+                                # module.__dict__[python_name] = ?
+        return t
+
+@_defun_
+def open_stream_p(x):
+        return not the(stream_t, x).closed
+
+@_defun_
+def input_stream_p(x):
+        return open_stream_p(x) and x.readable()
+
+@_defun_
+def output_stream_p(x):
+        return open_stream_p(x) and x.writable()
+
+@_defun_
+def invoke_restart(restart, *args, **keys):
+        """
+Calls the function associated with RESTART, passing arguments to
+it. Restart must be valid in the current dynamic environment.
+"""
+        assert(isinstance(restart, str) or restartp(restart))
+        restart = restart if restartp(restart) else find_restart(restart)
+        return restart.function(*args, **keys)
+
+@_defun_
+def invoke_restart_interactively(restart):
+        """
+INVOKE-RESTART-INTERACTIVELY calls the function associated with
+RESTART, prompting for any necessary arguments. If RESTART is a name,
+it must be valid in the current dynamic environment.
+
+INVOKE-RESTART-INTERACTIVELY prompts for arguments by executing the
+code provided in the :INTERACTIVE KEYWORD to RESTART-CASE or
+:INTERACTIVE-FUNCTION keyword to RESTART-BIND.
+
+If no such options have been supplied in the corresponding
+RESTART-BIND or RESTART-CASE, then the consequences are undefined if
+the restart takes required arguments. If the arguments are optional,
+an argument list of nil is used.
+
+Once the arguments have been determined, INVOKE-RESTART-INTERACTIVELY
+executes the following:
+
+ (apply #'invoke-restart restart arguments)
+"""
+        assert(isinstance(restart, str) or restartp(restart))
+        restart = restart if restartp(restart) else find_restart(restart)
+        return invoke_restart(restart, *restart.interactive_function())
+
+@_defun_
+def make_hash_table(default_constructor = None):
+        return (collections.defaultdict(default_constructor) if default_constructor else
+                dict())
+
+@_defun_
+def make_list(length, *rest):
+        elt = extract_keywords(rest, [_initial_element]).get(initial_element, nil)
+        acc = nil
+        for i in range(length):
+                acc = [elt, acc]
+        return acc
+
+## Unregistered Issue COMPLIANCE-HOST-TYPE-WRONG
+@_defun_
+def make_pathname(*args, host = None, device = None, directory = None, name = None, type = None, version = None,
+                  default = None, case = make_keyword("LOCAL")):
+        assert not args
+        default = default or pathname_t(**_defaulted_keys(
+                        host = pathname_host(symbol_value(_default_pathname_defaults_)),
+                        device = nil, directory = nil, name = nil, type = nil, version = nil))
+        effective_host = defaulted(host, default.host)
+        supplied_pathname = dict(
+                (k, effective_host.apply_case(case, v) if isinstance(v, str) else v)
+                for k, v in only_specified_keys(host = host, device = device, directory = directory, name = name, type = type, version = version).items())
+        ## Unregistered Issue RESEARCH-COMPLIANCE-MAKE-PATHNAME-CANONICALISATION
+        return merge_pathnames(supplied_pathname, default)
+
+@_defun_
+def member(x, xs):
+        keys = extract_keywords(rest, [_key_, test, test_not])
+        key, test, test_not = [ keys.get(k, df) for k, df
+                                in [ (key_,     identity),
+                                     (test,     nil),
+                                     (test_not, nil) ] ]
+        not_implemented()
+
+@_defun_
+def member_if(test, xs):
+        key = extract_keywords(rest, [_key_]).get(key_, identity)
+        not_implemented()
+
+@_defun_
+def member_if_not(test, xs):
+        key = extract_keywords(rest, [_key_]).get(key_, identity)
+        not_implemented()
+
+@_defun_
+def parse_integer(xs, junk_allowed = nil, radix = 10):
+        l = len(xs)
+        def hexcharp(x): return x.isdigit() or x in ["a", "b", "c", "d", "e", "f"]
+        (test, xform) = ((str.isdigit, identity)      if radix == 10 else
+                         (hexcharp,    float.fromhex) if radix == 16 else
+                         not_implemented("PARSE-INTEGER only implemented for radices 10 and 16."))
+        for end in range(0, l):
+                if not test(xs[end]):
+                        if junk_allowed:
+                                end -= 1
+                                break
+                        else:
+                                error("Junk in string \"%s\".", xs)
+        return int(xform(xs[:(end + 1)]))
+
+@_defun_
+def plusp(x):
+        return t if x > 0 else nil
+
+@_defun_
+def position(elt, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
+        key, test, test_not = [ keys.get(k, df) for k, df
+                                in [ (_key_,     identity),
+                                     (_test,     eql),
+                                     (_test_not, nil) ] ]
+        if _key_     in keys: del keys[_key_]
+        if _test     in keys: del keys[_test]
+        if _test_not in keys: del keys[_test_not]
+        return do_position_if(compute_predicate(key, elt, test = test, test_not = test_not),
+                             xs, keys)
+
+@_defun_
+def position_if(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
+        return do_position_if(p, xs, keys)
+
+@_defun_
+def position_if_not(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
+        return do_position_if(lambda x: not p(x), xs, keys)
+
+@_defun_
+def read_line(stream = None, eof_error_p = t, eof_value = nil):
+        stream = defaulted_to_var(stream, _standard_input_)
+        return handler_case(lambda: stream.readline(),
+                            (error_t,
+                             lambda c: error(end_of_file_t, "end of file on %s" % (stream,))))
+
+@_defun_
+def read_from_string(string, eof_error_p = t, eof_value = nil,
+                           start = 0, end = None, preserve_whitespace = None):
+        stream = io.StringIO(string)
+        try:
+                return cold_read(stream, eof_error_p = eof_error_p, eof_value = eof_value,
+                                  start = start, end = end, preserve_whitespace = preserve_whitespace)
+        finally:
+                close(stream)
+
+@_defun_
+def remove_if(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _count])
+        return do_remove_if(p, xs, keys)
+
+@_defun_
+def remove_if_not(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _count])
+        return do_remove_if(lambda x: not p(x), xs, keys)
+
+@_defun_
+def sleep(x):
+        return time.sleep(x)
+
+@_defun_
+def some(f, xs, *xss):
+        if not xss:
+                while xs:
+                        if f(xs[0]):
+                                 return t
+                        xs = xs[1]
+                return nil
+        else:
+                not_implemented("SOME: multiple-list case")
+
+@_defun_
+def stable_sort(xs, predicate):
+        return sorted(xs, key = functools.cmp_to_key(predicate))
+
+def with_standard_io_syntax(body):
+        """Within the dynamic extent of the BODY of forms, all reader/printer
+control variables, including any implementation-defined ones not
+specified by this standard, are bound to values that produce standard
+READ/PRINT behavior. The values for the variables specified by this
+standard are listed in the next figure.
+
+Variable                     Value
+*package*                    The CL-USER package
+*print-array*                t
+*print-base*                 10
+*print-case*                 :upcase
+*print-circle*               nil
+*print-escape*               t
+*print-gensym*               t
+*print-length*               nil
+*print-level*                nil
+*print-lines*                nil
+*print-miser-width*          nil
+*print-pprint-dispatch*      The standard pprint dispatch table
+*print-pretty*               nil
+*print-radix*                nil
+*print-readably*             t
+*print-right-margin*         nil
+*read-base*                  10
+*read-default-float-format*  single-float
+*read-eval*                  t
+*read-suppress*              nil
+*readtable*                  The standard readtable
+"""
+        with progv(__standard_io_syntax__):
+                return body()
+
+def write_char(c, stream = t):
+        write_string(c, stream)
+        return c

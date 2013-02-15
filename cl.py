@@ -58,13 +58,6 @@ def defaulted(x, value, type = None):
 def defaulted_to_var(x, variable, type = None):
         return x if x is not None else defaulted(x, symbol_value(variable), type = type)
 
-def specifiedp(x):
-        return x is not None
-
-def only_specified_keys(**keys):
-        return dict(((k, v) for k, v in keys.items()
-                     if specifiedp(k)))
-
 def defaulted_keys(**keys):
         return dict((key, (default if value is None else value))
                     for key, (value, default) in keys.items())
@@ -149,7 +142,6 @@ def interpret_toplevel_value(name_or_obj, objness_predicate):
 
 # Cold types
 
-cold_class_type       = type
 cold_condition_type   = BaseException
 cold_error_type       = Exception
 cold_hash_table_type  = dict
@@ -193,11 +185,6 @@ def type_of(x):
 
 @boot_defun
 def identity(x):   return x
-
-@boot_defun
-def make_hash_table(default_constructor = None):
-        return (collections.defaultdict(default_constructor) if default_constructor else
-                dict())
 
 @boot_defun
 def gethash(key, dict, default = None):
@@ -301,12 +288,6 @@ def string_set(symbol_name, value, force_toplevel = None, symbolicp = True, glob
         symbolicp and pyimport_symbol(name, globals = globals)
         return value
 
-@boot("symbol", lambda _, name: find_dynamic_frame(boot_check_type(stringp, name)) and t)
-@boot_defun
-def boundp(symbol):
-        # Unregistered Issue COMPLIANCE-BOUNDP-ACCEPTS-STRINGS
-        return t if find_dynamic_frame(the(symbol_t, symbol)) else nil
-
 # Boot conditions: WARN, ERROR
 
 def conditionp(x):
@@ -362,12 +343,6 @@ def package_not_found_error(x):
 def symbol_conflict_error(op, obj, pkg, x, y):
         error(simple_package_error_t, "%s %s causes name-conflicts in %s between the following symbols: %s, %s." %
               (op, obj, pkg, x, y))
-
-def symbols_not_accessible_error(package, syms):
-        def pp_sym_or_string(x):
-                return "\"%s\"" % x if isinstance(x, str) else print_nonkeyword_symbol(x)
-        error(simple_package_error_t, "These symbols are not accessible in the %s package: (%s).",
-              package_name(package), ", ".join((pp_sym_or_string(x) for x in syms)))
 
 # Package system classes
 
@@ -490,11 +465,6 @@ def do_symbol_function(symbol):  return (symbol.known          or
 
 def really_do_find_symbol(str, package):
         return gethash(str, package.accessible, None)[0]
-
-def find_symbol_or_fail(x, package = None):
-        sym = really_do_find_symbol(x, coerce_to_package(package))
-        return (sym if sym is not None else
-                symbols_not_accessible_error(p, [x]))
 
 def symbol_relation(x, p):
         "NOTE: here we trust that X belongs to P, when it's a symbol."
@@ -640,45 +610,6 @@ def intern(x, package = None):
         s, found_in_package = do_intern(x, package)
         return s, (symbol_relation(s, package) if found_in_package else
                    None)
-
-@boot_defun
-def export(symbols, package = None):
-        symbols, package = symbols if isinstance(symbols, list) else [symbols], coerce_to_package(package)
-        assert(all(isinstance(x, symbol_t)
-                   for x in symbols))
-        symdict = map_into_hash(lambda x: (x.name, x), symbols)
-        for user in package.packages_using:
-                use_package_symbols(user, package, symdict)
-        # No conflicts?  Alright, we can proceed..
-        symset = set(symdict.values())
-        for_interning = symset & set(package.inherited)
-        for sym in for_interning:
-                del package.inherited[sym]
-                self.internal.add(sym)
-        package.external |= symset
-        return True
-
-@boot_defun
-def import_(symbols, package = None, populate_module = True):
-        p = coerce_to_package(package)
-        symbols = vectorise_linear(ensure_list(symbols))
-        module = find_module(frost.lisp_symbol_name_python_name(package_name(p)),
-                              if_does_not_exist = "continue")
-        for s in symbols:
-                ps, accessible = gethash(s.name, p.accessible)
-                if ps is s:
-                        continue
-                elif accessible: # conflict
-                        symbol_conflict_error("IMPORT", s, p, s, ps)
-                else:
-                        p.imported.add(s)
-                        p.accessible[s.name] = s
-                        if module:
-                                not_implemented("Namespace merging.")
-                                # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
-                                # python_name = frost.lisp_symbol_name_python_name(s.name)
-                                # module.__dict__[python_name] = ?
-        return t
 
 # Package system init
 
@@ -937,10 +868,8 @@ def define_python_type_map(symbol_or_name, type_):
 
 define_python_type_map("INTEGER",           int)
 define_python_type_map("FLOAT",             float)
-define_python_type_map("COMPLEX",           complex)
 
 define_python_type_map("STRING",            str)
-define_python_type_map("HASH-TABLE",        cold_hash_table_type)
 
 define_python_type_map("FUNCTION",          cold_function_type)
 
@@ -949,12 +878,6 @@ define_python_type_map("STREAM",            cold_stream_type)
 define_python_type_map("CONDITION",         BaseException)
 define_python_type_map("ERROR",             Exception)
 define_python_type_map("END-OF-FILE",       EOFError)
-
-## non-standard type names
-define_python_type_map("PYBYTES",     bytes)
-define_python_type_map("PYBYTEARRAY", bytearray)
-define_python_type_map("PYSET",       set)
-define_python_type_map("PYFROZENSET", frozenset)
 
 # Complex type specifier machinery: %TYPE-MISMATCH, @DEFTYPE, TYPEP
 
@@ -1349,39 +1272,6 @@ __standard_io_syntax__ = dict({_package_               : find_package("COMMON-LI
                                _read_suppress_             : nil,
                                _readtable_                 : __standard_readtable__})
 
-def with_standard_io_syntax(body):
-        """Within the dynamic extent of the BODY of forms, all reader/printer
-control variables, including any implementation-defined ones not
-specified by this standard, are bound to values that produce standard
-READ/PRINT behavior. The values for the variables specified by this
-standard are listed in the next figure.
-
-Variable                     Value
-*package*                    The CL-USER package
-*print-array*                t
-*print-base*                 10
-*print-case*                 :upcase
-*print-circle*               nil
-*print-escape*               t
-*print-gensym*               t
-*print-length*               nil
-*print-level*                nil
-*print-lines*                nil
-*print-miser-width*          nil
-*print-pprint-dispatch*      The standard pprint dispatch table
-*print-pretty*               nil
-*print-radix*                nil
-*print-readably*             t
-*print-right-margin*         nil
-*read-base*                  10
-*read-default-float-format*  single-float
-*read-eval*                  t
-*read-suppress*              nil
-*readtable*                  The standard readtable
-"""
-        with progv(__standard_io_syntax__):
-                return body()
-
 def set_settable_standard_globals():
         string_set("*READ-CASE*", make_keyword("UPCASE"))
         string_set("*FEATURES*",  nil)
@@ -1431,15 +1321,6 @@ most_positive_fixnum = 67108864
 def poor_man_let(*values_and_body):
         values, body = values_and_body[:-1], values_and_body[-1]
         return body(*values)
-
-def poor_man_defstruct(name, *slots):
-        return collections.namedtuple(name, slots)
-
-def poor_man_case(val, *clauses):
-        for (cval, body) in clauses:
-                if ((val == cval or (cval is True) or (cval is t)) if not isinstance(cval, list) else
-                    val in cval):
-                        return body() if isinstance(body, cold_function_type) else body
 
 def poor_man_ecase(val, *clauses):
         for (cval, body) in clauses:
@@ -1518,17 +1399,10 @@ def locals_printf(locals, *local_names):
 def alist_hash_table(xs):
         return { x[0]: x[1] for x in vectorise_linear(xs) }
 
-def hash_table_alist(xs):
-        return mapcon(lambda kv: [k, [v, nil]],
-                      consify_linear(the(dict, xs).items()))
-
 # Pergamum 0
 
 def if_let(x, consequent, antecedent = lambda: None):
         return consequent(x) if x else antecedent()
-
-def compose(f, g):
-        return lambda *args, **keys: f(g(*args, **keys))
 
 def updated_dict(to, from_):
         to.update(from_)
@@ -1634,15 +1508,6 @@ def some_fast_2(f, xs, ys):
                 if ret: return ret or t
         return nil
 
-def xorf(x, y):
-        return (x or y) and not (x and y)
-
-# Sequences
-
-@defun
-def stable_sort(xs, predicate):
-        return sorted(xs, key = functools.cmp_to_key(predicate))
-
 # Dicts
 
 # Issue INCONSISTENT-HASH-TABLE-FUNCTION-NAMING
@@ -1650,16 +1515,6 @@ def dictappend(*dicts):
         acc = dict()
         for d in dicts:
                 acc.update(d)
-        return acc
-
-def map_into_hash_star(f, xs,
-                        key_test = lambda k: k is not None,
-                        value_test = lambda _: t) -> dict:
-        acc = dict()
-        for x in xs:
-                k, v = f(*x)
-                if key_test(k) and value_test(v):
-                        acc[k] = v
         return acc
 
 # Complex arguments
@@ -1688,28 +1543,6 @@ def find_module(name, if_does_not_exist = "error"):
                                                name))))
 
 # Functions
-
-@defun
-def fboundp(name):
-        """fboundp name => generalized-boolean
-
-Pronunciation:
-
-[,ef'bandpee]
-
-Arguments and Values:
-
-NAME---a function name.
-
-GENERALIZED-BOOLEAN---a generalized boolean.
-
-Description:
-
-Returns true if NAME is fbound; otherwise, returns false."""
-        return t if (the(symbol_t, name).function or
-                     name.macro_function) else nil
-
-## @defun def function was moved lower, due to dependency on @defun and CL:T
 
 @defun
 def symbol_function(symbol):
@@ -2058,15 +1891,6 @@ def file_stream_name(x):
 
 # Stream types and functions
 
-def open_stream_p(x):
-        return not the(stream_t, x).closed
-
-def input_stream_p(x):
-        return open_stream_p(x) and x.readable()
-
-def output_stream_p(x):
-        return open_stream_p(x) and x.writable()
-
 @defclass
 class two_way_stream_t(stream_t):
         def __init__(self, input, output):
@@ -2088,39 +1912,12 @@ class two_way_stream_t(stream_t):
         def readable(self): return t
         def writable(self): return t
 
+@defun
 def make_two_way_stream(input, output):   return two_way_stream_t(input, output)
 
 string_set("*DEBUG-IO*", make_two_way_stream(symbol_value(_standard_input_), symbol_value(_standard_output_)))
 string_set("*QUERY-IO*", make_two_way_stream(symbol_value(_standard_input_), symbol_value(_standard_output_)))
 # raise simple_condition("Boo %s.", 2)
-
-@defclass
-class broadcast_stream_t(stream_t):
-        def __init__(self, *streams):
-                self.streams  = streams
-        def write(self, data):
-                for component in self.streams:
-                        component.write(data)
-        def flush(self):
-                for component in self.streams:
-                        component.flush()
-        def readable(self): return nil
-        def writable(self): return t
-
-@defclass
-class synonym_stream_t(stream_t):
-        def __init__(self, symbol):
-                self.symbol  = symbol
-        def stream():
-                return symbol_value(self.symbol)
-        def read(self, amount):
-                return self.stream().read(amount)
-        def write(self, data):
-                return self.stream().write(data)
-        def flush(self):
-                return self.stream().flush()
-        def readable(self): return self.stream.readable()
-        def writable(self): return self.stream.writable()
 
 def coerce_to_stream(x):
         return (x                               if streamp(x) else
@@ -2129,14 +1926,11 @@ def coerce_to_stream(x):
 
 # Stream output functions and FORMAT
 
-def write_char(c, stream = t):
-        write_string(c, stream)
-        return c
-
 @defun
 def terpri(stream = t):
         write_string("\n", stream)
 
+@defun
 def write_string(string, stream = t):
         if stream is not nil:
                 def handler():
@@ -2151,9 +1945,11 @@ def write_string(string, stream = t):
                                           reason = "_write_string")
         return string
 
+@defun
 def write_line(string, stream = t):
         return write_string(string + "\n", stream)
 
+@defun
 def finish_output(stream = t):
         check_type(stream, (or_t, stream_t, (member_t, t, nil)))
         (stream is not nil) and coerce_to_stream(stream).flush()
@@ -2207,10 +2003,6 @@ def get_output_stream_string(x):
 @defun
 def close(x):
         x.close()
-
-@defun
-def file_position(x):
-        return x.seek(0, 1)
 
 def stream_as_string(stream):
         return stream.read()
@@ -2293,21 +2085,6 @@ class pathname_t():
 
 @defun
 def pathnamep(x): return t if isinstance(x, pathname_t) else nil
-
-## Unregistered Issue COMPLIANCE-HOST-TYPE-WRONG
-@defun
-def make_pathname(*args, host = None, device = None, directory = None, name = None, type = None, version = None,
-                  default = None, case = make_keyword("LOCAL")):
-        assert not args
-        default = default or pathname_t(**_defaulted_keys(
-                        host = pathname_host(symbol_value(_default_pathname_defaults_)),
-                        device = nil, directory = nil, name = nil, type = nil, version = nil))
-        effective_host = defaulted(host, default.host)
-        supplied_pathname = dict(
-                (k, effective_host.apply_case(case, v) if isinstance(v, str) else v)
-                for k, v in only_specified_keys(host = host, device = device, directory = directory, name = name, type = type, version = version).items())
-        ## Unregistered Issue RESEARCH-COMPLIANCE-MAKE-PATHNAME-CANONICALISATION
-        return merge_pathnames(supplied_pathname, default)
 
 @defun
 def parse_namestring(thing, host = nil, default_pathname = None, *args, start = 0, end = nil, junk_allowed = nil):
@@ -2569,38 +2346,9 @@ _key_, _start, _end, _from_end, _test, _test_not, _count = [ make_keyword(x) for
 # MAP
 # MAP-INTO
 # REDUCE
-
-@defun
-def count(elt, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
-        key, start, end, from_end, test, test_not = [ keys.get(k, df) for k, df
-                                                      in [ (_key_,     identity),
-                                                           (_start,    0),
-                                                           (_end,      nil),
-                                                           (_from_end, nil),
-                                                           (_test,     nil),
-                                                           (_test_not, nil) ] ]
-        not_implemented()
-
-@defun
-def count_if(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        key, start, end, from_end = [ keys.get(k, df) for k, df
-                                      in [ (_key_,     identity),
-                                           (_start,    0),
-                                           (_end,      nil),
-                                           (_from_end, nil) ] ]
-        not_implemented()
-
-@defun
-def count_if_not(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        key, start, end, from_end = [ keys.get(k, df) for k, df
-                                      in [ (_key_,     identity),
-                                           (_start,    0),
-                                           (_end,      nil),
-                                           (_from_end, nil) ] ]
-        not_implemented()
+# COUNT
+# COUNT-IF
+# COUNT-IF-NOT
 
 @defun
 def length(x):
@@ -2668,15 +2416,8 @@ def find(elt, xs, *rest):
         return do_find_if(compute_predicate(key, elt, test = test, test_not = test_not),
                           xs, keys)
 
-@defun
-def find_if(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        return do_find_if(p, xs, keys)
-
-@defun
-def find_if_not(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        return do_find_if(lambda x: not p(x), xs, keys)
+# FIND-IF
+# FIND-IF-NOT
 
 def do_position_if(pred, xs, keys):
         key, start, end, from_end = [ keys.get(k, df) for k, df
@@ -2701,29 +2442,6 @@ def do_position_if(pred, xs, keys):
                 return nil
         else:
                 not_implemented("POSITION-IF: non-list case")
-
-@defun
-def position(elt, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
-        key, test, test_not = [ keys.get(k, df) for k, df
-                                in [ (_key_,     identity),
-                                     (_test,     eql),
-                                     (_test_not, nil) ] ]
-        if _key_     in keys: del keys[_key_]
-        if _test     in keys: del keys[_test]
-        if _test_not in keys: del keys[_test_not]
-        return do_position_if(compute_predicate(key, elt, test = test, test_not = test_not),
-                             xs, keys)
-
-@defun
-def position_if(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        return do_position_if(p, xs, keys)
-
-@defun
-def position_if_not(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        return do_position_if(lambda x: not p(x), xs, keys)
 
 # SEARCH
 # MISMATCH
@@ -2804,16 +2522,6 @@ def remove(elt, xs, *rest):
         return do_remove_if(compute_predicate(key, elt, test = test, test_not = test_not),
                             xs, keys)
 
-@defun
-def remove_if(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _count])
-        return do_remove_if(p, xs, keys)
-
-@defun
-def remove_if_not(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _count])
-        return do_remove_if(lambda x: not p(x), xs, keys)
-
 # REMOVE-DUPLICATES
 # DELETE-DUPLICATES
 
@@ -2834,14 +2542,10 @@ def atom(x):        return t if not isinstance(x, list) or len(x) != 2 else nil
 # RPLACD
 
 @defun
-def car(x):         return x[0] if x else nil
+def car(x):         return nil if x is nil else x[0]
 
-@defun
-def cdr(x):         return x[1] if x else nil
-
-@defun
-def rest(x):        return x[1] if x else nil
-
+# CDR
+# REST
 # CAAR
 # CADR
 # CDAR
@@ -2891,14 +2595,6 @@ def list__(*xs):
 
 @defun
 def listp(x):       return t if x is nil or isinstance(x, list) and len(x) is 2 else nil
-
-@defun("MAKE-LIST")
-def make_list(length, *rest):
-        elt = extract_keywords(rest, [_initial_element]).get(initial_element, nil)
-        acc = nil
-        for i in range(length):
-                acc = [elt, acc]
-        return acc
 
 # PUSH
 # POP
@@ -2978,25 +2674,6 @@ def nthcdr(n, xs):
         return xs
 
 # REST
-
-@defun
-def member(x, xs):
-        keys = extract_keywords(rest, [_key_, test, test_not])
-        key, test, test_not = [ keys.get(k, df) for k, df
-                                in [ (key_,     identity),
-                                     (test,     nil),
-                                     (test_not, nil) ] ]
-        not_implemented()
-
-@defun
-def member_if(test, xs):
-        key = extract_keywords(rest, [_key_]).get(key_, identity)
-        not_implemented()
-
-@defun
-def member_if_not(test, xs):
-        key = extract_keywords(rest, [_key_]).get(key_, identity)
-        not_implemented()
 
 @defun
 def mapc(f, xs, *xss):
@@ -3227,17 +2904,6 @@ def every(f, xs, *xss):
                 return t
         else:
                 not_implemented("EVERY: multiple-list case")
-
-@defun
-def some(f, xs, *xss):
-        if not xss:
-                while xs:
-                        if f(xs[0]):
-                                 return t
-                        xs = xs[1]
-                return nil
-        else:
-                not_implemented("SOME: multiple-list case")
 
 # Function VALUES-LIST
 
@@ -3596,21 +3262,6 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_QQ") == "t":
 
 string_set("*READ-CASE*", make_keyword("upcase"))
 
-def parse_integer(xs, junk_allowed = nil, radix = 10):
-        l = len(xs)
-        def hexcharp(x): return x.isdigit() or x in ["a", "b", "c", "d", "e", "f"]
-        (test, xform) = ((str.isdigit, identity)      if radix == 10 else
-                         (hexcharp,    float.fromhex) if radix == 16 else
-                         not_implemented("PARSE-INTEGER only implemented for radices 10 and 16."))
-        for end in range(0, l):
-                if not test(xs[end]):
-                        if junk_allowed:
-                                end -= 1
-                                break
-                        else:
-                                error("Junk in string \"%s\".", xs)
-        return int(xform(xs[:(end + 1)]))
-
 def read_symbol(x, package = None, case = None):
         # dprintf("_read_symbol >%s<, x[0]: >%s<", x, x[0])
         case = defaulted_to_var(case, _read_case_)
@@ -3627,12 +3278,6 @@ def read_symbol(x, package = None, case = None):
                                           if index != -1 else
                                           (x, coerce_to_package(package)))))
         return intern(case_xform(case, name), p)[0]
-
-def read_line(stream = None, eof_error_p = t, eof_value = nil):
-        stream = defaulted_to_var(stream, _standard_input_)
-        return handler_case(lambda: stream.readline(),
-                            (error_t,
-                             lambda c: error(end_of_file_t, "end of file on %s" % (stream,))))
 
 def read_char(stream = None, eof_error_p = t, eof_value = nil, recursivep = nil):
         stream = defaulted_to_var(stream, _standard_input_)
@@ -3811,17 +3456,6 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
         # format(t, "lastly %s\n", pp_consly(ret))
         return expand_quasiquotation(ret)
 read = cold_read
-
-def cold_read_from_string(string, eof_error_p = t, eof_value = nil,
-                           start = 0, end = None, preserve_whitespace = None):
-        stream = io.StringIO(string)
-        try:
-                return cold_read(stream, eof_error_p = eof_error_p, eof_value = eof_value,
-                                  start = start, end = end, preserve_whitespace = preserve_whitespace)
-        finally:
-                close(stream)
-
-read_from_string = cold_read_from_string
 
 # Condition system
 
@@ -4060,9 +3694,6 @@ def do_restart_bind(body, restart_args):
                                               for name, restart_args in restart_args.items() }])}):
                 return body()
 
-def restart_bind(body, **restart_specs):
-        return do_restart_bind(body, specs_restarts_args(restart_specs))
-
 __valid_restart_options__ = frozenset(["interactive", "report", "test", "function"])
 def do_restart_case(body, **restarts_args):
         def validate_restart_options(options):
@@ -4188,39 +3819,6 @@ returned by COMPUTE-RESTARTS is every modified.
                                 if condition else
                                 cluster.values())
         return restarts
-
-def invoke_restart(restart, *args, **keys):
-        """
-Calls the function associated with RESTART, passing arguments to
-it. Restart must be valid in the current dynamic environment.
-"""
-        assert(isinstance(restart, str) or restartp(restart))
-        restart = restart if restartp(restart) else find_restart(restart)
-        return restart.function(*args, **keys)
-
-def invoke_restart_interactively(restart):
-        """
-INVOKE-RESTART-INTERACTIVELY calls the function associated with
-RESTART, prompting for any necessary arguments. If RESTART is a name,
-it must be valid in the current dynamic environment.
-
-INVOKE-RESTART-INTERACTIVELY prompts for arguments by executing the
-code provided in the :INTERACTIVE KEYWORD to RESTART-CASE or
-:INTERACTIVE-FUNCTION keyword to RESTART-BIND.
-
-If no such options have been supplied in the corresponding
-RESTART-BIND or RESTART-CASE, then the consequences are undefined if
-the restart takes required arguments. If the arguments are optional,
-an argument list of nil is used.
-
-Once the arguments have been determined, INVOKE-RESTART-INTERACTIVELY
-executes the following:
-
- (apply #'invoke-restart restart arguments)
-"""
-        assert(isinstance(restart, str) or restartp(restart))
-        restart = restart if restartp(restart) else find_restart(restart)
-        return invoke_restart(restart, *restart.interactive_function())
 
 # Tracing
 
@@ -5495,7 +5093,7 @@ class lexenv_walker_t(metasex_mapper_t):
                 if ret[2] is not None: ## Propagate match failure.  Can we incrementalise the above bustage here?
                         return ret
                 ## Success -- extend the pre-lexenv with the binding.
-                name, what = (first(exp), cdr(exp)) if listp(exp) else (exp, nil)
+                name, what = (first(exp), (exp[1] if consp(exp) else nil)) if listp(exp) else (exp, nil)
                 # dprintf("==== Found binding for %s", name)
                 binder.positionally[position] = (position, kind, name, what)
                 return ret
@@ -5726,10 +5324,6 @@ def equals(x, y):
 @defun(_gt)
 def gt(x, y):
         return t if x > y else nil
-
-@defun
-def plusp(x):
-        return t if x > 0 else nil
 
 def post_factum_defun(symbol, function):
         set_function_definition(globals(), symbol,
@@ -8329,7 +7923,8 @@ def repl(prompt = "* "):
                 expr = handler_case(read,
                                     (EOFError, lambda _: do_exit()))
                 result = eval(expr)
-                write_line(pp_sex(result))
+                write_string(pp_sex(result))
+                terpri()
                 finish_output()
         def repl_error_handler(cond):
                 terpri()
@@ -8742,24 +8337,19 @@ def self_analyze():
                 lambda: more_ast.extract_symtable(pergamum.file_as_string(this_module_name + ".py"), ""))
         whitelist = {
                 ## undetectable
-                "defaulted_keys",                    ## For MAKE-PATHNAME
-                "file_length",                       ## For LOAD
-                "find_symbol",                       ## For %COLD-READ
-                "init",
-                "load_as_fasl", "load_as_source",
+                "car",                               ## tests
+                "defaulted_keys",                    ## MAKE-PATHNAME
+                "file_length",                       ## LOAD
+                "find_symbol",                       ## %COLD-READ
+                "load_as_fasl", "load_as_source",    ## LOAD
+                "probe_file",                        ## LOAD
+                "read_char",                         ## %COLD-READ
+                "read_symbol",                       ## %COLD-READ
                 "repl",
                 ## documentation, kind of
                 "condition_system_enabled_p",
                 "make_lexenv_funcframe",
                 "set_global_variable",
-                ## CLOS/MOP
-                "defgeneric",
-                "define_method_combination",
-                "defmethod",
-                "generic_function_argument_precedence_order",
-                "generic_function_declarations",
-                "generic_function_method_combination",
-                "reinitialize_instance",
                 ## testing
                 "gt", "equals", "mult",
                 ## debugging
@@ -8770,41 +8360,6 @@ def self_analyze():
                 "run_profile",
                 "withless",
                 ## python-only runtime
-                "boundp",
-                "broadcast_stream_t",
-                "compose",
-                "count", "count_if", "count_if_not",
-                "find_if", "find_if_not",
-                "export",
-                "fboundp",
-                "file_position",
-                "get_universal_time",
-                "hash_table_alist",
-                "import_",
-                "input_stream_p", "output_stream_p",
-                "invoke_restart_interactively",
-                "make_hash_table",
-                "make_list",
-                "make_pathname",
-                "member_if",
-                "member_if_not",
-                "parse_integer",
-                "plusp",
-                "position",
-                "position_if",
-                "read_char",
-                "read_from_string",
-                "read_line",
-                "read_symbol",
-                "remove_dependent",
-                "remove_if",
-                "remove_if_not",
-                "restart_bind",
-                "some",
-                "synonym_stream_t",
-                "probe_file",
-                "with_standard_io_syntax",
-                "write_char"
                 }
         def hide(x):
                 return x.startswith("FUN_") or x.startswith("#<") or x in whitelist
@@ -9017,7 +8572,7 @@ for symname, name, fun in [("_macroexpand",  "MACROEXPAND",  macroexpand),
 class stream_type_error_t(simple_condition_t, io.UnsupportedOperation):
         pass
 
-# LOAD-able things
+# o-small
 
 def run_profile():
         global __running_tests__, __enable_matcher_tracing__
@@ -9063,13 +8618,3 @@ def run_profile():
                          sort = "time"
                          # sort = "cumulative"
                          )
-
-# Environment
-
-def get_universal_time():
-        # Issue UNIVERSAL-TIME-COARSE-GRANULARITY
-        # time.time() returns microseconds..
-        return int(time.time())
-
-def sleep(x):
-        return time.sleep(x)
