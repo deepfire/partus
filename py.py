@@ -13,14 +13,16 @@ import threading
 import types
 
 from cl import error, list_, list__, gensym, gensymname, intern, append, identity, reduce, gethash, progv as _progv, defun
-from cl import attrify_args, defaulted, defaulted_to_var, gensym_tn, dprintf, undefined_function
+from cl import find_global_variable, format, do_find_if
+from cl import gensym_tn, make_keyword_tn, undefined_function
+from cl import attrify_args, defaulted, defaulted_to_var, dprintf, pp_base_depth
+from cl import compiler_debugless_traceless_frame
 from cl import typep, the, check_type, consp, functionp
 from cl import or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t, symbol_t, pyanytuple_t, maybe_t, satisfies_t
 from cl import integer_t, float_t, cons_t, function_t, stream_t
-from cl import symbol_value, symbol_name, symbol_package, make_symbol, make_keyword, make_keyword_tn
+from cl import symbol_value, symbol_name, symbol_package, make_symbol, make_keyword
 from cl import package_name, find_package
 from cl import defun as _defun_, defclass as _defclass_
-from cl import find_global_variable, format
 from cl import interpreted_function_name_symbol, get_function_rtname, unit_variable_rtname
 from cl import consify_linear, xmap_to_vector, validate_function_args, validate_function_keys, without_condition_system
 from cl import _if, _primitive, _list, _quote, _setf, _allow_other_keys_
@@ -857,7 +859,7 @@ _compiler_trace_primitives_ = cl._compiler_trace_primitives_
 def help(x) -> ([stmt], expr):
         if not isinstance(x, prim):
                 return [], x
-        with _progv({ cl._pp_base_depth_: cl.pp_base_depth() + 3 }):
+        with _progv({ cl._pp_base_depth_: pp_base_depth() + 3 }):
                 meth_name = type(x).__name__.upper()
                 def handler(cond):
                         error("While calling %s.%s, caught:\n%s", meth_name, x.help, cond)
@@ -876,7 +878,7 @@ def help(x) -> ([stmt], expr):
                 dprintf("%s---- helpery %s --->\n"
                            "%s%s\n"
                            "%s%s\n",
-                           ssp, cl.pp_chain_of_frame(cl.caller_frame(-1), callers = 15),
+                           ssp, pp_chain_of_frame(caller_frame(-1), callers = 15),
                            ssp, x,
                            ssp, ("\n" + ssp).join(pp_ast_as_code(x) for x in p + [v]))
         return p or [], v
@@ -2232,7 +2234,7 @@ class py(machine):
                                 error("Bad wrap: %s.", x))
                 def wrap_bool(x):
                         return m.name("True" if x else "False")
-                with _progv(cl.compiler_debugless_traceless_frame):
+                with _progv(compiler_debugless_traceless_frame):
                          names = sorted(funs | syms, key = lambda x: str(x if isinstance(x, symbol_t) else x[1]))
                          names = [ (interpreted_function_name_symbol(x), x, isinstance(x, tuple)) for x in names]
                          prologue = m.progn(
@@ -2350,12 +2352,12 @@ def count_if_not(p, xs, *rest):
 @_defun_
 def find_if(p, xs, *rest):
         keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        return cl.do_find_if(p, xs, keys)
+        return do_find_if(p, xs, keys)
 
 @_defun_
 def find_if_not(p, xs, *rest):
         keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        return cl.do_find_if(lambda x: not p(x), xs, keys)
+        return do_find_if(lambda x: not p(x), xs, keys)
 
 @_defun_
 def export(symbols, package = None):
