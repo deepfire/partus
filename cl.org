@@ -7481,7 +7481,7 @@ def lower_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorators = ni
                                   p.progn(*nonlocal_decl
                                           + primitivised_body),
                                   id = pp_consly(name) if name else nil,
-                                  pydecorators = xmap_to_vector(primitivise, pydecorators))
+                                  pydecorators = xmap_to_vector(lambda f: primitivise(mach, f), pydecorators))
 
 @defknown((_binder, _flet,
            (_flet, " ", ([(_notlead, "\n"), (_bind, _function,
