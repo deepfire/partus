@@ -261,7 +261,7 @@ class float_num(literal): ...
 ###
 ### Operations
 ###
-## + - * / MOD << >> LOGIOR LOGXOR LOGAND FLOOR EXPT
+## + - * / MOD << >> LOGIOR LOGXOR LOGAND LOGNOT FLOOR EXPT
 @defprim(intern("+")[0],              ([expr_spill],))
 class add(potconst): ...
 
@@ -342,11 +342,11 @@ class rplaca(expr): ...
 @defprim(intern("RPLACD")[0],         (expr_spill, expr_spill))
 class rplacd(expr): ...
 
+@defprim(intern("VECTOR")[0],         ([expr_spill],))
+class vector(expr): ...
+
 @defprim(intern("INDEX")[0],          (expr_spill, expr_spill))
 class index(expr): ...
-
-@defprim(intern("VECTOR")[0],         ([expr_spill]))
-class vector(expr): ...
 
 ###
 ### Control
