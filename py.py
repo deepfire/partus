@@ -2641,6 +2641,11 @@ Variable                     Value
         with progv(__standard_io_syntax__):
                 return body()
 
+@_defun_
 def write_char(c, stream = t):
         write_string(c, stream)
         return c
+
+@_defun_
+def write_line(string, stream = t):
+        return write_string(string + "\n", stream)

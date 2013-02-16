@@ -2656,10 +2656,6 @@ def write_string(string, stream = t):
         return string
 
 @defun
-def write_line(string, stream = t):
-        return write_string(string + "\n", stream)
-
-@defun
 def finish_output(stream = t):
         check_type(stream, (or_t, stream_t, (member_t, t, nil)))
         (stream is not nil) and coerce_to_stream(stream).flush()
