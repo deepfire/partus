@@ -1121,7 +1121,9 @@ defun            = make_cold_definer("%COLD-DEFUN",    functionp, "function",   
 defclass         = make_cold_definer("%COLD-DEFCLASS", lambda x: isinstance(x, type), "python_type", identity)
 defun_with_block = make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp, "function", __block__)
 for fn  in __boot_defunned__:   frost.setf_global(defun(fn),     fn.__name__,  globals(), force = t)
+del fn
 for cls in __boot_defclassed__: frost.setf_global(defclass(cls), cls.__name__, globals(), force = t)
+del cls
 doit = True
 
 # Delayed class definitions
@@ -8607,6 +8609,7 @@ for symname, name, fun in [("_macroexpand",  "MACROEXPAND",  macroexpand),
                            ("_compile_file", "COMPILE-FILE", compile_file)]:
         intern_and_bind((symname, name, fun))
         post_factum_defun(globals()[symname], fun)
+del symname, name, fun
 
 @defclass
 class stream_type_error_t(simple_condition_t, io.UnsupportedOperation):
