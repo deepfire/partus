@@ -2528,6 +2528,13 @@ def streamp(x):                    return t if isinstance(x, stream_t) else nil
 def file_stream_p(x):              return t if isinstance(x, (_io._TextIOBase, _io._BufferedIOBase)) else nil
 
 @defun
+def with_open_stream(stream, f):
+        try:
+                return f(stream)
+        finally:
+                close(stream)
+
+@defun
 def open(pathname, direction = make_keyword("INPUT"), element_type = base_char_t,
          if_exists = make_keyword("ERROR"), if_does_not_exist = make_keyword("ERROR"),
          external_format = make_keyword("DEFAULT")):
@@ -2863,6 +2870,9 @@ logical pathname, a logical pathname is returned."""
                 file_stream_name(x)                          if file_stream_p(x) else
                 error("PATHNAME only accepts pathnames, namestrings and file streams, was given: %s.", x))
 
+@defun
+def pathname_type(x): return namestring_components(x)[2]
+
 def init_pathnames():
         string_set("*DEFAULT-PATHNAME-DEFAULTS*",
                     values_frame_project(0, parse_namestring(os.getcwd() + "/",
@@ -3154,6 +3164,29 @@ def do_position_if(pred, xs, keys):
         else:
                 not_implemented("POSITION-IF: non-list case")
 
+@defun
+def position(elt, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
+        key, test, test_not = [ keys.get(k, df) for k, df
+                                in [ (_key_,     identity),
+                                     (_test,     eql),
+                                     (_test_not, nil) ] ]
+        if _key_     in keys: del keys[_key_]
+        if _test     in keys: del keys[_test]
+        if _test_not in keys: del keys[_test_not]
+        return do_position_if(compute_predicate(key, elt, test = test, test_not = test_not),
+                             xs, keys)
+
+@defun
+def position_if(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
+        return do_position_if(p, xs, keys)
+
+@defun
+def position_if_not(p, xs, *rest):
+        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
+        return do_position_if(lambda x: not p(x), xs, keys)
+
 # SEARCH
 # MISMATCH
 
@@ -3258,12 +3291,19 @@ def atom(x):        return t if not isinstance(x, list) or len(x) != 2 else nil
 @defun
 def car(x):         return nil if x is nil else x[0]
 
-# CDR
-# REST
+@defun
+def cdr(x):         return nil if x is nil else x[1]
+
+@defun
+def rest(x):        return nil if x is nil else x[1]
+
 # CAAR
 # CADR
 # CDAR
-# CDDR
+
+@defun
+def cddr(x):        return cdr(cdr(x))
+
 # CAAAR
 # CAADR
 # CADAR
@@ -9381,6 +9421,10 @@ def self_analyze():
                 "read_char",                         ## %COLD-READ
                 "read_symbol",                       ## %COLD-READ
                 "repl",
+                "position", "position_if",
+                "pathname_type",
+                "cddr",
+                "with_open_stream",
                 ## documentation, kind of
                 "condition_system_enabled_p",
                 "make_lexenv_funcframe",
