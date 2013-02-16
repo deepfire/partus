@@ -781,69 +781,6 @@ def signal(cond):
                                                 handler(cond)
         return nil
 
-def run_hook(variable, condition):
-        old_hook = symbol_value(variable)
-        if old_hook:
-                with progv({ variable: nil }):
-                        old_hook(condition, old_hook)
-
-# Stab at INVOKE-DEBUGGER
-
-def flush_standard_output_streams():
-        warn_not_implemented()
-
-def funcall_with_debug_io_syntax(function, *args, **keys):
-        warn_not_implemented()
-        return function(*args, **keys)
-
-intern_and_bind("*DEBUG-CONDITION*", "*DEBUG-RESTARTS*", "*NESTED-DEBUG-CONDITION*", gvarp = t)
-
-def show_restarts(restarts, stream):
-        warn_not_implemented()
-
-def do_invoke_debugger(condition):
-        ## SBCL is being careful to not handle STEP-CONDITION here..
-        with progv({_debug_condition_: condition,
-                    _debug_restarts_: compute_restarts(condition),
-                    _nested_debug_condition_: nil }):
-                def error_handler_body(condition):
-                        string_set("*NESTED-DEBUG-CONDITION*", condition)
-                        ndc_type = type_of(condition)
-                        format(symbol_value(_error_output_),
-                               "\nA %s was caught when trying to print %s when "
-                               "entering the debugger. Printing was aborted and the "
-                               "%s was stored in %s.\n",
-                               ndc_type, _debug_condition_, ndc_type, _nested_debug_condition_)
-                        if isinstance(condition, cell_error_t):
-                                format(symbol_value(_error_output_),
-                                       "\n(CELL-ERROR-NAME %s) = %s\n",
-                                       _nested_debug_condition_, cell_error_name(condition))
-                handler_case(lambda: print_debugger_invocation_reason(condition,
-                                                                       symbol_value(_error_output_)),
-                             (error_t, error_handler_body))
-                try:
-                        pass
-                finally:
-                        with progv({ _standard_output_: symbol_value(_standard_output_),
-                                     _error_output_:    symbol_value(_debug_io_) }):
-                                format(symbol_value(_debug_io_), "\nType HELP for debugger help, or (VPCL:QUIT) to exit from VPCL.\n\n")
-                                show_restarts(symbol_value(_debug_restarts_), symbol_value(_debug_io_))
-                                internal_debug()
-
-@boot_defun
-def invoke_debugger(condition):
-        "XXX: non-compliant: doesn't actually invoke the debugger."
-        run_hook(_invoke_debugger_hook_, condition)
-        run_hook(_debugger_hook_, condition)
-        if not (packagep(symbol_value(_package_)) and
-                package_name(symbol_value(_package_))):
-                string_set("*PACKAGE*", find_package("CL-USER"))
-                format(symbol_value(_error_output_),
-                       "The value of %s was not an undeleted PACKAGE. It has been reset to %s.",
-                       _package_, symbol_value(_package_))
-        flush_standard_output_streams()
-        return funcall_with_debug_io_syntax(do_invoke_debugger, condition)
-
 # Type predicates
 
 def integerp(o):      return isinstance(o, int)
