@@ -50,8 +50,12 @@
 (defun sxhash (key)
   (funcall #''("hash") key))
 
-;;;
+#+nil
 (defun puthash (value key hash-table)
   (primitive '("raw") '"Assign"
-             (primitive '("raw") '"Index" hash-table key (primitive '("raw") '"Load"))
+             (primitive '("vector")
+                        (primitive '("raw") '"Subscript"
+                                   hash-table
+                                   (primitive '("raw") '"Index" key)
+                                   (primitive '("raw") '"Load")))
              value))
