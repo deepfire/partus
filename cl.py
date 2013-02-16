@@ -8395,6 +8395,8 @@ def self_analyze(sort_by = "name"):
                 "condition_system_enabled_p",
                 "make_lexenv_funcframe",
                 "set_global_variable",
+                "warn_not_implemented",
+                "compute_restarts",
                 ## testing
                 "gt", "equals", "mult",
                 ## debugging
