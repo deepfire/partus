@@ -17,6 +17,8 @@ DUMP_RE   ?= nil
 DUMP_PRIM ?= nil
 DUMP_AST  ?= nil
 
+SORT ?= callees
+
 all: run
 
 clean:
@@ -35,7 +37,7 @@ repl:
 	$(PYTHON) -i vpcl.py
 
 self-analyze:
-	$(PYTHON) -c "import cl; cl.self_analyze()"
+	$(PYTHON) -c "import cl; cl.self_analyze(sort_by = '$(SORT)')"
 
 ansi-test:
 	reset

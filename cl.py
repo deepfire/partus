@@ -8367,8 +8367,11 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_COMPILER") == "t":
         with matcher_pp_stack():
                 run_tests_compiler()
 
-def self_analyze():
+def self_analyze(sort_by = "name"):
         import more_ast, pergamum
+        accepted_sort_orders = ("name", "callees")
+        if sort_by not in accepted_sort_orders:
+                error("SELF-ANALYZE accepts only the following sort orders: %s.", ", ".join(accepted_sort_orders))
         this_module_name = "cl"
         relevant_modules = ["primitives.py", "tri.py", "py.py"]
         symtab = without_condition_system(
@@ -8471,13 +8474,18 @@ def self_analyze():
         whitelist_noise = whitelist - set(globals()) - set([""])
         if whitelist_noise:
                 error("Whitelist contains inexistent entries: %s.", ", ".join(sorted(whitelist_noise)))
+        sort_key, reversep = ((identity, nil)                             if sort_by == "name"    else
+                              (lambda fname: len(fdeps.get(fname, [])), t) if sort_by == "callees" else
+                              error("This should not happen."))
         for n, fs in [[(n, fs) for n, fs in reversed(sorted(usebs.items()))
                        if any(not hide(f) for f in fs)][-1]]:
                 vis_fs = [ f for f in fs if not hide(f) ]
                 dprintf("; ---- use count %d (%d at this level, %d hidden):", n, len(vis_fs), len(fs) - len(vis_fs))
-                for f in sorted(vis_fs):
+                for f in sorted(vis_fs, key = sort_key):
                         if not hide(f):
-                                dprintf(";     %s", f)
+                                dprintf(";   %2d %30s   callers: %s",
+                                        len(fdeps.get(f, [])), f, ", ".join(str(globals().get(x, x))
+                                                                            for x in frdeps[f]))
 
 # Auxiliary: FDEFINITION
 
