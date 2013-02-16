@@ -9540,7 +9540,7 @@ def load_as_fasl(stream, verbose = None, print = None):
         filename = truename(stream)
         verbose and format(t, "; loading %s...\n", filename)
         bytecode = marshal.load(stream)
-        _, broken_globals, good_globals = load_module_bytecode(bytecode, filename = filename)
+        _, broken_globals, good_globals = py.load_module_bytecode(bytecode, filename = filename)
         ## Critical Issue NOW-WTF-IS-THIS-SHIT?!
         broken_globals.update(good_globals)
 
