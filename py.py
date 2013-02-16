@@ -1040,9 +1040,13 @@ def prim_check_and_spill(primitive) -> prim:
         return (progn(*spills + [primitive]) if spills else
                 primitive)
 
+####
+#### Python-specific IR definitions
+####
 ###
-### Python-specific IR definitions
+### Handled by non-immediate constant separation pass.
 ###
+## STRING SYMBOL LITERAL-LIST
 @defpy
 class string(literal):
         def help(name): return ast.Str(name)
@@ -1061,6 +1065,10 @@ class literal_list(literal):
                               ## Namespace separation leak:
                               reversed(xs + (help_nil(),)))
 
+###
+### Immediate values
+###
+## NAME INTEGER FLOAT-NUM
 @defpy
 class name(expr):
         def help(x, writep = nil, globalp = nil):
@@ -1073,6 +1081,262 @@ class integer(literal):
 @defpy
 class float_num(literal):
         def help(x): return ast.Num(x)
+
+###
+### Operations
+###
+## + - * / MOD << >> LOGIOR LOGXOR LOGAND LOGNOT FLOOR EXPT
+@defpy
+class add(potconst):
+        def help(*xs):  return help_binop_seq(xs, ast.Add, 0)
+
+@defpy
+class sub(potconst):
+        def help(*xs):  return help_binop_seq(xs, ast.Sub, 0)
+
+@defpy
+class mul(potconst):
+        def help(*xs):  return help_binop_seq(xs, ast.Mult, 1)
+
+@defpy
+class div(potconst):
+        def help(*xs):  return help_binop_seq(xs, ast.Div, 1)
+
+@defpy
+class mod(potconst):
+        def help(x, y): return help_binop(ast.Mod, x, y)
+
+@defpy
+class shl(potconst):
+        def help(x, y): return help_binop(ast.LShift, x, y)
+
+@defpy
+class shr(potconst):
+        def help(x, y): return help_binop(ast.RShift, x, y)
+
+@defpy
+class logior(potconst):
+        def help(x, y): return help_binop(ast.BitOr, x, y)
+
+@defpy
+class logxor(potconst):
+        def help(x, y): return help_binop(ast.BitXor, x, y)
+
+@defpy
+class logand(potconst):
+        def help(x, y): return help_binop(ast.BitAnd, x, y)
+
+@defpy
+class lognot(potconst):
+        def help(x):    return help_unop(ast.Invert, x)
+
+@defpy
+class floor(potconst):
+        def help(x, y): return help_binop(ast.FloorDiv, x, y)
+
+@defpy
+class expt(potconst):
+        def help(x, y): return help_binop(ast.Pow, x, y)
+
+## EQ < <= > >=
+
+@defpy
+class eq(potconst):
+        def help(x, y): return help_compare(ast.Is, x, [y])
+
+@defpy
+class lt(potconst):
+        def help(x, y): return help_compare(ast.Lt, x, [y])
+
+@defpy
+class le(potconst):
+        def help(x, y): return help_compare(ast.LtE, x, [y])
+
+@defpy
+class gt(potconst):
+        def help(x, y): return help_compare(ast.Gt, x, [y])
+
+@defpy
+class ge(potconst):
+        def help(x, y):          return help_compare(ast.GtE, x, [y])
+
+## NOT -- the only logical op worth a primitive
+
+@defpy
+class not_(potconst):
+        ## Optimisation: fold (NOT (EQ X Y)) to ast.IsNot
+        def help(x): return help_unop(ast.Not, x)
+
+###
+### Data structures
+###
+## CONS CAR CDR RPLACA RPLACD VECTOR INDEX
+@defpy
+class cons(expr):
+        def help(car, cdr): return ast.List([ help_expr(car),
+                                              help_expr(cdr) ])
+
+@defpy
+class car(expr):
+        def help(cons): return ast.Subscript(help_expr(cons), ast.Index(0), ast.Load())
+
+@defpy
+class cdr(expr):
+        def help(cons): return ast.Subscript(help_expr(cons), ast.Index(1), ast.Load())
+
+@defpy
+class rplaca(expr):
+        def help(cons, value):
+                return help(assign(index(cons, integer(0), writep = t),
+                                   value))
+
+@defpy
+class rplacd(expr):
+        def help(cons, value):
+                return help(assign(index(cons, integer(1), writep = t),
+                                   value))
+
+@defpy
+class vector(expr):
+        def help(*xs):
+                return ast.List([ help_expr(x) for x in xs ], help_ctx(nil))
+
+@defpy
+class index(expr):
+        def help(x, index, writep = nil):
+                return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
+
+###
+### Control
+###
+## ASSIGN RETURN PROGN IF LOOP UNWIND-PROTECT CATCH THROW RESIGNAL
+
+@defpy
+class assign(stmt):
+        def help(name, value):
+                p, v = help(value)
+                return (p
+                        + [ ast.Assign([ help_expr(name) ], v) ]
+                        ), help_expr(name)
+
+@defpy
+class return_(stmt):
+        def help(x):
+                return [ ast.Return(help_expr(x)) ], help_nil()
+
+@defpy
+class progn(body):
+        def help(*body):
+                return help_progn(body)
+        progn = identity_method()
+
+@defpy
+class if_(indet):
+        a_expr = defstrategy(test = lambda _, conseq, ante: (exprp(conseq) and
+                                                             exprp(ante)),
+                             keys = expr)
+        b_stmt = defstrategy(keys = body)
+
+@defprim(intern("IF-EXPR")[0],
+         (expr_spill, expr, expr))
+class if_expr(expr): ...
+
+@defpy
+class if_expr(expr):
+        def help(*tca):
+                return ast.IfExp(*[help_expr(x) for x in tca]) # Test, Consequent, Antecedent.
+        if_ = identity_method()
+
+@defprim(intern("IF-STMT")[0],
+         (expr_spill, prim, prim))
+class if_stmt(body): ...
+
+@defpy
+class if_stmt(body):
+        def help(*tca):
+                (_, tv), (cp, cv), (ap, av) = [ help(x) for x in tca ]
+                tn = genname("IFVAL")
+                return [ ast.If(tv,
+                                cp + [ ast.Assign([ help_expr(tn) ], cv)],
+                                ap + [ ast.Assign([ help_expr(tn) ], av)]
+                                ) ], help_expr(tn)
+        if_ = identity_method()
+
+@defpy
+class loop(body):
+        def help(body):
+                return [ ast.While(help_expr(name("True")),
+                                   help_prog([body]),
+                                   []) ], help_nil()
+
+@defpy
+class unwind_protect(body):
+        def help(protected_form, body):
+                # need a combinator for PRIM forms
+                if body:
+                        tn = genname("UWP_VALUE")
+                        return [ ast.TryFinally(help(assign(tn, protected_form))[0],
+                                                help_prog([body])
+                                                ) ], help_expr(tn)
+                else:
+                        return help(protected_form)
+
+@defpy
+class catch(body):
+        ## Lift this to a known?
+        def help(tag, body):
+                val_tn, ex_tn = genname("BODY_VALUE"), genname("EX")
+                return [ ast.TryExcept(
+                                help(assign(val_tn, body))[0],
+                                [ ast.ExceptHandler(help_expr(impl_ref("__catcher_throw__")),
+                                                    ex_tn.value(),
+                                                    help(if_(eq(attr(ex_tn, string("ball")),
+                                                                tag),
+                                                             progn(funcall(impl_ref("__catch_maybe_reenable_pytracer"),
+                                                                           ex_tn),
+                                                                   assign(val_tn,
+                                                                          attr(ex_tn, string("value")))),
+                                                             resignal()))[0]) ],
+                                [])
+                         ], help_expr(val_tn)
+
+@defpy
+class throw(expr):
+        def help(tag, value):
+                return help_expr(funcall(impl_ref("throw"), tag, value))
+
+@defpy
+class resignal(stmt):
+        def help():
+                return [ ast.Raise(exc = None,
+                                   cause = None) ], help_nil() ## Python behavior mismatches doc: exc/cause documented as expr?.
+
+###
+### Functions
+###
+## FUNCTION FUNCALL APPLY
+@defpy
+class function(indet):
+        "NOTE: default value form evaluation is not delayed."
+        a_expr = defstrategy(test = (lambda name, args, body, id = nil, pydecorators = []:
+                                             exprp(body) and not (name or pydecorators)),
+                             keys = expr)
+        b_stmt = defstrategy(keys = body)
+
+
+@defprim(intern("LAMBDA-EXPR")[0],
+         (NoneType, ((maybe, name), [name]),
+          expr))
+class lambda_expr(expr): ...
+
+@defpy
+class lambda_expr(expr):
+        def help(name, args, expr, id = nil, pydecorators = []):
+                assert not (name or pydecorators)
+                maybe_rest, *fixed_args = args
+                return ast.Lambda(help_args(fixed_args, [], [], maybe_rest, [], [], None),
+                                  help_expr(expr))
+        function = identity_method()
 
 @defprim(intern("DEFUN")[0],
          (name, ((maybe, name), [name]),
@@ -1094,19 +1358,33 @@ class defun(body):
         def function(name, args, expr, id = nil, pydecorators = []):
                 return defun(name or genname((id) if id else "DEFLAM"), args, expr, pydecorators = pydecorators)
 
-@defprim(intern("LAMBDA-EXPR")[0],
-         (NoneType, ((maybe, name), [name]),
-          expr))
-class lambda_expr(expr): ...
+@defpy
+class funcall(expr):
+        ## NOT LINKED UP -- deferred for usage by higher levels.
+        def help(func, *fixed_args):
+                return ast.Call(help_expr(func),
+                                help_exprs(fixed_args), [], None, None)
 
 @defpy
-class lambda_expr(expr):
-        def help(name, args, expr, id = nil, pydecorators = []):
-                assert not (name or pydecorators)
-                maybe_rest, *fixed_args = args
-                return ast.Lambda(help_args(fixed_args, [], [], maybe_rest, [], [], None),
-                                  help_expr(expr))
-        function = identity_method()
+class apply(expr):
+        ## NOT LINKED UP -- deferred for usage by higher levels.
+        def help(func, arg, *args):
+                fixed_args, restarg = (((arg,) + args[:-1], args[-1]) if args else
+                                       ([],                 arg))
+                return ast.Call(help_expr(func), help_exprs(fixed_args), [], help_expr(restarg), None)
+
+####
+###
+### Binding
+###
+## LET LET* PROGV
+@defpy
+class let(indet):
+        a_expr = defstrategy(test = lambda bindings, body: (all(exprp(x)
+                                                                for x in list(zip(*bindings))[1])
+                                                            and exprp(body)),
+                             keys = expr)
+        b_stmt = defstrategy(keys = body)
 
 @defprim(intern("LET-EXPR")[0],
          (([(name, expr_spill)],), ## Unregistered Issue VALIDATE-CORRECT-LET-SPILL-ORDER
@@ -1137,6 +1415,48 @@ class let_thunk(body):
                                         body),
                                   funcall(tn, *vs)))
         let = identity_method()
+
+def bindings_free_eval_order_p(bindings):
+        return (all(isinstance(form, const)
+                    for _, form in bindings)
+                or (all(isinstance(form, (name, const))
+                        for _, form in bindings)
+                    and not (set(zip(*bindings)[0]) &
+                             set(zip(*bindings)[1]))))
+
+@defpy
+class let_(indet):
+        ## Case for uncaught tail:
+        ##
+        ## Lisp:
+        ## (let ((foo 0))
+        ##   (handler-case
+        ##       (let* ((foo 1))
+        ##         (error "Foo."))
+        ##     (error ()
+        ##       foo)))
+        ##
+        ## Naive SETQ-BASED LET* implementation:
+        ## foo = 0
+        ## try:
+        ##         foo = 1
+        ##         return error("Foo.")
+        ## except Exception as _:
+        ##         return foo
+        ##
+        ## Note that the call to ERROR is in a HEAD position,
+        ## unless we introduce the HEADness-breaking property,
+        ## which, then, would be attributed to the likes of LOOP and HANDLER-BIND.
+        a_head        = defstrategy(test  = lambda _, *__, head = nil, uncaught_tail = nil: head or uncaught_tail,
+                                    keys  = setq)
+        b_reorderable = defstrategy(test  = lambda bindings, *_: bindings_free_eval_order_p(bindings),
+                                    xform = redetermining_as(let))
+        # TODO: try to reduce frame creation, even in the non-reorderable case.
+        c_expr        = defstrategy(test  = lambda bindings, body: (all(exprp(x)
+                                                                        for x in list(zip(*bindings))[1])
+                                                                    and exprp(body)),
+                                    keys  = expr)
+        d_stmt        = defstrategy(keys  = stmt)
 
 @defprim(intern("LET*-SETQ")[0],
          (([(name, prim)],),
@@ -1183,92 +1503,33 @@ class let__stmt(body):
         let_ = identity_method()
 
 @defpy
-class progn(body):
-        def help(*body):
-                return help_progn(body)
-        progn = identity_method()
+class progv(body):
+        def help(vars, vals, body):
+                tn = genname("VALUE")
+                return [ ast.With(help_expr(funcall(impl_ref("progv"),
+                                                    pyhash(*reduce(operator.add, zip(vars, vals))))),
+                                  None,
+                                  help(assign(tn, body))[0])
+                         ], help_expr(tn)
+
+###
+### Dynamic scope
+###
+## SPECIAL-REF SPECIAL-SETQ
+@defpy
+class special_ref(efless):
+        def help(name):
+                return help(funcall(impl_ref("symbol_value"), name))
 
 @defpy
-class if_(indet):
-        a_expr = defstrategy(test = lambda _, conseq, ante: (exprp(conseq) and
-                                                             exprp(ante)),
-                             keys = expr)
-        b_stmt = defstrategy(keys = body)
+class special_setq(expr):
+        def help(nom, value):
+                return help(funcall(impl_ref("do_set"), nom, value, name("None")))
 
-@defprim(intern("IF-EXPR")[0],
-         (expr_spill, expr, expr))
-class if_expr(expr): ...
-
-@defpy
-class if_expr(expr):
-        def help(*tca):
-                return ast.IfExp(*[help_expr(x) for x in tca]) # Test, Consequent, Antecedent.
-        if_ = identity_method()
-
-@defprim(intern("IF-STMT")[0],
-         (expr_spill, prim, prim))
-class if_stmt(body): ...
-
-@defpy
-class if_stmt(body):
-        def help(*tca):
-                (_, tv), (cp, cv), (ap, av) = [ help(x) for x in tca ]
-                tn = genname("IFVAL")
-                return [ ast.If(tv,
-                                cp + [ ast.Assign([ help_expr(tn) ], cv)],
-                                ap + [ ast.Assign([ help_expr(tn) ], av)]
-                                ) ], help_expr(tn)
-        if_ = identity_method()
-## This is no high-level it hurts!  Obviously needed for intrinsics.
-@defprim(intern("ATTR-REF")[0],
-         (prim, prim))
-class attr(indet): ...
-
-@defpy
-class attr(indet):
-        a_const = defstrategy(test = lambda _, attr: isinstance(attr, string),
-                              keys = "const attr")
-        b_var   = defstrategy(keys = efless)
-
-@defprim(intern("CONST-ATTR-REF")[0],
-         (expr_spill, string))
-class const_attr(efless): ...
-
-@defpy
-class const_attr(efless):
-        ## We assume, that within the domain of emitted code, objects do not have accessors defined.  So, efless.
-        def help(x, attr, writep = nil): return ast.Attribute(help_expr(x), attr.value(), help_ctx(writep))
-        attr = identity_method("const attr")
-
-@defprim(intern("VAR-ATTR-REF")[0],
-         (expr_spill, expr_spill))
-class var_attr(efless): ...
-
-@defpy
-class var_attr(efless):
-        def help(x, attr):
-                return help(funcall(name("getattr"), help_expr(x), help_expr(attr)))
-        attr = identity_method()
-
-def prim_attr_chain(xs, writep = nil):
-        return reduce((lambda acc, attr: const_attr(acc, attr, writep = writep)),
-                      xs[1:],
-                      xs[0])
-
-@defprim(intern("SLICE")[0],
-         (expr_spill, expr_spill, maybe_expr_spill, maybe_expr_spill))
-class slice(expr): ...
-
-@defpy
-class slice(expr):
-        def help(x, start, end, step, writep = nil):
-                return ast.Subscript(help_expr(x), ast.Slice(help_expr(start),
-                                                             help_expr(end if end is not nil else
-                                                                       name("None")),
-                                                             help_expr(step if step is not nil else
-                                                                       name("None"))),
-                                     help_ctx(writep))
-
+###
+### Python-specific primitive declarations and definitions: Part I: Assorti
+###
+## FILTERMAP GENERATOR IMPL-REF BLIN-REF IMPORT DELETE GLOBAL NONLOCAL ASSERT
 @defprim(intern("FILTERMAP")[0],
          (name, expr_spill, prim, (maybe, prim)))
 class filtermap(indet): ...
@@ -1386,8 +1647,10 @@ class assert_(stmt):
                 return [ ast.Assert(help_expr(condition), help_expr(description)
                                     ) ], help_nil()
 
-
-## We cannot spill these, so they need to be treated specially.
+###
+### Python-specific primitive declarations and definitions: Part II: Data structures
+###
+## RAW PYHASH PYTUPLE PYSET
 def wrap_raw_ast(x):
         def wrap(x):
                 return ([ rec(x) for x in x ]
@@ -1437,33 +1700,25 @@ class raw_stmt(stmt): ...
 class raw_stmt(stmt):
         def help(cls_name, *args, **keys):
                 cls = getattr(ast, cls_name)
-                return cls( *((tuple(help_expr(x) for x in x) if isinstance(x, tuple) else
-                               help_expr(x))
-                              for x in args),
-                             **{k: help_expr(v)
-                                   for k, v in keys.items()})
+                return [ cls ( *((tuple(help_expr(x) for x in x) if isinstance(x, tuple) else
+                                 help_expr(x))
+                               for x in args),
+                               **{ k: help_expr(v)
+                                   for k, v in keys.items() })
+                         ], ast.Name("None", ast.Load())
         raw = identity_method()
 
-@defprim(intern("LITERAL-HASH-TABLE-EXPR")[0],    ([expr_spill],))
+@defprim(intern("PYHASH")[0],    ([expr_spill],))
 ## Unregistered Issue EXTREME-NICETY-OF-AUTOMATIC-RECLASSIFICATION-TO-A-NARROWER-TYPE
-class literal_hash_table_expr(expr): ...
+class pyhash(expr): ...
 
 @defpy
-class literal_hash_table_expr(expr):
+class pyhash(expr):
         def help(*ksvs):
                 if len(ksvs) % 2:
                         error("In LITERAL-HASH-TABLE-EXPR: odd number of arguments: %s", pp_consly(ksvs))
                 keys, vals = ksvs[0::2], ksvs[1::2]
                 return ast.Dict(help_exprs(keys), help_exprs(vals))
-
-@defprim(intern("PYLIST")[0],
-         ([expr_spill],))
-class pylist(expr): ...
-
-@defpy
-class pylist(expr):
-        def help(*xs):
-                return ast.List([ help_expr(x) for x in xs ], help_ctx(nil))
 
 @defprim(intern("PYTUPLE")[0],
          ([expr_spill],))
@@ -1483,199 +1738,10 @@ class pyset(expr):
         def help(*xs):
                 return ast.Set([ help_expr(x) for x in xs ])
 
-@defpy
-class index(expr):
-        def help(x, index, writep = nil):
-                return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
-
-@defpy
-class cons(expr):
-        def help(car, cdr): return ast.List([ help_expr(car),
-                                              help_expr(cdr) ])
-
-@defpy
-class car(expr):
-        def help(cons): return ast.Subscript(help_expr(cons), ast.Index(0), ast.Load())
-
-@defpy
-class cdr(expr):
-        def help(cons): return ast.Subscript(help_expr(cons), ast.Index(1), ast.Load())
-
-@defpy
-class rplaca(expr):
-        def help(cons, value):
-                return help(assign(index(cons, integer(0), writep = t),
-                                   value))
-
-@defpy
-class rplacd(expr):
-        def help(cons, value):
-                return help(assign(index(cons, integer(1), writep = t),
-                                   value))
-
-@defpy
-class assign(stmt):
-        def help(name, value):
-                p, v = help(value)
-                return (p
-                        + [ ast.Assign([ help_expr(name) ], v) ]
-                        ), help_expr(name)
-
-@defpy
-class return_(stmt):
-        def help(x):
-                return [ ast.Return(help_expr(x)) ], help_nil()
-
-@defpy
-class function(indet):
-        "NOTE: default value form evaluation is not delayed."
-        a_expr = defstrategy(test = (lambda name, args, body, id = nil, pydecorators = []:
-                                             exprp(body) and not (name or pydecorators)),
-                             keys = expr)
-        b_stmt = defstrategy(keys = body)
-
-@defpy
-class let(indet):
-        a_expr = defstrategy(test = lambda bindings, body: (all(exprp(x)
-                                                                for x in list(zip(*bindings))[1])
-                                                            and exprp(body)),
-                             keys = expr)
-        b_stmt = defstrategy(keys = body)
-
-def bindings_free_eval_order_p(bindings):
-        return (all(isinstance(form, const)
-                    for _, form in bindings)
-                or (all(isinstance(form, (name, const))
-                        for _, form in bindings)
-                    and not (set(zip(*bindings)[0]) &
-                             set(zip(*bindings)[1]))))
-
-@defpy
-class let_(indet):
-        ## Case for uncaught tail:
-        ##
-        ## Lisp:
-        ## (let ((foo 0))
-        ##   (handler-case
-        ##       (let* ((foo 1))
-        ##         (error "Foo."))
-        ##     (error ()
-        ##       foo)))
-        ##
-        ## Naive SETQ-BASED LET* implementation:
-        ## foo = 0
-        ## try:
-        ##         foo = 1
-        ##         return error("Foo.")
-        ## except Exception as _:
-        ##         return foo
-        ##
-        ## Note that the call to ERROR is in a HEAD position,
-        ## unless we introduce the HEADness-breaking property,
-        ## which, then, would be attributed to the likes of LOOP and HANDLER-BIND.
-        a_head        = defstrategy(test  = lambda _, *__, head = nil, uncaught_tail = nil: head or uncaught_tail,
-                                    keys  = setq)
-        b_reorderable = defstrategy(test  = lambda bindings, *_: bindings_free_eval_order_p(bindings),
-                                    xform = redetermining_as(let))
-        # TODO: try to reduce frame creation, even in the non-reorderable case.
-        c_expr        = defstrategy(test  = lambda bindings, body: (all(exprp(x)
-                                                                        for x in list(zip(*bindings))[1])
-                                                                    and exprp(body)),
-                                    keys  = expr)
-        d_stmt        = defstrategy(keys  = stmt)
-
-@defpy
-class progv(body):
-        def help(vars, vals, body):
-                tn = genname("VALUE")
-                return [ ast.With(help_expr(funcall(impl_ref("progv"),
-                                                    literal_hash_table_expr(*reduce(operator.add, zip(vars, vals))))),
-                                  None,
-                                  help(assign(tn, body))[0])
-                         ], help_expr(tn)
-
-@defpy
-class progn(body):
-        ## Make this special, to provide instantiation-time elision of redundant PROGNs.
-        ...
-
-@defpy
-class funcall(expr):
-        ## NOT LINKED UP -- deferred for usage by higher levels.
-        def help(func, *fixed_args):
-                return ast.Call(help_expr(func),
-                                help_exprs(fixed_args), [], None, None)
-
-@defpy
-class apply(expr):
-        ## NOT LINKED UP -- deferred for usage by higher levels.
-        def help(func, arg, *args):
-                fixed_args, restarg = (((arg,) + args[:-1], args[-1]) if args else
-                                       ([],                 arg))
-                return ast.Call(help_expr(func), help_exprs(fixed_args), [], help_expr(restarg), None)
-
-@defpy
-class unwind_protect(body):
-        def help(protected_form, body):
-                # need a combinator for PRIM forms
-                if body:
-                        tn = genname("UWP_VALUE")
-                        return [ ast.TryFinally(help(assign(tn, protected_form))[0],
-                                                help_prog([body])
-                                                ) ], help_expr(tn)
-                else:
-                        return help(protected_form)
-
-@defpy
-class loop(body):
-        def help(body):
-                return [ ast.While(help_expr(name("True")),
-                                   help_prog([body]),
-                                   []) ], help_nil()
-
-@defpy
-class resignal(stmt):
-        def help():
-                return [ ast.Raise(exc = None,
-                                   cause = None) ], help_nil() ## Python behavior mismatches doc: exc/cause documented as expr?.
-
-@defpy
-class catch(body):
-        ## Lift this to a known?
-        def help(tag, body):
-                val_tn, ex_tn = genname("BODY_VALUE"), genname("EX")
-                return [ ast.TryExcept(
-                                help(assign(val_tn, body))[0],
-                                [ ast.ExceptHandler(help_expr(impl_ref("__catcher_throw__")),
-                                                    ex_tn.value(),
-                                                    help(if_(eq(attr(ex_tn, string("ball")),
-                                                                tag),
-                                                             progn(funcall(impl_ref("__catch_maybe_reenable_pytracer"),
-                                                                           ex_tn),
-                                                                   assign(val_tn,
-                                                                          attr(ex_tn, string("value")))),
-                                                             resignal()))[0]) ],
-                                [])
-                         ], help_expr(val_tn)
-
-@defpy
-class throw(expr):
-        def help(tag, value):
-                return help_expr(funcall(impl_ref("throw"), tag, value))
-
-@defpy
-class special_ref(efless):
-        def help(name):
-                return help(funcall(impl_ref("symbol_value"), name))
-
-@defpy
-class special_setq(expr):
-        def help(nom, value):
-                return help(funcall(impl_ref("do_set"), nom, value, name("None")))
-
 ###
-### Operations
+### Python-specific primitive declarations and definitions: Part III, Operations
 ###
+## NEQ AND OR EQUAL NEQUAL IN NOT-IN ATTR SLICE
 def help_unop(op, x):        return ast.UnaryOp(op(), help_expr(x))
 def help_binop(op, x, y):    return ast.BinOp(help_expr(x), op(), help_expr(y))
 def help_compare(op, x, ys): return ast.Compare(help_expr(x), [op()] * len(ys), [ help_expr(y) for y in ys ])
@@ -1687,54 +1753,6 @@ def help_binop_seq(args, type, one):
 
 def help_boolop(op, xs):     return ast.BoolOp(op(), [ help_expr(x) for x in xs ])
 
-### primitive
-@defpy
-class add(potconst):
-        def help(*xs):  return help_binop_seq(xs, ast.Add, 0)
-
-@defpy
-class sub(potconst):
-        def help(*xs):  return help_binop_seq(xs, ast.Sub, 0)
-
-@defpy
-class mul(potconst):
-        def help(*xs):  return help_binop_seq(xs, ast.Mult, 1)
-
-@defpy
-class div(potconst):
-        def help(*xs):  return help_binop_seq(xs, ast.Div, 1)
-
-@defpy
-class mod(potconst):
-        def help(x, y): return help_binop(ast.Mod, x, y)
-
-@defpy
-class shl(potconst):
-        def help(x, y): return help_binop(ast.LShift, x, y)
-
-@defpy
-class shr(potconst):
-        def help(x, y): return help_binop(ast.RShift, x, y)
-
-@defpy
-class logior(potconst):
-        def help(x, y): return help_binop(ast.BitOr, x, y)
-
-@defpy
-class logxor(potconst):
-        def help(x, y): return help_binop(ast.BitXor, x, y)
-
-@defpy
-class logand(potconst):
-        def help(x, y): return help_binop(ast.BitAnd, x, y)
-
-@defpy
-class lognot(potconst):
-        def help(x):    return help_unop(ast.Invert, x)
-
-@defpy
-class eq(potconst):
-        def help(x, y): return help_compare(ast.Is, x, [y])
 
 @defprim(intern("NEQ")[0], (expr_spill, expr_spill))
 class neq(potconst): ...
@@ -1743,35 +1761,7 @@ class neq(potconst): ...
 class neq(potconst):
         def help(x, y):          return help_compare(ast.IsNot, x, [y])
 
-@defpy
-class lt(potconst):
-        def help(x, y): return help_compare(ast.Lt, x, [y])
-
-@defpy
-class le(potconst):
-        def help(x, y): return help_compare(ast.LtE, x, [y])
-
-@defpy
-class gt(potconst):
-        def help(x, y): return help_compare(ast.Gt, x, [y])
-
-@defpy
-class ge(potconst):
-        def help(x, y):          return help_compare(ast.GtE, x, [y])
-
-@defpy
-class floor(potconst):
-        def help(x, y): return help_binop(ast.FloorDiv, x, y)
-
-@defpy
-class expt(potconst):
-        def help(x, y): return help_binop(ast.Pow, x, y)
-
 ### logic
-@defpy
-class not_(potconst):
-        ## Optimisation: fold (NOT (EQ X Y)) to ast.IsNot
-        def help(x): return help_unop(ast.Not, x)
 
 @defprim(intern("AND")[0], ([expr_spill],))
 class and_(potconst): ...
@@ -1815,6 +1805,55 @@ class not_in(potconst): ...
 @defpy
 class not_in(potconst):
         def help(x, y): return help_compare(ast.NotIn, x, [y])
+
+@defprim(intern("ATTR-REF")[0],
+         (prim, prim))
+class attr(indet): ...
+
+@defpy
+class attr(indet):
+        a_const = defstrategy(test = lambda _, attr: isinstance(attr, string),
+                              keys = "const attr")
+        b_var   = defstrategy(keys = efless)
+
+@defprim(intern("CONST-ATTR-REF")[0],
+         (expr_spill, string))
+class const_attr(efless): ...
+
+@defpy
+class const_attr(efless):
+        ## We assume, that within the domain of emitted code, objects do not have accessors defined.  So, efless.
+        def help(x, attr, writep = nil): return ast.Attribute(help_expr(x), attr.value(), help_ctx(writep))
+        attr = identity_method("const attr")
+
+@defprim(intern("VAR-ATTR-REF")[0],
+         (expr_spill, expr_spill))
+class var_attr(efless): ...
+
+@defpy
+class var_attr(efless):
+        def help(x, attr):
+                return help(funcall(name("getattr"), help_expr(x), help_expr(attr)))
+        attr = identity_method()
+
+def prim_attr_chain(xs, writep = nil):
+        return reduce((lambda acc, attr: const_attr(acc, attr, writep = writep)),
+                      xs[1:],
+                      xs[0])
+
+@defprim(intern("SLICE")[0],
+         (expr_spill, expr_spill, maybe_expr_spill, maybe_expr_spill))
+class slice(expr): ...
+
+@defpy
+class slice(expr):
+        def help(x, start, end, step, writep = nil):
+                return ast.Subscript(help_expr(x), ast.Slice(help_expr(start),
+                                                             help_expr(end if end is not nil else
+                                                                       name("None")),
+                                                             help_expr(step if step is not nil else
+                                                                       name("None"))),
+                                     help_ctx(writep))
 
 ###
 ### Code activation
@@ -2166,7 +2205,7 @@ class py(machine):
                 impl_ref, blin_ref,
                 import_, delete, global_, nonlocal_, assert_,
                 raw, raw_expr, raw_stmt,
-                literal_hash_table_expr, pylist, pytuple, pyset,
+                pyhash, pytuple, pyset,
                 neq, and_, or_, equal, nequal, in_, not_in,
                 }
         def make_indeterminate_primitive(_, cls, args, keys):
@@ -2201,16 +2240,16 @@ class py(machine):
                                  m.funcall(
                                          m.const_attr(m.name("py"), m.string("fop_make_symbols_available")),
                                          m.funcall(m.name("globals")),
-                                         m.pylist(*((m.string(package_name(symbol_package(sym))) if symbol_package(sym) else
+                                         m.vector(*((m.string(package_name(symbol_package(sym))) if symbol_package(sym) else
                                                     m.name("None"))
                                                     for sym, x, _ in names)),
-                                         m.pylist(*(m.string(symbol_name(sym))            for sym, x, _     in names)),
-                                         m.pylist(*(wrap_bool(setfp)                      for _, __, setfp  in names)),
-                                         m.pylist(*(wrap_str_or_None(sym.setf_function_rtname if setfp else
+                                         m.vector(*(m.string(symbol_name(sym))            for sym, x, _     in names)),
+                                         m.vector(*(wrap_bool(setfp)                      for _, __, setfp  in names)),
+                                         m.vector(*(wrap_str_or_None(sym.setf_function_rtname if setfp else
                                                                      sym.function_rtname) for sym, x, setfp in names)),
-                                         m.pylist(*(wrap_str_or_None(sym.symbol_rtname)   for sym, x, _     in names)),
-                                         m.pylist(*(wrap_bool(x in gfuns)                 for sym, x, _     in names)),
-                                         m.pylist(*(wrap_bool(sym in gvars)               for sym, x, _     in names))))
+                                         m.vector(*(wrap_str_or_None(sym.symbol_rtname)   for sym, x, _     in names)),
+                                         m.vector(*(wrap_bool(x in gfuns)                 for sym, x, _     in names)),
+                                         m.vector(*(wrap_bool(sym in gvars)               for sym, x, _     in names))))
                          # dprintf("prologue:\n%s", pp_consly(prologue))
                          with _progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
                                  return m.lower(prologue)
@@ -2516,31 +2555,12 @@ def parse_integer(xs, junk_allowed = nil, radix = 10):
         return int(xform(xs[:(end + 1)]))
 
 @_defun_
+def zerop(x):
+        return t if x is 0 else nil
+
+@_defun_
 def plusp(x):
         return t if x > 0 else nil
-
-@_defun_
-def position(elt, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end, _test, _test_not])
-        key, test, test_not = [ keys.get(k, df) for k, df
-                                in [ (_key_,     identity),
-                                     (_test,     eql),
-                                     (_test_not, nil) ] ]
-        if _key_     in keys: del keys[_key_]
-        if _test     in keys: del keys[_test]
-        if _test_not in keys: del keys[_test_not]
-        return do_position_if(compute_predicate(key, elt, test = test, test_not = test_not),
-                             xs, keys)
-
-@_defun_
-def position_if(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        return do_position_if(p, xs, keys)
-
-@_defun_
-def position_if_not(p, xs, *rest):
-        keys = extract_keywords(rest, [_key_, _start, _end, _from_end])
-        return do_position_if(lambda x: not p(x), xs, keys)
 
 @_defun_
 def read_line(stream = None, eof_error_p = t, eof_value = nil):
