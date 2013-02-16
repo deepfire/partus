@@ -15,7 +15,7 @@ import types
 from cl import error, list_, list__, gensym, gensymname, intern, append, identity, reduce, gethash, progv as _progv, defun
 from cl import attrify_args, defaulted, defaulted_to_var, gensym_tn, dprintf, undefined_function
 from cl import typep, the, check_type, consp, functionp
-from cl import or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t, symbol_t, pyanytuple_t, maybe_t
+from cl import or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t, symbol_t, pyanytuple_t, maybe_t, satisfies_t
 from cl import integer_t, float_t, cons_t, function_t, stream_t
 from cl import symbol_value, symbol_name, symbol_package, make_symbol, make_keyword, make_keyword_tn
 from cl import package_name, find_package
@@ -23,7 +23,7 @@ from cl import defun as _defun_, defclass as _defclass_
 from cl import find_global_variable, format
 from cl import interpreted_function_name_symbol, get_function_rtname, unit_variable_rtname
 from cl import consify_linear, xmap_to_vector, validate_function_args, validate_function_keys, without_condition_system
-from cl import _if, _primitive, _list, _quote, _allow_other_keys_
+from cl import _if, _primitive, _list, _quote, _setf, _allow_other_keys_
 from cl import ir_funcall, ir_apply, ir_cl_call
 from cl import _debug_io_
 from cl import t, nil
