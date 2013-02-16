@@ -6626,7 +6626,7 @@ class labels(known):
                                                      list__(_flet, consify_linear(fbodies), fdecls,
                                                             f[1][1])))
                                       for f in vectorise_linear(bindings) ]
-                        return l(_let, l(l(fnvec, list__(_primitive, l(_quote, l("pylist")), consify_linear(nfbodies)))),
+                        return l(_let, l(l(fnvec, list__(_primitive, l(_quote, l("vector")), consify_linear(nfbodies)))),
                                   list__(_flet, consify_linear(fbodies),
                                           fdecls,
                                           consify_linear(body)))

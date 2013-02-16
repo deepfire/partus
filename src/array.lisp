@@ -1,5 +1,5 @@
 (defun vector (&rest xs)
-  (funcall #''("cl" "vectorise_linear") (list* 'array (primitive '("pylist") 1) t xs)))
+  (funcall #''("cl" "vectorise_linear") (list* 'array (primitive '("vector") 1) t xs)))
 
 (defun svref (x i)
   (primitive '("index") x (+ i 3)))
