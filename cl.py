@@ -1483,6 +1483,53 @@ def find_module(name, if_does_not_exist = "error"):
 
 # Functions
 
+def function_lambda_expression(function):
+        """function-lambda-expression function
+
+=> LAMBDA-EXPRESSION, CLOSURE-P, NAME
+
+Arguments and Values:
+
+FUNCTION---a function.
+
+LAMBDA-EXPRESSION---a lambda expression or NIL.
+
+CLOSURE-P---a generalized boolean.
+
+NAME---an object.
+
+Description:
+
+Returns information about function as follows:
+
+The primary value, LAMBDA-EXPRESSION, is function's defining lambda
+expression, or NIL if the information is not available.  The lambda
+expression may have been pre-processed in some ways, but it should
+remain a suitable argument to COMPILE or FUNCTION.  Any implementation
+may legitimately return NIL as the LAMBDA-EXPRESSION of any FUNCTION.
+
+The secondary value, CLOSURE-P, is NIL if FUNCTION's definition was
+enclosed in the null lexical environment or something non-NIL if
+FUNCTION's definition might have been enclosed in some non-null
+lexical environment.  Any implementation may legitimately return true
+as the CLOSURE-P of any function.
+
+The tertiary value, NAME, is the ``name'' of FUNCTION.  The name is
+intended for debugging only and is not necessarily one that would be
+valid for use as a name in DEFUN or FUNCTION, for example.  By
+convention, NIL is used to mean that FUNCTION has no name.  Any
+implementation may legitimately return NIL as the name of any
+FUNCTION."""
+        return values(*(gethash(slot, the(function_t, function).__dict__, default)[0]
+                        for slot, default in [("lambda_expression", nil),
+                                              ("closure_p",         t),
+                                              ("name",              nil)]))
+
+@defun
+def fdefinition(name):
+        ## DEFMACRO expands into this (DEFUN should too)
+        return symbol_function(the(symbol_t, name))
+
 @defun
 def symbol_function(symbol):
         """symbol-function symbol => contents
@@ -4695,7 +4742,7 @@ def further_eval_when_file_compiler(compile_time_too, _, __, ct, lt, e):
         #         compile_time_too, ct, lt, e, new_compile_time_too, process, eval)
         return new_compile_time_too, process, eval
 
-# Debugging, tracing and pretty-printing
+# Debugging, tracing, pretty-printing and reporting
 
 compiler_max_mockup_level = 3
 
@@ -4787,6 +4834,35 @@ def compiler_function_trapped_p(name):
 def compiler_trace_known_choice(ir_name, id, choice):
         if symbol_value(_compiler_trace_known_choices_):
                 dprintf("%s-- %s %s: %s", sex_space(), ir_name, ir_minify(id), choice)
+
+def report(x, kind, desc = "", form_id = None, lexenv = None):
+        lexenv  = "%s\n"  % coerce_to_lexenv(lexenv) if  lexenv is not None else ""
+        desc    = "%s - " % desc                     if    desc is not None else ""
+        form_id = "  %x"  % form_id                  if form_id is not None else ""
+        if   kind == "macroexpanded":
+                dprintf(";;; %smacroexpanded ............%s\n%s%s\n",
+                              desc, form_id, lexenv, pp(x))
+        elif kind == "known":
+                dprintf(";;; %sknowns ..............%s\n%s%s\n",
+                              desc, form_id, lexenv, pp(x))
+        elif kind == "primitive":
+                dprintf(";;; %sprimitives ==========%s\n%s%s\n",
+                              desc, form_id, lexenv, x)
+        elif kind == "ast":
+                import more_ast
+                dprintf(";;; %spython ------------->%s\n%s\n",
+                              desc, form_id, "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
+                                                       for x in x))
+        elif kind == "bytecode":
+                dprintf(";;; %sbytecode ************%s\n", desc, form_id)
+                import dis
+                def rec(x):
+                        dis.dis(x)
+                        for sub in x.co_consts:
+                                if isinstance(sub, types.CodeType):
+                                        dprintf(";;; child code -------------\n")
+                                        rec(sub)
+                rec(x)
 
 # Bindings
 
@@ -7286,7 +7362,7 @@ class load_time_value(known):
         def effects(form, read_only_p):            not_implemented()
         def affected(form, read_only_p):           not_implemented()
 
-# Tests
+# Known unit tests
 
 def run_tests_known():
         def lexenvful_identity_rewrite(input):
@@ -7455,36 +7531,7 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_PP") == "t":
         with matcher_pp_stack():
                 run_tests_pp()
 
-# Core: %PRIMITIVISE, %EMIT-AST, %LOWER and COMPILE
-
-def report(x, kind, desc = "", form_id = None, lexenv = None):
-        lexenv  = "%s\n"  % coerce_to_lexenv(lexenv) if  lexenv is not None else ""
-        desc    = "%s - " % desc                     if    desc is not None else ""
-        form_id = "  %x"  % form_id                  if form_id is not None else ""
-        if   kind == "macroexpanded":
-                dprintf(";;; %smacroexpanded ............%s\n%s%s\n",
-                              desc, form_id, lexenv, pp(x))
-        elif kind == "known":
-                dprintf(";;; %sknowns ..............%s\n%s%s\n",
-                              desc, form_id, lexenv, pp(x))
-        elif kind == "primitive":
-                dprintf(";;; %sprimitives ==========%s\n%s%s\n",
-                              desc, form_id, lexenv, x)
-        elif kind == "ast":
-                import more_ast
-                dprintf(";;; %spython ------------->%s\n%s\n",
-                              desc, form_id, "\n".join(more_ast.pp_ast_as_code(x, line_numbers = t)
-                                                       for x in x))
-        elif kind == "bytecode":
-                dprintf(";;; %sbytecode ************%s\n", desc, form_id)
-                import dis
-                def rec(x):
-                        dis.dis(x)
-                        for sub in x.co_consts:
-                                if isinstance(sub, types.CodeType):
-                                        dprintf(";;; child code -------------\n")
-                                        rec(sub)
-                rec(x)
+# %PRIMITIVISE and %LOWER
 
 # Unregistered Issue COMPILER-MACRO-SYSTEM
 def primitivise(mach, form, lexenv = nil) -> p.prim:
@@ -7543,8 +7590,8 @@ def primitivise(mach, form, lexenv = nil) -> p.prim:
                 compiler_maybe_note_known_primitives(form, prim)
                 return prim
 
-def lower(form: cons_t, lexenv = nil, machine = None) -> "machine-specific":
-        "Must be called within %WITH-SYMBOL-UNIT-MAGIC context."
+def lower(form: cons_t, lexenv = nil, machine = None) -> "list of linkable code, machine-specific":
+        "Must be called with global function and symbol usage recording."
         machine = defaulted_to_var(machine, _machine_)
         with target_machine(machine):
                 ## Wide Knowns -> Narrow Knowns
@@ -7558,7 +7605,7 @@ def lower(form: cons_t, lexenv = nil, machine = None) -> "machine-specific":
                         report(prim, "primitive", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
                 return machine.lower(prim)
 
-# High-level drivers: %PROCESS-TOP-LEVEL, COMPILE-FILE, @LISP, COMPILE, EVAL
+# Top level processing: %MAP-TOP-LEVEL, %PROCESS-TOP-LEVEL
 
 def map_top_level(fn, form, eval_when_computer, compile_time_too = nil, process = t, eval = nil):
         def make_skipping_iterating_processor(skip_subforms, doc_and_decls):
@@ -7654,6 +7701,8 @@ def process_top_level(form, machine = None) -> [ast.stmt]:
                       eval             = nil)
         return run_time_results
 
+# COMPILE-FILE, %COMPILE-IN-LEXENV, COMPILE
+
 string_set("*COMPILE-PRINT*",         t)
 string_set("*COMPILE-VERBOSE*",       t)
 
@@ -7744,50 +7793,7 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
         function = machine.execute_bytecode(bytecode, object_name = name, filename = "<lisp core>")
         return the(cold_function_type, function)
 
-##
-
-def function_lambda_expression(function):
-        """function-lambda-expression function
-
-=> LAMBDA-EXPRESSION, CLOSURE-P, NAME
-
-Arguments and Values:
-
-FUNCTION---a function.
-
-LAMBDA-EXPRESSION---a lambda expression or NIL.
-
-CLOSURE-P---a generalized boolean.
-
-NAME---an object.
-
-Description:
-
-Returns information about function as follows:
-
-The primary value, LAMBDA-EXPRESSION, is function's defining lambda
-expression, or NIL if the information is not available.  The lambda
-expression may have been pre-processed in some ways, but it should
-remain a suitable argument to COMPILE or FUNCTION.  Any implementation
-may legitimately return NIL as the LAMBDA-EXPRESSION of any FUNCTION.
-
-The secondary value, CLOSURE-P, is NIL if FUNCTION's definition was
-enclosed in the null lexical environment or something non-NIL if
-FUNCTION's definition might have been enclosed in some non-null
-lexical environment.  Any implementation may legitimately return true
-as the CLOSURE-P of any function.
-
-The tertiary value, NAME, is the ``name'' of FUNCTION.  The name is
-intended for debugging only and is not necessarily one that would be
-valid for use as a name in DEFUN or FUNCTION, for example.  By
-convention, NIL is used to mean that FUNCTION has no name.  Any
-implementation may legitimately return NIL as the name of any
-FUNCTION."""
-        return values(*(gethash(slot, the(function_t, function).__dict__, default)[0]
-                        for slot, default in [("lambda_expression", nil),
-                                              ("closure_p",         t),
-                                              ("name",              nil)]))
-
+@defun
 def compile(name, definition = None, macroexpand = t):
         """compile name &optional definition => FUNCTION, WARNINGS-P, FAILURE-P
 
@@ -7864,6 +7870,8 @@ and true otherwise."""
                                  global_macro_p = name and not not macro_function(name),
                                  macroexpand    = macroexpand)
 
+# EVAL
+
 def eval(form):
         if symbol_value(_compiler_trace_forms_):
                 dprintf(";;;%s evaluating:\n%s%s",
@@ -7885,6 +7893,8 @@ def eval(form):
                       process          = nil,
                       eval             = t)
         return result
+
+# The REPL
 
 def do_exit(status = 0):
         frost.disable_pytracer()
@@ -7909,12 +7919,16 @@ def repl(prompt = "* "):
                 with progv({ _last_chance_handler_: repl_error_handler }):
                         repl_iteration()
 
+# Python recursion limit setup
+
 def configure_recursion_limit(new_limit):
         # dprintf("; current recursion limit is: %s;  setting it to %s",
         #               sys.getrecursionlimit(), new_limit)
         sys.setrecursionlimit(new_limit)
 
 configure_recursion_limit(262144)
+
+# Compiler unit tests
 
 def run_tests_compiler():
         def do_dbgsetup():
@@ -8304,6 +8318,8 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_COMPILER") == "t":
         with matcher_pp_stack():
                 run_tests_compiler()
 
+# Code self analysis
+
 def self_analyze(sort_by = "name"):
         import more_ast, pergamum
         accepted_sort_orders = ("name", "callees")
@@ -8426,16 +8442,7 @@ def self_analyze(sort_by = "name"):
                                         len(fdeps.get(f, [])), f, ", ".join(str(globals().get(x, x))
                                                                             for x in frdeps[f]))
 
-# Auxiliary: FDEFINITION
-
-################################################################################
-
-@defun
-def fdefinition(name):
-        ## DEFMACRO expands into this (DEFUN should too)
-        return symbol_function(the(symbol_t, name))
-
-# LOAD (+ stray stream_type_error)
+# LOAD
 
 string_set("*LOAD-VERBOSE*", t)
 string_set("*LOAD-PRINT*", nil)
