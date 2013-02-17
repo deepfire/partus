@@ -1505,17 +1505,6 @@ def extract_keywords(xs, keys_allowed = t):
                 error("Unexpected keywords - %s, where %s were expected.", bad_keys, keys_allowed)
         return dict(zip(names, xs[1::2]))
 
-# Lisp packages/symbols vs. python modules/names
-
-def find_module(name, if_does_not_exist = "error"):
-        return (py.find_module(name) or
-                poor_man_ecase(if_does_not_exist,
-                                ("continue",
-                                 None),
-                                ("error",
-                                 lambda: error(simple_package_error_t, "The name %s does not designate any package.",
-                                               name))))
-
 # Functions
 
 def function_lambda_expression(function):
