@@ -8499,7 +8499,7 @@ def self_analyze(mode = "global_shaking", name = None, depth = 3, sort_by = "nam
                                                      set()))
                         pools.append(next_pool)
                 for i, p in enumerate(pools):
-                        dprintf("; caller pool at depth %d", i)
+                        dprintf(";;\n;; caller pool at depth %d\n;;", i)
                         for n in p:
                                 print_name_nrefs_name_referrers(n)
 
