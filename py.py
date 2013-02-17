@@ -23,7 +23,7 @@ from cl import integer_t, float_t, cons_t, function_t, stream_t
 from cl import symbol_value, symbol_name, symbol_package, make_symbol, make_keyword
 from cl import package_name, find_package
 from cl import defun as _defun_, defclass as _defclass_
-from cl import interpreted_function_name_symbol, get_function_rtname, unit_variable_rtname
+from cl import interpreted_function_name_symbol, lisp_symbol_name_rtname, get_function_rtname, unit_variable_rtname
 from cl import consify_linear, xmap_to_vector, validate_function_args, validate_function_keys, without_condition_system
 from cl import _if, _primitive, _list, _quote, _setf, _allow_other_keys_
 from cl import ir_funcall, ir_apply, ir_cl_call
@@ -77,8 +77,9 @@ def coerce_to_ast_type(type_):
 def text_ast(text):
         return compile(text, "", 'exec', flags = ast.PyCF_ONLY_AST).body
 
-def function_ast(fn):
-        fn_ast = text_ast(without_condition_system(lambda: inspect.getsource(fn)))[0]
+def function_ast(fn, disable_condition_system = nil):
+        fn_ast = text_ast(without_condition_system(lambda: inspect.getsource(fn)) if disable_condition_system else
+                          inspect.getsource(fn))[0]
         return fn_ast.args, fn_ast.body
 
 def function_body_pass_p(fn):
@@ -259,7 +260,8 @@ def defast(fn):
                                       name, i, fname, ast_fname, ast_type._fields)
                 return ast_field_types
         def arglist_field_infos(parameters, nfix, with_defaults, ast_field_types):
-                fields = without_condition_system(lambda: collections.OrderedDict())
+                ## Used to be:  fields = without_condition_system(lambda: collections.OrderedDict())
+                fields = collections.OrderedDict()
                 def process_ast_field_arglist_entry(name, type, default, fixed = t):
                         fields[p] = (dict(name = name, type = type) if fixed else
                                      dict(name = name, type = type, default = default))
@@ -2082,6 +2084,23 @@ def here(note = None, *args, callers = 5, stream = None, default_stream = sys.st
                       )
 
 ##
+## Pytracer
+##
+__tracer_hooks__   = dict() # allowed keys: "call", "line", "return", "exception", "c_call", "c_return", "c_exception"
+def set_tracer_hook(type, fn):        __tracer_hooks__[type] = fn
+def     tracer_hook(type):     return __tracer_hooks__[type] if type in __tracer_hooks__ else None
+
+def pytracer(frame, event, arg):
+        method = tracer_hook(event)
+        if method:
+                method(arg, frame)
+        return pytracer
+
+def pytracer_enabled_p(): return sys.gettrace() is pytracer
+def enable_pytracer():    sys.settrace(pytracer)
+def disable_pytracer():   sys.settrace(None)
+
+##
 ## Essential runtime: symbol, global variable and function availability
 ##
 def make_undefined_function_stub(name):
@@ -2428,7 +2447,7 @@ def hash_table_alist(xs):
 def import__(symbols, package = None, populate_module = True):
         p = coerce_to_package(package)
         symbols = vectorise_linear(ensure_list(symbols))
-        module = find_module(frost.lisp_symbol_name_python_name(package_name(p)),
+        module = find_module(lisp_symbol_name_rtname(package_name(p)),
                               if_does_not_exist = "continue")
         for s in symbols:
                 ps, accessible = gethash(s.name, p.accessible)
@@ -2442,8 +2461,8 @@ def import__(symbols, package = None, populate_module = True):
                         if module:
                                 not_implemented("Namespace merging.")
                                 # Issue SYMBOL-VALUES-NOT-SYNCHRONISED-WITH-PYTHON-MODULES
-                                # python_name = frost.lisp_symbol_name_python_name(s.name)
-                                # module.__dict__[python_name] = ?
+                                # rtname = frost.lisp_symbol_name_rtname(s.name)
+                                # module.__dict__[rtname] = ?
         return t
 
 @_defun_

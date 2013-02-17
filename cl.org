@@ -523,7 +523,6 @@ Compile-time error:
 * Boring
 *** Boot
 ***** Frost boot
-
 ******* Builtins management
 
 #+begin_src python +n
@@ -574,7 +573,45 @@ import threading
 import collections
 
 import neutrality
-import frost
+#+end_src
+
+******* Lisp symbol <-> primitive name mapping
+
+#+begin_src python
+def lisp_symbol_name_rtname(x):
+        def sub(cs):
+                acc = []
+                for c in cs:
+                        acc.append("_" if c in "-*:&%" else c)
+                return acc
+        ret = "".join(sub(x)).lower()
+        return ret
+
+def lisp_symbol_name_type_rtname(x):
+        return lisp_symbol_name_rtname(x) + "_t"
+
+common_ands = { "WHOLE", "OPTIONAL", "REST", "BODY", "KEY", "ALLOW-OTHER-KEYS" }
+def rtname_lisp_symbol_name(x):
+        """Heuristic to (not quite) undo the effect of _lisp_symbol_name_rtname().
+Irreversibles: %."""
+        def sub(cs):
+                if len(cs) > 1:
+                        starred       = cs[0]  == cs[-1] == "_"                                   # *very-nice*
+                        anded         = cs[0]  == "_" != cs[-1] and cs[1:].upper() in common_ands # &something
+                        maybe_keyword = cs[-1] != cs[0] == "_" != cs[1]                           # :something
+                        tailed        = cs[-1] == "_" != cs[0]                                    # something-in-conflict
+                else:
+                        starred = anded = maybe_keyword = tailed = False
+                pre, post, start, end = (("*", "*", 1, len(cs) - 1) if starred       else
+                                         ("&", "",  1, None)        if anded         else
+                                         (":", "",  1, None)        if maybe_keyword else
+                                         ("",  "",  0, len(cs) - 1) if tailed        else
+                                         ("",  "",  0, None))
+                return (pre +
+                        "".join("-" if c == "_" else c for c in cs[start:end]) +
+                        post)
+        ret = sub(x).upper()
+        return ret
 #+end_src
 
 ******* Default values for optional/key arguments
@@ -631,7 +668,7 @@ def dprintf(format_control, *format_args, trailing_newline = True):
 def global_(x, globals = globals()):
         """This is important due to the single namespace, and the
 consequent shadowing of various specifiers."""
-        return frost.global_(x, globals)[0]
+        return globals.get(x, None)
 
 ## 1. trivial enumeration for later DEFUN/DEFCLASS
 __boot_defunned__, __boot_defclassed__ = set(),  set()
@@ -644,7 +681,7 @@ boot_sets = collections.defaultdict(set)
 def boot(set, boot, on_unboot = None):
         def definer(orig):
                 def unboot():
-                        frost.setf_global(orig, orig.__name__, globals(), force = True)
+                        globals()[orig.__name__] = orig
                         if on_unboot:
                                 on_unboot()
                 def linkage(*args, **keys):
@@ -669,8 +706,8 @@ def interpret_toplevel_value(name_or_obj, objness_predicate):
                      error("Bad cold object definition: %s", name_or_obj))
         ####### Thought paused here:
         # ..delay symbol computation!
-        sym, inmod_name = ((do_intern(frost.python_name_lisp_symbol_name(name))[0], name) if isinstance(name, str)      else
-                           (name, frost.lisp_symbol_name_python_name(symbol_name(name)))  if isinstance(name, symbol_t) else
+        sym, inmod_name = ((do_intern(rtname_lisp_symbol_name(name))[0], name) if isinstance(name, str)      else
+                           (name, lisp_symbol_name_rtname(symbol_name(name)))  if isinstance(name, symbol_t) else
                            error("In cold definition of %s: bad name %s for a cold object.", name, repr(name)))
         return obj, sym, inmod_name
 #+end_src
@@ -778,12 +815,12 @@ def do_symbol_value(name):
         return (frame[name] if frame else
                 error(AttributeError, "Unbound variable: %s." % name))
 
-def do_pyimport_symbol(symbol, globals, inmod_name = None, name_xform = frost.lisp_symbol_name_python_name, force = False):
+def do_pyimport_symbol(symbol, globals, inmod_name = None, name_xform = lisp_symbol_name_rtname, force = False):
         inmod_name = name_xform(symbol_name(symbol)) if inmod_name is None else inmod_name
         # dprintf("PYMPORT '%s'", inmod_name)
-        frost.setf_global(symbol, inmod_name, globals, force = force)
+        globals[inmod_name] = symbol
 
-def pyimport_symbol(symbol, globals = None, inmod_name = None, name_xform = frost.lisp_symbol_name_python_name, force = False):
+def pyimport_symbol(symbol, globals = None, inmod_name = None, name_xform = lisp_symbol_name_rtname, force = False):
         do_pyimport_symbol(boot_check_type(symbolp, symbol), defaulted(globals, pyb.globals()), inmod_name, name_xform, force)
 
 def global_rtname(name):
@@ -870,7 +907,6 @@ def warn(control, *args, **keys):
         format(symbol_value(_error_output_), "%s: %s\n", badness, condition)
         return nil
 
-# @boot(lambda error, datum, *args, **keys: frost.raise_exception(coerce_to_condition(datum, *args, **keys)))
 @boot_defun
 def error(datum, *args, **keys):
         ## Shouldn't we ditch Python compat entirely, doing instead
@@ -1276,7 +1312,7 @@ def catch(ball, body):
 
 def __catch_maybe_reenable_pytracer(ct):
         if ct.reenable_pytracer:
-                frost.enable_pytracer()
+                py.enable_pytracer()
 
 def throw(ball, value):
         "Stack this seeks, like mad, like the real one."
@@ -1326,7 +1362,7 @@ string_set("*PRESIGNAL-HOOK*",   nil)
 string_set("*PREHANDLER-HOOK*",  nil)
 
 def set_condition_handler(fn):
-        frost.set_tracer_hook("exception", fn)
+        py.set_tracer_hook("exception", fn)
 
 @boot_defun
 def signal(cond):
@@ -1367,8 +1403,7 @@ def define_python_type_map(symbol_or_name, type_):
         symbol = (symbol_or_name if symbolp(symbol_or_name) else
                   intern(symbol_or_name)[0])
         protosymbolicate(type_, symbol.name, "python_type")
-        frost.setf_global(type_, frost.lisp_symbol_name_python_type_name(symbol.name),
-                           globals = globals())
+        globals()[lisp_symbol_name_type_rtname(symbol.name)] = type_
         symbol.python_type = type_
         return symbol
 
@@ -1438,10 +1473,9 @@ def deftype(type_name_or_fn, globals = None):
                               or None)
                 symbol = intern(type_name)[0]
                 symbol.type_predicate = fn
-                frost.setf_global(symbol, old_global_name + ("" if old_global_name.endswith("_") else "_") + "t",
-                                   globals)
+                globals[old_global_name + ("" if old_global_name.endswith("_") else "_") + "t"] = symbol
                 return old_global
-        return (do_deftype(type_name_or_fn, type_name = frost.python_name_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
+        return (do_deftype(type_name_or_fn, type_name = rtname_lisp_symbol_name(type_name_or_fn.__name__)) if functionp(type_name_or_fn) else
                 do_deftype                                                                                             if isinstance(type_name_or_fn, str)   else
                 error("In DEFTYPE: argument must be either a function or a string, was: %s.",
                       repr(symbol_name_or_fn)))
@@ -1632,9 +1666,11 @@ del boot_defclass
 defun            = make_cold_definer("%COLD-DEFUN",    functionp, "function",    identity)
 defclass         = make_cold_definer("%COLD-DEFCLASS", lambda x: isinstance(x, type), "python_type", identity)
 defun_with_block = make_cold_definer("%COLD-DEFUN-WITH-BLOCK", functionp, "function", __block__)
-for fn  in __boot_defunned__:   frost.setf_global(defun(fn),     fn.__name__,  globals(), force = t)
+for fn  in __boot_defunned__:
+        globals()[fn.__name__] = defun(fn)
 del fn
-for cls in __boot_defclassed__: frost.setf_global(defclass(cls), cls.__name__, globals(), force = t)
+for cls in __boot_defclassed__:
+        globals()[cls.__name__] = defclass(cls)
 del cls
 doit = True
 #+end_src
@@ -2107,7 +2143,7 @@ def extract_keywords(xs, keys_allowed = t):
 
 #+begin_src python +n
 def find_module(name, if_does_not_exist = "error"):
-        return (frost.find_module(name) or
+        return (py.find_module(name) or
                 poor_man_ecase(if_does_not_exist,
                                 ("continue",
                                  None),
@@ -2434,7 +2470,7 @@ def set_function_definition(globals, x, lambda_expression = None, check_redefini
                         ## Unregistered Issue NAMESPACE-POLLUTION-SEEMS-FRIVOLOUS
                         rtname = ensure_function_rtname(x)
                         # dprintf("S-F-D: %15s %25s %20s %15s%s <- %s", rtname, function, sym, slot, " SETF" * setfp, x)
-                        frost.setf_global(function, rtname, globals, force = True)
+                        globals[rtname] = function
                 return function
         return do_set_function_definition
 
@@ -2446,7 +2482,7 @@ def set_macro_definition(globals, x, lambda_expression):
                 if not identity_redef and function:
                         x.function, x.macro_function = nil, function
                         function.name = x
-                        frost.setf_global(function, ensure_function_rtname(x), globals, force = True)
+                        globals[ensure_function_rtname(x)] = function
                 return x
         return do_set_macro_definition
 #+end_src
@@ -2454,6 +2490,9 @@ def set_macro_definition(globals, x, lambda_expression):
 ***** Essential system-level functions
 
 #+begin_src python
+def do_getenv(var):
+        return os.getenv(var)
+
 def getenv(var):
         return without_condition_system(lambda: os.getenv(var))
 #+end_src
@@ -2463,36 +2502,18 @@ def getenv(var):
 
 #+begin_src python +n
 def without_condition_system(body, reason = ""):
-        if frost.pytracer_enabled_p():
+        if py.pytracer_enabled_p():
                 try:
-                        frost.disable_pytracer()
+                        py.disable_pytracer()
                         return body()
                 finally:
-                        frost.enable_pytracer()
+                        py.enable_pytracer()
         else:
                 return body()
 
 disabled_condition_system = defwith("disabled_condition_system",
-                                    lambda _:  frost.disable_pytracer(),
-                                    lambda *_: frost.enable_pytracer())
-#+end_src
-
-******* Condition system init
-
-#+begin_src python +n
-def init_condition_system():
-        frost.enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
-
-def condition_system_enabled_p():
-        return (frost.pytracer_enabled_p() and
-                frost.tracer_hook("exception") is __cl_condition_handler__)
-
-(_load_toplevel, _compile_toplevel, _execute) = [ make_keyword(x)  for x in [ "LOAD-TOPLEVEL", "COMPILE-TOPLEVEL", "EXECUTE" ] ]
-(_load, _compile, _eval)                      = [ intern(x)[0] for x in [ "LOAD", "COMPILE", "EVAL" ] ]
-
-if not getenv("CL_NO_CONDITION_SYSTEM"):
-        ## Has no effect until set_condition_handler(__cl_condition_handler__) is called later.
-        init_condition_system()
+                                    lambda _:  py.disable_pytracer(),
+                                    lambda *_: py.enable_pytracer())
 #+end_src
 
 ***** Streams
@@ -3998,7 +4019,7 @@ def run_tests_quasiquotation():
                        l(_list, l(_quote, _list_), l(_list, l(_quote, _quote), l(_quote, a)), b, c),
                        printer = pp_consly))
 
-if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_QQ") == "t":
+if do_getenv("CL_RUN_TESTS") == "t" and do_getenv("CL_TEST_QQ") == "t":
         with progv({ _reader_trace_qqexpansion_: nil }):
                 run_tests_quasiquotation()
 #+end_src
@@ -4284,7 +4305,7 @@ def __cl_condition_handler__(condspec, frame):
                 except error_t as debugger_cond:
                         dprintf("; Failed to enter the debugger due to the following condition:\n%s\n; Disabling the CL condition system.\n; Have a nice day!", debugger_cond)
                         sys.stderr.flush()
-                        frost.disable_pytracer()
+                        py.disable_pytracer()
         ## Issue UNHANDLED-CONDITIONS-NOT-REALLY
         # At this point, the Python condition handler kicks in,
         # and the stack gets unwound for the first time.
@@ -4293,16 +4314,15 @@ def __cl_condition_handler__(condspec, frame):
         # condition handlers.
         # If we've hit any HANDLER-CASE-bound handlers, then we won't
         # even reach this point, as the stack is already unwound.
-set_condition_handler(__cl_condition_handler__)
 
 def handler_bind(f, *handlers, no_error = identity):
         "Works like real HANDLER-BIND, when the conditions are right.  Ha."
         value = None
 
         # this is:
-        #     frost.pytracer_enabled_p() and condition_handler_active_p()
+        #     py.pytracer_enabled_p() and condition_handler_active_p()
         # ..inlined for speed.
-        if frost.pytracer_enabled_p() and frost.tracer_hook("exception") is __cl_condition_handler__:
+        if py.pytracer_enabled_p() and py.tracer_hook("exception") is __cl_condition_handler__:
                 # Unregistered Issue HANDLER-BIND-CHECK-ABSENT
                 with progv({_handler_clusters_: (symbol_value(_handler_clusters_) +
                                                  [handlers + (("__frame__", py.caller_frame()),)])}):
@@ -4310,7 +4330,7 @@ def handler_bind(f, *handlers, no_error = identity):
         else:
                 # old world case..
                 # format(t, "crap FAIL: pep %s, exhook is cch: %s",
-                #        frost.pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
+                #        py.pytracer_enabled_p(), __tracer_hooks__.get("exception") is __cl_condition_handler__)
                 if len(handlers) > 1:
                         error("HANDLER-BIND: was asked to establish %d handlers, but cannot establish more than one in 'dumb' mode.",
                               len(handlers))
@@ -4366,6 +4386,9 @@ class undefined_function_t(error_t):
                 return "The function %s is undefined." % (self.name,)
         def __repr__(self):
                 return self.__str__()
+
+def undefined_function(name):
+        error(undefined_function_t, name)
 #+end_src
 
 ***** Restarts
@@ -5582,6 +5605,9 @@ def parse_body(body, doc_string_allowed = t):
                       nreverse(decls),
                       doc)
 
+(_load_toplevel, _compile_toplevel, _execute) = [ make_keyword(x)  for x in [ "LOAD-TOPLEVEL", "COMPILE-TOPLEVEL", "EXECUTE" ] ]
+(_load, _compile, _eval)                      = [ intern(x)[0] for x in [ "LOAD", "COMPILE", "EVAL" ] ]
+
 eval_when_ordered_keywords = _compile_toplevel, _load_toplevel, _execute
 eval_when_ordered_legacy_keywords = _compile, _load, _eval
 eval_when_keywords = set(eval_when_ordered_keywords) | set(eval_when_ordered_legacy_keywords)
@@ -5671,6 +5697,47 @@ def compiler_dbgconf(**keys):
                                                     x.replace("_", "-").upper())
         for namespec, value in keys.items():
                 string_set(control_var_name(namespec), value)
+
+def dbgsetup(**keys):
+        compiler_dbgconf(pretty_full = t,
+                         **keys)
+
+def no_debug():
+        dbgsetup(forms = nil,
+                 
+                 subexpansion = nil,
+                 macroexpanded = nil,
+                 
+                 subrewriting = nil,
+                 rewritten = nil,
+                 
+                 subprimitivisation = nil,
+                 primitives = nil,
+                 
+                 subastification = nil,
+                 module_ast = nil)
+        
+def summary_debug():
+        dbgsetup(forms = t,
+                 macroexpanded = t,
+                 rewritten = t,
+                 primitives = t,
+                 module_ast = t)
+
+def full_debug():
+        dbgsetup(forms = t,
+                 
+                 subexpansion = t,
+                 macroexpanded = t,
+                 
+                 subrewriting = t,
+                 rewritten = t,
+                 
+                 subprimitivisation = t,
+                 primitives = t,
+                 
+                 subastification = t,
+                 module_ast = t)
 
 string_set("*PP-BASE-DEPTH*", 0)
 string_set("*PP-DEPTH*", 0)
@@ -6557,15 +6624,6 @@ Examples:
                                 # dprintf("############################################  ..left %s", id)
 #+end_src
 
-*** Target environment
-***** Setup machinery
-
-#+begin_src python
-
-def undefined_function(name):
-        error("Function not defined: %s.", name)
-#+end_src
-
 *** Macroexpansion
 
 #+begin_src python +n
@@ -6595,21 +6653,6 @@ def DEFVAR(name, value = nil, documentation = nil):
         return l(_eval_when, l(_compile_toplevel, _load_toplevel, _execute),
                  l(_funcall, l(_function, l(_quote, l("cl", "compiler_defvar"))), l(_quote, name), value),
                  nil)
-
-@set_macro_definition(globals(), _impl_ref, nil)
-def IMPL_REF(x):
-        l, l_ = list_, list__
-        if not stringp(x):
-                error("In IMPL-REF %s: argument must be a single string.", pp_consly(x))
-        return l(_ref, l(_quote, l("cl", x)))
-
-@set_macro_definition(globals(), _impl_call, nil)
-def IMPL_CALL(x, *args):
-        l, l_ = list_, list__
-        if not stringp(x):
-                error("In IMPL-CALL: argument must be a single string.", pp_consly(x))
-        return l_(_funcall, l(_function, l(_quote, l("cl", x))), consify_linear(args))
-
 
 class macroexpander_t(lexenv_walker_t):
         pass
@@ -6710,9 +6753,9 @@ def compiler_macroexpand_all(form, lexenv = nil, desc = "COMPILER-MACROEXPAND-AL
 #+end_src
 
 *** Known IR
+***** Known name symbols
 
 #+begin_src python
-## Known names.
 intern_and_bind("IR-ARGS", "FUNCALL", ("_let_", "LET*"),
                 "FLET", "LABELS", "MACROLET",
                 "SYMBOL-MACROLET", "BLOCK", "RETURN-FROM",
@@ -6724,14 +6767,22 @@ intern_and_bind("IR-ARGS", "FUNCALL", ("_let_", "LET*"),
                 "CATCH", "THROW", "NTH-VALUE",
                 "PROGV", "PROTOLOOP", "THE",
                 "LOCALLY", "MULTIPLE-VALUE-PROG1", "LOAD-TIME-VALUE")
+#+end_src
 
+***** Main class
+
+#+begin_src python
 class known():
         def rewrite(mach, orig, *_):
                 return nil, orig
         def binder(exp, continuation):
                 with progv({ _walker_binder_: lexenv_walker_t.binder(0, "Generic binder.") }):
                         return continuation(exp)
+#+end_src
 
+***** Definition
+
+#+begin_src python
 def compute_default_metasex(name):
         "Return a default metasex form for an IR with NAME."
         return (name, [" ", (_form,)])
@@ -6750,7 +6801,7 @@ def defknown(metasex_or_class, name = None):
                 return orig # pass through -- let the symbol be bound to the name
         def def_(cls, name = name, metasex = metasex_or_class):
                 rtname = cls.__name__
-                sym     = intern(frost.python_name_lisp_symbol_name(rtname))[0]
+                sym     = intern(rtname_lisp_symbol_name(rtname))[0]
                 name    = defaulted(name, sym, symbol_t)
                 metasex = defaulted(metasex, compute_default_metasex(name))
                 return do_def(cls, name, rtname, metasex)
@@ -6766,7 +6817,11 @@ def form_known(form):
         ## METASEX-MATCHER guts it, due to case analysis
         complex_form_p = consp(form) and isinstance(form[0], symbol_t)
         return complex_form_p and find_known(form[0])
+#+end_src
 
+***** Rewriting
+
+#+begin_src python
 def rewrite_1(preform) -> "(Bool ({} Form Bool))":
         "All non-atom forms are interpreted as knowns at this point."
         # dprintf("%s(%s) calling %s.REWRITE(%s, ...)", caller_name(3), pp_consly(caller_args(3)), preform[0], pp_consly(preform))
@@ -6819,7 +6874,11 @@ def rewriter_xform(form, further: "Form -> ({} Form Bool)") -> "({} Form Bool)":
 
 def rewrite_all(sex, lexenv = nil):
         return walk_with_lexenv(rewriter_xform, sex, lexenv = lexenv, matcher = rewriter, bind_after_fn = nil)
+#+end_src
 
+***** Toolkit
+
+#+begin_src python
 def ir_lambda_p(x):
         return consp(x) and x[0] is _lambda
 
@@ -6858,17 +6917,6 @@ def ir_function_form_nth_value_form(n, func, orig_form):
 
 def ir_nth_valueify_last_subform(n, form):
         return append(butlast(form), list_(list_(nth_value, n, lastcar(form))))
-#+end_src
-
-*** Primitive IR
-
-#+begin_src python
-def implrefname_p(x):
-        return consp(x) and isinstance(x[0], str)
-
-def implref_p(x):
-        return (consp(x) and x[0] is _quote and consp(x[1])
-                and implrefname_p(x[1][0]))
 
 intern_and_bind("APPLY", "FUNCALL")
 
@@ -6890,41 +6938,59 @@ def ir_apply(func, *args):
 def ir_cl_call(name, *args):
         return ir_apply(list_(_quote, list_("cl", name)), *args)
 
+def handle_linear_body(xs):
+        return (nil   if not xs       else
+                xs[0] if len(xs) is 1 else
+                list_(_progn, *xs))
+
+def rewrite_linear_body(xs):
+        return ((nil, list_(_progn, *xs)) if len(xs) > 1 else
+                (t, handle_linear_body(xs)))
+
+def handle_constant_linear_body(xs):
+        return (nil    if not xs       else
+                xs[-1])
+#+end_src
+
+*** Primitive IR
+***** Load primitives.py
+
+#+begin_src python
 _allow_other_keys_ = intern("ALLOW-OTHER-KEYS", __keyword)[0]
 
 intern_and_bind("*MACHINE*", gvarp = t)
 
-with disabled_condition_system():
-        import primitives as p
+import primitives as p
+#+end_src
 
-def variable_tn(sym, globalp = nil): return p.name((unit_variable_rtname if globalp else ensure_variable_rtname)(sym))
-def function_tn(sym, globalp = nil): return p.name((unit_function_rtname if globalp else new_function_rtname)(sym))
-def   symbol_tn(sym):                return p.name(unit_symbol_rtname(sym))
+***** Implementation references
 
-def gensym_tn(x = "G"):
-        sym = gensym(x)
-        sym.tn = variable_tn(sym)
-        return sym
+#+begin_src python
+@set_macro_definition(globals(), _impl_ref, nil)
+def IMPL_REF(x):
+        l, l_ = list_, list__
+        if not stringp(x):
+                error("In IMPL-REF %s: argument must be a single string.", pp_consly(x))
+        return l(_ref, l(_quote, l("cl", x)))
 
-def make_keyword_tn(name):
-        kw = make_keyword(name)
-        kw.tn = symbol_tn(kw)
-        return kw
+@set_macro_definition(globals(), _impl_call, nil)
+def IMPL_CALL(x, *args):
+        l, l_ = list_, list__
+        if not stringp(x):
+                error("In IMPL-CALL: argument must be a single string.", pp_consly(x))
+        return l_(_funcall, l(_function, l(_quote, l("cl", x))), consify_linear(args))
 
-with disabled_condition_system():
-        import py
-        import tri
-        pymach  = py.py()
-        cfgmach = tri.tri()
+def implrefname_p(x):
+        return consp(x) and isinstance(x[0], str)
 
-string_set("*MACHINE*", pymach)
+def implref_p(x):
+        return (consp(x) and x[0] is _quote and consp(x[1])
+                and implrefname_p(x[1][0]))
+#+end_src
 
-target_machine = defwith("target_machine",
-                         lambda self: dynamic_scope_push({ _machine_: self.machine }),
-                         lambda *_:   dynamic_scope_pop(),
-                         __init__ = (lambda self, machine:
-                                             self.__dict__.update({ "machine": machine })))
+***** Constant primitivisation
 
+#+begin_src python
 __primitiviser_map__ = { str:        (nil, p.string),
                          int:        (nil, p.integer),
                          float:      (nil, p.float_num),
@@ -6970,6 +7036,57 @@ def primitivise_constant(x):
                       pp_consly(x), type(x).__name__))
 #+END_SRC
 
+***** Primitive TN allocation
+
+#+begin_src python
+def variable_tn(sym, globalp = nil): return p.name((unit_variable_rtname if globalp else ensure_variable_rtname)(sym))
+def function_tn(sym, globalp = nil): return p.name((unit_function_rtname if globalp else new_function_rtname)(sym))
+def   symbol_tn(sym):                return p.name(unit_symbol_rtname(sym))
+
+def gensym_tn(x = "G"):
+        sym = gensym(x)
+        sym.tn = variable_tn(sym)
+        return sym
+
+def make_keyword_tn(name):
+        kw = make_keyword(name)
+        kw.tn = symbol_tn(kw)
+        return kw
+#+end_src
+
+*** Machine and primitive IR backend loading and default target selection
+
+#+begin_src python
+import py
+import tri
+pymach  = py.py()
+cfgmach = tri.tri()
+
+string_set("*MACHINE*", pymach)
+
+target_machine = defwith("target_machine",
+                         lambda self: dynamic_scope_push({ _machine_: self.machine }),
+                         lambda *_:   dynamic_scope_pop(),
+                         __init__ = (lambda self, machine:
+                                             self.__dict__.update({ "machine": machine })))
+#+end_src
+
+*** Condition system init
+
+#+begin_src python
+def init_condition_system():
+        py.enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
+
+def condition_system_enabled_p():
+        return (py.pytracer_enabled_p() and
+                py.tracer_hook("exception") is __cl_condition_handler__)
+
+if not do_getenv("CL_NO_CONDITION_SYSTEM"):
+        ## Has no effect until set_condition_handler(__cl_condition_handler__) is called later.
+        init_condition_system()
+        set_condition_handler(__cl_condition_handler__)
+#+end_src
+
 *** Metasex tests
 
 #+begin_src python
@@ -6977,51 +7094,10 @@ def matcher_result_printer(x):
         return ((("%s\n%s\n%s" % (x[0], pp_consly_pp_str(x[1]), pp_consly(x[2])))
                  if len(x) is 3 else
                  ("%s\n%s" % (pp_consly(x[0]), pp_consly(x[1]))))
-                                                                          if isinstance(x, tuple) else
+                                                                         if isinstance(x, tuple) else
                 matcher_pp(x)                                            if isinstance(x, dict)  else
                 matcher_pp(x)                                            if consp(x)             else
                 str(x))
-
-def dbgsetup(**keys):
-        compiler_dbgconf(pretty_full = t,
-                         **keys)
-
-def no_debug():
-        dbgsetup(forms = nil,
-                 
-                 subexpansion = nil,
-                 macroexpanded = nil,
-                 
-                 subrewriting = nil,
-                 rewritten = nil,
-                 
-                 subprimitivisation = nil,
-                 primitives = nil,
-                 
-                 subastification = nil,
-                 module_ast = nil)
-        
-def summary_debug():
-        dbgsetup(forms = t,
-                 macroexpanded = t,
-                 rewritten = t,
-                 primitives = t,
-                 module_ast = t)
-
-def full_debug():
-        dbgsetup(forms = t,
-                 
-                 subexpansion = t,
-                 macroexpanded = t,
-                 
-                 subrewriting = t,
-                 rewritten = t,
-                 
-                 subprimitivisation = t,
-                 primitives = t,
-                 
-                 subastification = t,
-                 module_ast = t)
 
 intern_and_bind("CAR", "CDR", "LET", "&BODY")
 def run_tests_metasex():
@@ -7145,23 +7221,6 @@ def run_tests_metasex():
 
 if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_METASEX") == "t":
         run_tests_metasex()
-#+end_src
-
-*** Form-based IR toolkit
-
-#+begin_src python
-def handle_linear_body(xs):
-        return (nil   if not xs       else
-                xs[0] if len(xs) is 1 else
-                list_(_progn, *xs))
-
-def rewrite_linear_body(xs):
-        return ((nil, list_(_progn, *xs)) if len(xs) > 1 else
-                (t, handle_linear_body(xs)))
-
-def handle_constant_linear_body(xs):
-        return (nil    if not xs       else
-                xs[-1])
 #+end_src
 
 *** Known definitions
@@ -8936,7 +8995,7 @@ def eval(form):
 
 #+begin_src python
 def do_exit(status = 0):
-        frost.disable_pytracer()
+        py.disable_pytracer()
         exit(status)
 
 def repl(prompt = "* "):

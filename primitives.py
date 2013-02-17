@@ -10,7 +10,6 @@ from cl import _machine_
 
 import ast
 import sys
-import frost
 import types
 import builtins
 import collections
