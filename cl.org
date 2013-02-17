@@ -75,8 +75,8 @@
       - compiler_defun() -> {find,set}_global_function(+)
       - FUNCTION.rewrite() -> compiler_lambda(+)
       - FUNCTION.primitivise() -> fn(+)
-      - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_pyname(+)
-      - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_pyname() -> ensure_function_pyname(+)
+      - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname(+)
+      - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname() -> ensure_function_rtname(+)
       - FUNCTION.primitivise() -> lower_lambda()
 *** Models
 ***** Runtime
@@ -3876,7 +3876,7 @@ string_set("*READER-TRACE-QQEXPANSION*",        nil)
 ## Unregistered Issue COMPLIANCE-BACKQUOTE-EXPANSION-DOTTED-LIST-HANDLING
 
 def expand_quasiquotation(form):
-        "Direct translation of src/quasiquotation.lisp, modulo the python-specific intermarker representation."
+        "Direct translation of src/quasiquotation.lisp, modulo the intermarker representation."
         l, l_ = list_, list__
         def len_is_2(x):    return t if len(x) is 2 else error("Invalid intermarker: %s.", x)
         def commap(x):      return isinstance(x, tuple) and len_is_2(x) and x[0] is _comma
@@ -5530,7 +5530,7 @@ def mock_sex(sex, initial_depth = None, max_level = None):
 
     - symbol.function -- runtime environment
       - symbol_function, fboundp, fmakunbound, setf_fdefinition -- the
-      - fop_make_symbol_available -- the, for pyname value maintenance
+      - fop_make_symbol_available -- the, for rtname value maintenance
       - populate_compilation_environment_from_package -- the
       - set_function/macro_definition -- updating
     - function_scope -- compilation environment
@@ -5539,8 +5539,8 @@ def mock_sex(sex, initial_depth = None, max_level = None):
       - populate_compilation_environment_from_package -- same as compiler_defun
       - code emitted by compile_in_lexenv
       - FUNCTION -- the
-    - pynames
-      - function_tn, ensure/unit/get_function_pyname -- toolkit
+    - rtnames
+      - function_tn, ensure/unit/get_function_rtname -- toolkit
       - set_function/macro_definition, compiler_defun/defmacro -- maintain
       - compilation_unit_prologue/_fop_make_symbol_available -- read/write: target environment setup
       - FUNCTION -- emission of in-target-environment references
