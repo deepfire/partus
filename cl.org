@@ -9462,12 +9462,13 @@ def self_analyze(sort_by = "name"):
                 "mrtrace", "traced_matcher",
                 "locals_printf",
                 "run_profile",
+                "self_analyze",
                 "withless",
                 ## python-only runtime
                 }
         def hide(x):
                 return x.startswith("FUN_") or x.startswith("#<") or x in whitelist
-        def codep(x): return isinstance(x, type(self_analyze.__code__))
+        def codep(x): return isinstance(x, type(dprintf.__code__))
         def co_deps(x):
                 deps = set(x.co_names)
                 for sub in x.co_consts:
