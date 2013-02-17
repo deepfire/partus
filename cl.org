@@ -9411,8 +9411,11 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_COMPILER") == "t":
 * Code self analysis
 
 #+begin_src python
-def self_analyze(sort_by = "name"):
+def self_analyze(mode = "global_shaking", name = None, depth = 3, sort_by = "name"):
         import more_ast, pergamum
+        accepted_modes = ("global_shaking", "referrers")
+        if mode not in accepted_modes:
+                error("SELF-ANALYZE accepts only the following modes: %s.", ", ".join(accepted_modes))
         accepted_sort_orders = ("name", "callees")
         if sort_by not in accepted_sort_orders:
                 error("SELF-ANALYZE accepts only the following sort orders: %s.", ", ".join(accepted_sort_orders))
@@ -9488,11 +9491,11 @@ def self_analyze(sort_by = "name"):
                 return deps
         fdeps = dict()                        ## REFERRER --> { REFEREE }
         ####  1. Global function and class definitions
-        for name, x in globals().items():
+        for n, x in globals().items():
                 if functionp(x):
-                        fdeps[name] = fn_deps(x)
+                        fdeps[n] = fn_deps(x)
                 if isinstance(x, type):
-                        fdeps[name] = cls_deps(x)
+                        fdeps[n] = cls_deps(x)
         ####  2. Toplevel import-from's within relevant using modules
         for mod in relevant_modules:
                 fdeps["#<Module '%s'>" % mod] = module_deps(mod)
@@ -9516,23 +9519,45 @@ def self_analyze(sort_by = "name"):
                 usebs[len(rdeps)].add(f)
         usebs[0] = set(x for x in fdeps
                        if x not in frdeps)
-        dprintf("; Usage breakdown:")
-        # for n, fs in reversed(sorted(usebs.items())):
-        whitelist_noise = whitelist - set(globals()) - set([""])
-        if whitelist_noise:
-                error("Whitelist contains inexistent entries: %s.", ", ".join(sorted(whitelist_noise)))
-        sort_key, reversep = ((identity, nil)                             if sort_by == "name"    else
-                              (lambda fname: len(fdeps.get(fname, [])), t) if sort_by == "callees" else
-                              error("This should not happen."))
-        for n, fs in [[(n, fs) for n, fs in reversed(sorted(usebs.items()))
-                       if any(not hide(f) for f in fs)][-1]]:
-                vis_fs = [ f for f in fs if not hide(f) ]
-                dprintf("; ---- use count %d (%d at this level, %d hidden):", n, len(vis_fs), len(fs) - len(vis_fs))
-                for f in sorted(vis_fs, key = sort_key):
-                        if not hide(f):
-                                dprintf(";   %2d %30s   callers: %s",
-                                        len(fdeps.get(f, [])), f, ", ".join(str(globals().get(x, x))
-                                                                            for x in frdeps[f]))
+        def print_name_nrefs_name_referrers(x):
+                dprintf(";   %2d %30s   referrers: %s",
+                        len(fdeps.get(x, [])), x, ", ".join(str(globals().get(x, x))
+                                                            for x in frdeps[x]))
+        if mode == "global_shaking":
+                dprintf("; Usage breakdown:")
+                # for n, fs in reversed(sorted(usebs.items())):
+                whitelist_noise = whitelist - set(globals()) - set([""])
+                if whitelist_noise:
+                        error("Whitelist contains inexistent entries: %s.", ", ".join(sorted(whitelist_noise)))
+                sort_key, reversep = ((identity, nil)                              if sort_by == "name"    else
+                                      (lambda fname: len(fdeps.get(fname, [])), t) if sort_by == "callees" else
+                                      error("This should not happen."))
+                for n, fs in [[(n, fs) for n, fs in reversed(sorted(usebs.items()))
+                               if any(not hide(f) for f in fs)][-1]]:
+                        vis_fs = [ f for f in fs if not hide(f) ]
+                        dprintf("; ---- use count %d (%d at this level, %d hidden):", n, len(vis_fs), len(fs) - len(vis_fs))
+                        for f in sorted(vis_fs, key = sort_key):
+                                if not hide(f):
+                                        print_name_nrefs_name_referrers(f)
+        if mode == "referrers":
+                if not name:
+                        error("A name is required in the referrer query mode, but none was specified.")
+                if fdeps.get(name, None) is None:
+                        dprintf("; Global name '%s' is never defined.", name)
+                        return
+                dprintf("; Referral tree for %s:", name)
+                pools = [frozenset([name])]
+                for n in range(depth):
+                        last_pool = pools[-1]
+                        next_pool = frozenset(reduce(operator.ior,
+                                                     (frdeps.get(name, set())
+                                                      for name in last_pool),
+                                                     set()))
+                        pools.append(next_pool)
+                for i, p in enumerate(pools):
+                        dprintf("; caller pool at depth %d", i)
+                        for n in p:
+                                print_name_nrefs_name_referrers(n)
 #+end_src
 
 * LOAD

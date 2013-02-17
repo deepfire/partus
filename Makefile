@@ -17,7 +17,10 @@ DUMP_RE   ?= nil
 DUMP_PRIM ?= nil
 DUMP_AST  ?= nil
 
-SORT ?= callees
+MODE  ?= global_shaking
+NAME  ?=
+DEPTH ?= 3
+SORT  ?= callees
 
 all: run
 
@@ -37,7 +40,7 @@ repl:
 	$(PYTHON) -i vpcl.py
 
 self-analyze:
-	$(PYTHON) -c "import cl; cl.self_analyze(sort_by = '$(SORT)')"
+	$(PYTHON) -c "import cl; cl.self_analyze(mode = '$(MODE)', name = '$(NAME)', depth = $(DEPTH), sort_by = '$(SORT)')"
 
 ansi-test:
 	reset
