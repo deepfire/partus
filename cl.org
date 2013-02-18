@@ -9013,7 +9013,10 @@ def configure_recursion_limit(new_limit):
         #               sys.getrecursionlimit(), new_limit)
         sys.setrecursionlimit(new_limit)
 
-configure_recursion_limit(262144)
+# configure_recursion_limit(262144)
+configure_recursion_limit(21500) ## This is hopefully large enough, and yet doesn't make Python blow the stack..  Meh.
+######################### 21800 is the red zone.
+# configure_recursion_limit(1024)
 #+end_src
 
 *** Compiler unit tests
