@@ -7991,6 +7991,8 @@ def run_tests_compiler():
                 def do_runtest():
                         try:
                                 return runtest((name, eval), form, expected, printer = pp_consly, tabstop = 55, **keys)
+                        except RuntimeError:
+                                raise
                         except:
                                 pass
                 ret = do_runtest()
