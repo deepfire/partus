@@ -36,7 +36,9 @@ class machine():
         def capable_of(self, prim) -> bool:
                 return prim in self.__supported_primitives__
         def make_indeterminate_primitive(self, cls, args, keys):
-                return cls(*args, machine = self, **keys)
+                o = prim.__new__(cls, *args, **keys)
+                o.__init__(*args, machine = self, **keys)
+                return o
         def after_initialise_determinate_primitive(self, instance):
                 return instance
         def __getattr__(self, name):
