@@ -6035,8 +6035,8 @@ def make_keyword_tn(name):
 
 import py
 import tri
-pymach  = py.py()
-cfgmach = tri.tri()
+pymach  = py.pymach()
+trimach = tri.trimach()
 
 string_set("*MACHINE*", pymach)
 

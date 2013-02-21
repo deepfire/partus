@@ -109,7 +109,7 @@ def cfg(mach, fn, bb, x):
 # Machine definition
 
 @defmachine
-class cfg(machine):
+class trimach(machine):
         __supported_primitives__ = {
                 string, symbol, literal_list,
                 name, integer, float_num,

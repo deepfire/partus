@@ -2176,7 +2176,7 @@ def validate_keyword_args(allowed_set, keymap):
 ### The Python machine definition
 ###
 @defmachine
-class py(machine):
+class pymach(machine):
         def globals(self):
                 return globals()
         ## Known level
