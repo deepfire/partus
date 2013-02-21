@@ -1281,7 +1281,6 @@ set_settable_standard_globals()
 NoneType         = type(None)
 
 reduce            = functools.reduce
-repeat            = itertools.repeat
 sort              = sorted
 curry             = functools.partial
 
@@ -5128,16 +5127,6 @@ __the_null_lexenv__ = make_null_lexenv(nil)
 def the_null_lexenv():
         return __the_null_lexenv__
 
-def make_lexenv_varframe(names, parent = nil, clambda = None, forms = repeat(None), allocate_tns = nil):
-        return make_lexenv(parent = parent, clambda = clambda, allocate_tns = allocate_tns,
-                           kind_varframe  = { _variable: { variable_binding(sym, _variable, form)
-                                                           for sym, form in zip(names, forms) } })
-
-def make_lexenv_funcframe(bindings, parent = nil, clambda = None, allocate_tns = nil):
-        return make_lexenv(parent = parent, clambda = clambda, allocate_tns = allocate_tns,
-                           kind_funcframe = { function: { function_binding(sym, _function, fn(sym, clam.lambda_list))
-                                                          for sym, clam in bindings } })
-
 # Code
 
 string_set("*WALKER-LEXENV*", nil)        ## This is for regular macro expansion.
@@ -6993,7 +6982,10 @@ class let(known):
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
                 # Unregistered Issue DEAD-CODE-ELIMINATION
                 normalised = vectorise_linear(bindings)
-                env = make_lexenv_varframe(list(zip(*normalised))[0], allocate_tns = t)
+                names = list(zip(*normalised))[0]
+                env = make_lexenv(names, allocate_tns = t,
+                                  kind_varframe  = { _variable: { variable_binding(sym, _variable, None)
+                                                                  for sym in names } })
                 with progv({ _lexenv_: env }):
                         guts = p.progn(*(primitivise(mach, x) for x in body))
                 return p.let(list((env.varframe["name"][name].tn, primitivise(mach, form))
@@ -8371,7 +8363,6 @@ def self_analyze(mode = "global_shaking", name = None, depth = 3, sort_by = "nam
                 "with_open_stream",
                 ## documentation, kind of
                 "condition_system_enabled_p",
-                "make_lexenv_funcframe",
                 "set_global_variable",
                 "warn_not_implemented",
                 "compute_restarts",
