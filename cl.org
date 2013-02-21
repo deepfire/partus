@@ -78,6 +78,40 @@
       - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname(+)
       - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname() -> ensure_function_rtname(+)
       - FUNCTION.primitivise() -> lower_lambda()
+***** Function descriptions
+******* class function
+********* created by (into global_variable/function):
+*********** compiler_defun
+*********** compiler_defmacro
+********* used for:
+*********** redefiniton checking (in compiler_def*)
+*********** for FUNCTION.primitivise, for compile-time availability checking and optional style-warning
+******* class fn
+********* created by (into function binding (and into globals, if appropriate)):
+*********** FUNCTION.primitivise
+*********** LABELS.primitivise
+*********** FLET.primitivise
+********* used by:
+*********** find_fn (globals only)
+************* depend_on
+************* ir_depending_on_function_properties
+******* class compiler_lambda
+********* created by (into make_lexenv, rewrite_lambda and primitivise_lambda, for lambda list and nonlocal setqs):
+*********** FUNCTION.{binder,rewrite,primitivise)
+*********** FLET.{rewrite,primitivise}
+******* functions themselves
+********* created by machine.execute_bytecode
+*********** used by:
+************* compile_in_lexenv
+*************** macro_function
+*************** compile
+***************** eval
+************* set_function_definition (from machine.execute_bytecode or post_factum_defun)
+*************** into symbol.function/setf_function/macro_function
+*************** into globals[rtname]
+********* carried over by:
+*********** fop_make_symbol_available
+************* symbol.{function,setf_function,macro_function} -> globals[rtname]
 *** Models
 ***** Runtime
 
@@ -2392,6 +2426,8 @@ def full_symbol_rtname(x):
         return ("#" if not x.package              else
                 "" if x.package.name == "KEYWORD" else
                 x.package.name) + ":" + x.name
+
+intern_and_bind(("_setf", "SETF"))
 
 def interpret_function_name(x):
         return (x if isinstance(x, symbol_t) else
