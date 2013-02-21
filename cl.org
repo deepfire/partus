@@ -5571,26 +5571,6 @@ def mock_sex(sex, initial_depth = None, max_level = None):
               - %lower o macroexpand-all
     - TODO: COMPILE-FILE
 
-*** Function definitions: overview (September 24, 2012, 15:44)
-
-    - symbol.function -- runtime environment
-      - symbol_function, fboundp, fmakunbound, setf_fdefinition -- the
-      - fop_make_symbol_available -- the, for rtname value maintenance
-      - populate_compilation_environment_from_package -- the
-      - set_function/macro_definition -- updating
-    - function_scope -- compilation environment
-      - find/set_global_function -- toolkit
-      - compiler_defun/defmacro <= set_function/macro_definition -- maintenance and redefinition tracking
-      - populate_compilation_environment_from_package -- same as compiler_defun
-      - code emitted by compile_in_lexenv
-      - FUNCTION -- the
-    - rtnames
-      - function_tn, ensure/unit/get_function_rtname -- toolkit
-      - set_function/macro_definition, compiler_defun/defmacro -- maintain
-      - compilation_unit_prologue/_fop_make_symbol_available -- read/write: target environment setup
-      - FUNCTION -- emission of in-target-environment references
-      - load_module_bytecode -- aux: to obtain the compiled function object
-
 *** Generic
 ***** Compiler conditions
 
