@@ -1661,6 +1661,8 @@ def full_symbol_rtname(x):
                 "" if x.package.name == "KEYWORD" else
                 x.package.name) + ":" + x.name
 
+intern_and_bind(("_setf", "SETF"))
+
 def interpret_function_name(x):
         return (x if isinstance(x, symbol_t) else
                 (_setf, x[1][0]))
@@ -5201,7 +5203,6 @@ def walker_lexenv():
 
 # Global scope
 
-intern_and_bind(("_setf", "SETF"))
 def style_warn(control, *args):
         warn(simple_style_warning_t, format_control = control, format_arguments = args)
 

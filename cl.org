@@ -6157,7 +6157,6 @@ def walker_lexenv():
 ***** Global scope
 
 #+begin_src python
-intern_and_bind(("_setf", "SETF"))
 def style_warn(control, *args):
         warn(simple_style_warning_t, format_control = control, format_arguments = args)
 
