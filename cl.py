@@ -6476,8 +6476,8 @@ def rewrite_lambda(mach, lexenv, clambda, lam, body) -> "conslist of rewritten":
                                            for name, form in zip(aux, auxforms))),
                    *body))
 
-def lower_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorators = nil, self_binding = nil, globalp = nil,
-                 function_namespace = nil):
+def primitivise_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorators = nil, self_binding = nil, globalp = nil,
+                       function_namespace = nil):
         (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
             args, forms = clambda.args, clambda.forms
         assert not (whole or optional or clambda.keysp or aux) ## &WHOLE is a piece of debt, currently.
@@ -6543,14 +6543,14 @@ class flet(known):
                 names, bindings = list(zip(*xmap_to_vector(lambda b: (b[0], b), bindings)))
                 clambdas        = [ compiler_lambda(b[0], b[1][0]) for b in bindings ]
                 body_name       = "FLET-" + ("-".join(symbol_name(x) for x in names))
-                return p.funcall(lower_lambda(mach, lexenv, compiler_lambda(gensym(body_name + "-"),
-                                                                      list_(*names)),
-                                              names, body,
-                                              name = gensym(body_name),
-                                              function_namespace = t),
-                                 *[ lower_lambda(mach, lexenv, clambda,
-                                                 lambda_list, vectorise_linear(body),
-                                                 name = name)
+                return p.funcall(primitivise_lambda(mach, lexenv, compiler_lambda(gensym(body_name + "-"),
+                                                                                  list_(*names)),
+                                                    names, body,
+                                                    name = gensym(body_name),
+                                                    function_namespace = t),
+                                 *[ primitivise_lambda(mach, lexenv, clambda,
+                                                       lambda_list, vectorise_linear(body),
+                                                       name = name)
                                     for clambda, (name, (lambda_list, body)) in zip(clambdas, bindings) ])
 
 # LABELS
@@ -7014,12 +7014,12 @@ class function(known):
                 lambdap = ir_lambda_p(x)
                 if lambdap:
                         lambda_list, body = x[1][0], x[1][1]
-                        return lower_lambda(mach, symbol_value(_lexenv_),
-                                            compiler_lambda(name, lambda_list),
-                                            lambda_list, vectorise_linear(body),
-                                            name = name, pydecorators = pydecorators,
-                                            globalp = globalp,
-                                            self_binding = function_binding(name, _function, fn(name, lambda_list)))
+                        return primitivise_lambda(mach, symbol_value(_lexenv_),
+                                                  compiler_lambda(name, lambda_list),
+                                                  lambda_list, vectorise_linear(body),
+                                                  name = name, pydecorators = pydecorators,
+                                                  globalp = globalp,
+                                                  self_binding = function_binding(name, _function, fn(name, lambda_list)))
                 lexical_binding, lexenv = symbol_value(_lexenv_).lookup_func(x)
                 if not lexical_binding:
                         ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
@@ -7505,7 +7505,7 @@ if getenv("CL_RUN_TESTS") == "t" and getenv("CL_TEST_PP") == "t":
         with matcher_pp_stack():
                 run_tests_pp()
 
-# %PRIMITIVISE and %LOWER
+# %PRIMITIVISE and %CODIFY-KNOWNS
 
 # Unregistered Issue COMPILER-MACRO-SYSTEM
 def primitivise(mach, form, lexenv = nil) -> p.prim:
@@ -7564,20 +7564,24 @@ def primitivise(mach, form, lexenv = nil) -> p.prim:
                 compiler_maybe_note_known_primitives(form, prim)
                 return prim
 
-def lower(form: cons_t, lexenv = nil, machine = None) -> "list of linkable code, machine-specific":
-        "Must be called with global function and symbol usage recording."
+def codify_knowns(form: cons_t, lexenv = nil, machine = None) -> "list of linkable code, machine-specific":
+        "Transform a known tree into linkable code."
+        ## Must be called with global function and symbol usage recording,
+        ## so that the collected global and symbol usage info can be fed
+        ## into the machine layer.
         machine = defaulted_to_var(machine, _machine_)
         with target_machine(machine):
-                ## Wide Knowns -> Narrow Knowns
+                ## Wide Knowns    -->  Narrow Knowns
                 # with traced_matcher(emt = t, immediate = t):
                 rewritten = rewrite_all(form, lexenv = lexenv)  ## The high-level entry to %REWRITE-ALL
                 if symbol_value(_compiler_trace_rewritten_):
-                        report(rewritten, "known", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
-                ## Narrow Knowns -> Primitives
+                        report(rewritten, "known", form_id = id(form), desc = "%CODIFY-PRIMITIVE-TREE", lexenv = lexenv)
+                ## Narrow Knowns  -->  Primitives
                 prim = primitivise(machine, rewritten, lexenv = lexenv)  ## The high-level entry to %PRIMITIVISE
                 if symbol_value(_compiler_trace_primitives_):
-                        report(prim, "primitive", form_id = id(form), desc = "%LOWER", lexenv = lexenv)
-                return machine.lower(prim)
+                        report(prim, "primitive", form_id = id(form), desc = "%CODIFY-PRIMITIVE-TREE", lexenv = lexenv)
+                ## Primitives     -->  Linkable code
+                return machine.codify_primitive_tree(prim, lexenv)
 
 # Top level processing: %MAP-TOP-LEVEL, %PROCESS-TOP-LEVEL
 
@@ -7651,7 +7655,7 @@ def process_top_level(form, machine = None) -> [ast.stmt]:
                 ## Additional note: this is %PROCESS, split in half, due to cases.
                 if process or eval:
                         ## Note, how lie wrt. the NULL lexenv -- what about {SYMBOL-,}MACROLET?  See above..
-                        code, *unit_data = with_compilation_unit(lambda: (lower(form, lexenv = _null, machine = machine),
+                        code, *unit_data = with_compilation_unit(lambda: (codify_knowns(form, lexenv = _null, machine = machine),
                                                                           ) + compilation_unit_symbols(),
                                                                  override = t, id = "PROCESS-TOPLEVEL-")
                 if process:
@@ -7755,10 +7759,11 @@ def compile_in_lexenv(lambda_expression, lexenv = nil, name = None, globalp = No
                 dprintf(";;;%s compiling:\n%s%s",
                               sex_space(-3, ";"), sex_space(), pp(form))
         def process_to_code(form, lexenv = None, macroexpand = None):
-                return lower(compiler_macroexpand_all(form, lexenv = lexenv, desc = "PROCESS-TO-CODE") if macroexpand else
-                             form,
-                             lexenv = lexenv,
-                             machine = machine)
+                return codify_knowns(
+                        compiler_macroexpand_all(form, lexenv = lexenv, desc = "PROCESS-TO-CODE") if macroexpand else
+                        form,
+                        lexenv = lexenv,
+                        machine = machine)
         code, *unit_data = with_compilation_unit(lambda: (process_to_code(form, lexenv = lexenv, macroexpand = macroexpand),
                                                           ) + compilation_unit_symbols(),
                                                  override = t, id = "COMPILED-LAMBDA-")

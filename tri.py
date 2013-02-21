@@ -1,8 +1,9 @@
 import cl
 import primitives as p
 
-from cl import attrify_args, error, gensymname, intern
-from cl import t, nil
+from cl import attrify_args, error, gensymname
+from cl import t, nil, symbol_value, intern, intern_and_bind, progv as progv_
+# from cl import _
 
 from primitives import machine, prim, body, stmt, expr, efless, const, literal, indet
 from primitives import defmachine
@@ -21,6 +22,91 @@ from primitives import special_ref, special_setq
 
 def cfg_error(kind, control, *args):
         error("While CFG-lowering %s: " + control, kind, *args)
+
+# The map we assemble on the journey across The Gap
+
+class unit_global_data_t():
+        __slots__ = ("constant_values", "constant_names", "functions", "functions_by_name", "closures", "load_effects")
+        def __init__(self):
+                self.constant_values   = dict()
+                self.constant_names    = dict()
+                self.functions         = list()
+                self.functions_by_name = dict()
+                self.closures          = list()
+                self.load_effects      = list()
+
+intern_and_bind("*UNIT-GLOBAL-DATA*", gvarp = t, globals = globals())
+
+unit_global_data = cl.defwith("unit_global_data",
+                              lambda self: cl.dynamic_scope_push({ _unit_global_data_: unit_global_data_t() }),
+                              lambda *_:   cl.dynamic_scope_pop())
+def get_unit_global_data():
+        return cl.symbol_value(_unit_global_data_)
+
+# Constant shovelling
+
+def separate_nonimmediate_constants(mach, global_unit_data, prim):
+        ## This expects being called with *GLOBAL-UNIT-DATA* bound.
+        def maybe_separate_maybe_complex_constant(further, x):
+                if (not mach.constantp(x)
+                    or mach.literal_immediate_p(x)):
+                        return further(x)
+                ## Unregistered Issue TRIFIER-CONSTANT-NON-COALESCENCE-IS-WEAK
+                tn = genname("CONST")
+                global_unit_data.constants[tn] = x
+                return tn
+        p.map_primitives(maybe_separate_maybe_complex_constant, prim)
+
+# Computing closures
+
+## What kind of primitives factor into free variable computation?
+## - name
+## - function
+## - let, let_
+##
+## What is borderline, but doesn't:
+## - assign
+## - progv, special_ref
+
+intern_and_bind("*PRIMITIVE-FN*", gvarp = t, globals = globals())
+
+def find_mark_and_register_closures(gdata, prim_lexenv, x):
+        check_type(x, prim)
+        def walk(further, x):
+                fn = symbol_value(_primitive_fn_)
+        ## Considerations:
+        ##  - we need to compute the function at the root, regardless
+        ##  - in case of a TLF, it's easy enough
+        ##    - in case of a function, it's trivial
+        ##    - in case of any other form, it's:
+        ##      - no names are bound
+        ##      - thunkify, register in gdata.load_effects
+        ##  - in case of a non-NIL lexenv
+        ##    - we have an incoming lexenv
+        ##      - how do we even _know_ about it?
+        ##        - the call chain:
+        ##          - COMPILE-IN-LEXENV              :: form       -> lexenv -> function
+        ##            - CODIFY-KNOWNS                :: known form -> lexenv -> linkable code
+        ##              - MACH.CODIFY-PRIMITIVE-TREE :: primitive  -> lexenv -> linkable-code
+        with progv({ _primitive_fn_: nil }):
+                p.map_primitives(walk, x)
+
+# CFG conversion
+
+def cfg(mach, fn, bb, x):
+        "Lower X into a CFG, in the context of the current basic block BB, for machine MACH."
+        ## The generic recursor.
+        if not isinstance(x, p.prim):
+                error("In CFG: was asked to CFG-ify a non-primitive %s (of type %s).", x, type(x))
+        if not fn:
+                error("FN was not specified, while trifying %s.", x)
+        if not bb:
+                error("BB was not specified, while trifying %s.", x)
+        if not mach.trifiablep(x):
+                error("Not trifiable: %s.", x)
+        return x.cfg(mach, fn, bb, *x.args, **x.keys)
+
+# Machine definition
 
 @defmachine
 class cfg(machine):
@@ -52,26 +138,38 @@ class cfg(machine):
         def argumentp(self, x):
                 ## This assumes that non-immediate literals have been filtered out.
                 return isinstance(x, (p.literal, p.name))
-        def lower(self, prim):
+        def codify_primitive_tree(self, prim, known_lexenv):
+                ## A function context must be introduced here.
+                ##
+                ## We need to clarify, what contexts we're called in:
+                ##  - PROCESS-TOP-LEVEL -- this is easy, either:
+                ##    - a plain global, or
+                ##    - a gensymmed global, shoveled into the _init section
+                ##  - COMPILE-IN-LEXENV, and this is harder, as, in addition to above cases:
+                ##    - might be a closure, if LEXENV is non-NIL, and free vars are employed
+                ##      - which, as a prerequisite requires free var analysis
+                ##        - ought to be done during primitivisation?
+                ##      - currently can only happen for processing of MACROLET expander functions
+                ##
+                ## In any case, it becomes painfully obvious, that we need a straight story
+                ## about closures at this point.  There does not seem to be any wiggle room about it.
+                ##
+                ## As a first step, we need a plan:
+                ##  1. Detect and mark closures, separating them from non-closure anonymous functions
+                ##     (which are convertible to simple gensymmed globals).
+                ##     Q: Where should do the detection?  On what data structures?
+                ##     A: Primitives, as we must operate on the final lambda structure.
+                ##  2. Pass them to the machine layer.  Win.
+                ##
                 gdata  = unit_global_data_t()
-                return primitive_cfg(symbol_value(_machine_), gdata, prim)
-
-# The map we assemble on the journey across The Gap
-class unit_global_data_t():
-        __slots__ = ("constant_values", "constant_names")
-        def __init__(self):
-                self.constant_values   = dict()
-                self.constant_names    = dict()
-                self.functions         = list()
-                self.functions_by_name = dict()
-
-cl.intern_and_bind("*UNIT-GLOBAL-DATA*", gvarp = t, globals = globals())
-
-unit_global_data = cl.defwith("unit_global_data",
-                              lambda self: cl.dynamic_scope_push({ _unit_global_data_: unit_global_data_t() }),
-                              lambda *_:   cl.dynamic_scope_pop())
-def get_unit_global_data():
-        return cl.symbol_value(_unit_global_data_)
+                ## 1.
+                separate_nonimmediate_constants(self, gdata, prim)
+                ## 2.
+                find_mark_and_register_closures(gdata, primitivise_lexenv(known_lexenv), prim)
+                ## 3.
+                root = bblock(unit = gdata)
+                bb, val = cfg(mach, fn, root, p)
+                return root
 
 # Basic blockery
 class bblock():
@@ -504,38 +602,3 @@ class special_ref():
 class special_setq():
         ## def cfg: dynamic scope model
         ...
-
-###
-### CFG construction engine
-###
-# Constant shovelling
-def separate_nonimmediate_constants(mach, global_unit_data, prim):
-        ## This expects being called with *GLOBAL-UNIT-DATA* bound.
-        def maybe_separate_maybe_complex_constant(further, x):
-                if (not mach.constantp(x)
-                    or mach.literal_immediate_p(x)):
-                        return x
-                ## Unregistered Issue TRIFIER-CONSTANT-NON-COALESCENCE-IS-WEAK
-                tn = genname("CONST")
-                global_unit_data.constants[tn] = x
-                return tn
-        p.map_primitives(maybe_separate_maybe_complex_constant, prim)
-
-# Driver
-def cfg(mach, fn, bb, x):
-        "Lower X into a CFG, in the context of the current basic block BB, for machine MACH."
-        ## The generic recursor.
-        if not isinstance(x, p.prim):
-                error("In CFG: was asked to CFG-ify a non-primitive %s (of type %s).", x, type(x))
-        if not bb:
-                error("BB was not specified, while trifying %s.", x)
-        if not mach.trifiablep(x):
-                error("Not trifiable: %s.", x)
-        return x.cfg(mach, fn, bb, *x.args, **x.keys)
-
-def primitive_cfg(mach, fn, global_unit_data, p):
-        separate_nonimmediate_constants(mach, global_unit_data, p)
-        root = bblock(unit = global_unit_data)
-        bb, val = cfg(mach, fn, root, p)
-        ## These values are irrelevant, though.
-        return root

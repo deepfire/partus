@@ -2236,7 +2236,10 @@ class py(machine):
         def primitivise_implref(_, x):
                 return prim_attr_chain([ p.name(x[1][0][0]) ]
                                        + xmap_to_vector(p.string, x[1][0][1]))
-        def lower(self, prim):
+        def codify_primitive_tree(self, prim, lexenv):
+                ## We ignore the lexenv, because.. we don't need it for anything:
+                ##  - no closure analysis, because the backend can directly describe all closures we want,
+                ##    which it can then directly execute
                 asts = help_prog([prim])
                 if symbol_value(cl._compiler_validate_ast_):
                         [ ast_validate(a) for a in asts ]
@@ -2273,7 +2276,7 @@ class py(machine):
                                          m.vector(*(wrap_bool(sym in gvars)               for sym, x, _     in names))))
                          # dprintf("prologue:\n%s", pp_consly(prologue))
                          with _progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
-                                 return m.lower(prologue)
+                                 return m.codify_primitive_tree(prologue)
         def assemble(m, _ast: [ast.stmt], form: cons_t, filename = "") -> "code":
                 if symbol_value(cl._compiler_validate_ast_):
                         [ ast_validate(a) for a in _ast ]
