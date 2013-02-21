@@ -8468,6 +8468,8 @@ def self_analyze(mode = "global_shaking", name = None, depth = 3, sort_by = "nam
                         dprintf("; Global name '%s' is never defined.", name)
                         return
                 dprintf("; Referral tree for %s:", name)
+                if name in whitelist:
+                        dprintf("; Note: %s is whitelisted")
                 pools = [frozenset([name])]
                 for n in range(depth):
                         last_pool = pools[-1]
