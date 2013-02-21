@@ -1813,11 +1813,6 @@ disabled_condition_system = defwith("disabled_condition_system",
                                     lambda _:  py.disable_pytracer(),
                                     lambda *_: py.enable_pytracer())
 
-# Rudimentary character type
-
-@defclass
-class base_char_t(): pass
-
 # Early-earlified streaming
 
 @defun
@@ -1833,7 +1828,7 @@ def with_open_stream(stream, f):
                 close(stream)
 
 @defun
-def open(pathname, direction = make_keyword("INPUT"), element_type = base_char_t,
+def open(pathname, direction = make_keyword("INPUT"),
          if_exists = make_keyword("ERROR"), if_does_not_exist = make_keyword("ERROR"),
          external_format = make_keyword("DEFAULT")):
         """Return a stream which reads from or writes to FILENAME.
