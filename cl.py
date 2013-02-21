@@ -1654,43 +1654,6 @@ def symbol_macro_expander(sym, environment = None):
                      lexical.value[0])
         return (lambda: expansion) if expansion is not None else None
 
-# * (do-external-symbols (s :common-lisp) (when (special-operator-p s) (print s)))
-#  TAGBODY
-#  GO
-#
-#  IF
-#  PROGN
-#
-#  BLOCK
-#  RETURN-FROM
-#
-#  CATCH
-#  THROW
-#
-#  UNWIND-PROTECT
-#
-#  NIL
-#  THE
-#  QUOTE
-#  FUNCTION
-#  LOAD-TIME-VALUE
-#
-#  LABELS
-#  LET
-#  LET*
-#  FLET
-#  MACROLET
-#  SYMBOL-MACROLET
-#
-#  PROGV
-#  SETQ
-#
-#  LOCALLY
-#  EVAL-WHEN
-#
-#  MULTIPLE-VALUE-CALL
-#  MULTIPLE-VALUE-PROG1
-
 # Namespace separation.
 
 def full_symbol_rtname(x):
@@ -3128,7 +3091,7 @@ string_set("*READER-TRACE-QQEXPANSION*",        nil)
 ## Unregistered Issue COMPLIANCE-BACKQUOTE-EXPANSION-DOTTED-LIST-HANDLING
 
 def expand_quasiquotation(form):
-        "Direct translation of src/quasiquotation.lisp, modulo the python-specific intermarker representation."
+        "Direct translation of src/quasiquotation.lisp, modulo the intermarker representation."
         l, l_ = list_, list__
         def len_is_2(x):    return t if len(x) is 2 else error("Invalid intermarker: %s.", x)
         def commap(x):      return isinstance(x, tuple) and len_is_2(x) and x[0] is _comma
@@ -4934,6 +4897,8 @@ class variable(nameuse):
                 attrify_args(self, locals(), "dynamic_extent") # t | nil
                 self.tn = nil
 class function(nameuse):
+        ## Allocated by:
+        ##  - compiler_defun, compiler_defmacro
         def __init__(self, name, kind, type = t, lambda_expression = None, **attributes):
                 check_type(kind, (member_t, _function, _macro, _compiler_macro)) # MACRO | COMPILER-MACRO | FUNCTION
                 nameuse.__init__(self, name, kind, type, **attributes)
@@ -7885,7 +7850,7 @@ def eval(form):
         if symbol_value(_compiler_trace_forms_):
                 dprintf(";;;%s evaluating:\n%s%s",
                               sex_space(-3, ";"), sex_space(), pp(form))
-        ## We need to fully (?) macroexpand, before we can walk the top level form.
+        ## WARNING: we need to fully (?) macroexpand, before we can walk the top level form.
         # with traced_matcher(emt = t, immediate = t):
         macroexpanded = compiler_macroexpand_all(form, lexenv = _null, desc = "EVAL")
         result = nil

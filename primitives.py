@@ -202,7 +202,7 @@ def map_primitives(fn, p):
                                               (xs,             [],             None))
                 f_spec = spec[:-1] if segmentp else spec
                 return (tuple(rec(x, s)
-                                 for x, s in zip(a_fixed, f_spec)) +
+                              for x, s in zip(a_fixed, f_spec)) +
                         tuple(rec(x, s_spec)
                               for x in a_segment))
         def rec(x, spec = None):
