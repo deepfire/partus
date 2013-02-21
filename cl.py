@@ -1655,16 +1655,6 @@ def symbol_macro_expander(sym, environment = None):
                      lexical.value[0])
         return (lambda: expansion) if expansion is not None else None
 
-def style_warn(control, *args):
-        warn(simple_style_warning_t, format_control = control, format_arguments = args)
-
-def warn_incompatible_redefinition(x, tons, fromns):
-        style_warn("%s is being redefined as a %s when it was previously defined to be a %s.", pp_consly(x), tons, fromns)
-
-def warn_possible_redefinition(type, x):
-        if x:
-                style_warn("In %s: %s is being redefined.", type, pp_consly(x))
-
 # * (do-external-symbols (s :common-lisp) (when (special-operator-p s) (print s)))
 #  TAGBODY
 #  GO
@@ -5258,8 +5248,15 @@ def walker_lexenv():
 # Global scope
 
 intern_and_bind(("_setf", "SETF"))
+def style_warn(control, *args):
+        warn(simple_style_warning_t, format_control = control, format_arguments = args)
 
+def warn_incompatible_redefinition(x, tons, fromns):
+        style_warn("%s is being redefined as a %s when it was previously defined to be a %s.", pp_consly(x), tons, fromns)
 
+def warn_possible_redefinition(type, x):
+        if x:
+                style_warn("In %s: %s is being redefined.", type, pp_consly(x))
 
 global_variables = dict() ## :: SYMBOL -> VARIABLE
 global_functions = dict() ## :: (OR SYMBOL CONS) -> FUNCTION
