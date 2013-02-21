@@ -71,47 +71,88 @@
 
         Solution: 1. two-stage primitivisation, or 2. known macros.
 
-***** Who cares about non-symbol function name
-      - compiler_defun() -> {find,set}_global_function(+)
-      - FUNCTION.rewrite() -> compiler_lambda(+)
-      - FUNCTION.primitivise() -> fn(+)
-      - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname(+)
-      - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname() -> ensure_function_rtname(+)
-      - FUNCTION.primitivise() -> lower_lambda()
-***** Function descriptions
-******* class function
-********* created by (into global_variable/function):
-*********** compiler_defun
-*********** compiler_defmacro
-********* used for:
-*********** redefiniton checking (in compiler_def*)
-*********** for FUNCTION.primitivise, for compile-time availability checking and optional style-warning
-******* class fn
-********* created by (into function binding (and into globals, if appropriate)):
-*********** FUNCTION.primitivise
-*********** LABELS.primitivise
-*********** FLET.primitivise
-********* used by:
-*********** find_fn (globals only)
-************* depend_on
-************* ir_depending_on_function_properties
-******* class compiler_lambda
-********* created by (into make_lexenv, rewrite_lambda and primitivise_lambda, for lambda list and nonlocal setqs):
-*********** FUNCTION.{binder,rewrite,primitivise)
-*********** FLET.{rewrite,primitivise}
-******* functions themselves
-********* created by machine.execute_bytecode
+***** Functions
+******* Who cares about non-symbol function name
+        - compiler_defun() -> {find,set}_global_function(+)
+        - FUNCTION.rewrite() -> compiler_lambda(+)
+        - FUNCTION.primitivise() -> fn(+)
+        - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname(+)
+        - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname() -> ensure_function_rtname(+)
+        - FUNCTION.primitivise() -> lower_lambda()
+******* Definitions: overview (September 24, 2012, 15:44)
+
+        - symbol.function -- runtime environment
+          - symbol_function, fboundp, fmakunbound, setf_fdefinition -- the
+          - fop_make_symbol_available -- the, for rtname value maintenance
+          - populate_compilation_environment_from_package -- the
+          - set_function/macro_definition -- updating
+        - function_scope -- compilation environment
+          - find/set_global_function -- toolkit
+          - compiler_defun/defmacro <= set_function/macro_definition -- maintenance and redefinition tracking
+          - populate_compilation_environment_from_package -- same as compiler_defun
+          - code emitted by compile_in_lexenv
+          - FUNCTION -- the
+        - rtnames
+          - function_tn, ensure/unit/get_function_rtname -- toolkit
+          - set_function/macro_definition, compiler_defun/defmacro -- maintain
+          - compilation_unit_prologue/_fop_make_symbol_available -- read/write: target environment setup
+          - FUNCTION -- emission of in-target-environment references
+          - load_module_bytecode -- aux: to obtain the compiled function object
+
+******* Descriptions: overview (Thu Feb 21 2013, 23:52)
+********* class function
+*********** storage: global_functions
+*********** makers:
+************* compiler_defun/defmacro
+*************** DEFUN/DEFMACRO compile-time effect
+*************** from set_function/macro_definition
+***************** DEFUN/DEFMACRO load-time effect
+*********** use:
+************* redefiniton checking (in compiler_defun/defmacro)
+************* for FUNCTION.primitivise, for compile-time availability checking and optional style-warning
+********* class fn
+*********** storage: fns (only globals, but globals = t is never occuring in reality), function binding
+*********** makers:
+************* FLET.binder_args
+************* LABELS.binder
+************* FUNCTION.{binder,primitivise}
 *********** used by:
-************* compile_in_lexenv
-*************** macro_function
-*************** compile
-***************** eval
-************* set_function_definition (from machine.execute_bytecode or post_factum_defun)
-*************** into symbol.function/setf_function/macro_function
-*************** into globals[rtname]
-********* carried over by:
-*********** fop_make_symbol_available
-************* symbol.{function,setf_function,macro_function} -> globals[rtname]
+************* find_fn (globals only, and it never works, because globals is never T in fn.__init__)
+*************** depend_on
+*************** ir_depending_on_function_properties
+*********** Verdict: seems to be entirely useless
+********* class compiler_lambda
+*********** created by (into make_lexenv, rewrite_lambda and primitivise_lambda, for lambda list and nonlocal setqs):
+************* FUNCTION.{binder,rewrite,primitivise}
+************* FLET.{rewrite,primitivise}
+********* functions themselves
+*********** created by machine.execute_bytecode, or by (currently still ungeneralised) LOAD-AS-FASL
+************* used by:
+*************** compile_in_lexenv
+***************** macro_function
+***************** compile
+******************* eval
+*************** set_function_definition (from machine.execute_bytecode or post_factum_defun)
+***************** into symbol.function/setf_function/macro_function
+***************** into globals[rtname]
+*********** carried over by:
+************* fop_make_symbol_available
+*************** symbol.{function,setf_function,macro_function} -> globals[rtname]
+***** Bindery
+******* Establishers of *WALKER-BINDER*
+********* known.binder
+********* labels.binder
+********* block.binder
+********* tagbody.binder
+********* function.binder
+******* Knowns defining their own BINDER method
+********* LABELS
+********* BLOCK
+********* TAGBODY
+********* FUNCTION
+******* Users of *WALKER-BINDER*
+********* lexenv_walker: add_binding (BINDING), setup_lexenv (BOUND)
+********* tagbody.rewrite
 *** Models
 ***** Runtime
 
@@ -128,6 +169,7 @@
         - vpcl, for:
           - values: values_frame_project, values_frame
       - IR for python calls (APPLY, (typep (or string (tuple string))), ...)
+
 ***** Symbols
 
       - symbols denoting constants (keywords, t, nil, pi, etc.): fully printed symbol names
@@ -139,6 +181,7 @@
         - symbols as symbols are, technically, a different namespace, so separation
       - bound names in the function namespace: global symbol -> gensym map, based off symbol name
         - an obvious way to do namespace separation
+
 ***** Multiple values
 ******* Early thoughts
 
@@ -182,21 +225,7 @@
         - GET-VALUE :: aka (NTH-VALUE 0 ...)
           - unpack the first value from value frame, in the generic case
           - identity, in cases something special is known
-***** Bindery
-******* Establishers of *WALKER-BINDER*
-********* known.binder
-********* labels.binder
-********* block.binder
-********* tagbody.binder
-********* function.binder
-******* Knowns defining their own BINDER method
-********* LABELS
-********* BLOCK
-********* TAGBODY
-********* FUNCTION
-******* Users of *WALKER-BINDER*
-********* lexenv_walker: add_binding (BINDING), setup_lexenv (BOUND)
-********* tagbody.rewrite
+
 ***** FAIL Variable-width metasex matching (aka "complex" matchers)
 ******* Can match any part of the expression at the current level of nesting, including nothing at all
 ******* How did we end up needing a standalone complex pattern subexpression to cover binders?
@@ -218,6 +247,7 @@
 ******* lambda lists: PROVIDED-P
 ******* lambda lists: Keyword argument renaming
 ******* LAMBDA is not a macro
+********* Now trivially solvable -- define the fucking macro, as LAMBDA-the-known is no more.
 ******* Declarations
 ********* IR-BINDS ignores declarations
 ***** The tag model for immediate values
