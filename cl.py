@@ -5259,29 +5259,19 @@ def walker_lexenv():
 
 intern_and_bind(("_setf", "SETF"))
 
-class scope(): pass
-class variable_scope(scope, collections.UserDict):
-        def __hasattr__(self, name): return name in self.data
-        def __getattr__(self, name): return self.data[name]
-        def __init__(self):
-                self.data = dict()
-class function_scope(scope, collections.UserDict):
-        def __hasattr__(self, name): return name in self.data
-        def __getattr__(self, name): return self.data[name]
-        def __init__(self):
-                self.data = dict()
 
-variable_scope = variable_scope()
-function_scope = function_scope()
 
-def find_global_variable(name):     return gethash(name, variable_scope)[0]
-def find_global_function(name):     return gethash(interpret_function_name(name), function_scope)[0]
-def  set_global_function(name, x): function_scope[interpret_function_name(name)] = the(function, x)
-def  set_global_variable(name, x): variable_scope[name] = the(variable, x)
+global_variables = dict() ## :: SYMBOL -> VARIABLE
+global_functions = dict() ## :: (OR SYMBOL CONS) -> FUNCTION
+
+def find_global_variable(name):     return gethash(name, global_variables)[0]
+def find_global_function(name):     return gethash(interpret_function_name(name), global_functions)[0]
+def  set_global_function(name, x): global_functions[interpret_function_name(name)] = the(function, x)
+def  set_global_variable(name, x): global_variables[name] = the(variable, x)
 
 def compiler_defparameter(name, value):
         x = variable(the(symbol_t, name), _variable)
-        variable_scope[name] = x
+        global_variables[name] = x
         if value is not None:
                 __global_scope__[name] = value
 
@@ -5332,11 +5322,11 @@ def global_variable_constant_p(name):
 def compiler_defconstant(name, value):
         assert(value is not None)
         if (global_variable_constant_p(name)
-            and variable_scope[name].value != value):
-                error("The constant %s is being redefined (from %s to %s).", name, variable_scope[name].value, value)
+            and global_variables[name].value != value):
+                error("The constant %s is being redefined (from %s to %s).", name, global_variables[name].value, value)
         var = variable(the(symbol_t, name), _constant)
         var.value = value
-        variable_scope[name] = var
+        global_variables[name] = var
 
 def check_no_locally_rebound_constants(locals, use = "local variable"):
         constant_rebound = [ x for x in locals if global_variable_constant_p(x) ]
