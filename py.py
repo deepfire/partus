@@ -2276,7 +2276,7 @@ class pymach(machine):
                                          m.vector(*(wrap_bool(sym in gvars)               for sym, x, _     in names))))
                          # dprintf("prologue:\n%s", pp_consly(prologue))
                          with _progv({ p._valueless_primitive_statement_must_yield_nil_: nil }):
-                                 return m.codify_primitive_tree(prologue)
+                                 return m.codify_primitive_tree(prologue, nil)
         def assemble(m, _ast: [ast.stmt], form: cons_t, filename = "") -> "code":
                 if symbol_value(cl._compiler_validate_ast_):
                         [ ast_validate(a) for a in _ast ]
