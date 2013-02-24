@@ -74,7 +74,7 @@
 ***** Functions
 ******* Who cares about non-symbol function name
         - compiler_defun() -> {find,set}_global_function(+)
-        - FUNCTION.rewrite() -> compiler_lambda(+)
+        - FUNCTION.rewrite() -> clambda_t(+)
         - FUNCTION.primitivise() -> fn(+)
         - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname(+)
         - FUNCTION.primitivise() -> lower_lambda() -> function_tn() -> unit_function_rtname() -> ensure_function_rtname(+)
@@ -113,18 +113,27 @@
 ********* class fn
 *********** storage: fns (only globals, but globals = t is never occuring in reality), function binding
 *********** makers:
-************* FLET.binder_args
-************* LABELS.binder
+************* FLET.binder_args                only accessible during rewrite (primitivisation does not use the walker)
+************* LABELS.binder                   does not survive past rewrite, obviously
 ************* FUNCTION.{binder,primitivise}
-*********** used by:
+*********** use:
 ************* find_fn (globals only, and it never works, because globals is never T in fn.__init__)
 *************** depend_on
 *************** ir_depending_on_function_properties
 *********** Verdict: seems to be entirely useless
-********* class compiler_lambda
+********* class clambda_t
+*********** storage: lexenv_t
 *********** created by (into make_lexenv, rewrite_lambda and primitivise_lambda, for lambda list and nonlocal setqs):
-************* FUNCTION.{binder,rewrite,primitivise}
-************* FLET.{rewrite,primitivise}
+************* FUNCTION.binder:      lexenv_t
+************* FUNCTION.rewrite:     rewrite_lambda
+************* FUNCTION.primitivise: primitivise_lambda
+************* FLET.rewrite:         rewrite_lambda
+************* FLET.primitivise:     primitivise_lambda
+*********** use:
+************* rewrite_lambda:       lambda list queries
+************* primitivise_lambda:   lambda list queries, lexenv creation, nonlocal setq query
+************* SETQ.primitivise:     nonlocal setq maintenance
+************* REFS.primitivise:     nonlocal ref maintenance (OMG, freevar calculation already done?)
 ********* functions themselves
 *********** created by machine.execute_bytecode, or by (currently still ungeneralised) LOAD-AS-FASL
 ************* used by:
