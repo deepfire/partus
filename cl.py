@@ -6949,7 +6949,7 @@ class let(known):
                 # Unregistered Issue DEAD-CODE-ELIMINATION
                 normalised = vectorise_linear(bindings)
                 names = list(zip(*normalised))[0]
-                env = make_lexenv(names, allocate_tns = t,
+                env = make_lexenv(parent = nil, allocate_tns = t,
                                   kind_varframe  = { _variable: { variable_binding(sym, _variable, None)
                                                                   for sym in names } })
                 with progv({ _lexenv_: env }):
