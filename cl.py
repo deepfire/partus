@@ -6304,7 +6304,7 @@ class let_(known):
 
 # FLET
 
-class compiler_lambda():
+class clambda_t():
         __slots__ = ("name", "lambda_list",
                      "args", "whole", "fixed", "optional", "rest", "keys", "aux",
                      "forms", "optdefs", "keydefs", "auxforms",
@@ -6535,17 +6535,17 @@ class flet(known):
                              nil                               if not (bindings or body)          else
                              handle_linear_body(body)          if not bindings                    else
                              l(_flet, mapcar(lambda f: cons(f[0], rewrite_lambda(mach, lexenv,
-                                                                                 compiler_lambda(f[0], f[1][0]),
+                                                                                 clambda_t(f[0], f[1][0]),
                                                                                  f[1][0], vectorise_linear(f[1][1]))),
                                              bindings),
                                 *body))
         def primitivise(mach, bindings, *body):
                 lexenv          = symbol_value(_lexenv_)
                 names, bindings = list(zip(*xmap_to_vector(lambda b: (b[0], b), bindings)))
-                clambdas        = [ compiler_lambda(b[0], b[1][0]) for b in bindings ]
+                clambdas        = [ clambda_t(b[0], b[1][0]) for b in bindings ]
                 body_name       = "FLET-" + ("-".join(symbol_name(x) for x in names))
-                return p.funcall(primitivise_lambda(mach, lexenv, compiler_lambda(gensym(body_name + "-"),
-                                                                                  list_(*names)),
+                return p.funcall(primitivise_lambda(mach, lexenv, clambda_t(gensym(body_name + "-"),
+                                                                            list_(*names)),
                                                     names, body,
                                                     name = gensym(body_name),
                                                     function_namespace = t),
@@ -6981,7 +6981,7 @@ class function(known):
                 length(x) < 2 and error("Bad LAMBDA form: %s", pp_consly(form))
                 lam = x[1][0]
                 not listp(lam) and error("Bad lambda list in LAMBDA form: %s", pp_consly(exp))
-                clambda = compiler_lambda(name, lam)
+                clambda = clambda_t(name, lam)
                 with progv(dict([ (_walker_binder_, lexenv_walker_t.binder(0, "Lambda.")),
                                   (_walker_binder_args_, nil),
                                   (_walker_lexenv_,
@@ -6998,7 +6998,7 @@ class function(known):
                                 error("Invalid #'LAMBDA form: %s", pp_consly(orig))
                         lambda_list, body = x[1][0], x[1][1]
                 return nil, (ir(_function, cons(_lambda, rewrite_lambda(mach, symbol_value(_walker_lexenv_),
-                                                                        compiler_lambda(name, lambda_list),
+                                                                        clambda_t(name, lambda_list),
                                                                         lambda_list, vectorise_linear(body))),
                                 **dictappend({ "name":         name }         if name         else {},
                                              { "pydecorators": pydecorators } if pydecorators else {},
@@ -7016,7 +7016,7 @@ class function(known):
                 if lambdap:
                         lambda_list, body = x[1][0], x[1][1]
                         return primitivise_lambda(mach, symbol_value(_lexenv_),
-                                                  compiler_lambda(name, lambda_list),
+                                                  clambda_t(name, lambda_list),
                                                   lambda_list, vectorise_linear(body),
                                                   name = name, pydecorators = pydecorators,
                                                   globalp = globalp,
