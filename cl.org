@@ -7478,8 +7478,9 @@ def primitivise_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorator
                 primitivised_body = [ primitivise(mach, x) for x in body ]
                 ## _now_, that the body was primitivised, the clambda's nonlocal-SETQs were computed:
                 nonlocal_decl = ([ py.nonlocal_(*(variable_tn(x)
-                                                  for x in sorted(clambda.nonlocal_setqs, key = symbol_name) )) ]
-                                 if clambda.nonlocal_setqs else [])
+                                                  for x in sorted(reduce(operator.ior, clambda.free_writes.values()),
+                                                                  key = symbol_name) )) ]
+                                 if clambda.free_writes else [])
                 # dprintf("emitting LAMBDA primitive, name: %s, ifname: %s, fnname_tn: %s", name, ifname, fnname_tn)
                 return p.function(fnname_tn, tnify_function_arglist(name, fn_lexenv, [rest or None] + fixed),
                                   p.progn(*nonlocal_decl

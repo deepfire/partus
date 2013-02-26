@@ -1749,7 +1749,7 @@ def do_getenv(var):
         return os.getenv(var)
 
 def getenv(var):
-        return without_condition_system(lambda: do_getenv(var))
+        return without_condition_system(lambda: os.getenv(var))
 
 # Condition system disabling
 
@@ -6256,7 +6256,7 @@ class let_(known):
 
 class clambda_t():
         __slots__ = ("name", "lambda_list", "parent",
-                     "nonlocal_refs", "nonlocal_setqs",
+                     "free_reads", "free_writes",
                      "total_types", "value_types",
                      ## The rest is parsed from the lambda list.
                      "args", "whole", "fixed", "optional", "rest", "keys", "aux",
@@ -6275,7 +6275,7 @@ class clambda_t():
                     self.aokp, self.keysp = args, forms, aokp, keysp
                 self.total, self.args, self.forms = total, args, forms
                 self.total_types, self.value_types = [t] * len(total), t
-                self.nonlocal_refs, self.nonlocal_setqs = set(), set()
+                self.free_reads, self.free_writes = collections.defaultdict(set), collections.defaultdict(set)
 
 def make_global_clambda(name):
         clambda = clambda_t(nil, name, nil)
@@ -6459,10 +6459,11 @@ def primitivise_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorator
                                 name_funcframe = funcframe)
         with progv({ _lexenv_: fn_lexenv }):
                 primitivised_body = [ primitivise(mach, x) for x in body ]
-                ## _now_, that the body was primitivised, the clambda's nonlocal-SETQs were computed:
+                ## _now_, that the body was primitivised, the clambda's free vars were computed:
                 nonlocal_decl = ([ py.nonlocal_(*(variable_tn(x)
-                                                  for x in sorted(clambda.nonlocal_setqs, key = symbol_name) )) ]
-                                 if clambda.nonlocal_setqs else [])
+                                                  for x in sorted(reduce(operator.ior, clambda.free_writes.values()),
+                                                                  key = symbol_name) )) ]
+                                 if clambda.free_writes else [])
                 # dprintf("emitting LAMBDA primitive, name: %s, ifname: %s, fnname_tn: %s", name, ifname, fnname_tn)
                 return p.function(fnname_tn, tnify_function_arglist(name, fn_lexenv, [rest or None] + fixed),
                                   p.progn(*nonlocal_decl
@@ -6817,7 +6818,7 @@ class setq(known):
                 if implref_p(name):
                         return p.assign(mach.primitivise_implref(name), primitivise(mach, value))
                 cur_lexenv = symbol_value(_lexenv_)
-                lexical_binding, tgt_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
+                lexical_binding, home_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
                         compiler_trace_known_choice(_setq, name, "GLOBAL")
                         gvar = find_global_variable(name)
@@ -6828,9 +6829,9 @@ class setq(known):
                                 compiler_defvar_without_actually_defvar(name, value)
                         return p.special_setq(p.name(unit_symbol_rtname(name)), primitivise(mach, value))
                 compiler_trace_known_choice(_setq, name, "LEXICAL")
-                if cur_lexenv.clambda is not tgt_lexenv.clambda:
+                if cur_lexenv.clambda is not home_lexenv.clambda:
                         # dprintf("NONLOCAL SETQ of %s from %s by %s", name, tgt_lexenv.clambda, cur_lexenv.clambda)
-                        cur_lexenv.clambda.nonlocal_setqs.add(name)
+                        cur_lexenv.clambda.free_writes[home_lexenv.clambda].add(name)
                 return p.assign(lexical_binding.tn, primitivise(mach, value))
         def effects(name, value):         return t
         def affected(name, value):        return ir_affected(value)
@@ -7062,7 +7063,7 @@ class ref(known):
                 if implref_p(name):
                         return mach.primitivise_implref(name)
                 cur_lexenv = symbol_value(_lexenv_)
-                lexical_binding, src_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
+                lexical_binding, home_lexenv = cur_lexenv.lookup_var(the(symbol_t, name))
                 if not lexical_binding or lexical_binding.kind is _special:
                         gvar = find_global_variable(name)
                         if not gvar and not lexical_binding: # Don't complain on yet-unknown specials.
@@ -7070,8 +7071,9 @@ class ref(known):
                         unit_note_gvar_reference(name)
                         ## Note, how this differs from FUNCTION:
                         return p.special_ref(p.name(unit_symbol_rtname(name)))
-                if cur_lexenv.clambda is not src_lexenv.clambda:
-                        cur_lexenv.clambda.nonlocal_refs.add(name)
+                assert(cur_lexenv.clambda and home_lexenv.clambda)
+                if cur_lexenv.clambda is not home_lexenv.clambda:
+                        cur_lexenv.clambda.free_reads[home_lexenv.clambda].add(name)
                 return lexical_binding.tn
         def effects(name):         return nil
         def affected(name):        return not global_variable_constant_p(name)
