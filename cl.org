@@ -5894,16 +5894,15 @@ class lexenv_t():
                 namesets = [ sorted(map(str, frame["name"].keys())) for frame in frames ]
                 def present_kind(kind, nameset):
                         return "%s: %s" % (kind[0], ", ".join(nameset))
-                return "#<LEXENV  %s  %s>" % ("empty" if not kinds else
-                                              "  ".join(map(present_kind, kinds, namesets)),
-                                              self.clambda)
-        def __init__(self, parent = nil, clambda = None, allocate_tns = nil,
+                return "#<LEXENV  %s>" % ("empty" if not kinds else
+                                          "  ".join(map(present_kind, kinds, namesets)))
+        def __init__(self, parent = nil, clambda = nil, allocate_tns = nil,
                      name_varframe = None, name_funcframe = None, name_blockframe = None, name_gotagframe = None,
                      kind_varframe = None, kind_funcframe = None, kind_blockframe = None, kind_gotagframe = None,
                      full_varframe = None, full_funcframe = None, full_blockframe = None, full_gotagframe = None):
-                # for k, v in self.data.items():
-                #         symbolp(k)   or error("Lexenv scope keys must be symbols, found: %s.",    k.__repr__())
-                #         bindingp(k) or error("Lexenv scopt values must be bindings, found: %s.", v.__repr__())
+                self.clambda = clambda
+                self.parent  = (coerce_to_lexenv(parent) if parent is not _bootstrap_null_lexenv else
+                                nil)
                 def complete_name_frame(framespec):
                         res = collections.defaultdict(set)
                         res["name"] = framespec
@@ -5923,15 +5922,6 @@ class lexenv_t():
                                 complete_name_frame(name) if name else
                                 complete_kind_frame(kind) if kind else
                                 None)
-                if parent is not _bootstrap_null_lexenv:
-                        self.parent   = coerce_to_lexenv(parent)
-                        if not (self.parent or clambda):
-                                error("Asked to create a lexenv without provision of either a clambda or a parent lexenv.")
-                        self.clambda  = defaulted(clambda, (self.parent.clambda if parent is not _null else
-                                                            nil))
-                else:
-                        parent = nil
-                        self.parent, self.clambda = nil, clambda
                 ((self.varscope,   self.varframe),
                  (self.funcscope,  self.funcframe),
                  (self.blockscope, self.blockframe),
@@ -5966,19 +5956,6 @@ class lexenv_t():
                         res[key] = (dictappend(res[key], map) if key in res else
                                     map)
                 return res
-        # def appended(self, clambda, added):
-        #         if not added:
-        #                 return self
-        #         assert(self.parent is added.parent)
-        #         names = [ "var", "func", "block", "gotag" ]
-        #         frames = [ self.merge_frames(getattr(self,  name + "frame") or dict(),
-        #                                      getattr(added, name + "frame") or dict()) for name in names ]
-        #         parent = self.parent
-        #         result = lexenv(clambda)
-        #         for name, frame in zip(names, frames):
-        #                 setattr(result, name + "frame", frame)
-        #                 setattr(result, name + "scope", self.adjoin_scope(parent, name + "scope", frame)[0])
-        #         return result
         @staticmethod
         def do_lookup_scope(scope, x, default):
                 while scope:
@@ -6012,17 +5989,17 @@ class lexenv_t():
                 b = self.do_lookup_scope(self.varscope, x, None)[0]
                 return (b and b.kind is kind and b) or default
 
-def make_null_lexenv(clambda): return lexenv_t(clambda = clambda, parent = _bootstrap_null_lexenv)
-def make_lexenv(parent = nil, clambda = None, **initargs):
+def make_null_lexenv(): return lexenv_t(parent = _bootstrap_null_lexenv)
+def make_lexenv(parent = nil, **initargs):
         """ :PARENT - NULL for a null lexenv, nil for the value of *LEXENV*.
             :{NAME,KIND,FULL}-{VAR,FUNC,BLOCK}FRAME - constituents."""
-        return lexenv_t(parent, clambda = clambda, **initargs)
+        return lexenv_t(parent, **initargs)
 
 def coerce_to_lexenv(x):
         return (the_null_lexenv() if x is _null else
                 the(lexenv_t, x or symbol_value(_lexenv_)))
 
-__the_null_lexenv__ = make_null_lexenv(nil)
+__the_null_lexenv__ = make_null_lexenv()
 def the_null_lexenv():
         return __the_null_lexenv__
 #+end_src
@@ -6032,8 +6009,6 @@ def the_null_lexenv():
 
 #+begin_src python
 string_set("*WALKER-LEXENV*", nil)        ## This is for regular macro expansion.
-string_set("*WALKER-CLAMBDA*", nil)       ## Should the original lexenv and clambda be merged into *WALKER-ARGS*?
-                                          ## Or should we, still better, add argument passing to the matcher?
 string_set("*WALKER-ALLOCATE-TNS*", nil)
 string_set("*WALKER-BINDER*", nil)
 string_set("*WALKER-BINDER-ARGS*", nil)
@@ -7322,12 +7297,14 @@ class let_(known):
 
 #+begin_src python
 class clambda_t():
-        __slots__ = ("name", "lambda_list",
+        __slots__ = ("name", "lambda_list", "parent",
+                     "nonlocal_refs", "nonlocal_setqs",
+                     "total_types", "value_types",
+                     ## The rest is parsed from the lambda list.
                      "args", "whole", "fixed", "optional", "rest", "keys", "aux",
                      "forms", "optdefs", "keydefs", "auxforms",
-                     "total", "total_types", "value_types",
-                     "aokp", "keysp",
-                     "nonlocal_refs", "nonlocal_setqs")
+                     "total",
+                     "aokp", "keysp")
         def __repr__(self):
                 return "#<CLAMBDA %s {%x}>" % (pp_consly(self.lambda_list),
                                                id(self))
@@ -7449,25 +7426,25 @@ def tnify_function_arglist(fname, lexenv, arglist):
                         error("While processing arglist of %s: %s is not in the lexenv.", fname, x)
         return (tnify(arglist[0], error_if_none = False),) + tuple(tnify(x) for x in arglist[1:])
 
-def rewrite_lambda(mach, lexenv, clambda, lam, body) -> "conslist of rewritten":
+def rewrite_lambda(mach, lexenv, lam, body) -> "conslist of rewritten":
         # Unregistered Issue COMPLIANCE-MACRO-LAMBDA-LIST-DESTRUCTURING-AND-ENV
-        (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
-            args, forms = clambda.args, clambda.forms,
-        complexp = not not (optional or rest or clambda.keysp or aux)
+        total, args, forms, keysp, aokp = ir_parse_lambda_list(lam, "LAMBDA", allow_defaults = t)
+        (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = args, forms
+        complexp = not not (optional or rest or keysp or aux)
         if not complexp: ## Only has &WHOLE and fixed args:
                 return cons(lam, consify_linear(body))
         ## Optimisations
         # constant_forms_p = all(constantp(x) for x in optdefs + keydefs + auxforms)
         opt_gsyms        = [ gensym_tn("OPT-" + symbol_name(x) + "-")
                              for x in optional ]
-        need_rest        = rest or optional or clambda.keysp ## &key is processed through parsing of *rest
+        need_rest        = rest or optional or keysp ## &key is processed through parsing of *rest
         rest_gsym        = ((gensym_tn("REST-" + (symbol_name(rest) if rest else
                                                   "TN") + "-")) if need_rest else
                             None)
         nrest_gsym       = gensym("REST-LEN")
-        need_nonopt_rest = (rest or clambda.keysp) and optional
+        need_nonopt_rest = (rest or keysp) and optional
         nonopt_rest_gsym = gensym("NONOPT-REST") if need_nonopt_rest else rest_gsym
-        must_check_keys  = clambda.keysp and not clambda.aokp
+        must_check_keys  = keysp and not aokp
         ### This is the biggest victim of IR representation mixing (cons vs. linear-tuple),
         ### all in the name of enrolling python lambda lists on board.
         l, l_, a = list_, list__, append
@@ -7489,7 +7466,7 @@ def rewrite_lambda(mach, lexenv, clambda, lam, body) -> "conslist of rewritten":
                             (l(l(rest, mach.vector_consifier(nonopt_rest_gsym)))
                              if rest else nil),
                             (mach.keyword_binding_checking(nonopt_rest_gsym, keys, keydefs, must_check_keys = must_check_keys)
-                             if clambda.keysp else nil),
+                             if keysp else nil),
                             consify_linear(l(name, form)
                                            for name, form in zip(aux, auxforms))),
                    *body))
@@ -7552,12 +7529,13 @@ class flet(known):
                              nil                               if not (bindings or body)          else
                              handle_linear_body(body)          if not bindings                    else
                              l(_flet, mapcar(lambda f: cons(f[0], rewrite_lambda(mach, lexenv,
-                                                                                 clambda_t(f[0], f[1][0]),
                                                                                  f[1][0], vectorise_linear(f[1][1]))),
                                              bindings),
                                 *body))
         def primitivise(mach, bindings, *body):
                 lexenv          = symbol_value(_lexenv_)
+                ## Get the surrounding clambda, which is different from those created below.
+                clambda         = lexenv.clambda if lexenv is not nil else make_global_anonymous_clambda()
                 names, bindings = list(zip(*xmap_to_vector(lambda b: (b[0], b), bindings)))
                 clambdas        = [ clambda_t(b[0], b[1][0]) for b in bindings ]
                 body_name       = "FLET-" + ("-".join(symbol_name(x) for x in names))
@@ -7991,7 +7969,9 @@ class let(known):
                 # Unregistered Issue DEAD-CODE-ELIMINATION
                 normalised = vectorise_linear(bindings)
                 names = list(zip(*normalised))[0]
-                env = make_lexenv(parent = nil, allocate_tns = t,
+                lexenv  = symbol_value(_lexenv_)
+                clambda = lexenv.clambda if lexenv else make_global_anonymous_clambda()
+                env = make_lexenv(parent = lexenv, clambda = clambda, allocate_tns = t,
                                   kind_varframe  = { _variable: { variable_binding(sym, _variable, None)
                                                                   for sym in names } })
                 with progv({ _lexenv_: env }):
@@ -8026,11 +8006,10 @@ class function(known):
                 length(x) < 2 and error("Bad LAMBDA form: %s", pp_consly(form))
                 lam = x[1][0]
                 not listp(lam) and error("Bad lambda list in LAMBDA form: %s", pp_consly(exp))
-                clambda = clambda_t(name, lam)
                 with progv(dict([ (_walker_binder_, lexenv_walker_t.binder(0, "Lambda.")),
                                   (_walker_binder_args_, nil),
                                   (_walker_lexenv_,
-                                   make_lexenv(symbol_value(_walker_lexenv_), clambda = clambda,
+                                   make_lexenv(symbol_value(_walker_lexenv_),
                                                allocate_tns = symbol_value(_walker_allocate_tns_),
                                                ## Unregistered Issue PER-PHASE-FN-ALLOCATION-FOR-SAME-CODE
                                                name_funcframe = { name: function_binding(name, _function, fn(name, lam)) }))
@@ -8043,7 +8022,6 @@ class function(known):
                                 error("Invalid #'LAMBDA form: %s", pp_consly(orig))
                         lambda_list, body = x[1][0], x[1][1]
                 return nil, (ir(_function, cons(_lambda, rewrite_lambda(mach, symbol_value(_walker_lexenv_),
-                                                                        clambda_t(name, lambda_list),
                                                                         lambda_list, vectorise_linear(body))),
                                 **dictappend({ "name":         name }         if name         else {},
                                              { "pydecorators": pydecorators } if pydecorators else {},
@@ -8058,15 +8036,18 @@ class function(known):
                 if implref_p(x):
                         return mach.primitivise_implref(x)
                 lambdap = ir_lambda_p(x)
+                lexenv = symbol_value(_lexenv_)
+                ## The surrounding clambda.
+                clambda = lexenv.clambda if lexenv is not nil else make_global_anonymous_clambda()
                 if lambdap:
                         lambda_list, body = x[1][0], x[1][1]
-                        return primitivise_lambda(mach, symbol_value(_lexenv_),
+                        return primitivise_lambda(mach, lexenv,
                                                   clambda_t(name, lambda_list),
                                                   lambda_list, vectorise_linear(body),
                                                   name = name, pydecorators = pydecorators,
                                                   globalp = globalp,
                                                   self_binding = function_binding(name, _function, fn(name, lambda_list)))
-                lexical_binding, lexenv = symbol_value(_lexenv_).lookup_func(x)
+                lexical_binding, lexenv = lexenv.lookup_func(x)
                 if not lexical_binding:
                         ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
                         if not find_global_function(x):
