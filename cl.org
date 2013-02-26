@@ -6384,44 +6384,21 @@ string_set("*COMPILER-LAMBDA*", nil)
 ## Critical Issue FIGURE-OUT-WHAT-IS-COMPILE-TIME-AND-WHAT-IS-LOAD-TIME
 fns = dict()
 
+# For to-clambda migration:
+# args_types = None, values_types = None,
+# effects = None, affected = None
 @defclass
-class fn():
-        ## Omnidefined:
-        # name
-        # arglist
-        # body
-        # globalp
-        # args_types    - a tuple of types
-        #
-        ## Optional (can be None):
-        # values_types  - T or a list of types
-        # effects       - T or NIL
-        # affected      - T or NIL
-        def __init__(self, name,
-                     arglist = None, body = None,
-                     globalp = nil,
-                     args_types = None, values_types = None,
-                     effects = None, affected = None):
-                check_type(arglist, list_t)
-                args_types = [t] * length(arglist)
-                if name: ## Not anonymous LAMBDA?
-                        ifname = interpret_function_name(the((or_t, symbol_t, cons_t), name))
-                        if globalp:
-                                if name in fns:
-                                        error("Asked to overwrite FN record %s.", pp_consly(name))
-                                fns[ifname] = self
-                attrify_args(self, locals(), "name",
-                              "arglist", "args_types", "values_types",
-                              "effects", "affected")
+class gfun():
+        def __init__(self, name, clambda):
+                ifname = interpret_function_name(the((or_t, symbol_t, cons_t), name))
+                if ifname in fns:
+                        error("Asked to overwrite FN record %s.", pp_consly(name))
+                fns[ifname] = self
                 self.dependents, self.dependencies = (collections.defaultdict(set),
                                                       collections.defaultdict(set))
         def add_dependent(self, reason, depee):
                 self.dependents[reason].add(depee)
                 depee.dependencies[reason].add(self)
-        def map_dependents(self, f):
-                for reason, depees in self.dependents:
-                        for d in depees:
-                                f(d, reason)
         def clear_dependencies(self):
                 for reason, deps in self.dependencies.items():
                         for d in deps:
@@ -6430,11 +6407,11 @@ class fn():
                                        del d.dependents[reason]
                 self.dependencies.clear()
 
-def find_fn(name):
+def find_gfun(name):
         return fns.get(name, nil)
 
 def depend_on(fn_or_name, reason = t):
-        fn = fn_or_name if isinstance(fn_or_name, cold_function_type) else find_fn(fn_or_name)
+        fn = fn_or_name if isinstance(fn_or_name, cold_function_type) else find_gfun(fn_or_name)
         fn.add_dependent(reason, symbol_value(_compiler_fn_))
 
 def ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
@@ -6444,7 +6421,7 @@ def ir_depending_on_function_properties(function_form, body, *prop_test_pairs):
         ##
         ## ..And we didn't even start to consider dependency loops..
         if symbolp(function_form):
-                fn = find_fn(function_form)
+                fn = find_gfun(function_form)
                 if fn:
                         prop_vals = []
                         for prop_test in prop_test_pairs:
@@ -7308,7 +7285,7 @@ class clambda_t():
         def __repr__(self):
                 return "#<CLAMBDA %s {%x}>" % (pp_consly(self.lambda_list),
                                                id(self))
-        def __init__(self, name, lambda_list):
+        def __init__(self, parent, name, lambda_list):
                 total, args, forms, keysp, aokp = ir_parse_lambda_list(lambda_list, "LAMBDA", allow_defaults = t)
                 check_no_locally_rebound_constants(total)
                 self.name, self.lambda_list = the((or_t, symbol_t, cons_t), name), the(list_t, lambda_list)
@@ -7318,6 +7295,11 @@ class clambda_t():
                 self.total, self.args, self.forms = total, args, forms
                 self.total_types, self.value_types = [t] * len(total), t
                 self.nonlocal_refs, self.nonlocal_setqs = set(), set()
+
+def make_global_clambda(name):
+        clambda = clambda_t(nil, name, nil)
+        gfun(name, clambda) ## Self-registers.
+        return clambda
 
 def ir_parse_lambda_list(orig_lambda_list, context, allow_defaults = None, macrop = nil):
         ## Critical Issue LAMBDA-LIST-PARSING-BROKEN-WRT-BODY
@@ -7486,7 +7468,7 @@ def primitivise_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorator
                                 dict([(ifname, self_binding)] if self_binding else []))
                                if not function_namespace else
                                (dict(),
-                                dictappend(dict((b, function_binding(b, _function, None))
+                                dictappend(dict((b, function_binding(b, _function, clambda))
                                                 for b in clambda.total),
                                            dict([(ifname, self_binding)] if self_binding else []))))
         ## We've wedged stuff into a single LEXENV, where in fact it is an intricate LET*.
@@ -7514,8 +7496,6 @@ def primitivise_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorator
             [(_lead, 1), (_notlead, "\n"), (_bound, (_form,))])),
           name = _flet)
 class flet(known):
-        def binder_args(bindings, *body):
-                return xmap_to_vector(lambda b: fn(b[0], b[1][0]), bindings)
         def rewrite(mach, orig, bindings, *body):
                 ## Unregistered Issue FLET-POTENTIALLY-MISSING-LAMBDA-BINDER-MAGIC
                 not (listp(bindings)
@@ -7533,13 +7513,12 @@ class flet(known):
                                              bindings),
                                 *body))
         def primitivise(mach, bindings, *body):
-                lexenv          = symbol_value(_lexenv_)
-                ## Get the surrounding clambda, which is different from those created below.
-                clambda         = lexenv.clambda if lexenv is not nil else make_global_anonymous_clambda()
-                names, bindings = list(zip(*xmap_to_vector(lambda b: (b[0], b), bindings)))
-                clambdas        = [ clambda_t(b[0], b[1][0]) for b in bindings ]
-                body_name       = "FLET-" + ("-".join(symbol_name(x) for x in names))
-                return p.funcall(primitivise_lambda(mach, lexenv, clambda_t(gensym(body_name + "-"),
+                lexenv              = symbol_value(_lexenv_)
+                surrounding_clambda = lexenv.clambda if lexenv is not nil else make_global_clambda(gensym("FLET"))
+                names, bindings     = list(zip(*xmap_to_vector(lambda b: (b[0], b), bindings)))
+                clambdas            = [ clambda_t(surrounding_clambda, b[0], b[1][0]) for b in bindings ]
+                body_name           = "FLET-" + ("-".join(symbol_name(x) for x in names))
+                return p.funcall(primitivise_lambda(mach, lexenv, clambda_t(surrounding_clambda, gensym(body_name + "-"),
                                                                             list_(*names)),
                                                     names, body,
                                                     name = gensym(body_name),
@@ -7575,7 +7554,7 @@ class labels(known):
                 ## No need to bind *WALKER-BINDER*, since we contribute to %BIND metasex expressions.
                 with progv({ _walker_lexenv_:
                               make_lexenv(env, allocate_tns = symbol_value(_walker_allocate_tns_),
-                                          name_funcframe = { name: function_binding(name, _function, fn(name, lam))
+                                          name_funcframe = { name: function_binding(name, _function, nil)
                                                              for name, (lam, body) in bindings }),
                              _walker_binder_: binder,
                              _walker_binder_args_: nil } if bindings else
@@ -7970,7 +7949,7 @@ class let(known):
                 normalised = vectorise_linear(bindings)
                 names = list(zip(*normalised))[0]
                 lexenv  = symbol_value(_lexenv_)
-                clambda = lexenv.clambda if lexenv else make_global_anonymous_clambda()
+                clambda = lexenv.clambda if lexenv else make_global_clambda(gensym("LET"))
                 env = make_lexenv(parent = lexenv, clambda = clambda, allocate_tns = t,
                                   kind_varframe  = { _variable: { variable_binding(sym, _variable, None)
                                                                   for sym in names } })
@@ -8012,7 +7991,7 @@ class function(known):
                                    make_lexenv(symbol_value(_walker_lexenv_),
                                                allocate_tns = symbol_value(_walker_allocate_tns_),
                                                ## Unregistered Issue PER-PHASE-FN-ALLOCATION-FOR-SAME-CODE
-                                               name_funcframe = { name: function_binding(name, _function, fn(name, lam)) }))
+                                               name_funcframe = { name: function_binding(name, _function, nil) }))
                                  ])):
                         return further(exp)
         def rewrite(mach, orig, x, name = nil, pydecorators = nil, globalp = nil):
@@ -8037,16 +8016,17 @@ class function(known):
                         return mach.primitivise_implref(x)
                 lambdap = ir_lambda_p(x)
                 lexenv = symbol_value(_lexenv_)
-                ## The surrounding clambda.
-                clambda = lexenv.clambda if lexenv is not nil else make_global_anonymous_clambda()
+                surrounding_clambda = (lexenv.clambda if lexenv is not nil else
+                                       make_global_clambda(name or gensym("LAMBDA")))
                 if lambdap:
                         lambda_list, body = x[1][0], x[1][1]
-                        return primitivise_lambda(mach, lexenv,
-                                                  clambda_t(name, lambda_list),
-                                                  lambda_list, vectorise_linear(body),
+                        clambda = clambda_t(surrounding_clambda, name, lambda_list)
+                        if globalp:
+                                gfun(name, clambda)
+                        return primitivise_lambda(mach, lexenv, clambda, lambda_list, vectorise_linear(body),
                                                   name = name, pydecorators = pydecorators,
                                                   globalp = globalp,
-                                                  self_binding = function_binding(name, _function, fn(name, lambda_list)))
+                                                  self_binding = function_binding(name, _function, clambda))
                 lexical_binding, lexenv = lexenv.lookup_func(x)
                 if not lexical_binding:
                         ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
