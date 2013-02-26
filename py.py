@@ -24,7 +24,7 @@ from cl import symbol_value, symbol_name, symbol_package, make_symbol, make_keyw
 from cl import package_name, find_package
 from cl import defun as _defun_, defclass as _defclass_
 from cl import interpreted_function_name_symbol, lisp_symbol_name_rtname, get_function_rtname, unit_variable_rtname
-from cl import consify_linear, xmap_to_vector, validate_function_args, validate_function_keys, without_condition_system
+from cl import consify_linear, xmap_to_vector, validate_function_args, validate_function_keys
 from cl import _if, _primitive, _list, _quote, _setf, _allow_other_keys_
 from cl import ir_funcall, ir_apply, ir_cl_call
 from cl import _debug_io_
@@ -2099,6 +2099,16 @@ def pytracer(frame, event, arg):
 def pytracer_enabled_p(): return sys.gettrace() is pytracer
 def enable_pytracer():    sys.settrace(pytracer)
 def disable_pytracer():   sys.settrace(None)
+
+def without_condition_system(body, reason = ""):
+        if pytracer_enabled_p():
+                try:
+                        disable_pytracer()
+                        return body()
+                finally:
+                        enable_pytracer()
+        else:
+                return body()
 
 ##
 ## Essential runtime: symbol, global variable and function availability

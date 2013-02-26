@@ -1749,23 +1749,7 @@ def do_getenv(var):
         return os.getenv(var)
 
 def getenv(var):
-        return without_condition_system(lambda: os.getenv(var))
-
-# Condition system disabling
-
-def without_condition_system(body, reason = ""):
-        if py.pytracer_enabled_p():
-                try:
-                        py.disable_pytracer()
-                        return body()
-                finally:
-                        py.enable_pytracer()
-        else:
-                return body()
-
-disabled_condition_system = defwith("disabled_condition_system",
-                                    lambda _:  py.disable_pytracer(),
-                                    lambda *_: py.enable_pytracer())
+        return py.without_condition_system(lambda: os.getenv(var))
 
 # Early-earlified streaming
 
@@ -1806,7 +1790,7 @@ Defined keywords:
 @defun
 def probe_file(x):
         x = pathname(x)
-        return without_condition_system(
+        return py.without_condition_system(
                 lambda: truename(x) if os.path.exists(namestring(x)) else nil,
                 reason = "os.path.exists")
 
@@ -1894,8 +1878,8 @@ def write_string(string, stream = t):
                                       stream, ("output" if cond.args[0] == "not writable" else
                                                "adequate"),
                                       cond.args[0])
-                without_condition_system(handler,
-                                          reason = "_write_string")
+                py.without_condition_system(handler,
+                                            reason = "_write_string")
         return string
 
 @defun
@@ -2904,7 +2888,7 @@ elements of the string are printed."""
         readably = defaulted_to_var(readably, _print_readably_)
         escape   = defaulted_to_var(escape,   _print_escape_) if not readably else t
         return (x if not escape else
-                ("\"" + without_condition_system(
+                ("\"" + py.without_condition_system(
                                 lambda: re.sub(r"([\"\\])", r"\\\1", x),
                                 reason = "re.sub") +
                  "\""))
@@ -3407,11 +3391,11 @@ def cold_read(stream = sys.stdin, eof_error_p = t, eof_value = nil, preserve_whi
                 token = read_token()
                 if symbol_value(_read_suppress_):
                         return nil
-                if without_condition_system(lambda: re.match("^[0-9]+$", token),
-                                             reason = "re.match"):
-                        ret = int(token)
-                elif without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token),
+                if py.without_condition_system(lambda: re.match("^[0-9]+$", token),
                                                reason = "re.match"):
+                        ret = int(token)
+                elif py.without_condition_system(lambda: re.match("^[0-9]+\\.[0-9]+$", token),
+                                                 reason = "re.match"):
                         ret = float(token)
                 else:
                         ret = read_symbol(token)
@@ -4015,7 +3999,7 @@ class matcher_t():
                 #                 return mtd.cache[exp]
                 #         except TypeError:
                 #                 pass
-                # store = without_condition_system(exp_store)
+                # store = py.without_condition_system(exp_store)
                 # if store is not None:
                 #         exp_pat_hit = store.get(pat)
                 #         if exp_pat_hit:
@@ -4046,13 +4030,13 @@ class matcher_t():
                 for mr in m.__complex_patterns__.values():
                         mr.cache = collections.defaultdict(dict)
         def __init__(m):
-                # without_condition_system(pdb.set_trace)
+                # py.without_condition_system(pdb.set_trace)
                 # dprintf("__some is: %s", _some)
                 #
                 ## Yields:
                 #
                 # (Pdb) dis.disassemble(sys._getframe(11).f_code)
-                # 6440           0 LOAD_GLOBAL              0 (without_condition_system) 
+                # 6440           0 LOAD_GLOBAL              0 (py.without_condition_system)
                 #               3 LOAD_GLOBAL              1 (pdb) 
                 #               6 LOAD_ATTR                2 (set_trace) 
                 #               9 CALL_FUNCTION            1 
@@ -8277,7 +8261,7 @@ def self_analyze(mode = "global_shaking", name = None, depth = 3, sort_by = "nam
                 error("SELF-ANALYZE accepts only the following sort orders: %s.", ", ".join(accepted_sort_orders))
         this_module_name = "cl"
         relevant_modules = ["primitives.py", "tri.py", "py.py"]
-        symtab = without_condition_system(
+        symtab = py.without_condition_system(
                 lambda: more_ast.extract_symtable(pergamum.file_as_string(this_module_name + ".py"), ""))
         whitelist = {
                 ## undetectable
@@ -8365,7 +8349,7 @@ def self_analyze(mode = "global_shaking", name = None, depth = 3, sort_by = "nam
                 for dep in deps:
                         frdeps[dep].add(f)
         ####  5. Other, non-class/function toplevel uses, as by Python symtable rules
-        for s in without_condition_system(symtab.get_symbols):
+        for s in py.without_condition_system(symtab.get_symbols):
                 if s.is_referenced():
                         frdeps[s.get_name()].add("#<global ref>")
         dprintf("; Total functions: %d", len(fdeps))
@@ -8549,7 +8533,7 @@ def run_profile():
         global __running_tests__, __enable_matcher_tracing__
         __running_tests__ = True
         # __enable_matcher_tracing__ = True
-        with disabled_condition_system():
+        with py.disabled_condition_system():
                 import cProfile, pstats
         def compile_vpcl():
                 return compile_file("vpcl.lisp")
