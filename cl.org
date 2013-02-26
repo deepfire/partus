@@ -117,6 +117,7 @@
 ************* LABELS.binder                   does not survive past rewrite, obviously
 ************* FUNCTION.{binder,primitivise}
 *********** use:
+************* dependency tracking
 ************* find_fn (globals only, and it never works, because globals is never T in fn.__init__)
 *************** depend_on
 *************** ir_depending_on_function_properties
