@@ -6370,6 +6370,7 @@ fns = dict()
 @defclass
 class gfun():
         def __init__(self, name, clambda):
+                self.clambda = clambda
                 ifname = interpret_function_name(the((or_t, symbol_t, cons_t), name))
                 if ifname in fns:
                         error("Asked to overwrite FN record %s.", pp_consly(name))
