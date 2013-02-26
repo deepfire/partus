@@ -124,7 +124,7 @@
 *********** Verdict: seems to be entirely useless
 ********* class clambda_t
 *********** storage: lexenv_t
-*********** created by (into make_lexenv, rewrite_lambda and primitivise_lambda, for lambda list and nonlocal setqs):
+*********** created by (into make_lexenv, rewrite_lambda and primitivise_lambda, for lambda list and free vars):
 ************* FUNCTION.binder:      lexenv_t
 ************* FUNCTION.rewrite:     rewrite_lambda
 ************* FUNCTION.primitivise: primitivise_lambda
@@ -132,9 +132,9 @@
 ************* FLET.primitivise:     primitivise_lambda
 *********** use:
 ************* rewrite_lambda:       lambda list queries
-************* primitivise_lambda:   lambda list queries, lexenv creation, nonlocal setq query
-************* SETQ.primitivise:     nonlocal setq maintenance
-************* REFS.primitivise:     nonlocal ref maintenance (OMG, freevar calculation already done?)
+************* primitivise_lambda:   lambda list queries, lexenv creation, free vars query
+************* SETQ.primitivise:     free var access maintenance
+************* REFS.primitivise:     free var access maintenance
 ********* functions themselves
 *********** created by machine.execute_bytecode, or by (currently still ungeneralised) LOAD-AS-FASL
 ************* used by:
