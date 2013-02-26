@@ -5057,19 +5057,17 @@ class lexenv_t():
                 b = self.do_lookup_scope(self.varscope, x, None)[0]
                 return (b and b.kind is kind and b) or default
 
-def make_null_lexenv(): return lexenv_t(parent = _bootstrap_null_lexenv)
+def make_null_lexenv():
+        clambda = make_global_clambda(gensym("NULL-LEXENV"))
+        return lexenv_t(parent = _bootstrap_null_lexenv, clambda = clambda)
 def make_lexenv(parent = nil, **initargs):
         """ :PARENT - NULL for a null lexenv, nil for the value of *LEXENV*.
             :{NAME,KIND,FULL}-{VAR,FUNC,BLOCK}FRAME - constituents."""
         return lexenv_t(parent, **initargs)
 
 def coerce_to_lexenv(x):
-        return (the_null_lexenv() if x is _null else
+        return (make_null_lexenv() if x is _null else
                 the(lexenv_t, x or symbol_value(_lexenv_)))
-
-__the_null_lexenv__ = make_null_lexenv()
-def the_null_lexenv():
-        return __the_null_lexenv__
 
 # Code
 
@@ -6971,10 +6969,11 @@ class function(known):
                         return mach.primitivise_implref(x)
                 lambdap = ir_lambda_p(x)
                 lexenv = symbol_value(_lexenv_)
-                surrounding_clambda = (lexenv.clambda if lexenv is not nil else
-                                       make_global_clambda(name or gensym("LAMBDA")))
                 if lambdap:
                         lambda_list, body = x[1][0], x[1][1]
+                        surrounding_clambda = (lexenv.clambda                        if lexenv is not nil else
+                                               make_global_clambda(gensym("LAMBDA")) if not globalp       else
+                                               nil)
                         clambda = clambda_t(surrounding_clambda, name, lambda_list)
                         if globalp:
                                 gfun(name, clambda)
@@ -7805,7 +7804,7 @@ and true otherwise."""
         #  - THERE-EXIST lambdas non-expressible in Python
         # Coerce the lambda to a named def, for ast_compiled_name purposes:
         return compile_in_lexenv(lambda_expression,
-                                 lexenv         = the_null_lexenv(),
+                                 lexenv         = make_null_lexenv(),
                                  name           = final_name,
                                  globalp        = not not name,
                                  global_macro_p = name and not not macro_function(name),
