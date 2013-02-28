@@ -1322,7 +1322,7 @@ class resignal(stmt):
 @defpy
 class function(indet):
         "NOTE: default value form evaluation is not delayed."
-        a_expr = defstrategy(test = (lambda name, args, body, id = nil, pydecorators = []:
+        a_expr = defstrategy(test = (lambda name, args, body, clambda = None, id = nil, pydecorators = []:
                                              exprp(body) and not (name or pydecorators)),
                              keys = expr)
         b_stmt = defstrategy(keys = body)
@@ -1335,7 +1335,7 @@ class lambda_expr(expr): ...
 
 @defpy
 class lambda_expr(expr):
-        def help(name, args, expr, id = nil, pydecorators = []):
+        def help(name, args, expr, clambda = None, id = nil, pydecorators = []):
                 assert not (name or pydecorators)
                 maybe_rest, *fixed_args = args
                 return ast.Lambda(help_args(fixed_args, [], [], maybe_rest, [], [], None),
@@ -1349,7 +1349,7 @@ class defun(body): ...
 
 @defpy
 class defun(body):
-        def help(name, args, body, pydecorators = []):
+        def help(name, args, body, clambda = None, pydecorators = []):
                 maybe_rest, *fixed_args = args
                 return [ ast.FunctionDef(
                                 name = name.value(),
@@ -1359,8 +1359,9 @@ class defun(body):
                                 body = help(return_(body))[0])
                          ], help_expr(name)
         @defmethod(function)
-        def function(name, args, expr, id = nil, pydecorators = []):
-                return defun(name or genname((id) if id else "DEFLAM"), args, expr, pydecorators = pydecorators)
+        def function(name, args, expr, clambda = None, id = nil, pydecorators = []):
+                return defun(name or genname((id) if id else "DEFLAM"), args, expr,
+                             clambda = clambda, pydecorators = pydecorators)
 
 @defpy
 class funcall(expr):

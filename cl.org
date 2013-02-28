@@ -6956,6 +6956,11 @@ def gensym_tn(x = "G"):
         sym.tn = variable_tn(sym)
         return sym
 
+def genfunsym_tn(x = "G"):
+        sym = gensym(x)
+        sym.tn = function_tn(sym)
+        return sym
+
 def make_keyword_tn(name):
         kw = make_keyword(name)
         kw.tn = symbol_tn(kw)
@@ -7434,16 +7439,16 @@ def rewrite_lambda(mach, lexenv, lam, body) -> "conslist of rewritten":
                                            for name, form in zip(aux, auxforms))),
                    *body))
 
-def primitivise_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorators = nil, self_binding = nil, globalp = nil,
+def primitivise_lambda(mach, lexenv, clambda, lam, body, pydecorators = nil, self_binding = nil, globalp = nil,
                        function_namespace = nil):
         (whole, fixed, optional, rest, keys, aux), (optdefs, keydefs, auxforms) = \
             args, forms = clambda.args, clambda.forms
         assert not (whole or optional or clambda.keysp or aux) ## &WHOLE is a piece of debt, currently.
         check_type(mach, p.machine)
-        fnname_tn = function_tn(name, globalp = globalp) if name else None
+        fnname_tn = function_tn(clambda.name, globalp = globalp) if clambda.name else None
         ## Things, that are needed:
         ##  - CLAMBDA passing
-        ifname = interpret_function_name(name)
+        ifname = interpret_function_name(clambda.name)
         varframe, funcframe = ((dict((b, variable_binding(b, _variable, None))
                                      for b in clambda.total),
                                 dict([(ifname, self_binding)] if self_binding else []))
@@ -7465,10 +7470,11 @@ def primitivise_lambda(mach, lexenv, clambda, lam, body, name = nil, pydecorator
                                                                   key = symbol_name) )) ]
                                  if clambda.free_writes else [])
                 # dprintf("emitting LAMBDA primitive, name: %s, ifname: %s, fnname_tn: %s", name, ifname, fnname_tn)
-                return p.function(fnname_tn, tnify_function_arglist(name, fn_lexenv, [rest or None] + fixed),
+                return p.function(fnname_tn, tnify_function_arglist(clambda.name, fn_lexenv, [rest or None] + fixed),
                                   p.progn(*nonlocal_decl
                                           + primitivised_body),
-                                  id = pp_consly(name) if name else nil,
+                                  clambda = clambda,
+                                  id = pp_consly(clambda.name) if clambda.name else nil,
                                   pydecorators = xmap_to_vector(lambda f: primitivise(mach, f), pydecorators))
 
 @defknown((_binder, _flet,
@@ -7503,11 +7509,9 @@ class flet(known):
                 return p.funcall(primitivise_lambda(mach, lexenv, clambda_t(surrounding_clambda, gensym(body_name + "-"),
                                                                             list_(*names)),
                                                     names, body,
-                                                    name = gensym(body_name),
                                                     function_namespace = t),
                                  *[ primitivise_lambda(mach, lexenv, clambda,
-                                                       lambda_list, vectorise_linear(body),
-                                                       name = name)
+                                                       lambda_list, vectorise_linear(body))
                                     for clambda, (name, (lambda_list, body)) in zip(clambdas, bindings) ])
 #+end_src
 
@@ -8007,9 +8011,9 @@ class function(known):
                         if globalp:
                                 gfun(name, clambda)
                         return primitivise_lambda(mach, lexenv, clambda, lambda_list, vectorise_linear(body),
-                                                  name = name, pydecorators = pydecorators,
+                                                  self_binding = function_binding(name, _function, clambda),
                                                   globalp = globalp,
-                                                  self_binding = function_binding(name, _function, clambda))
+                                                  pydecorators = pydecorators)
                 lexical_binding, lexenv = lexenv.lookup_func(x)
                 if not lexical_binding:
                         ## Unregistered Issue FDEFINITION-SYMBOL-FUNCTION-AND-COMPILER-GFUNS-NEED-SYNCHRONISATION
@@ -9021,10 +9025,12 @@ def run_tests_compiler():
         evaltest("PRIMITIVE-QUOTED-OP",
                  l(_primitive, l(_quote, l("not_")), 0),
                  True)
+        x = gensym_tn("X")
         evaltest("PRIMITIVE-LAMBDA/FUNCALL",
                  l(_primitive, p.funcall,
-                   l(_primitive, p.function, None, l(_quote, (None, p.name("x"))),
-                     l(_primitive, p.add, p.name("x"), 2)),
+                   ir(_primitive, p.function, None, l(_quote, (None, x.tn)),
+                      l(_primitive, p.add, x.tn, 2),
+                      clambda = clambda_t(nil, gensym(), l(x))),
                    2),
                  4)
         evaltest("CONST-NIL",                nil,                       nil)
@@ -9089,10 +9095,12 @@ def run_tests_compiler():
                      _cdr)),
                  l(nil, 42))
         ## PRIM, IR-ARGS
+        foo = genfunsym_tn("FOO")
         evaltest("PRIM-DEF-CALL",
                  l(_progn,
-                   l(_primitive, p.function, p.name("foo"), l(_quote, (None,)),
-                     p.integer(42)),
+                   ir(_primitive, p.function, foo.tn, l(_quote, (None,)),
+                      p.integer(42),
+                      clambda = clambda_t(nil, foo, nil)),
                    l(_primitive, p.funcall, p.name("foo"))),
                  42,
                  known_failure = t, catch_errors = t) ## Same reason as SETQ/REF-IMPLREF
@@ -9252,12 +9260,14 @@ def run_tests_compiler():
         ## LOAD-TIME-VALUE
         ####
         ## FUNCALL
+        bar = genfunsym_tn("BAR")
         name = gensym("FNAME")
         evaltest("FUNCALL-PRIM",
                  l(_flet, l(l(name, nil,
-                              l(_primitive, p.function, p.name("bar"), l(_quote, (None,)),
-                                 p.integer(42)),
-                              l(_funcall, l(_function, l(_quote, l("bar")))))),
+                              ir(_primitive, p.function, bar.tn, l(_quote, (None,)),
+                                 p.integer(42),
+                                 clambda = clambda_t(nil, bar, l(x))),
+                              l(_funcall, l(_function, l(_quote, l(bar.tn.value())))))),
                    l(name)),
                  42)
         name = gensym("FNAME")
