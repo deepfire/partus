@@ -1673,10 +1673,13 @@ def interpreted_function_name_symbol(x):
 
 def new_function_rtname(name):
         return gensymname("FUN_" + (str(name) if symbolp(name) else
-                                    ("SETF_" + str(name[1][0]))) + "-")
+                                    ("SETF_" + str(name[1][0]))) + "_")
 
 def new_symbol_rtname(symbol):
-        return gensymname("SYM_" + str(symbol) + "-")
+        return gensymname("SYM_" + str(symbol) + "_")
+
+def new_variable_rtname(symbol):
+        return gensymname("VAR_" + str(symbol) + "_")
 
 def ensure_function_rtname(name):
         check_type(name, (or_t, symbol_t, cons_t))
@@ -5952,7 +5955,7 @@ def primitivise_constant(x):
 
 # Primitive TN allocation
 
-def variable_tn(sym, globalp = nil): return p.name((unit_variable_rtname if globalp else ensure_variable_rtname)(sym))
+def variable_tn(sym, globalp = nil): return p.name((unit_variable_rtname if globalp else new_variable_rtname)(sym))
 def function_tn(sym, globalp = nil): return p.name((unit_function_rtname if globalp else new_function_rtname)(sym))
 def   symbol_tn(sym):                return p.name(unit_symbol_rtname(sym))
 
@@ -6450,9 +6453,9 @@ def primitivise_lambda(mach, lexenv, clambda, lam, body, pydecorators = nil, sel
         with progv({ _lexenv_: fn_lexenv }):
                 primitivised_body = [ primitivise(mach, x) for x in body ]
                 ## _now_, that the body was primitivised, the clambda's free vars were computed:
-                nonlocal_decl = ([ py.nonlocal_(*(variable_tn(x)
-                                                  for x in sorted(reduce(operator.ior, clambda.free_writes.values()),
-                                                                  key = symbol_name) )) ]
+                nonlocal_decl = ([ py.nonlocal_(*(tn
+                                                  for tn in sorted(reduce(operator.ior, clambda.free_writes.values()),
+                                                                   key = lambda x: x.value()) )) ]
                                  if clambda.free_writes else [])
                 # dprintf("emitting LAMBDA primitive, name: %s, ifname: %s, fnname_tn: %s", name, ifname, fnname_tn)
                 return p.function(fnname_tn, tnify_function_arglist(clambda.name, fn_lexenv, [rest or None] + fixed),
@@ -6819,8 +6822,7 @@ class setq(known):
                         return p.special_setq(p.name(unit_symbol_rtname(name)), primitivise(mach, value))
                 compiler_trace_known_choice(_setq, name, "LEXICAL")
                 if cur_lexenv.clambda is not home_lexenv.clambda:
-                        # dprintf("NONLOCAL SETQ of %s from %s by %s", name, tgt_lexenv.clambda, cur_lexenv.clambda)
-                        cur_lexenv.clambda.free_writes[home_lexenv.clambda].add(name)
+                        cur_lexenv.clambda.free_writes[home_lexenv.clambda].add(lexical_binding.tn)
                 return p.assign(lexical_binding.tn, primitivise(mach, value))
         def effects(name, value):         return t
         def affected(name, value):        return ir_affected(value)
@@ -6880,6 +6882,11 @@ class let(known):
         def rewrite(mach, orig, bindings, *body):
                 names, forms = list(zip(*xmap_to_vector(lambda x: ((first(x), second(x)) if consp(x) else (x, nil)),
                                                                bindings))) or ([], [])
+                nameset = set()
+                for n in names:
+                        if n in nameset:
+                                error("The variable %s occurs more than once in the LET.", n)
+                        nameset.add(n)
                 check_no_locally_rebound_constants(names)
                 return (not (body and bindings and every(lambda x: consp(x) and length(x) == 2, bindings)),
                         (list__(_let, mapcar(list_, consify_linear(names), consify_linear(forms)),
@@ -6893,17 +6900,21 @@ class let(known):
                 # Unregistered Issue PRIMITIVE-DECLARATIONS
                 # Unregistered Issue DEAD-CODE-ELIMINATION
                 normalised = vectorise_linear(bindings)
-                names = list(zip(*normalised))[0]
+                names, forms = list(zip(*normalised))
                 lexenv  = symbol_value(_lexenv_)
                 clambda = lexenv.clambda if lexenv else make_global_clambda(gensym("LET"))
                 env = make_lexenv(parent = lexenv, clambda = clambda, allocate_tns = t,
                                   kind_varframe  = { _variable: { variable_binding(sym, _variable, None)
                                                                   for sym in names } })
+                namedict = env.varframe["name"]
+                prim_forms = [ primitivise(mach, f)
+                               for (f, _) in forms ]
                 with progv({ _lexenv_: env }):
-                        guts = p.progn(*(primitivise(mach, x) for x in body))
-                return p.let(list((env.varframe["name"][name].tn, primitivise(mach, form))
-                                  for name, (form, __) in normalised),
-                             guts)
+                        return p.progn(*([ p.assign(namedict[name].tn, pf)
+                                           for name, pf in zip(names, prim_forms)
+                                         ] +
+                                         [ primitivise(mach, x)
+                                           for x in body ]))
         def effects(bindings, *body):
                 ## Unregistered Issue LET-EFFECT-COMPUTATION-PESSIMISTIC
                 return any(ir_effects(f) for f in (x[1][0] for x in bindings) + body)
@@ -7062,7 +7073,7 @@ class ref(known):
                         return p.special_ref(p.name(unit_symbol_rtname(name)))
                 assert(cur_lexenv.clambda and home_lexenv.clambda)
                 if cur_lexenv.clambda is not home_lexenv.clambda:
-                        cur_lexenv.clambda.free_reads[home_lexenv.clambda].add(name)
+                        cur_lexenv.clambda.free_reads[home_lexenv.clambda].add(lexical_binding.tn)
                 return lexical_binding.tn
         def effects(name):         return nil
         def affected(name):        return not global_variable_constant_p(name)
@@ -7906,12 +7917,12 @@ def run_tests_compiler():
         _cadr, __cadr = intern("CADR")[0], make_keyword("CADR")
         _cddr, __cddr = intern("CDDR")[0], make_keyword("CDDR")
         dprintf("; testing compiler evaluation powers:")   ## Quirky stuff reference mode ON!  Go go the spider Queen!
-        # dbgsetup( # forms = t,
-        #           # macroexpanded = t,
-        #           # subrewriting = t,
-        #           # rewritten = t,
-        #           # primitives = t,
-        #           # module_ast = t,
+        # dbgsetup( forms = t,
+        #           macroexpanded = t,
+        #           subrewriting = t,
+        #           rewritten = t,
+        #           primitives = t,
+        #           module_ast = t,
         #           )
         # with traced_matcher(emt = t, immediate = t):
         evaltest("PRIMITIVE-QUOTATION/ATOM",
@@ -7992,6 +8003,21 @@ def run_tests_compiler():
                      l(_let, l(l(_car, l(_setq, _cdr, 42)))),
                      _cdr)),
                  l(nil, 42))
+        evaltest("LET-COMPLEX",
+                 l(_progn,
+                   l(_defvar, _cdr, nil),
+                   l(_list,
+                     l(_let, l(l(_car, l(_setq, _cdr, 42)))),
+                     _cdr)),
+                 l(nil, 42))
+        evaltest("LET-CLEANLINESS",
+                 l(_let, l(l(_car, 1)),
+                   l(_list,
+                     _car,
+                     l(_let, l(l(_car, l(_add, _car, 1))),
+                       _car),
+                     l(_add, _car, 2))),
+                 l(1, 2, 3))
         ## PRIM, IR-ARGS
         foo = genfunsym_tn("FOO")
         evaltest("PRIM-DEF-CALL",

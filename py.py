@@ -15,7 +15,7 @@ import types
 from cl import error, list_, list__, gensym, gensymname, intern, append, identity, reduce, gethash, progv as _progv, defun
 from cl import find_global_variable, format, do_find_if
 from cl import gensym_tn, make_keyword_tn, undefined_function
-from cl import attrify_args, defaulted, defaulted_to_var, dprintf, pp_base_depth
+from cl import attrify_args, defaulted, defaulted_to_var, dprintf, report, pp_base_depth
 from cl import compiler_debugless_traceless_frame
 from cl import typep, the, check_type, consp, functionp
 from cl import or_t, eql_t, string_t, pyseq_t, pytuple_t, pylist_t, symbol_t, pyanytuple_t, maybe_t, satisfies_t
@@ -44,8 +44,7 @@ from primitives import not_
 from primitives import cons, car, cdr, rplaca, rplacd, vector, index
 from primitives import assign, return_, progn, if_, loop, unwind_protect, catch, throw, resignal
 from primitives import function, funcall, apply
-from primitives import let, let_, progv
-from primitives import special_ref, special_setq
+from primitives import special_ref, special_setq, progv
 
 NoneType = type(None)
 
@@ -1337,6 +1336,7 @@ class lambda_expr(expr): ...
 class lambda_expr(expr):
         def help(name, args, expr, clambda = None, id = nil, pydecorators = []):
                 assert not (name or pydecorators)
+                assert clambda
                 maybe_rest, *fixed_args = args
                 return ast.Lambda(help_args(fixed_args, [], [], maybe_rest, [], [], None),
                                   help_expr(expr))
@@ -1350,6 +1350,9 @@ class defun(body): ...
 @defpy
 class defun(body):
         def help(name, args, body, clambda = None, pydecorators = []):
+                if not clambda:
+                        dprintf("No clambda in DEFUN %s %s %s", name, args, body)
+                        assert(clambda)
                 maybe_rest, *fixed_args = args
                 return [ ast.FunctionDef(
                                 name = name.value(),
@@ -1378,134 +1381,19 @@ class apply(expr):
                                        ([],                 arg))
                 return ast.Call(help_expr(func), help_exprs(fixed_args), [], help_expr(restarg), None)
 
-####
 ###
-### Binding
+### Dynamic scope
 ###
-## LET LET* PROGV
+## SPECIAL-REF SPECIAL-SETQ PROGV
 @defpy
-class let(indet):
-        a_expr = defstrategy(test = lambda bindings, body: (all(exprp(x)
-                                                                for x in list(zip(*bindings))[1])
-                                                            and exprp(body)),
-                             keys = expr)
-        b_stmt = defstrategy(keys = body)
-
-@defprim(intern("LET-EXPR")[0],
-         (([(name, expr_spill)],), ## Unregistered Issue VALIDATE-CORRECT-LET-SPILL-ORDER
-          expr))
-class let_expr(expr): ...
+class special_ref(efless):
+        def help(name):
+                return help(funcall(impl_ref("symbol_value"), name))
 
 @defpy
-class let_expr(expr):
-        def help(bindings, expr):
-                ns, vs = list(zip(*bindings))
-                return help(funcall(lambda_expr(None, (None,) + ns,
-                                                expr),
-                                    *vs))
-        let = identity_method()
-
-@defprim(intern("LET-THUNK")[0],
-         (([(name, expr_spill)],), ## Unregistered Issue VALIDATE-CORRECT-LET-SPILL-ORDER
-          prim))
-class let_thunk(body): ...
-
-@defpy
-class let_thunk(body):
-        "The most universal, yet bulky kind of LET."
-        def help(bindings, body):
-                ns, vs = list(zip(*bindings))
-                tn = genname("LET_THUNK")
-                return help(progn(defun(tn, (None,) + ns,
-                                        body),
-                                  funcall(tn, *vs)))
-        let = identity_method()
-
-def bindings_free_eval_order_p(bindings):
-        return (all(isinstance(form, const)
-                    for _, form in bindings)
-                or (all(isinstance(form, (name, const))
-                        for _, form in bindings)
-                    and not (set(zip(*bindings)[0]) &
-                             set(zip(*bindings)[1]))))
-
-@defpy
-class let_(indet):
-        ## Case for uncaught tail:
-        ##
-        ## Lisp:
-        ## (let ((foo 0))
-        ##   (handler-case
-        ##       (let* ((foo 1))
-        ##         (error "Foo."))
-        ##     (error ()
-        ##       foo)))
-        ##
-        ## Naive SETQ-BASED LET* implementation:
-        ## foo = 0
-        ## try:
-        ##         foo = 1
-        ##         return error("Foo.")
-        ## except Exception as _:
-        ##         return foo
-        ##
-        ## Note that the call to ERROR is in a HEAD position,
-        ## unless we introduce the HEADness-breaking property,
-        ## which, then, would be attributed to the likes of LOOP and HANDLER-BIND.
-        a_head        = defstrategy(test  = lambda _, *__, head = nil, uncaught_tail = nil: head or uncaught_tail,
-                                    keys  = setq)
-        b_reorderable = defstrategy(test  = lambda bindings, *_: bindings_free_eval_order_p(bindings),
-                                    xform = redetermining_as(let))
-        # TODO: try to reduce frame creation, even in the non-reorderable case.
-        c_expr        = defstrategy(test  = lambda bindings, body: (all(exprp(x)
-                                                                        for x in list(zip(*bindings))[1])
-                                                                    and exprp(body)),
-                                    keys  = expr)
-        d_stmt        = defstrategy(keys  = stmt)
-
-@defprim(intern("LET*-SETQ")[0],
-         (([(name, prim)],),
-          prim)) ## This one handles binding spills by virtue of using ASSIGN.
-class let__setq(body): ...
-
-@defpy
-class let__setq(body):
-        "Can only be used as a tail, when it can be proved that no unwind will use mutated variables."
-        def help(bindings, body, head = None):
-                sum = (tuple(assign(n, v) for n, v in bindings)
-                       + (body,))
-                return help(progn(*sum))
-        let_ = identity_method(setq)
-
-@defprim(intern("LET*-EXPR")[0],
-         (([(name, expr)],),
-          expr))
-class let__expr(expr): ...
-
-@defpy
-class let__expr(expr):
-        def help(bindings, expr):
-                return help_expr(let_expr((bindings[0],),
-                                          let_(bindings[1:],
-                                               expr))
-                                 if bindings else
-                                 expr)
-        let_ = identity_method()
-
-@defprim(intern("LET*-STMT")[0],
-         (([(name, expr)],),
-          prim))
-class let__stmt(body): ...
-
-@defpy
-class let__stmt(body):
-        def help(bindings, body):
-                return help(let((bindings[0],),
-                                let_(bindings[1:],
-                                     body))
-                            if bindings else
-                            body)
-        let_ = identity_method()
+class special_setq(expr):
+        def help(nom, value):
+                return help(funcall(impl_ref("do_set"), nom, value, name("None")))
 
 @defpy
 class progv(body):
@@ -1516,20 +1404,6 @@ class progv(body):
                                   None,
                                   help(assign(tn, body))[0])
                          ], help_expr(tn)
-
-###
-### Dynamic scope
-###
-## SPECIAL-REF SPECIAL-SETQ
-@defpy
-class special_ref(efless):
-        def help(name):
-                return help(funcall(impl_ref("symbol_value"), name))
-
-@defpy
-class special_setq(expr):
-        def help(nom, value):
-                return help(funcall(impl_ref("do_set"), nom, value, name("None")))
 
 ###
 ### Python-specific primitive declarations and definitions: Part I: Assorti
@@ -2204,9 +2078,9 @@ class pymach(machine):
                 key_map_gsym = gensym_tn("KWHASH-")
                 return append(
                         l_(l(key_map_gsym, ir_apply(list_(_quote, list_("py", "parse_keyword_args")), optless_rest)),
-                           consify_linear(l(name, l(_if, l(_primitive, not_in, ksym.tn, key_map_gsym.tn),
+                           consify_linear(l(name, l(_if, l(_primitive, not_in, ksym, key_map_gsym),
                                                     def_expr,
-                                                    l(_primitive, p.index, key_map_gsym.tn, ksym.tn)))
+                                                    l(_primitive, p.index, key_map_gsym, ksym)))
                                           for name, ksym, def_expr in zip(keys, ksyms, defaults))),
                         (l(l(keyset_gsym, ir_apply("set", ir_cl_call("vectorise_linear", ir_funcall(_list, *ksyms)))),
                            l(gensym("DUMMY-"), ir_apply(list_(_quote, list_("py", "validate_keyword_args")),
@@ -2222,13 +2096,10 @@ class pymach(machine):
                 cons, car, cdr, rplaca, rplacd, vector, index,
                 assign, return_, progn, if_, loop, unwind_protect, catch, throw, resignal,
                 function, funcall, apply,
-                let, let_, progv,
-                special_ref, special_setq,
+                special_ref, special_setq, progv,
 
                 ## Specific for this backend.
                 defun, lambda_expr,
-                let_expr, let_thunk, let__setq,
-                let__expr, let__stmt,
                 progn,
                 if_expr, if_stmt,
                 attr, const_attr, var_attr,

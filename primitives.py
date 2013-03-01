@@ -225,8 +225,7 @@ def map_primitives(fn, p):
 # CONS CAR CDR RPLACA RPLACD VECTOR INDEX
 # ASSIGN RETURN_ PROGN IF_ LOOP UNWIND_PROTECT CATCH THROW RESIGNAL
 # FUNCTION FUNCALL APPLY
-# LET LET_ PROGV
-# SPECIAL_REF SPECIAL_SETQ
+# SPECIAL_REF SPECIAL_SETQ PROGV
 #
 ###
 ### Handled by non-immediate constant separation pass.
@@ -419,19 +418,6 @@ class funcall(expr): ...
 class apply(expr): ...
 
 ###
-### Binding
-###
-## LET LET* PROGV
-@defprim(intern("LET")[0],            (([(name, prim)],), prim))
-class let(indet): ...
-
-@defprim(intern("LET*")[0],           (([(name, prim)],), prim))
-class let_(indet): ...
-
-@defprim(intern("PROGV")[0],          (([expr_spill],), ([expr_spill],), prim))
-class progv(body): ...
-
-###
 ### Dynamic scope
 ###
 ## SPECIAL-REF SPECIAL-SETQ
@@ -440,3 +426,6 @@ class special_ref(efless): ...
 
 @defprim(intern("SPECIAL-SETQ")[0],   (name, expr_spill))
 class special_setq(expr): ...
+
+@defprim(intern("PROGV")[0],          (([expr_spill],), ([expr_spill],), prim))
+class progv(body): ...

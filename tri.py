@@ -17,8 +17,7 @@ from primitives import not_
 from primitives import cons, car, cdr, rplaca, rplacd, vector, index
 from primitives import assign, return_, progn, if_, loop, unwind_protect, catch, throw, resignal
 from primitives import function, funcall, apply
-from primitives import let, let_, progv
-from primitives import special_ref, special_setq
+from primitives import special_ref, special_setq, progv
 
 def cfg_error(kind, control, *args):
         error("While CFG-lowering %s: " + control, kind, *args)
@@ -62,7 +61,6 @@ def separate_nonimmediate_constants(mach, global_unit_data, prim):
 ## What kind of primitives factor into free variable computation?
 ## - name
 ## - function
-## - let, let_
 ##
 ## What is borderline, but doesn't:
 ## - assign
@@ -119,8 +117,7 @@ class trimach(machine):
                 cons, car, cdr, rplaca, rplacd, vector, index,
                 assign, return_, progn, if_, loop, unwind_protect, catch, throw, resignal,
                 function, funcall, apply,
-                let, let_, progv,
-                special_ref, special_setq
+                special_ref, special_setq, progv
                 }
         def globals(self): return globals()
         def literal_immediate_p(_, x):
@@ -289,13 +286,6 @@ def cfg_unop(mach, fn, bb, lvar_prefix, ctor, arg):
         bb, x = cfg(mach, fn, bb, arg)
         bb.append(ctor(nres, x))
         return bb, nres
-
-def let_cfg(mach, fn, bb, bindings, form):
-        ## WARNING: We must rename the bindings.  It's a non-scoped LET*, otherwise.
-        for name, value in bindings:
-                bb, v = cfg(mach, fn, bb, value)
-                bb.append(select(name, True, v, v))
-        return cfg(mach, fn, bb, form)
 
 def if_cfg(mach, fn, bb, test, cons, ante):
         bb, vtest = cfg(mach, fn, bb, test)
@@ -571,28 +561,9 @@ class apply():
         ...
 
 ###
-### Binding
-###
-## LET LET* PROGV
-@defcfg
-class let():
-        def cfg(mach, fn, bb, bindings, expr):
-                return let_cfg(mach, fn, bb, bindings, expr)
-
-@defcfg
-class let_():
-        def cfg(mach, fn, bb, bindings, expr):
-                return let_cfg(mach, fn, bb, bindings, expr)
-
-@defcfg
-class progv():
-        ## def cfg: dynamic scope model
-        ...
-
-###
 ### Dynamic scope
 ###
-## SPECIAL-REF SPECIAL-SETQ
+## SPECIAL-REF SPECIAL-SETQ PROGV
 @defcfg
 class special_ref():
         ## def cfg: dynamic scope model
@@ -600,5 +571,10 @@ class special_ref():
 
 @defcfg
 class special_setq():
+        ## def cfg: dynamic scope model
+        ...
+
+@defcfg
+class progv():
         ## def cfg: dynamic scope model
         ...
