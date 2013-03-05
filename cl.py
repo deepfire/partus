@@ -7963,6 +7963,25 @@ def run_tests_compiler():
         ## SETQ/REF/PROGN
         evaltest("EMPTY-PROGN",                   l(_progn),                                nil)
         evaltest("SIMPLE-PROGN",                  l(_progn, 1, 0),                          0)
+        _nth = intern("NTH")[0]
+        cs = gensym("CS")
+        evaltest("CLOSURES",                      l(_let, l(l(cs, l(_append,
+                                                                    l(_let, l(l(_car, 0)),
+                                                                      l(_list, l(_lambda, nil,
+                                                                                 _car),
+                                                                        l(_lambda, l(x),
+                                                                          l(_setq, _car, x)))),
+                                                                    l(_let, l(l(_car, 0)),
+                                                                      l(_list, l(_lambda, nil,
+                                                                                 _car),
+                                                                        l(_lambda, l(x),
+                                                                          l(_setq, _car, x))))))),
+                                                    l(_funcall, l(_nth, 1, cs), 3.14),
+                                                    l(_funcall, l(_nth, 3, cs), 42),
+                                                    l(_list,
+                                                      l(_funcall, l(_nth, 0, cs)),
+                                                      l(_funcall, l(_nth, 2, cs)))),
+                                                    l(3.14, 42))
         evaltest("SETQ-SIMPLE/REF",               l(_progn,
                                                     l(_defvar, _car, nil),
                                                     l(_setq, _car, 42),
