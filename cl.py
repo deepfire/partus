@@ -5594,6 +5594,11 @@ def DEFVAR(name, value = nil, documentation = nil):
                  l(_funcall, l(_function, l(_quote, l("cl", "compiler_defvar"))), l(_quote, name), value),
                  nil)
 
+@set_macro_definition(globals(), _lambda, nil)
+def LAMBDA(lambda_list, *body):
+        l, l_ = list_, list__
+        return l(_function, l_(_lambda, lambda_list, consify_linear(body)))
+
 class macroexpander_t(lexenv_walker_t):
         pass
 

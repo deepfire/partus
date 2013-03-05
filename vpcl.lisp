@@ -3,9 +3,6 @@
      (impl-call ,(if enable "full_debug" "no_debug"))
      nil))
 
-(defmacro lambda (lambda-list &body body)
-  `(function (lambda ,lambda-list ,@body)))
-
 (defmacro when (test &body body)
   `(if ,test
        (progn ,@body)
