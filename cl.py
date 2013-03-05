@@ -2584,7 +2584,11 @@ def second(x):
 # EIGHTH
 # NINTH
 # TENTH
-# NTH
+
+@defun
+def nth(n, xs):
+        return car(nthcdr(n, xs))
+
 # ENDP
 # NULL
 
