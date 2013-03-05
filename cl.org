@@ -54,6 +54,8 @@
       - a boolean, T in doubt
 
 * Issues
+*** CL Extensions
+***** EVAL-IN-LEXENV, ala Scheme
 *** Technopieces
     - Technopiece :: a piece of unavodable non-generic logic, a /solution/.
     - Per-fasl environment setup :: compilation_unit_prologue()
@@ -395,6 +397,7 @@
 *********** IN, NOT-IN
 *********** ASSERT
 *** Possibilities
+***** MAP-CLOSURE :: 2007 Siskind, Pearlmutter - First-class non-standard interpretation by opening closures
 ***** If only we could manage a proper walking/evaluation order in LOWER, we would be able to factor lexenv maintenance.
 ***** CLHS explicit extension permissions
 ******* 5.1.1 Overview of Places and Generalized Reference
