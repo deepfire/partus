@@ -1,5 +1,5 @@
-#PYTHON ?= python3
-PYTHON ?= python3.2
+PYTHON ?= python3
+# PYTHON ?= python3.2
 TEST   ?= t
 TEST_QQ       ?= nil
 TEST_METASEX  ?= nil

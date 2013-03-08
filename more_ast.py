@@ -154,12 +154,13 @@ def ast_unless(test, *body):
     return ast.If(test = test, body = [], orelse = [ x for x in body if x ])
 
 def ast_try_except(body, except_handlers, *else_body):
-    return ast.TryExcept(body = [ x for x in body if x ],
-                         handlers = [ ast.ExceptHandler(name = xname,
-                                                       type = ast_name(xtype),
-                                                       body = [ x for x in xhandler_body if x ])
-                                      for (xtype, xname, xhandler_body) in except_handlers ],
-                         orelse = [ x for x in else_body if x ])
+    return ast.Try(     body = [ x for x in body if x ],
+                    handlers = [ ast.ExceptHandler(name = xname,
+                                                   type = ast_name(xtype),
+                                                   body = [ x for x in xhandler_body if x ])
+                                 for (xtype, xname, xhandler_body) in except_handlers ],
+                      orelse = [ x for x in else_body if x ],
+                   finalbody = [])
 
 def ast_print(*strings):
     return ast_expr(ast_funcall('print', *strings))
@@ -325,14 +326,15 @@ def assign_meaningful_locations(node, lineno = 1):
                                                                                          "starargs", "kwargs")), dir(1),
                                                                           normally(x.body)],
                                                                     lineno)),
-                        ast.With:          (lambda lineno, x: handle_body_orelse(x, normally([x.context_expr, x.optional_vars]))),
+                        ## WARNING: ignores With items after the first one!
+                        ast.With:          (lambda lineno, x: handle_body_orelse(x, normally([x.items[0].context_expr, x.items[0].optional_vars]))),
                         ast.For:           (lambda lineno, x: handle_body_orelse(x, normally([x.target, x.test]))),
                         ast.If:            (lambda lineno, x: handle_body_orelse(x, normally([x.test]))),
                         ast.While:         (lambda lineno, x: handle_body_orelse(x, normally([x.test]))),
-                        ast.TryExcept:     (lambda lineno, x: handle_body_orelse(x, [], normally(x.handlers))),
                         ast.ExceptHandler: (lambda lineno, x: handle_body_orelse(x, normally([x.type, x.name]))),
-                        ast.TryFinally:    (lambda lineno, x: chain(rec, [dir(self_binder()), dir(1),
+                        ast.Try:           (lambda lineno, x: chain(rec, [dir(self_binder()), dir(1),
                                                                           normally(x.body), dir(1),
+                                                                          normally(x.handlers), dir(1),
                                                                           normally(x.finalbody)], lineno)) }
                 def default_reductio(lineno: int, x: ast.AST) -> int:
                         if not isinstance(x, ast.AST):
@@ -491,7 +493,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                                 indent(x) + "def " + x.name + "(" + rec(x.args) + "):" +
                                 (("-> %s" % rec(x.returns)) if x.returns is not None else "") + "\n" +
                                 pp_subprogn(x.body))
-                def pp_try_except(x):
+                def pp_try(x):
                         return (indent(x) + "try:\n" +
                                 pp_subprogn(x.body) + "\n" +
                                 "\n".join((indent(subh.body[0], -1) + "except" + ((" %s as %s" % (rec(subh.type), subh.name))
@@ -499,18 +501,17 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                                                                                   "") + ":\n" +
                                            pp_subprogn(subh.body))
                                           for subh in x.handlers) +
-                                ((indent(x.orelse[0], -1) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
-                def pp_try_finally(x):
-                        return (indent(x) + "try:\n" +
-                                pp_subprogn(x.body) + "\n" +
-                                indent(x.finalbody[0], 1) + "finally:\n" +
-                                pp_subprogn(x.finalbody))
+                                ((indent(x.finalbody[0], -1) + "finally:\n" + pp_subprogn(x.finalbody)) if x.finalbody else
+                                 "") +
+                                ((indent(x.orelse[0],    -1) + "else:\n"    + pp_subprogn(x.orelse))    if x.orelse    else
+                                 ""))
                 def pp_for(x):
                         return (indent(x) + "for " + rec(x.target) + " in " + rec(x.iterator) + ":\n" +
                                 pp_subprogn(x.body) +
                                 ((indent(x.orelse[0], -1) + "else:\n" + pp_subprogn(x.orelse)) if x.orelse else ""))
                 def pp_with(x):
-                        return (indent(x) + "with " + rec(x.context_expr) + (" as %s" % rec(x.optional_vars) if x.optional_vars else "") + ":\n" +
+                        ## WARNING: ignores With items after the first one!
+                        return (indent(x) + "with " + rec(x.items[0].context_expr) + (" as %s" % rec(x.items[0].optional_vars) if x.items[0].optional_vars else "") + ":\n" +
                                 pp_subprogn(x.body))
                 def pp_while(x):
                         return (indent(x) + "while " + rec(x.test) + ":\n" +
@@ -533,8 +534,7 @@ def pp_ast_as_code(x, tab = " " * 8, line_numbers = nil, ndigits = 3, annotate_w
                         ast.With:        pp_with,
                         ast.While:       pp_while,
                         ast.If:          pp_if,
-                        ast.TryExcept:   pp_try_except,
-                        ast.TryFinally:  pp_try_finally,
+                        ast.Try:         pp_try,
                         ast.FunctionDef: pp_functiondef,
                         ast.arguments:   pp_args,
 

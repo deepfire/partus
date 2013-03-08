@@ -724,10 +724,11 @@ class name_context_fixer(ast.NodeTransformer):
                                 orelse = [ w.visit(x) for x in o.orelse ])
         def visit_With(w, o):
                 with _progv({ fixupp: t }):
-                        optional_vars = w.visit(o.optional_vars) if o.optional_vars else None
-                return ast.With(context_expr = w.visit(o.context_expr),
-                                 optional_vars = optional_vars,
-                                 body = [ w.visit(x) for x in o.body ])
+                        wis = [ (w.visit(wi.optional_vars) if wi.optional_vars else None)
+                                for wi in o.items ]
+                return ast.With(items = [ ast.withitem(w.visit(o.items[0].context_expr),
+                                                       wis[0]) ], ## WARNING: ignoring non-first with items
+                                body  = [ w.visit(x) for x in o.body ])
         def visit_comprehension(w, o):
                 with _progv({ fixupp: t }):
                         target = w.visit(o.target)
@@ -802,7 +803,7 @@ def defpy(cls):
         help_stdmethod = cls.__dict__.get("help", None)
         # dprintf("DEFPY %s/%x:   %s", cls, id(cls), cls.__dict__.items())
         for n, method_spec in this.__dict__.items():
-                if (n in ("__module__", "__locals__", "__doc__", "__new__",
+                if (n in ("__module__", "__locals__", "__doc__", "__new__", "__qualname__",
                           "methods", "help_strategies", "form_specifier", "help", "value", "cfg") or
                     maybe_process_as_strategy(cls, n, method_spec)):
                         if n is "help":
@@ -1206,8 +1207,10 @@ class vector(expr):
 
 @defpy
 class index(expr):
-        def help(x, index, writep = nil):
-                return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), help_ctx(writep))
+        def help(x, index, writep = nil, deletep = nil):
+                return ast.Subscript(help_expr(x), ast.Index(help_expr(index)), getattr(ast, ("Del"   if deletep else
+                                                                                              "Store" if writep  else
+                                                                                              "Load"))())
 
 ###
 ### Control
@@ -1278,9 +1281,11 @@ class unwind_protect(body):
                 # need a combinator for PRIM forms
                 if body:
                         tn = genname("UWP_VALUE")
-                        return [ ast.TryFinally(help(assign(tn, protected_form))[0],
-                                                help_prog([body])
-                                                ) ], help_expr(tn)
+                        return [ ast.Try(     body = help(assign(tn, protected_form))[0],
+                                         finalbody = help_prog([body]),
+                                          handlers = [],
+                                            orelse = []
+                                         ) ], help_expr(tn)
                 else:
                         return help(protected_form)
 
@@ -1289,18 +1294,18 @@ class catch(body):
         ## Lift this to a known?
         def help(tag, body):
                 val_tn, ex_tn = genname("BODY_VALUE"), genname("EX")
-                return [ ast.TryExcept(
-                                help(assign(val_tn, body))[0],
-                                [ ast.ExceptHandler(help_expr(impl_ref("__catcher_throw__")),
-                                                    ex_tn.value(),
-                                                    help(if_(eq(attr(ex_tn, string("ball")),
-                                                                tag),
-                                                             progn(funcall(impl_ref("__catch_maybe_reenable_pytracer"),
-                                                                           ex_tn),
-                                                                   assign(val_tn,
-                                                                          attr(ex_tn, string("value")))),
-                                                             resignal()))[0]) ],
-                                [])
+                return [ ast.Try(     body = help(assign(val_tn, body))[0],
+                                  handlers = [ ast.ExceptHandler(help_expr(impl_ref("__catcher_throw__")),
+                                                                 ex_tn.value(),
+                                                                 help(if_(eq(attr(ex_tn, string("ball")),
+                                                                             tag),
+                                                                          progn(funcall(impl_ref("__catch_maybe_reenable_pytracer"),
+                                                                                        ex_tn),
+                                                                                assign(val_tn,
+                                                                                       attr(ex_tn, string("value")))),
+                                                                          resignal()))[0]) ],
+                                 finalbody = [],
+                                    orelse = [])
                          ], help_expr(val_tn)
 
 @defpy
@@ -1399,10 +1404,10 @@ class special_setq(expr):
 class progv(body):
         def help(vars, vals, body):
                 tn = genname("VALUE")
-                return [ ast.With(help_expr(funcall(impl_ref("progv"),
-                                                    pyhash(*reduce(operator.add, zip(vars, vals))))),
-                                  None,
-                                  help(assign(tn, body))[0])
+                return [ ast.With(items = [ ast.withitem(help_expr(funcall(impl_ref("progv"),
+                                                                           pyhash(*reduce(operator.add, zip(vars, vals))))),
+                                                         []) ],
+                                   body = help(assign(tn, body))[0])
                          ], help_expr(tn)
 
 ###

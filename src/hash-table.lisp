@@ -31,8 +31,12 @@
 (defun (setf gethash) (value key hash-table)
   (puthash value key hash-table))
 
+;; disabled due to:
+;; ValueError: expression must have Del context but has Load instead
+#+nil
 (defun remhash (key hash-table)
-  (primitive '("delete") (primitive '("index") hash-table key)))
+  (primitive '("delete") (ir-args (primitive '("index") hash-table key)
+                                  ("deletep" . t))))
 
 (defun maphash (fn hash-table)
   (let ((x (gensym "X")))

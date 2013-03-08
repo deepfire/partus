@@ -91,6 +91,10 @@ def prim_type_p(x):
         return isinstance(x, primclass)
 
 class prim(metaclass = primclass):
+        def __new__(cls, *args, **keys):
+                o = object.__new__(cls)
+                prim.__init__(o, *args, **keys)
+                return o
         def __init__(self, *args, machine = None, **keys):
                 ## Note the filtrage of the machine initarg -- we don't need it stored.
                 self.args, self.keys = args, keys
@@ -384,7 +388,7 @@ class progn(body, progn_like):
                 #                  "\n          -------\n".join(str(x) for x in children),
                 #                  "expr" if exprp else "non-expr",
                 #                  "\n          -------\n".join(str(x) for x in prims))
-                return prims[0] if len(prims) is 1 else object.__new__(cls, *prims, **keys) # progn_stmt(*prims)
+                return prims[0] if len(prims) is 1 else prim.__new__(cls, *prims, **keys) # progn_stmt(*prims)
 
 @defprim(intern("IF")[0],             (prim, prim, prim))
 class if_(indet): ...
