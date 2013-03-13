@@ -46,16 +46,19 @@
       - T, in case of complete lack of information on some branch
     - NTH-VALUE ::
       - IR of the value form, preserving unrelated side effects
-    - BINDS ::
-      - frame of the established scope;  this is augmented by the %BOUND marks within the metasex
-    - LOWER ::
-      - IR, if the rest is described by a different lowering
+    - REWRITE ::
+      - narrow knowns
+    - PRIMITIVISE ::
+      - primitives
     - EFFECTS, AFFECTED ::
       - a boolean, T in doubt
 
 * Issues
 *** CL Extensions
 ***** EVAL-IN-LEXENV, ala Scheme
+***** Anything, that does not introduce breakage into the Quicklisp world
+******* In the same vein: aggressive deprecation
+********* symbol properties
 *** Technopieces
     - Technopiece :: a piece of unavodable non-generic logic, a /solution/.
     - Per-fasl environment setup :: compilation_unit_prologue()
