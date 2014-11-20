@@ -2197,19 +2197,29 @@ def         _ast_While(test: ast.expr, body: (list_, ast.stmt), orelse: (list_, 
 #       | If(expr test, stmt* body, stmt* orelse)
 @defast
 def            _ast_If(test: ast.expr,  body: (list_, ast.stmt), orelse: (list_, ast.stmt)): pass
-#       | With(expr context_expr, expr? optional_vars, stmt* body)
+# 3.3.. | With(withitem* items, stmt* body)
 @defast
-def          _ast_With(context_expr: ast.expr, optional_vars: (maybe_, ast.expr), body: (list_, ast.stmt)): pass
-#       | Raise(expr? exc, expr? cause)
+def _ast_With(items: (list_, ast.withitem),
+              body:  (list_, ast.stmt)): ...
+
+# 3.3.. | Try(stmt* body, excepthandler* handlers, stmt* orelse, stmt* finalbody)
+@defast
+def _ast_Try(body:      (list_, ast.stmt),
+             handlers:  (list_, ast.excepthandler),
+             orelse:    (list_, ast.stmt),
+             finalbody: (list_, ast.stmt)): ...
+
+# 3.3.. | YieldFrom(expr value)
+@defast
+def _ast_YieldFrom(value: ast.expr): pass
+
+# withitem = (expr context_expr, expr? optional_vars)
+@defast
+def _ast_withitem(context_expr:  ast.expr,
+                  optional_vars: (maybe_, ast.expr)): ...
 @defast
 def         _ast_Raise(exc: (maybe_, ast.expr), cause: (maybe_, ast.expr)): pass
 #       | TryExcept(stmt* body, excepthandler* handlers, stmt* orelse)
-@defast
-def     _ast_TryExcept(body: (list_, ast.stmt), handlers: (list_, ast.excepthandler), orelse: (list_, ast.stmt)): pass
-#       | TryFinally(stmt* body, stmt* finalbody)
-@defast
-def    _ast_TryFinally(body: (list_, ast.stmt), finalbody: (list_, ast.stmt)): pass
-#       | Assert(expr test, expr? msg)
 @defast
 def        _ast_Assert(test: ast.expr, msg: ast.expr = None): pass
 #       | Import(alias* names)
@@ -2401,10 +2411,9 @@ def _ast_ExceptHandler(type: (maybe_, ast.expr), name: (maybe_, str), body: (lis
 #              expr* kw_defaults)
 @defast
 ### This suggests a remapping facility.
-def     _ast_arguments(args:       (list_, ast.arg), vararg: (maybe_, str), varargannotation: (maybe_, ast.expr),
-                       kwonlyargs: (list_, ast.arg), kwarg:  (maybe_, str), kwargannotation:  (maybe_, ast.expr),
-                       defaults:    (list_, ast.expr),
-                       kw_defaults: (list_, ast.expr)): pass
+def     _ast_arguments(args:       (list_, ast.arg), vararg: (maybe_, str),
+                       kwonlyargs: (list_, ast.arg), kw_defaults: (list_, ast.expr), kwarg:  (maybe_, str),
+                       defaults:    (list_, ast.expr)): pass
 # arg = (identifier arg, expr? annotation)
 @defast
 def           _ast_arg(arg: str, annotation: (maybe_, ast.expr) = None): pass
