@@ -450,6 +450,9 @@ def _all_threads_frames():
 def _this_frame():
         return sys._getframe(1)
 
+def __pp_frame (f):
+        return "#<FRAME %s:%s:%d 0x%x>" % (f.f_code.co_filename or "<unknown-file>", f.f_code.co_name or "<unknown-fn>", f.f_lineno, id (f))
+
 _frame = type(_this_frame())
 
 def _framep(x):
@@ -467,14 +470,25 @@ def _caller_name(n = 0):
 def _exception_frame():
         return sys.exc_info()[2].tb_frame
 
-def _frames_calling(f = None, n = -1):
+def _mapframes (f, frame = None, n = None):
         "Semantics of N are slightly confusing, but the implementation is so simple.."
-        f = _caller_frame() if f is None else the(_frame, f)
-        acc = [f]
-        while f.f_back and n:
-                f, n = f.f_back, n - 1
-                acc.append(f)
+        frame = (_caller_frame() if frame is None else
+                 the (_frame, frame))
+        n = n if n is not None else 99999
+        acc = [f (frame)]
+        while frame.f_back and n:
+                frame, n = frame.f_back, n - 1
+                acc.append(f (frame))
         return acc
+
+def __dump_frame_chain (f):
+        _mapframes (lambda f: print (" - " + __pp_frame (f)), f, None)
+
+def _frames_calling(f = None, n = None):
+        return _mapframes (identity, f, n)
+
+def _find_in_frames_if (fn, f = None, n = None):
+        return find_if (fn, _frames_calling (f, n))
 
 def _top_frame():
         return _caller_frame()
@@ -490,10 +504,14 @@ def _frame_info(f):
 
 # Issue FRAME-CODE-OBJECT-IS-NOT-FUN
 def _frame_fun(f):               return f.f_code
+def _frame_fname(f):             return f.f_code.co_name
 def _frame_lineno(f):            return f.f_lineno
 def _frame_locals(f):            return f.f_locals
 def _frame_globals(f):           return f.f_globals
 def _frame_local_value(f, name): return f.f_locals[name]
+
+def _caller_in_frames_p (name, f = None, n = -1):
+        return _find_in_frames_if (lambda f: _frame_fname (f) == name, f, n)
 
 ### XXX: this is the price of Pythonic pain
 __ordered_frame_locals__ = dict()
@@ -525,25 +543,33 @@ def _print_function_arglist(f):
                          (["*" + argspec.varargs]   if argspec.varargs  else []) +
                          (["**" + argspec.keywords] if argspec.keywords else []))
 
-def _pp_frame(f, align = None, handle_overflow = None, lineno = None):
-        fun = _frame_fun(f)
-        fun_name, fun_params, filename = _fun_info(fun)[:3]
+def _do_pp_frame (filename, fun_name, fun_params, align = None, handle_overflow = None, lineno = None, short_filename = True):
         align = ((align or 10) if handle_overflow else
                  _defaulted(align, 0))
-        return ("%s%s %s(%s)" % (filename + ("" if align else ":") + (" " * (align - (len(filename) % align if align else 0))),
-                                 ("%d:" % _frame_lineno(f)) if lineno else "",
-                                 fun_name, ", ".join(fun_params)))
+        return ("%15s%s %s(%s)" % ((os.path.basename (filename) if short_filename else filename) +
+                                 ("" if align else ":") + (" " * (align - (len(filename) % align if align else 0))),
+                                 ("%4d:" % lineno) if lineno is not None else "",
+                                 fun_name, ", ".join (fun_params)))
+
+def _pp_frame(f, **key):
+        fun = _frame_fun(f)
+        fun_name, fun_params, filename = _fun_info(fun)[:3]
+        lineno = _frame_lineno(f) if "lineno" in key else None
+        del key["lineno"]
+        return _do_pp_frame (filename, fun_name, fun_params, lineno = lineno, **key)
 
 def _print_frame(f, stream = None, **keys):
         write_string(_pp_frame(f, **keys), _defaulted_to_var(stream, "_debug_io_"))
 
-def _print_frames(fs, stream = None):
-        mapc(lambda i, f: format(_defaulted_to_var(stream, "_debug_io_"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True))),
-             *zip(*enumerate(fs)))
+def _print_frames(fs, stream = None, short_filenames = True, initial_index = 0):
+        mapc(lambda i, f: format(_defaulted_to_var(stream, "_debug_io_"), "%2d: %s\n" % (i, _pp_frame(f, lineno = True, short_filename = short_filenames))),
+             *zip(*enumerate(fs, initial_index)))
 
-def _backtrace(x = -1, stream = None):
-        _print_frames(_frames_calling(_this_frame())[1:x],
-                      _defaulted_to_var(stream, "_debug_io_"))
+def _backtrace(x = None, stream = None, short_filenames = True, hide_frames = 1, frame = None, initial_index = 0):
+        _print_frames(_frames_calling(frame or _this_frame())[hide_frames:x],
+                      _defaulted_to_var(stream, "_debug_io_"),
+                      short_filenames = short_filenames,
+                      initial_index = initial_index)
 
 def _pp_frame_chain(xs, source_location = None, all_pretty = None, print_fun_line = None):
         def _pp_frame_in_chain(f, pretty = None):
