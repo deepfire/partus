@@ -561,6 +561,9 @@ def string_to_complex(x_str, spec):
 def strconcat(strs):
         return reduce(append, strs)
 
+def strip_chars (chars, s):
+        return "".join(c for c in s if c not in chars)
+
 ## streams
 def with_output_redirection(fn, file = None):
         old_stdout = sys.stdout
