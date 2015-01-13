@@ -1981,8 +1981,8 @@ def string(x):
                 symbol_name(x) if symbolp(x) else
                 error(simple_type_error, "%s cannot be coerced to string.", x))
 
-def _init_condition_system():
-        _enable_pytracer() ## enable HANDLER-BIND and RESTART-BIND
+def _init_condition_system (condition_filter = None):
+        _enable_pytracer (condition_filter = condition_filter) ## enable HANDLER-BIND and RESTART-BIND
 
 def _without_condition_system(body, reason = ""):
         if _pytracer_enabled_p():
@@ -3430,14 +3430,19 @@ __tracer_hooks__   = dict() # allowed keys: "call", "line", "return", "exception
 def _set_tracer_hook(type, fn):        __tracer_hooks__[type] = fn
 def     _tracer_hook(type):     return __tracer_hooks__.get(type) if type in __tracer_hooks__ else None
 
+__condition_filter__ = constantly (True)
+
 def _pytracer(frame, event, arg):
         method = _tracer_hook(event)
-        if method:
+        if method and __condition_filter__ (arg[2], frame):
                 method(arg, frame)
         return _pytracer
 
 def _pytracer_enabled_p(): return sys.gettrace() is _pytracer
-def _enable_pytracer(reason = "", report = None):
+def _enable_pytracer(reason = "", report = None, condition_filter = None):
+        if condition_filter is not None:
+                global __condition_filter__
+                __condition_filter__ = condition_filter
         sys.settrace(_pytracer); report and _debug_printf("_ENABLE (%s)", reason);  return True
 def _disable_pytracer(reason = "", report = None):
         sys.settrace(None);      report and _debug_printf("_DISABLE (%s)", reason); return True
