@@ -3602,19 +3602,32 @@ def _dump_thread_state():
         _without_condition_system(body,
                                   reason = "_dump_thread_state")
 
-__not_even_conditions__ = frozenset([SystemExit, __catcher_throw__])
+__not_even_conditions__ = frozenset([SystemExit, StopIteration, __catcher_throw__])
 "A set of condition types which are entirely ignored by the condition system."
 
+def _enrich_condition (cond, type, tb, orig_tb):
+        cond.condspec = (type, cond, orig_tb, tb, tb.tb_frame, traceback.extract_tb (tb)[0][3])
+
+import traceback
 def __cl_condition_handler__(condspec, frame):
         def continuation():
-                type, raw_cond, traceback = condspec
-                # _print_frames(_frames_calling(frame))
+                type, raw_cond, tb = condspec
                 if type_of(raw_cond) not in __not_even_conditions__:
+                        ## Now, we need to do some fixing up:
+                        # 1. find the last traceback in the chain, as it's the most complete
+                        # 2. use its frame chain, not the one provided
+                        #  ...however, the traceback _still_ would be incomplete at times.
+                        #  Can't win.
+                        orig_tb = tb
+                        while tb.tb_next:
+                                tb = tb.tb_next
+
                         def _maybe_upgrade_condition(cond):
                                 "Fix up the shit routinely being passed around."
-                                return ((cond, False) if typep(cond, condition) else
-                                        (condspec[0](*([cond] if not sequencep(cond) or stringp(cond) else
-                                                       cond)), True))
+                                return ((cond, False)   if typep(cond, condition) else
+                                        (type (*([cond] if not sequencep(cond) or stringp(cond) else
+                                                cond)),
+                                         True))
                                        # typecase(cond,
                                        #          (BaseException, lambda: cond),
                                        #          (str,       lambda: error_(cond)))
@@ -3624,8 +3637,11 @@ def __cl_condition_handler__(condspec, frame):
                                       prin1_to_string(raw_cond), type_of(raw_cond),
                                       prin1_to_string(cond), type_of(cond),
                                       callers = 45, frame = symbol_value("_stack_top_hint_"))
-                        with env.let(_traceback_ = traceback,
-                                     _signalling_frame_ = frame): # These bindings are the deviation from the CL standard.
+
+                        _enrich_condition (raw_cond, type, tb, orig_tb)
+
+                        with env.let(_traceback_ = tb,
+                                     _signalling_frame_ = tb.tb_frame): # These bindings are the deviation from the CL standard.
                                 presignal_hook = symbol_value("_presignal_hook_")
                                 if presignal_hook:
                                         with env.let(_presignal_hook_ = nil):
@@ -3642,8 +3658,9 @@ def __cl_condition_handler__(condspec, frame):
                 cond = sys.call_tracing(continuation, tuple())
         if type_of(cond) not in __not_even_conditions__:
                 is_not_ball = type_of(cond) is not __catcher_throw__
+                terpri (stream = sys.stderr)
                 _here("In thread '%s': unhandled condition : %s%s",
-                      threading.current_thread().name, prin1_to_string(cond),
+                      threading.current_thread().name, str (cond),
                       ("\n; Disabling CL condition system." if is_not_ball else
                        ""),
                       callers = 15)
