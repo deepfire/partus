@@ -590,3 +590,9 @@ def printf(format_control, *format_args):
 def syncprintf(format_control, *format_args):
         fprintf(sys.stdout, format_control, *format_args)
         sys.stdout.flush()
+
+## REPL
+def repl (locals = None):
+        import code
+        sys.ps1, sys.ps2 = ">>> ", "... "
+        code.InteractiveConsole (locals = globals() if locals == None else locals).interact ("")
